@@ -6,6 +6,7 @@ import { toast } from "sonner";
 
 import {
   agentConfigSurfaceQueryKey,
+  useAcpCommandsQuery,
   useAcpRuntimesQuery,
   useAgentConfigSurface,
   useBakedBuildEnvKeysQuery,
@@ -123,6 +124,7 @@ export function AgentInstanceEditDialog({
   // Query does not track — keeps the dialog open so the user can retry Save.
   const [setterError, setSetterError] = React.useState<Error | null>(null);
   const runtimesQuery = useAcpRuntimesQuery({ enabled: open });
+  const acpCommandsQuery = useAcpCommandsQuery({ enabled: open });
   const configSurfaceQuery = useAgentConfigSurface(open ? agent.pubkey : null);
   const runtimes = runtimesQuery.data ?? [];
 
@@ -1133,7 +1135,6 @@ export function AgentInstanceEditDialog({
               inheritedModel={inheritedModelDefault}
               inheritedProvider={inheritedProviderDefault}
             />
-
             <AgentDefaultsDialog
               onOpenChange={setAiDefaultsOpen}
               open={aiDefaultsOpen}
@@ -1174,6 +1175,7 @@ export function AgentInstanceEditDialog({
                   >
                     <EditAgentAdvancedFields
                       acpCommand={acpCommand}
+                      acpCommandCandidates={acpCommandsQuery.data ?? []}
                       agentArgs={agentArgs}
                       autoRestartOnConfigChange={autoRestartOnConfigChange}
                       disabled={isSaving}

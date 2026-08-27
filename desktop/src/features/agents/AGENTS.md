@@ -333,6 +333,17 @@ buzz messages send --channel <channel-id> --reply-to <thread-root-id> \
   --mention <agent-pubkey> --content '!cancel'
 ```
 
+16. **ACP command selection is convention-based.** The editor always offers
+    stock `buzz-acp` and installed executable `buzz-*-acp` aliases discovered
+    from normal executable search directories. It does not offer arbitrary
+    command entry. A persisted value outside that set remains visible as a
+    current compatibility option but is not editable; selecting a conventional
+    option replaces it. Discovery returns the path produced by the same resolver
+    used at spawn, so a duplicate alias must never advertise one executable and
+    later launch another. Keep these transitions in the pure
+    `ui/acpCommandPicker.ts` helper and preserve persisted values across loading,
+    failed discovery, and late candidate arrival.
+
 ## The tests that enforce this
 
 - `lib/agentConfigCore.test.mjs` — field model per harness × scope, clearing
@@ -361,6 +372,9 @@ buzz messages send --channel <channel-id> --reply-to <thread-root-id> \
   every profile tab when opened from Agents and from the agent's DM.
 - `ui/AgentConfigPanelPresentation.test.mjs` — shared profile/agent config rows
   show only effective values, with an em dash for unknown values.
+- `ui/acpCommandPicker.test.mjs` — stock/discovered/custom command mode,
+  late discovery, query-failure behavior, sentinel collision safety, and the
+  preset-to-custom clearing versus custom-command preservation contract.
 - `ui/effortPicker.test.mjs` — `effortPickerState` gating (local + discovered
   `effortConfigId` renders; provider backend or missing configId hides) and
   option/preselect compute, plus `effortSelectionToPersistedValue` sentinel →
