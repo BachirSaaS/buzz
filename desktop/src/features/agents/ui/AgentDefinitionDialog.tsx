@@ -215,12 +215,7 @@ export function AgentDefinitionDialog({
     setModel(initialValues.model ?? "");
     setIsCustomModelEditing(false);
     setProvider(initialValues.provider ?? "");
-    setAiConfigurationMode(
-      initialAgentAiConfigurationMode({
-        provider: initialValues.provider ?? "",
-        model: initialValues.model ?? "",
-      }),
-    );
+    setAiConfigurationMode(initialAgentAiConfigurationMode(initialValues));
     setIsCustomProviderEditing(false);
     const nextNamePoolText =
       "namePool" in initialValues
@@ -812,7 +807,10 @@ export function AgentDefinitionDialog({
               <AcpCommandField
                 candidates={acpCommandsQuery.data ?? []}
                 disabled={isPending || acpCommandsQuery.isLoading}
-                onValueChange={setAcpCommand}
+                onValueChange={(command) => {
+                  setAcpCommand(command);
+                  setHasUserChanges(true);
+                }}
                 value={acpCommand}
               />
             </>
