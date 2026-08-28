@@ -1021,6 +1021,7 @@ type RawManagedAgentPrereqs = {
 };
 
 type RawPersona = {
+  acp_command?: string | null;
   id: string;
   display_name: string;
   avatar_url: string | null;
@@ -3504,6 +3505,11 @@ function mockPersonaCatalogPublications() {
     } catch {
       continue;
     }
+    if (
+      content.acp_command != null &&
+      !portableMockAcpCommand(content.acp_command)
+    )
+      continue;
     const displayName = content.display_name;
     const systemPrompt = content.system_prompt ?? "";
     const optionalString = (value: unknown) =>
@@ -3588,6 +3594,7 @@ function mockPersonaCatalogPublications() {
         avatarUrl: optionalString(content.avatar_url),
         description: optionalString(rawDescription),
         systemPrompt,
+        acpCommand: optionalString(content.acp_command),
         runtime: optionalString(content.runtime),
         model: optionalString(content.model),
         provider: optionalString(content.provider),
@@ -8912,6 +8919,7 @@ function applyMockPersonaBehavior(
 
 async function handleCreatePersona(args: {
   input: {
+    acpCommand?: string;
     displayName: string;
     avatarUrl?: string;
     description?: string | null;
@@ -8931,6 +8939,7 @@ async function handleCreatePersona(args: {
     avatar_url: args.input.avatarUrl?.trim() || null,
     description: args.input.description?.trim() || null,
     system_prompt: args.input.systemPrompt.trim(),
+    acp_command: args.input.acpCommand ?? "buzz-acp",
     runtime: args.input.runtime?.trim() || null,
     model: args.input.model?.trim() || null,
     provider: args.input.provider?.trim() || null,
@@ -8960,6 +8969,7 @@ async function handleCreatePersona(args: {
 }
 
 type MockUpdatePersonaInput = {
+  acpCommand?: string;
   id: string;
   displayName: string;
   avatarUrl?: string;
@@ -8999,6 +9009,7 @@ async function applyMockPersonaUpdate(
   persona.avatar_url = input.avatarUrl?.trim() || null;
   persona.description = input.description?.trim() || null;
   persona.system_prompt = input.systemPrompt.trim();
+  if (input.acpCommand !== undefined) persona.acp_command = input.acpCommand;
   persona.runtime = input.runtime?.trim() || null;
   persona.model = input.model?.trim() || null;
   persona.provider = input.provider?.trim() || null;
@@ -9091,6 +9102,14 @@ function upsertMockPersonaRelayEvent(event: RelayEvent): void {
   mockPersonaEvents.push(event);
 }
 
+function portableMockAcpCommand(command: unknown): command is string {
+  return (
+    typeof command === "string" &&
+    command.length <= 255 &&
+    (command === "buzz-acp" || /^buzz-[A-Za-z0-9_-]+-acp$/.test(command))
+  );
+}
+
 function upsertMockPersonaEvent(
   persona: RawPersona,
   identity?: TestIdentity,
@@ -9102,6 +9121,13 @@ function upsertMockPersonaEvent(
     content: JSON.stringify({
       display_name: persona.display_name,
       system_prompt: persona.system_prompt,
+      acp_command: persona.shared
+        ? persona.acp_command == null
+          ? "buzz-acp"
+          : portableMockAcpCommand(persona.acp_command)
+            ? persona.acp_command
+            : undefined
+        : persona.acp_command,
       avatar_url: persona.avatar_url,
       description: persona.description ?? null,
       runtime: persona.runtime ?? null,
