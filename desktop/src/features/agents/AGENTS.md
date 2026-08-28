@@ -333,11 +333,13 @@ buzz messages send --channel <channel-id> --reply-to <thread-root-id> \
   --mention <agent-pubkey> --content '!cancel'
 ```
 
-16. **ACP command selection is convention-based.** The editor always offers
+16. **ACP transport is persona-owned before deployment.** Select `acp_command` in the persona create/edit form beside the harness. Deployment inherits that value; linked instances do not expose a competing post-deploy override. Legacy definitions without the field and definition-less agents continue to use the stored/default `buzz-acp` command. Shared persona events and restart snapshots carry the field so edits apply on the next spawn.
+
+17. **ACP command selection is convention-based.** The editor always offers
     stock `buzz-acp` and installed executable `buzz-*-acp` aliases discovered
     from normal executable search directories. It does not offer arbitrary
-    command entry. A persisted value outside that set remains visible as a
-    current compatibility option but is not editable; selecting a conventional
+    command entry. A persisted value outside that set remains visible as an
+    unavailable compatibility option but is not editable; selecting a conventional
     option replaces it. Discovery returns the path produced by the same resolver
     used at spawn, so a duplicate alias must never advertise one executable and
     later launch another. Keep these transitions in the pure
@@ -372,7 +374,7 @@ buzz messages send --channel <channel-id> --reply-to <thread-root-id> \
   every profile tab when opened from Agents and from the agent's DM.
 - `ui/AgentConfigPanelPresentation.test.mjs` — shared profile/agent config rows
   show only effective values, with an em dash for unknown values.
-- `ui/acpCommandPicker.test.mjs` — stock/discovered/current command mode,
+- `ui/acpCommandPicker.test.mjs` — stock/discovered/unavailable command mode,
   late discovery, query-failure compatibility, and conventional replacement of
   persisted unknown commands.
 - `ui/effortPicker.test.mjs` — `effortPickerState` gating (local + discovered

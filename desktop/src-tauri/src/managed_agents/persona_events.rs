@@ -74,6 +74,8 @@ pub struct PersonaEventContent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub system_prompt: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub acp_command: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub avatar_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime: Option<String>,
@@ -243,6 +245,7 @@ pub fn persona_from_event(event: &nostr::Event) -> Result<AgentDefinition, Strin
         avatar_url: content.avatar_url,
         description: content.description,
         system_prompt: content.system_prompt.unwrap_or_default(),
+        acp_command: content.acp_command,
         runtime: content.runtime,
         model: content.model,
         provider: content.provider,
@@ -533,6 +536,7 @@ pub fn persona_event_content(record: &AgentDefinition) -> PersonaEventContent {
         // records serialize byte-identically and persona_content_hash is
         // stable across the upgrade (drift badges must not flip).
         system_prompt: Some(record.system_prompt.clone()),
+        acp_command: record.acp_command.clone(),
         runtime: record.runtime.clone(),
         model: record.model.clone(),
         provider: record.provider.clone(),
@@ -561,6 +565,7 @@ pub fn persona_event_content(record: &AgentDefinition) -> PersonaEventContent {
 /// the definition's current content hash.
 pub struct PersonaSnapshot {
     pub system_prompt: Option<String>,
+    pub acp_command: Option<String>,
     pub model: Option<String>,
     pub provider: Option<String>,
     /// Preferred ACP runtime ID, copied verbatim from the persona (including
@@ -582,6 +587,7 @@ pub struct PersonaSnapshot {
 pub fn persona_snapshot(persona: &AgentDefinition) -> PersonaSnapshot {
     PersonaSnapshot {
         system_prompt: Some(persona.system_prompt.clone()),
+        acp_command: persona.acp_command.clone(),
         model: persona.model.clone(),
         provider: persona.provider.clone(),
         runtime: persona.runtime.clone(),
@@ -611,6 +617,9 @@ pub fn apply_persona_snapshot(record: &mut ManagedAgentRecord, persona: &AgentDe
     let snapshot = persona_snapshot(persona);
     if let Some(prompt) = snapshot.system_prompt {
         record.system_prompt = Some(prompt);
+    }
+    if let Some(acp_command) = snapshot.acp_command {
+        record.acp_command = acp_command;
     }
     record.model = snapshot.model;
     record.provider = snapshot.provider;
