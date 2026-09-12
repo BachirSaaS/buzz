@@ -774,7 +774,10 @@ pub(crate) async fn check_channel_membership(
     }
 }
 
-fn check_token_channel_access(auth: &IngestAuth, channel_id: Uuid) -> Result<(), String> {
+pub(super) fn check_token_channel_access(
+    auth: &IngestAuth,
+    channel_id: Uuid,
+) -> Result<(), String> {
     if let Some(allowed) = auth.channel_ids() {
         if !allowed.contains(&channel_id) {
             return Err("restricted: token does not have access to this channel".to_string());
@@ -2285,7 +2288,7 @@ async fn ingest_event_inner(
 
     // Command kinds are routed AFTER signature verification, timestamp check,
     // pubkey/auth match, and scope validation — never before.
-    if buzz_core::kind::is_command_kind(kind_u32) {
+    if buzz_core::kind::is_command_kind(kind_u32) && kind_u32 != KIND_WORKFLOW_DEF {
         return super::command_executor::handle_command(tenant, state, event, auth).await;
     }
 
@@ -2396,6 +2399,19 @@ async fn ingest_event_inner(
                 )));
             }
         }
+    }
+
+    // Workflow saves are content writes and must not bypass the durable ban/timeout gate.
+    if kind_u32 == KIND_WORKFLOW_DEF {
+        return super::command_executor::handle_command(tenant, state, event, auth).await;
+    }
+
+    // Canonical workflow deletion owns storage and both projections atomically.
+    // Keep it after common signature, principal, scope and moderation checks,
+    // but before the generic address path (which has no resolved channel).
+    if let Some(coordinate) = super::workflow_lifecycle::deletion_coordinate(&event)? {
+        return super::workflow_lifecycle::delete(tenant, state, tracer, &event, &auth, coordinate)
+            .await;
     }
 
     let mut channel_id = if kind_u32 == KIND_REACTION {

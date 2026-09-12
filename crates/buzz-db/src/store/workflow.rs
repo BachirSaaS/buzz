@@ -7,12 +7,15 @@
 //! - Approval tokens are stored as SHA-256 hashes (never plaintext).
 //! - All list queries have a bounded LIMIT to prevent unbounded scans.
 
+/// Transactional workflow-coordinate lifecycle operations.
+pub mod lifecycle;
+
 use std::fmt;
 use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
 use sha2::{Digest, Sha256};
-use sqlx::{PgPool, Row};
+use sqlx::{Executor, PgPool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use buzz_core::CommunityId;
@@ -325,6 +328,55 @@ pub async fn upsert_workflow(
     definition_json: &str,
     definition_hash: &[u8],
 ) -> Result<()> {
+    upsert_workflow_on(
+        pool,
+        community_id,
+        id,
+        channel_id,
+        owner_pubkey,
+        name,
+        definition_json,
+        definition_hash,
+    )
+    .await
+}
+
+/// Upsert the runtime projection in the same transaction as its signed definition.
+#[allow(clippy::too_many_arguments)]
+pub async fn upsert_workflow_in_transaction(
+    tx: &mut Transaction<'_, Postgres>,
+    community_id: CommunityId,
+    id: Uuid,
+    channel_id: Option<Uuid>,
+    owner_pubkey: &[u8],
+    name: &str,
+    definition_json: &str,
+    definition_hash: &[u8],
+) -> Result<()> {
+    upsert_workflow_on(
+        &mut **tx,
+        community_id,
+        id,
+        channel_id,
+        owner_pubkey,
+        name,
+        definition_json,
+        definition_hash,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn upsert_workflow_on<'e>(
+    executor: impl Executor<'e, Database = Postgres>,
+    community_id: CommunityId,
+    id: Uuid,
+    channel_id: Option<Uuid>,
+    owner_pubkey: &[u8],
+    name: &str,
+    definition_json: &str,
+    definition_hash: &[u8],
+) -> Result<()> {
     let row = sqlx::query(
         r#"
         INSERT INTO workflows
@@ -347,7 +399,7 @@ pub async fn upsert_workflow(
     .bind(channel_id)
     .bind(definition_json)
     .bind(definition_hash)
-    .fetch_optional(pool)
+    .fetch_optional(executor)
     .await?;
 
     if row.is_none() {
@@ -370,6 +422,23 @@ pub async fn get_workflow(
     community_id: CommunityId,
     id: Uuid,
 ) -> Result<WorkflowRecord> {
+    get_workflow_on(pool, community_id, id).await
+}
+
+/// Read workflow state after taking its coordinate lock, without leaving the event transaction.
+pub async fn get_workflow_in_transaction(
+    tx: &mut Transaction<'_, Postgres>,
+    community_id: CommunityId,
+    id: Uuid,
+) -> Result<WorkflowRecord> {
+    get_workflow_on(&mut **tx, community_id, id).await
+}
+
+async fn get_workflow_on<'e>(
+    executor: impl Executor<'e, Database = Postgres>,
+    community_id: CommunityId,
+    id: Uuid,
+) -> Result<WorkflowRecord> {
     let row = sqlx::query(
         r#"
         SELECT id, community_id, name, owner_pubkey, channel_id, definition, definition_hash,
@@ -380,7 +449,7 @@ pub async fn get_workflow(
     )
     .bind(community_id.as_uuid())
     .bind(id)
-    .fetch_optional(pool)
+    .fetch_optional(executor)
     .await?
     .ok_or_else(|| DbError::NotFound(format!("workflow {id}")))?;
 

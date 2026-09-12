@@ -92,12 +92,13 @@ enum PersistResult {
 /// If the event is a duplicate (ON CONFLICT DO NOTHING), the transaction is
 /// rolled back and `PersistResult::Duplicate` is returned — no mutations needed.
 ///
-/// NOTE: Domain mutations (open_dm, upsert_workflow, etc.) execute on the
+/// NOTE: Other domain mutations (open_dm, etc.) execute on the
 /// connection pool, NOT inside this transaction. The pattern is idempotent but
 /// not strictly atomic: if a mutation succeeds but commit fails, the mutation
 /// persists without the event record. On retry, the event INSERT succeeds
 /// (no conflict), and the mutation re-executes — which is safe for idempotent
-/// operations (open_dm, hide_dm, update_approval, upsert_workflow).
+/// operations (open_dm, hide_dm, update_approval). Workflow definitions instead
+/// compose their runtime projection in this transaction.
 #[datastore_span(name = "persist_command_event", system = "postgresql")]
 async fn persist_command_event(
     db: &buzz_db::Db,
@@ -130,6 +131,53 @@ async fn persist_command_event(
         }
 
         let kind = event.kind.as_u16() as i32;
+        if kind == KIND_WORKFLOW_DEF as i32 {
+            use buzz_db::workflow::lifecycle;
+            let id = Uuid::parse_str(d_tag)
+                .map_err(|_| IngestError::Rejected("invalid: bad workflow_id format".into()))?;
+            // UUID aliases otherwise share a runtime row but not a replacement lock.
+            if d_tag != id.to_string()
+                || event
+                    .tags
+                    .iter()
+                    .filter(|tag| tag.kind().to_string() == "d")
+                    .count()
+                    != 1
+            {
+                return Err(IngestError::Rejected(
+                    "invalid: workflow d tag must be one canonical UUID".into(),
+                ));
+            }
+            let owner = event.pubkey.to_bytes();
+            lifecycle::lock_coordinate(&mut tx, tenant.community(), &owner, id)
+                .await
+                .map_err(|e| {
+                    IngestError::Internal(format!("error: workflow coordinate lock: {e}"))
+                })?;
+            if lifecycle::event_seen(&mut tx, tenant.community(), event)
+                .await
+                .map_err(|e| IngestError::Internal(format!("error: workflow replay lookup: {e}")))?
+            {
+                return Ok(PersistResult::Duplicate);
+            }
+            if let Some(deletion) = lifecycle::deletion(&mut tx, tenant.community(), &owner, id)
+                .await
+                .map_err(|e| {
+                    IngestError::Internal(format!("error: workflow deletion lookup: {e}"))
+                })?
+            {
+                if event.created_at.as_secs() as i64 <= deletion.deleted_through.timestamp() {
+                    return Err(IngestError::Rejected(
+                        "conflict: workflow save predates a committed deletion".into(),
+                    ));
+                }
+                if channel_id != Some(deletion.channel_id) {
+                    return Err(IngestError::Rejected(
+                        "forbidden: workflow belongs to a different channel".into(),
+                    ));
+                }
+            }
+        }
         let (expected_revision, revision_error) = match parse_expected_workflow_revision(
             kind,
             extract_tag(event, "expected-revision").as_deref(),
@@ -657,44 +705,65 @@ async fn handle_workflow_def(
     let workflow_id = Uuid::parse_str(&workflow_id_str)
         .map_err(|_| IngestError::Rejected("invalid: bad workflow_id format".into()))?;
 
-    // 2. Validate caller has channel access (minimum: is a member)
-    let is_member = state
-        .is_member_cached(tenant.community(), channel_id, &self_bytes)
-        .await
-        .map_err(|e| IngestError::Internal(format!("error: membership check: {e}")))?;
-    if !is_member {
-        return Err(IngestError::Rejected(
-            "forbidden: not a member of this channel".into(),
-        ));
-    }
-
     // 3. Parse YAML from event.content
     let (def, definition_json_str) = buzz_workflow::WorkflowEngine::parse_yaml(&event.content)
         .map_err(|e| IngestError::Rejected(format!("invalid: workflow YAML parse error: {e}")))?;
     let workflow_name = extract_tag(event, "name").unwrap_or_else(|| def.name.clone());
 
-    // SEC-006: definitions with exfiltration-capable actions (call_webhook)
-    // require elevated channel authority to save — plain membership is not
-    // enough, because the workflow will forward channel content outward with
-    // the owner's standing authority. Fail-closed on lookup errors.
-    if def.requires_elevated_authority() {
-        let role = state
-            .db
-            .get_member_role(tenant.community(), channel_id, &self_bytes)
-            .await
-            .map_err(|e| IngestError::Internal(format!("error: role check: {e}")))?;
-        if !matches!(role.as_deref(), Some("owner") | Some("admin")) {
-            return Err(IngestError::Rejected(
-                "forbidden: workflows with call_webhook actions require the owner or admin role"
-                    .into(),
-            ));
-        }
-    }
-
     let mut definition_json: serde_json::Value = serde_json::from_str(&definition_json_str)
         .map_err(|e| IngestError::Internal(format!("error: json parse of definition: {e}")))?;
 
-    let existing_workflow = match state.db.get_workflow(tenant.community(), workflow_id).await {
+    let channel_tags: Vec<_> = event
+        .tags
+        .iter()
+        .filter(|tag| tag.kind().to_string() == "h")
+        .collect();
+    if channel_tags.len() != 1
+        || channel_tags[0].as_slice().len() != 2
+        || channel_id_str != channel_id.to_string()
+    {
+        return Err(IngestError::Rejected(
+            "invalid: workflow h tag must be one canonical channel UUID".into(),
+        ));
+    }
+    super::ingest::check_token_channel_access(auth, channel_id).map_err(IngestError::AuthFailed)?;
+
+    // Persist the command event — returns open transaction
+    let mut tx = match persist_command_event(&state.db, tenant, event, None).await? {
+        PersistResult::Duplicate => {
+            return Ok(IngestResult {
+                event_id: event.id.to_hex(),
+                accepted: true,
+                message: "duplicate: already processed".into(),
+            });
+        }
+        PersistResult::Inserted(tx) => tx,
+    };
+
+    let role = buzz_db::workflow::lifecycle::channel_role(
+        &mut tx,
+        tenant.community(),
+        channel_id,
+        &self_bytes,
+    )
+    .await
+    .map_err(|e| IngestError::Internal(format!("error: workflow channel authority: {e}")))?
+    .ok_or_else(|| {
+        IngestError::Rejected("forbidden: workflow requires active channel membership".into())
+    })?;
+    if def.requires_elevated_authority() && !matches!(role.as_str(), "owner" | "admin") {
+        return Err(IngestError::Rejected(
+            "forbidden: workflows with call_webhook actions require the owner or admin role".into(),
+        ));
+    }
+
+    let existing_workflow = match buzz_db::workflow::get_workflow_in_transaction(
+        &mut tx,
+        tenant.community(),
+        workflow_id,
+    )
+    .await
+    {
         Ok(workflow) => {
             if workflow.owner_pubkey != self_bytes || workflow.channel_id != Some(channel_id) {
                 return Err(IngestError::Rejected(
@@ -737,65 +806,35 @@ async fn handle_workflow_def(
         .map_err(|e| IngestError::Internal(format!("error: json serialize: {e}")))?;
     let hash = compute_definition_hash(&definition_json_final);
 
-    // Persist the command event — returns open transaction
-    let tx = match persist_command_event(&state.db, tenant, event, None).await? {
-        PersistResult::Duplicate => {
-            return Ok(IngestResult {
-                event_id: event.id.to_hex(),
-                accepted: true,
-                message: "duplicate: already processed".into(),
-            });
-        }
-        PersistResult::Inserted(tx) => tx,
-    };
-
-    // 4. Execute: upsert by the NIP-33 d-tag UUID. A retry updates the same
-    // row instead of creating another enabled workflow that would fan out on
-    // every matching event. The workflow's community is the request's
-    // server-bound tenant — never re-derived from the (client-supplied) channel
-    // id. `community_of_channel(channel_id)` is ambiguous when the same channel
-    // UUID exists in two communities and could mint the workflow under the wrong
-    // tenant; `tenant.community()` is the authoritative owner. We then verify the
-    // channel actually exists *inside that community* (scoped `get_channel`),
-    // which fails closed if the client named a channel that belongs to a
-    // different community — the same guarantee the `(community_id, channel_id)`
-    // composite FK enforces on insert, surfaced here as a clean rejection.
+    // The tenant is host-bound; channel_role verified and locked this channel in it.
     let community_id = tenant.community();
-    state
-        .db
-        .get_channel_for_event_write(community_id, channel_id)
-        .await
-        .map_err(|_| IngestError::Rejected("invalid: workflow channel not found".into()))?;
+    buzz_db::workflow::upsert_workflow_in_transaction(
+        &mut tx,
+        community_id,
+        workflow_id,
+        Some(channel_id),
+        &self_bytes,
+        &workflow_name,
+        &definition_json_final,
+        &hash,
+    )
+    .await
+    .map_err(|e| match e {
+        DbError::AccessDenied(_) => IngestError::Rejected(
+            "forbidden: workflow belongs to a different owner or channel".into(),
+        ),
+        other => IngestError::Internal(format!("error: db upsert_workflow: {other}")),
+    })?;
 
-    state
-        .db
-        .upsert_workflow(
-            community_id,
-            workflow_id,
-            Some(channel_id),
-            &self_bytes,
-            &workflow_name,
-            &definition_json_final,
-            &hash,
-        )
-        .await
-        .map_err(|e| match e {
-            DbError::AccessDenied(_) => IngestError::Rejected(
-                "forbidden: workflow belongs to a different owner or channel".into(),
-            ),
-            other => IngestError::Internal(format!("error: db upsert_workflow: {other}")),
-        })?;
-
-    // Drop the trigger-path cache entry so the new/updated definition fires on
-    // the next matching event instead of after the cache TTL.
-    state
-        .workflow_engine
-        .invalidate_channel_workflows(community_id, channel_id);
-
-    // Commit the event transaction after the idempotent workflow upsert succeeds.
+    // Both signed intent and runtime projection become visible together.
     tx.commit()
         .await
         .map_err(|e| IngestError::Internal(format!("error: commit transaction: {e}")))?;
+
+    // Invalidate only after commit so a concurrent read cannot repopulate the old definition.
+    state
+        .workflow_engine
+        .invalidate_channel_workflows(community_id, channel_id);
 
     // 5. Return response
     let mut resp = serde_json::json!({

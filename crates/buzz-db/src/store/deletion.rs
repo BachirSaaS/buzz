@@ -81,12 +81,14 @@ pub const EXPECTED_SCOPED_TABLES: &[&str] = &[
     "thread_metadata",
     "users",
     "workflow_approvals",
+    "workflow_deletions",
     "workflow_runs",
     "workflows",
 ];
 
 /// Foreign-key-safe child-before-parent order for the PostgreSQL purge.
 pub const PURGE_SCOPED_TABLES: &[&str] = &[
+    "workflow_deletions",
     "workflow_approvals",
     "scheduled_workflow_fires",
     "workflow_runs",
@@ -4997,3 +4999,7 @@ mod postgres_tests {
         .expect("drop probe database");
     }
 }
+
+#[cfg(test)]
+#[path = "deletion/workflow_postgres_tests.rs"]
+mod workflow_postgres_tests;

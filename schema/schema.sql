@@ -382,6 +382,21 @@ CREATE INDEX idx_workflows_channel_active ON workflows (community_id, channel_id
 -- side effects run under the owning tenant's context (Lane0 contract §4a.5).
 CREATE INDEX idx_workflows_enabled ON workflows (enabled, status) WHERE enabled;
 
+-- ── Workflow deletion cutoff ──────────────────────────────────────────────────
+
+-- Forward-only proof of atomic canonical workflow deletion. Never backfill from
+-- legacy kind-5 events: their side effects may not have committed.
+CREATE TABLE workflow_deletions (
+    community_id UUID NOT NULL REFERENCES communities(id),
+    owner_pubkey BYTEA NOT NULL CHECK (octet_length(owner_pubkey) = 32),
+    workflow_id UUID NOT NULL,
+    channel_id UUID NOT NULL,
+    deleted_through TIMESTAMPTZ NOT NULL,
+    event_id BYTEA NOT NULL CHECK (octet_length(event_id) = 32),
+    PRIMARY KEY (community_id, owner_pubkey, workflow_id),
+    FOREIGN KEY (community_id, channel_id) REFERENCES channels(community_id, id)
+);
+
 -- ── Workflow runs ─────────────────────────────────────────────────────────────
 
 CREATE TABLE workflow_runs (
@@ -1752,6 +1767,7 @@ SELECT attach_community_write_fence('thread_metadata');
 SELECT attach_community_write_fence('users');
 SELECT attach_community_write_fence('workflow_approvals');
 SELECT attach_community_write_fence('workflow_runs');
+SELECT attach_community_write_fence('workflow_deletions');
 SELECT attach_community_write_fence('workflows');
 
 -- ── Relay operator/moderator roster ──────────────────────────────────────────

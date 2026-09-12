@@ -702,7 +702,7 @@ mod postgres_tests {
         let mut migrations: Vec<_> = MIGRATOR.iter().collect();
         migrations.sort_by_key(|migration| migration.version);
 
-        assert_eq!(migrations.len(), 44);
+        assert_eq!(migrations.len(), 45);
         assert_eq!(migrations[0].version, 1);
         assert_eq!(&*migrations[0].description, "initial schema");
         assert!(migrations[0]
@@ -1369,6 +1369,35 @@ mod postgres_tests {
     }
 
     #[test]
+    fn workflow_deletion_cutoff_matches_desired_schema_without_legacy_backfill() {
+        let migration = MIGRATOR
+            .iter()
+            .find(|m| m.version == 45)
+            .expect("migration 45");
+        let schema = include_str!("../../../../schema/schema.sql");
+        let table = |sql: &str| {
+            split_sql_statements(sql)
+                .into_iter()
+                .find(|statement| {
+                    normalize_sql(statement).starts_with("create table workflow_deletions")
+                })
+                .map(|statement| normalize_sql(&statement))
+                .expect("deletion table")
+        };
+        assert_eq!(table(migration.sql.as_ref()), table(schema));
+        let statements = split_sql_statements(migration.sql.as_ref());
+        assert_eq!(
+            statements.len(),
+            2,
+            "forward proof must never be inferred from legacy data"
+        );
+        assert_eq!(
+            normalize_sql(&statements[1]),
+            "select attach_community_write_fence('workflow_deletions')"
+        );
+    }
+
+    #[test]
     fn push_match_trigger_is_narrowed_to_message_kinds_additively() {
         let mut migrations: Vec<_> = MIGRATOR.iter().collect();
         migrations.sort_by_key(|migration| migration.version);
@@ -1822,6 +1851,11 @@ mod postgres_tests {
         let mut expected_fences = migration.fence_attachments.clone();
         expected_fences.remove("product_feedback");
         expected_fences.remove("rate_limit_violations");
+        let workflow_lifecycle = MIGRATOR
+            .iter()
+            .find(|migration| migration.version == 45)
+            .expect("embedded workflow lifecycle migration");
+        expected_fences.extend(surface(workflow_lifecycle.sql.as_ref()).fence_attachments);
         assert_eq!(
             expected_fences, schema.fence_attachments,
             "write-fence attachment targets differ after recovery policy"
