@@ -646,3 +646,43 @@ async fn ingest_rejects_alternate_workflow_deletion_entrances_before_storage() {
         assert_eq!(f.live().await, before, "workflow remains untouched");
     }
 }
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL"]
+async fn nip11_workflow_contract_requires_bound_host_and_stable_identity() {
+    let mut f = Fixture::new().await;
+    // No stable key: no forward compatibility promise, even on a mapped host.
+    let state = Arc::get_mut(&mut f.state).expect("sole state owner");
+    Arc::make_mut(&mut state.config).relay_private_key = None;
+    let info = crate::nip11::nip11_document(&f.state, f.tenant.host()).await;
+    assert!(info.workflows.is_none());
+    let state = Arc::get_mut(&mut f.state).expect("sole state owner");
+    Arc::make_mut(&mut state.config).relay_private_key =
+        Some(state.relay_keypair.secret_key().to_secret_hex());
+    let info = crate::nip11::nip11_document(&f.state, f.tenant.host()).await;
+    let descriptor = info.workflows.expect("mapped stable relay advertises");
+    assert_eq!(descriptor.lifecycle, 1);
+    assert_eq!(descriptor.host, f.tenant.host());
+    assert_eq!(
+        info.relay_self,
+        Some(f.state.relay_keypair.public_key().to_hex())
+    );
+    assert!(info
+        .supported_extensions
+        .expect("extensions")
+        .contains(&"buzz-workflows".into()));
+    for host in ["", "unmapped-workflow.invalid"] {
+        let info = crate::nip11::nip11_document(&f.state, host).await;
+        assert!(info.workflows.is_none(), "unmapped host must not advertise");
+        assert!(!info
+            .supported_extensions
+            .expect("extensions")
+            .contains(&"buzz-workflows".into()));
+    }
+    f.pool.close().await;
+    let info = crate::nip11::nip11_document(&f.state, f.tenant.host()).await;
+    assert!(
+        info.workflows.is_none(),
+        "failed binding must not advertise"
+    );
+}

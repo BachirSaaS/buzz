@@ -43,6 +43,9 @@ pub struct RelayInfo {
     /// NIP-PL executor descriptor. Present only when push delivery is configured.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub push: Option<serde_json::Value>,
+    /// Forward workflow lifecycle contract, bound to this request host.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workflows: Option<WorkflowDescriptor>,
     /// URL of the relay software repository.
     pub software: String,
     /// Relay software version string.
@@ -67,6 +70,16 @@ pub struct RelayInfo {
     /// Relay's own signing pubkey (NIP-11 `self` field, NIP-43).
     #[serde(rename = "self", skip_serializing_if = "Option::is_none")]
     pub relay_self: Option<String>,
+}
+
+/// Positive evidence of atomic definition/runtime saves and canonical forward deletion.
+/// This does not reconcile historical split state or grant execution authority.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WorkflowDescriptor {
+    /// Lifecycle contract revision (not a software version or supported-kind list).
+    pub lifecycle: u32,
+    /// Normalized, resolved request host, including a non-default port.
+    pub host: String,
 }
 
 /// Public capability descriptor for relay-proxied GIF search.
@@ -208,6 +221,7 @@ impl RelayInfo {
             supported_nips,
             supported_extensions: Some(supported_extensions),
             push: None,
+            workflows: None,
             software: "https://github.com/block/buzz".to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
             limitation: Some(relay_limitation(max_message_length)),
@@ -293,7 +307,7 @@ pub(crate) async fn nip11_document(state: &crate::state::AppState, raw_host: &st
         admin_api.as_deref(),
         state.config.klipy.as_ref().map(|_| "klipy"),
     );
-    let tenant_host = if state.config.push_enabled {
+    let tenant_host = if state.config.push_enabled || relay_self.is_some() {
         crate::tenant::bind_community(&state.db, raw_host)
             .await
             .ok()
@@ -312,6 +326,12 @@ pub(crate) async fn nip11_document(state: &crate::state::AppState, raw_host: &st
             .get_or_insert_default()
             .push("nip-pl".to_string());
         info.push = Some(push);
+    }
+    if let (Some(_), Some(host)) = (relay_self, tenant_host) {
+        info.supported_extensions
+            .get_or_insert_default()
+            .push("buzz-workflows".to_string());
+        info.workflows = Some(WorkflowDescriptor { lifecycle: 1, host });
     }
     info
 }
