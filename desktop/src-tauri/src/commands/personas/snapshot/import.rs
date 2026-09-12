@@ -541,7 +541,7 @@ pub async fn confirm_agent_snapshot_import(
     };
 
     // ── Phase 3a: create AgentDefinition + ManagedAgentRecord (sync lock) ──────
-    let (persona, record) = {
+    let (persona, record, agent_retention, persona_retention) = {
         let _store_guard = state
             .managed_agents_store_lock
             .lock()
@@ -594,7 +594,8 @@ pub async fn confirm_agent_snapshot_import(
         save_personas(&app, &personas)?;
 
         // Enqueue the kind:30175 persona event via the retention path.
-        super::super::pending::retain_persona_pending(&app, &state, &persona);
+        let persona_retention =
+            super::super::pending::retain_persona_pending(&app, &state, &persona);
         // Build the managed agent record — no machine-local commands, no
         // secrets, no lineage from the snapshot.
         let record = ManagedAgentRecord {
@@ -673,7 +674,8 @@ pub async fn confirm_agent_snapshot_import(
         // Enqueue the kind:30177 managed-agent event via retention.
         // (Uses the same pattern as agents.rs::retain_managed_agent_pending
         // inlined here to avoid cross-module private-fn access.)
-        retain_agent_pending(&app, &state, &record);
+        let agent_retention =
+            crate::commands::agents::prepare_managed_agent_pending(&app, &state, &record);
 
         crate::managed_agents::try_regenerate_nest(&app);
 
@@ -681,8 +683,10 @@ pub async fn confirm_agent_snapshot_import(
         // matching the contract used by other local managed-agent mutations.
         let _ = app.emit("agents-data-changed", ());
 
-        (persona, record)
+        (persona, record, agent_retention, persona_retention)
     };
+    super::super::pending::finish_persona_pending(&app, persona_retention).await;
+    crate::commands::agents::finish_managed_agent_pending(&app, &state, agent_retention).await;
 
     // ── Phase 3b: publish kind:0 profile (async, outside lock) ───────────────
     let relay_url =
@@ -760,57 +764,7 @@ pub async fn confirm_agent_snapshot_import(
     })
 }
 
-/// Inline retention for the managed-agent kind:30177 event — mirrors
-/// `agents::retain_managed_agent_pending` without requiring cross-module
-/// private function access.
-fn retain_agent_pending(app: &AppHandle, state: &AppState, record: &ManagedAgentRecord) {
-    use crate::managed_agents::{
-        agent_events::{agent_event_content, build_agent_event},
-        persona_events::monotonic_created_at,
-        retention::{get_retained_event, open_retention_db, retain_event, RetainedEvent},
-    };
-    use buzz_core_pkg::kind::KIND_MANAGED_AGENT;
-    use nostr::JsonUtil;
-
-    let result = (|| -> Result<(), String> {
-        let scope = crate::managed_agents::retention::active_retention_scope(app, state)?;
-        let conn = open_retention_db(&scope.db_path)?;
-        let content = serde_json::to_string(&agent_event_content(record))
-            .map_err(|e| format!("failed to serialize agent content: {e}"))?;
-        let (owner_pubkey, event) = {
-            let keys = &scope.owner_keys;
-            let owner_pubkey = keys.public_key().to_hex();
-            let existing =
-                get_retained_event(&conn, KIND_MANAGED_AGENT, &owner_pubkey, &record.pubkey)?;
-            if existing.as_ref().is_some_and(|row| row.content == content) {
-                return Ok(());
-            }
-            let event = build_agent_event(record)?
-                .custom_created_at(monotonic_created_at(existing.map(|row| row.created_at)))
-                .sign_with_keys(keys)
-                .map_err(|e| format!("failed to sign agent event: {e}"))?;
-            (owner_pubkey, event)
-        };
-        retain_event(
-            &conn,
-            &RetainedEvent {
-                kind: KIND_MANAGED_AGENT,
-                pubkey: owner_pubkey,
-                d_tag: record.pubkey.clone(),
-                content: event.content.to_string(),
-                created_at: event.created_at.as_secs() as i64,
-                raw_event: event.as_json(),
-                pending_sync: true,
-            },
-        )
-    })();
-    if let Err(e) = result {
-        eprintln!("buzz-desktop: snapshot-import retain-agent: {e}");
-    }
-}
-
-/// POST a pre-built signed engram event to the relay, authenticating as the
-/// new agent.
+/// POST a pre-built engram as the independently owned imported agent.
 pub(crate) async fn submit_engram_event(
     state: &AppState,
     agent_keys: &nostr::Keys,

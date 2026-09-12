@@ -1,5 +1,6 @@
+use crate::active_user_signer::ActiveUserSigner;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-use nostr::{EventBuilder, JsonUtil, Keys, Kind, Tag, Timestamp};
+use nostr::{EventBuilder, JsonUtil, Kind, Tag, Timestamp};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri::State;
@@ -308,8 +309,8 @@ pub(crate) const MEDIA_GET_AUTH_EXPIRY_SECS: u64 = 600;
 /// scoping and is safe only because the relay still enforces NIP-43
 /// membership on the verified pubkey — and because callers only attach this
 /// header to requests bound for the relay origin itself.
-pub(crate) fn sign_blossom_get_auth_header(
-    keys: &Keys,
+pub(crate) async fn sign_blossom_get_auth_header(
+    signer: &ActiveUserSigner,
     base_url: &str,
     expiry_secs: u64,
 ) -> Result<String, String> {
@@ -322,9 +323,9 @@ pub(crate) fn sign_blossom_get_auth_header(
             .map_err(|e| e.to_string())?,
         Tag::parse(vec!["server".to_string(), server]).map_err(|e| e.to_string())?,
     ];
-    let event = EventBuilder::new(Kind::from(24242), "Get buzz-media")
-        .tags(tags)
-        .sign_with_keys(keys)
+    let event = signer
+        .sign_event(EventBuilder::new(Kind::from(24242), "Get buzz-media").tags(tags))
+        .await
         .map_err(|e| e.to_string())?;
     Ok(format!(
         "Nostr {}",
@@ -342,15 +343,15 @@ pub(crate) fn sign_blossom_get_auth_header(
 /// Safety contract: callers must only attach the returned header to URLs
 /// constructed from (or validated against) the app's own relay base URL —
 /// never to third-party origins, where the bearer token would leak.
-pub(crate) fn mint_media_get_auth(state: &AppState, base_url: &str) -> Option<String> {
-    let keys = match state.signing_keys() {
+pub(crate) async fn mint_media_get_auth(state: &AppState, base_url: &str) -> Option<String> {
+    let signer = match state.active_signer() {
         Ok(k) => k,
         Err(e) => {
             eprintln!("buzz-desktop: media get auth unavailable (unsigned request): {e}");
             return None;
         }
     };
-    match sign_blossom_get_auth_header(&keys, base_url, MEDIA_GET_AUTH_EXPIRY_SECS) {
+    match sign_blossom_get_auth_header(&signer, base_url, MEDIA_GET_AUTH_EXPIRY_SECS).await {
         Ok(header) => Some(header),
         Err(e) => {
             eprintln!("buzz-desktop: media get auth signing failed (unsigned request): {e}");
@@ -359,8 +360,8 @@ pub(crate) fn mint_media_get_auth(state: &AppState, base_url: &str) -> Option<St
     }
 }
 
-fn sign_blossom_upload_auth(
-    keys: &Keys,
+async fn sign_blossom_upload_auth(
+    signer: &ActiveUserSigner,
     sha256: &str,
     expiry_secs: u64,
     base_url: &str,
@@ -375,9 +376,9 @@ fn sign_blossom_upload_auth(
     if let Some(domain) = extract_server_authority(base_url) {
         tags.push(Tag::parse(vec!["server".to_string(), domain]).map_err(|e| e.to_string())?);
     }
-    EventBuilder::new(Kind::from(24242), "Upload buzz-media")
-        .tags(tags)
-        .sign_with_keys(keys)
+    signer
+        .sign_event(EventBuilder::new(Kind::from(24242), "Upload buzz-media").tags(tags))
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -424,8 +425,8 @@ async fn do_upload(
     };
     let base_url = relay_api_base_url_with_override(state);
     let auth_event = {
-        let keys = state.signing_keys()?;
-        sign_blossom_upload_auth(&keys, &sha256, expiry_secs, &base_url)?
+        let signer = state.active_signer()?;
+        sign_blossom_upload_auth(&signer, &sha256, expiry_secs, &base_url).await?
     };
 
     let auth_header = format!(
@@ -840,10 +841,12 @@ mod tests {
         assert_eq!(extract_server_authority(""), None);
     }
 
-    #[test]
-    fn test_sign_blossom_get_auth_header_shape() {
-        let keys = Keys::generate();
-        let header = sign_blossom_get_auth_header(&keys, "http://localhost:3000", 600).unwrap();
+    #[tokio::test]
+    async fn test_sign_blossom_get_auth_header_shape() {
+        let keys = ActiveUserSigner::local(nostr::Keys::generate());
+        let header = sign_blossom_get_auth_header(&keys, "http://localhost:3000", 600)
+            .await
+            .unwrap();
         let b64 = header.strip_prefix("Nostr ").expect("Nostr scheme prefix");
         let json = URL_SAFE_NO_PAD.decode(b64).unwrap();
         let event = nostr::Event::from_json(std::str::from_utf8(&json).unwrap()).unwrap();
@@ -866,10 +869,12 @@ mod tests {
         assert!(expiration > now && expiration <= now + 600);
     }
 
-    #[test]
-    fn test_sign_blossom_get_auth_header_invalid_base_url() {
-        let keys = Keys::generate();
-        assert!(sign_blossom_get_auth_header(&keys, "not-a-url", 600).is_err());
+    #[tokio::test]
+    async fn test_sign_blossom_get_auth_header_invalid_base_url() {
+        let keys = ActiveUserSigner::local(nostr::Keys::generate());
+        assert!(sign_blossom_get_auth_header(&keys, "not-a-url", 600)
+            .await
+            .is_err());
     }
 
     #[test]
@@ -979,3 +984,7 @@ mod tests {
         ));
     }
 }
+
+#[cfg(test)]
+#[path = "media_signer_tests.rs"]
+mod media_signer_tests;

@@ -11,8 +11,7 @@ use crate::{
     models::{ProfileInfo, SearchUsersResponse, UserNotesResponse, UsersBatchResponse},
     nostr_convert,
     relay::{
-        query_relay, query_relay_at_with_keys, relay_http_base_url, submit_event,
-        submit_event_at_with_keys,
+        query_relay, query_relay_at_with_signer, relay_http_base_url, submit_event, submit_event_at,
     },
 };
 
@@ -114,7 +113,7 @@ pub async fn update_profile_at_relay(
         "authors": [expected_pubkey],
         "limit": 1
     });
-    let prior_events = query_relay_at_with_keys(
+    let prior_events = query_relay_at_with_signer(
         &state,
         &api_base_url,
         std::slice::from_ref(&filter),
@@ -137,9 +136,10 @@ pub async fn update_profile_at_relay(
     }
 
     let builder = build_deferred_profile_event(&current, &avatar_url, prior_event)?;
-    submit_event_at_with_keys(builder, &state, &api_base_url, &signer).await?;
+    submit_event_at(builder, &state, &api_base_url, &signer).await?;
 
-    let events = query_relay_at_with_keys(&state, &api_base_url, &[filter], &signer, None).await?;
+    let events =
+        query_relay_at_with_signer(&state, &api_base_url, &[filter], &signer, None).await?;
     Ok(events
         .first()
         .map(nostr_convert::profile_info_from_event)
@@ -165,8 +165,11 @@ fn build_deferred_profile_event(
     )
 }
 
-fn capture_expected_signer(state: &AppState, expected_pubkey: &str) -> Result<nostr::Keys, String> {
-    let signer = state.signing_keys()?;
+fn capture_expected_signer(
+    state: &AppState,
+    expected_pubkey: &str,
+) -> Result<crate::active_user_signer::ActiveUserSigner, String> {
+    let signer = state.active_signer()?;
     if signer.public_key().to_hex() != expected_pubkey {
         return Err("profile identity changed before avatar save".to_string());
     }

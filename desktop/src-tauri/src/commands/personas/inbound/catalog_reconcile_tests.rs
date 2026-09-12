@@ -126,6 +126,7 @@ fn inbound_catalog_head_retains_arrival_witness_through_the_production_reconcile
         event.as_json(),
         RELAY.to_string(),
         app.handle().clone(),
+        &mut Vec::new(),
     )
     .expect("reconcile of a signed 30178 head must succeed");
 

@@ -463,9 +463,14 @@ mod real_relay_tests {
     }
 
     async fn publish(builder: EventBuilder, signer: &Keys, state: &AppState) {
-        relay::submit_event_with_keys(builder, state, signer, None)
-            .await
-            .expect("publish real-relay fixture");
+        relay::submit_event_at(
+            builder,
+            state,
+            &relay::relay_api_base_url_with_override(state),
+            &crate::active_user_signer::ActiveUserSigner::local(signer.clone()),
+        )
+        .await
+        .expect("publish real-relay fixture");
     }
 
     #[tokio::test]
@@ -525,7 +530,7 @@ mod real_relay_tests {
             &db_path,
             &state,
             &relay_ws_url(),
-            &owner,
+            &crate::active_user_signer::ActiveUserSigner::local(owner.clone()),
         )
         .await
         .expect("create-path immediate policy flush");

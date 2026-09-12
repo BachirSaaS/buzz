@@ -167,7 +167,9 @@ async fn catalog_tombstone_within_window_publishes_and_dominates() {
 
     let head = nostr::Timestamp::now().as_secs() as i64 + 600;
     seed_catalog_head(&db_path, &keys, head);
-    tombstone_team_catalog_at(&db_path, &keys, "team-abc").unwrap();
+    tombstone_team_catalog_at(&db_path, &keys, "team-abc")
+        .await
+        .unwrap();
     let floor = enqueued_tombstone(&db_path).created_at;
     assert!(
         floor > head,
@@ -208,7 +210,9 @@ async fn catalog_tombstone_beyond_window_stays_pending_never_rejected() {
 
     let head = nostr::Timestamp::now().as_secs() as i64 + 5_000;
     seed_catalog_head(&db_path, &keys, head);
-    tombstone_team_catalog_at(&db_path, &keys, "team-abc").unwrap();
+    tombstone_team_catalog_at(&db_path, &keys, "team-abc")
+        .await
+        .unwrap();
 
     let (relay_http, posts) = spawn_gate_relay().await;
     let state = app_state_for(keys, &relay_http);
@@ -289,7 +293,16 @@ async fn team_tombstone_within_window_publishes_and_dominates() {
 
     let head = nostr::Timestamp::now().as_secs() as i64 + 600;
     seed_team_head(&db_path, &keys, head);
-    super::super::super::tombstone_team_at(&db_path, &keys, "team-abc").unwrap();
+    super::super::super::tombstone_team_at(
+        &db_path,
+        &ActiveUserSigner::local(keys.clone()),
+        "team-abc",
+    )
+    .unwrap()
+    .sign(&ActiveUserSigner::local(keys.clone()))
+    .await
+    .commit()
+    .unwrap();
     let floor = enqueued_tombstone(&db_path).created_at;
     assert!(
         floor > head,
@@ -326,7 +339,16 @@ async fn team_tombstone_beyond_window_stays_pending_never_rejected() {
 
     let head = nostr::Timestamp::now().as_secs() as i64 + 5_000;
     seed_team_head(&db_path, &keys, head);
-    super::super::super::tombstone_team_at(&db_path, &keys, "team-abc").unwrap();
+    super::super::super::tombstone_team_at(
+        &db_path,
+        &ActiveUserSigner::local(keys.clone()),
+        "team-abc",
+    )
+    .unwrap()
+    .sign(&ActiveUserSigner::local(keys.clone()))
+    .await
+    .commit()
+    .unwrap();
 
     let (relay_http, posts) = spawn_gate_relay().await;
     let state = app_state_for(keys, &relay_http);

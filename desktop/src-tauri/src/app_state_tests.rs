@@ -1415,3 +1415,20 @@ fn corrupt_keyring_no_marker_no_file_generates_fresh() {
         "fresh key must be stored after generate_and_persist"
     );
 }
+
+#[test]
+fn active_signer_preserves_recovery_guard_for_all_states() {
+    use std::sync::atomic::Ordering;
+    let state = build_app_state();
+    for (lost, locked) in [(false, false), (true, false), (false, true), (true, true)] {
+        state.identity_lost.store(lost, Ordering::Release);
+        state.keyring_locked.store(locked, Ordering::Release);
+        let legacy = state.legacy_local_signer().unwrap();
+        assert_eq!(legacy.public_key(), state.keys.lock().unwrap().public_key());
+        let result = state.active_signer();
+        assert_eq!(result.is_err(), lost || locked);
+        if let Ok(signer) = result {
+            assert_eq!(signer.public_key(), state.keys.lock().unwrap().public_key());
+        }
+    }
+}

@@ -483,6 +483,7 @@ pub(crate) async fn bind_builderlab_nostr_identity(
     app_state: tauri::State<'_, crate::app_state::AppState>,
     session: tauri::State<'_, BuilderlabSession>,
 ) -> Result<serde_json::Value, String> {
+    let signer = app_state.active_signer()?;
     let challenge_value = authenticated_json(
         &app_state.http_client,
         &session,
@@ -500,15 +501,15 @@ pub(crate) async fn bind_builderlab_nostr_identity(
     }
     let challenge: NostrIdentityChallenge = serde_json::from_value(challenge_value)
         .map_err(|error| format!("invalid Nostr identity challenge: {error}"))?;
-    let keys = app_state.signing_keys()?;
     let event = crate::commands::build_nostr_identity_binding_event(
-        &keys,
+        &signer,
         &challenge.challenge_id,
         &challenge.nonce,
         &challenge.verification_code,
         &challenge.origin,
         &challenge.expires_at,
-    )?;
+    )
+    .await?;
     authenticated_json(
         &app_state.http_client,
         &session,

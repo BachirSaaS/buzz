@@ -247,9 +247,9 @@ fn d_tag_already_valid_slug_is_unchanged() {
     // through untouched (no spurious coordinate change on existing data).
     let mut record = sample_persona();
     record.source_team_persona_slug = None;
-    record.id = "11111111-2222-3333-4444-555555555555".to_string();
+    record.id = "5b130804-d759-40ad-a564-d64cc907fa8e".to_string();
     let d = persona_d_tag(&record);
-    assert_eq!(d, "11111111-2222-3333-4444-555555555555");
+    assert_eq!(d, "5b130804-d759-40ad-a564-d64cc907fa8e");
     assert!(passes_relay_slug_grammar(&d));
 }
 
@@ -948,8 +948,8 @@ mod flush_barrier {
         .expect("retain test event");
     }
 
-    #[test]
-    fn archive_request_resign_refreshes_timestamp_and_preserves_payload() {
+    #[tokio::test]
+    async fn archive_request_resign_refreshes_timestamp_and_preserves_payload() {
         use nostr::JsonUtil;
 
         let keys = nostr::Keys::generate();
@@ -968,7 +968,9 @@ mod flush_barrier {
         let state = build_app_state();
         *state.keys.lock().unwrap() = keys;
 
-        let fresh = resign_with_fresh_timestamp(&stale, &state).unwrap();
+        let fresh = resign_with_fresh_timestamp(&stale, &state.active_signer().unwrap())
+            .await
+            .unwrap();
 
         assert!(fresh.created_at.as_secs() > stale.created_at.as_secs());
         assert_eq!(fresh.kind, stale.kind);

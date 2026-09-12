@@ -1,3 +1,4 @@
+use crate::active_user_signer::ActiveUserSigner;
 use nostr::{
     nips::nip44, Event, EventBuilder, JsonUtil, Keys, Kind, PublicKey, Tag, Timestamp, ToBech32,
 };
@@ -139,27 +140,34 @@ pub async fn sign_event(
     tags: Vec<Vec<String>>,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
-    let keys = state.signing_keys()?;
+    let signer = state.active_signer()?;
+    sign_renderer_event(&signer, kind, content, created_at, tags).await
+}
 
-    tauri::async_runtime::spawn_blocking(move || {
-        let nostr_tags = tags
-            .into_iter()
-            .map(|tag| Tag::parse(tag).map_err(|error| format!("invalid tag: {error}")))
-            .collect::<Result<Vec<_>, _>>()?;
+/// Sign the renderer event template without altering its fields.
+pub(crate) async fn sign_renderer_event(
+    signer: &ActiveUserSigner,
+    kind: u16,
+    content: String,
+    created_at: Option<u64>,
+    tags: Vec<Vec<String>>,
+) -> Result<String, String> {
+    let nostr_tags = tags
+        .into_iter()
+        .map(|tag| Tag::parse(tag).map_err(|error| format!("invalid tag: {error}")))
+        .collect::<Result<Vec<_>, _>>()?;
 
-        let mut builder = EventBuilder::new(Kind::Custom(kind), content).tags(nostr_tags);
-        if let Some(created_at) = created_at {
-            builder = builder.custom_created_at(Timestamp::from(created_at));
-        }
+    let mut builder = EventBuilder::new(Kind::Custom(kind), content).tags(nostr_tags);
+    if let Some(created_at) = created_at {
+        builder = builder.custom_created_at(Timestamp::from(created_at));
+    }
 
-        let event = builder
-            .sign_with_keys(&keys)
-            .map_err(|error| format!("sign failed: {error}"))?;
+    let event = signer
+        .sign_event(builder)
+        .await
+        .map_err(|error| format!("sign failed: {error}"))?;
 
-        Ok(event.as_json())
-    })
-    .await
-    .map_err(|e| format!("spawn_blocking failed: {e}"))?
+    Ok(event.as_json())
 }
 
 #[tauri::command]
@@ -168,39 +176,69 @@ pub async fn decrypt_observer_event(
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
     let keys = state.signing_keys()?;
-
     tauri::async_runtime::spawn_blocking(move || {
-        let event =
-            Event::from_json(event_json).map_err(|error| format!("invalid event: {error}"))?;
-
-        // Defense-in-depth: verify event ID and signature before decrypting.
-        if !event.verify_id() {
-            return Err("observer event has invalid ID".into());
-        }
-        if !event.verify_signature() {
-            return Err("observer event has invalid signature".into());
-        }
-
-        buzz_core_pkg::observer::decrypt_observer_payload(&keys, &event)
-            .map_err(|error| format!("decrypt observer event failed: {error}"))
+        decrypt_observer_event_with_keys(&keys, &event_json)
     })
     .await
     .map_err(|e| format!("spawn_blocking failed: {e}"))?
 }
 
+fn decrypt_observer_event_with_keys(
+    keys: &Keys,
+    event_json: &str,
+) -> Result<serde_json::Value, String> {
+    let event = Event::from_json(event_json).map_err(|error| format!("invalid event: {error}"))?;
+    if !event.verify_id() {
+        return Err("observer event has invalid ID".into());
+    }
+    if !event.verify_signature() {
+        return Err("observer event has invalid signature".into());
+    }
+    buzz_core_pkg::observer::decrypt_observer_payload(keys, &event)
+        .map_err(|error| format!("decrypt observer event failed: {error}"))
+}
+
+fn check_observer_plaintext(plaintext: &str) -> Result<(), String> {
+    use buzz_core_pkg::observer::{ObserverPayloadError, OBSERVER_MAX_PLAINTEXT_LEN};
+    if plaintext.len() > OBSERVER_MAX_PLAINTEXT_LEN {
+        return Err(ObserverPayloadError::PlaintextTooLarge {
+            max: OBSERVER_MAX_PLAINTEXT_LEN,
+            got: plaintext.len(),
+        }
+        .to_string());
+    }
+    Ok(())
+}
+
 #[tauri::command]
-pub fn build_observer_control_event(
+pub async fn build_observer_control_event(
     agent_pubkey: String,
     payload: serde_json::Value,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
-    let keys = state.signing_keys()?;
+    let signer = state.active_signer()?;
+    build_observer_control_with_signer(&signer, &agent_pubkey, &payload).await
+}
+
+async fn build_observer_control_with_signer(
+    signer: &ActiveUserSigner,
+    agent_pubkey: &str,
+    payload: &serde_json::Value,
+) -> Result<String, String> {
     let agent_pubkey = PublicKey::from_hex(agent_pubkey.trim())
         .map_err(|error| format!("invalid agent pubkey: {error}"))?;
     let agent_pubkey_hex = agent_pubkey.to_hex();
-    let encrypted =
-        buzz_core_pkg::observer::encrypt_observer_payload(&keys, &agent_pubkey, &payload)
-            .map_err(|error| format!("encrypt observer control failed: {error}"))?;
+    let plaintext = zeroize::Zeroizing::new(
+        serde_json::to_string(payload)
+            .map_err(|e| format!("encrypt observer control failed: {e}"))?,
+    );
+    check_observer_plaintext(&plaintext)
+        .map_err(|e| format!("encrypt observer control failed: {e}"))?;
+    let encrypted = signer
+        .signer()
+        .nip44_encrypt(&agent_pubkey, &plaintext)
+        .await
+        .map_err(|e| format!("encrypt observer control failed: {e}"))?;
     let builder = buzz_sdk_pkg::build_agent_observer_frame(
         &agent_pubkey_hex,
         &agent_pubkey_hex,
@@ -208,8 +246,9 @@ pub fn build_observer_control_event(
         &encrypted,
     )
     .map_err(|error| format!("build observer control failed: {error}"))?;
-    let event = builder
-        .sign_with_keys(&keys)
+    let event = signer
+        .sign_event(builder)
+        .await
         .map_err(|error| format!("sign observer control failed: {error}"))?;
     Ok(event.as_json())
 }
@@ -592,8 +631,8 @@ fn nostr_bind_tag(name: &str, value: &str) -> Result<Tag, String> {
     Tag::parse(vec![name, value]).map_err(|error| format!("{name} tag failed: {error}"))
 }
 
-pub(crate) fn build_nostr_identity_binding_event(
-    keys: &Keys,
+pub(crate) async fn build_nostr_identity_binding_event(
+    signer: &ActiveUserSigner,
     challenge_id: &str,
     nonce: &str,
     verification_code: &str,
@@ -620,9 +659,11 @@ pub(crate) fn build_nostr_identity_binding_event(
         nostr_bind_tag("expires_at", expires_at)?,
     ];
 
-    EventBuilder::new(Kind::Custom(nostr_bind::KIND), nostr_bind::CONTENT)
-        .tags(tags)
-        .sign_with_keys(keys)
+    signer
+        .sign_event(
+            EventBuilder::new(Kind::Custom(nostr_bind::KIND), nostr_bind::CONTENT).tags(tags),
+        )
+        .await
         .map_err(|error| format!("sign failed: {error}"))
 }
 
@@ -643,26 +684,17 @@ pub async fn sign_nostr_identity_binding(
         &expires_at,
     )?;
 
-    let keys = state
-        .keys
-        .lock()
-        .map_err(|error| error.to_string())?
-        .clone();
-
-    tauri::async_runtime::spawn_blocking(move || {
-        let event = build_nostr_identity_binding_event(
-            &keys,
-            &challenge_id,
-            &nonce,
-            &verification_code,
-            &origin,
-            &expires_at,
-        )?;
-
-        Ok(event.as_json())
-    })
-    .await
-    .map_err(|e| format!("spawn_blocking failed: {e}"))?
+    let signer = state.legacy_local_signer()?;
+    let event = build_nostr_identity_binding_event(
+        &signer,
+        &challenge_id,
+        &nonce,
+        &verification_code,
+        &origin,
+        &expires_at,
+    )
+    .await?;
+    Ok(event.as_json())
 }
 
 #[tauri::command]
@@ -671,25 +703,29 @@ pub async fn create_auth_event(
     relay_url: String,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
-    let keys = state.signing_keys()?;
+    let signer = state.active_signer()?;
+    sign_renderer_auth(&signer, &challenge, &relay_url).await
+}
 
-    tauri::async_runtime::spawn_blocking(move || {
-        let tags = vec![
-            Tag::parse(vec!["relay", &relay_url])
-                .map_err(|error| format!("relay tag failed: {error}"))?,
-            Tag::parse(vec!["challenge", &challenge])
-                .map_err(|error| format!("challenge tag failed: {error}"))?,
-        ];
+/// Sign the renderer NIP-42 template, retaining its literal relay tag.
+pub(crate) async fn sign_renderer_auth(
+    signer: &ActiveUserSigner,
+    challenge: &str,
+    relay_url: &str,
+) -> Result<String, String> {
+    let tags = vec![
+        Tag::parse(vec!["relay", relay_url])
+            .map_err(|error| format!("relay tag failed: {error}"))?,
+        Tag::parse(vec!["challenge", challenge])
+            .map_err(|error| format!("challenge tag failed: {error}"))?,
+    ];
 
-        let event = EventBuilder::new(Kind::Custom(22242), "")
-            .tags(tags)
-            .sign_with_keys(&keys)
-            .map_err(|error| format!("sign failed: {error}"))?;
+    let event = signer
+        .sign_event(EventBuilder::new(Kind::Custom(22242), "").tags(tags))
+        .await
+        .map_err(|error| format!("sign failed: {error}"))?;
 
-        Ok(event.as_json())
-    })
-    .await
-    .map_err(|e| format!("spawn_blocking failed: {e}"))?
+    Ok(event.as_json())
 }
 
 #[tauri::command]
@@ -730,6 +766,7 @@ pub async fn nip44_decrypt_from_self(
 #[cfg(test)]
 mod nostr_identity_binding_tests {
     use super::build_nostr_identity_binding_event;
+    use crate::active_user_signer::ActiveUserSigner;
     use crate::nostr_bind;
     use nostr::{JsonUtil, Keys};
 
@@ -741,17 +778,18 @@ mod nostr_identity_binding_tests {
             .collect()
     }
 
-    #[test]
-    fn build_nostr_identity_binding_event_signs_exact_shape() {
+    #[tokio::test]
+    async fn build_nostr_identity_binding_event_signs_exact_shape() {
         let keys = Keys::generate();
         let event = build_nostr_identity_binding_event(
-            &keys,
+            &ActiveUserSigner::local(keys.clone()),
             "550e8400-e29b-41d4-a716-446655440000",
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi01234567",
             "123456",
             "https://example.com",
             "2999-01-01T00:00:00Z",
         )
+        .await
         .unwrap();
 
         assert_eq!(event.kind.as_u16(), nostr_bind::KIND);
@@ -779,33 +817,35 @@ mod nostr_identity_binding_tests {
         assert!(tags.contains(&vec!["expires_at".into(), "2999-01-01T00:00:00Z".into(),]));
     }
 
-    #[test]
-    fn build_nostr_identity_binding_event_rejects_malformed_verification_code() {
+    #[tokio::test]
+    async fn build_nostr_identity_binding_event_rejects_malformed_verification_code() {
         let keys = Keys::generate();
         let error = build_nostr_identity_binding_event(
-            &keys,
+            &ActiveUserSigner::local(keys.clone()),
             "550e8400-e29b-41d4-a716-446655440000",
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi01234567",
             "12345a",
             "https://example.com",
             "2999-01-01T00:00:00Z",
         )
+        .await
         .unwrap_err();
 
         assert_eq!(error, "verification_code must be exactly 6 digits");
     }
 
-    #[test]
-    fn build_nostr_identity_binding_event_rejects_expired_link() {
+    #[tokio::test]
+    async fn build_nostr_identity_binding_event_rejects_expired_link() {
         let keys = Keys::generate();
         let error = build_nostr_identity_binding_event(
-            &keys,
+            &ActiveUserSigner::local(keys.clone()),
             "550e8400-e29b-41d4-a716-446655440000",
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi01234567",
             "123456",
             "https://example.com",
             "2000-01-01T00:00:00Z",
         )
+        .await
         .unwrap_err();
 
         assert_eq!(error, "expires_at is expired");
@@ -815,3 +855,7 @@ mod nostr_identity_binding_tests {
 #[cfg(test)]
 #[path = "identity_key_backup_tests.rs"]
 mod identity_key_backup_tests;
+
+#[cfg(test)]
+#[path = "identity_signer_tests.rs"]
+mod identity_signer_tests;

@@ -19,7 +19,7 @@ use crate::{
     nostr_convert,
     relay::{
         assert_expected_relay_scope, assert_expected_signer, query_relay, submit_event,
-        submit_event_at_created_at, submit_event_with_keys_created_at,
+        submit_event_at_created_at, submit_event_with_signer_created_at,
     },
 };
 
@@ -442,7 +442,7 @@ pub async fn send_channel_message(
     // exact snapshot signs the event and its NIP-98 auth below.
     let relay_base = crate::relay::relay_api_base_url_with_override(&state);
     assert_expected_relay_scope(expected_relay_url.as_deref(), &relay_base)?;
-    let signing_keys = state.signing_keys()?;
+    let signing_keys = state.active_signer()?;
     assert_expected_signer(
         expected_signer_pubkey.as_deref(),
         &signing_keys.public_key().to_hex(),
@@ -799,9 +799,17 @@ pub async fn send_managed_agent_channel_message(
     )?;
     // Same contract as `send_channel_message`: `created_at` is the signed
     // event's, not a post-publication clock read.
-    let (result, created_at) =
-        submit_event_with_keys_created_at(builder, &state, &keys, submission_auth_tag.as_deref())
-            .await?;
+    let relay_base = crate::relay::relay_api_base_url_with_override(&state);
+    // This is the independent agent's key boundary, not an active-user fallback.
+    let signer = crate::active_user_signer::ActiveUserSigner::local(keys);
+    let (result, created_at) = submit_event_with_signer_created_at(
+        builder,
+        &state,
+        &relay_base,
+        &signer,
+        submission_auth_tag.as_deref(),
+    )
+    .await?;
 
     Ok(SendChannelMessageResponse {
         event_id: result.event_id,

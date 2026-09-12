@@ -51,7 +51,7 @@ fn migrate_legacy_retention_into(
     match crate::managed_agents::retention::migrate_legacy_retention_db(
         &base_dir,
         &scope.db_path,
-        &scope.owner_keys.public_key().to_hex(),
+        &scope.owner_signer().public_key().to_hex(),
     ) {
         Ok(0) => {}
         Ok(copied) => {
@@ -289,7 +289,7 @@ pub async fn apply_workspace(
             // the moment `useCommunityInit` observes the applied workspace, and
             // an old relay team head could otherwise win that race and overwrite
             // the repaired `persona_ids`. The team leg is fatal (see
-            // `run_event_sync`): only its success durably retains the corrected
+            // `run_event_sync_blocking`): only its success durably retains the corrected
             // head with a superseding `monotonic_created_at`, so
             // `retain_inbound_event`'s equal/older guard rejects the stale head.
             // On failure we return `Err` — the command reports failure,
@@ -297,7 +297,7 @@ pub async fn apply_workspace(
             // never starts against an un-superseded disk state.
             crate::event_sync::run_event_sync_blocking(
                 restore_app.clone(),
-                scope.owner_keys,
+                scope.owner_signer(),
                 scope.db_path,
             )
             .await?;

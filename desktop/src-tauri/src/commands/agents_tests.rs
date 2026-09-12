@@ -111,7 +111,9 @@ fn build_agent_archive_request_attaches_owner_auth_and_retired_reason() {
         &agent.public_key().to_hex(),
         Some("persona-reviewer"),
     )
-    .expect("build archive request");
+    .expect("build archive request")
+    .sign_with_keys(&owner)
+    .unwrap();
     let json: serde_json::Value = serde_json::from_str(&event.as_json()).unwrap();
     let tags = json["tags"].as_array().unwrap();
 

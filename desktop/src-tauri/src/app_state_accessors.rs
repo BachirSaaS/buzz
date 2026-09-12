@@ -41,6 +41,35 @@ impl AppState {
         }
     }
 
+    /// Capture the active user's signing capability, preserving the recovery guard.
+    pub(crate) fn active_signer(
+        &self,
+    ) -> Result<crate::active_user_signer::ActiveUserSigner, String> {
+        #[cfg(test)]
+        {
+            self.signing_keys()?;
+            if let Some(signer) = self.test_signer.lock().map_err(|e| e.to_string())?.clone() {
+                return Ok(signer);
+            }
+        }
+        self.signing_keys()
+            .map(crate::active_user_signer::ActiveUserSigner::local)
+    }
+
+    /// Capture local signing for entrypoints that historically allowed recovery mode.
+    ///
+    /// Compatibility only: HTTP reads, renderer binding, and human huddle audio/STT
+    /// used the raw key lock before signer extraction. Do not use this for new
+    /// entrypoints or replace an existing `active_signer` / `signing_keys` guard.
+    pub(crate) fn legacy_local_signer(
+        &self,
+    ) -> Result<crate::active_user_signer::ActiveUserSigner, String> {
+        self.keys
+            .lock()
+            .map_err(|e| e.to_string())
+            .map(|keys| crate::active_user_signer::ActiveUserSigner::local(keys.clone()))
+    }
+
     /// Return the active identity keys if they are in a signable state.
     ///
     /// Returns `Err` when the identity is in a lost state (`identity_lost`
