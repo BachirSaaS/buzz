@@ -569,3 +569,80 @@ async fn ingest_concurrent_webhook_saves_preserve_one_secret_and_cas_revision() 
     reject(f.send(&stale).await, "conflict:");
     assert_eq!(f.live().await.0, Some(second.id.to_bytes().to_vec()));
 }
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL"]
+async fn ingest_rejects_alternate_workflow_deletion_entrances_before_storage() {
+    let f = Fixture::new().await;
+    let create = f.save(f.now, "named-helper");
+    f.send(&create).await.expect("create");
+    let before = f.live().await;
+    let owner = f.keys.public_key();
+    for address in [
+        format!("30620:{owner}:named-helper"),
+        format!("030620:{owner}:{}", f.id),
+        format!("+30620:{owner}:{}", f.id),
+        format!("30620:{owner}:{}", f.id.simple()),
+    ] {
+        let delete = f.sign(
+            Kind::EventDeletion,
+            f.now + 1,
+            "",
+            vec![vec!["a".into(), address]],
+        );
+        assert!(
+            f.send(&delete).await.is_err(),
+            "noncanonical workflow delete must reject"
+        );
+        assert!(
+            !f.seen(&delete).await,
+            "rejection must precede durable acceptance"
+        );
+        assert_eq!(f.live().await, before);
+    }
+    for kind in [Kind::EventDeletion, Kind::Custom(9005)] {
+        let delete = f.sign(
+            kind,
+            f.now + 1,
+            "",
+            vec![
+                vec!["e".into(), create.id.to_hex()],
+                vec!["h".into(), f.channel.to_string()],
+            ],
+        );
+        assert!(
+            f.send(&delete).await.is_err(),
+            "definition-only deletion must reject"
+        );
+        assert!(!f.seen(&delete).await);
+        assert_eq!(f.live().await, before);
+    }
+    // Generic message deletion still works through each original path.
+    for (index, kind) in [Kind::EventDeletion, Kind::Custom(9005)]
+        .into_iter()
+        .enumerate()
+    {
+        let message = f.sign(
+            Kind::Custom(9),
+            f.now + index as u64,
+            "ordinary message",
+            vec![vec!["h".into(), f.channel.to_string()]],
+        );
+        f.send(&message).await.expect("message create");
+        let delete = f.sign(
+            kind,
+            f.now + 3,
+            "",
+            vec![
+                vec!["e".into(), message.id.to_hex()],
+                vec!["h".into(), f.channel.to_string()],
+            ],
+        );
+        assert!(f.send(&delete).await.expect("ordinary delete").accepted);
+        let live: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM events WHERE community_id=$1 AND id=$2 AND deleted_at IS NULL)")
+            .bind(f.tenant.community().as_uuid()).bind(message.id.as_bytes().as_slice())
+            .fetch_one(&f.pool).await.expect("live message");
+        assert!(!live, "ordinary message was deleted");
+        assert_eq!(f.live().await, before, "workflow remains untouched");
+    }
+}

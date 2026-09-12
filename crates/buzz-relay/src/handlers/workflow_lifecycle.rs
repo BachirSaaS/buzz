@@ -2,7 +2,10 @@
 
 use super::ingest::{IngestAuth, IngestError, IngestResult};
 use crate::state::AppState;
-use buzz_core::{kind::KIND_DELETION, TenantContext};
+use buzz_core::{
+    kind::{KIND_DELETION, KIND_WORKFLOW_DEF},
+    TenantContext,
+};
 use buzz_db::{
     workflow::{self, lifecycle},
     DbError,
@@ -23,7 +26,7 @@ fn db_error(error: DbError) -> IngestError {
     IngestError::Internal(format!("error: workflow lifecycle: {error}"))
 }
 
-/// Route only canonical UUID workflow a-deletes; other kind-5 operations retain their contract.
+/// Recognize every numeric workflow coordinate; reject aliases instead of falling through.
 pub(super) fn deletion_coordinate(event: &Event) -> Result<Option<Coordinate>, IngestError> {
     if u32::from(event.kind.as_u16()) != KIND_DELETION {
         return Ok(None);
@@ -37,17 +40,22 @@ pub(super) fn deletion_coordinate(event: &Event) -> Result<Option<Coordinate>, I
         (t.kind().to_string() == "a")
             .then(|| t.content())
             .flatten()
-            .filter(|v| v.starts_with("30620:"))
+            .filter(|v| {
+                v.split(':')
+                    .next()
+                    .and_then(|kind| kind.parse::<u32>().ok())
+                    == Some(KIND_WORKFLOW_DEF)
+            })
     }) else {
         return Ok(None);
     };
     let parts: Vec<_> = value.split(':').collect();
-    if parts.len() != 3 {
+    if parts.len() != 3 || parts[0] != KIND_WORKFLOW_DEF.to_string() {
         return Err(rejected("invalid: malformed workflow deletion coordinate"));
     }
-    let Ok(id) = Uuid::parse_str(parts[2]) else {
-        return Ok(None);
-    }; // legacy name-based path
+    let id = Uuid::parse_str(parts[2]).map_err(|_| {
+        rejected("invalid: workflow deletion requires a canonical UUID, not a name")
+    })?;
     if targets.len() != 1 || targets[0].as_slice().len() != 2 || parts[2] != id.to_string() {
         return Err(rejected(
             "invalid: workflow deletion requires exactly one canonical UUID coordinate",

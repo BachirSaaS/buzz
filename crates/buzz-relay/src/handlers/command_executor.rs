@@ -831,7 +831,8 @@ async fn handle_workflow_def(
         .await
         .map_err(|e| IngestError::Internal(format!("error: commit transaction: {e}")))?;
 
-    // Invalidate only after commit so a concurrent read cannot repopulate the old definition.
+    // Invalidate after commit; an older in-flight cache fill can still race this
+    // eviction (the engine bounds that existing race by its cache TTL).
     state
         .workflow_engine
         .invalidate_channel_workflows(community_id, channel_id);
