@@ -22,6 +22,8 @@ use crate::{
 };
 
 const SESSION_LIMIT: Duration = Duration::from_secs(60 * 60);
+// Streamed replies do not accumulate the short WAV input/output buffer.
+const MAX_LIVE_AUDIO_SAMPLES: u64 = 24_000 * 120;
 const MAX_CALLS: usize = 64;
 const MAX_SESSION_IDS: usize = 4096;
 // Aggregate content budget: UTF-8 text, base64 images, and decoded PCM bytes.
@@ -206,7 +208,7 @@ impl RealtimeSession {
                 duplex_audio: false,
                 backchannels: false,
                 input_context: false,
-                output_audio_limit: MAX_PCM as u64 / 2,
+                output_audio_limit: MAX_LIVE_AUDIO_SAMPLES,
             });
             let live = self.live.as_mut().ok_or_else(|| error("missing session"))?;
             let mut tools = ctx.mcp.tools();
@@ -245,7 +247,7 @@ impl RealtimeSession {
                     .as_u64()
                     .filter(|n| (1..=24000 * 3600).contains(n))
                     .ok_or_else(|| error("invalid provider live audio budget"))?;
-                live.output_audio_limit = limit;
+                live.output_audio_limit = limit.min(MAX_LIVE_AUDIO_SAMPLES);
             }
             if updated["type"] != "session.updated"
                 || ctx.cfg.thinking_effort.is_some_and(|effort| {

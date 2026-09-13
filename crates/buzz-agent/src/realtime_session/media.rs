@@ -533,11 +533,17 @@ impl State {
                 let pcm = STANDARD
                     .decode(delta)
                     .map_err(|_| error("invalid audio base64"))?;
-                if pcm.is_empty()
-                    || !pcm.len().is_multiple_of(2)
-                    || output.emitted + pcm.len() as u64 / 2 > live.output_audio_limit
-                {
-                    return Err(error("media output limit"));
+                if pcm.is_empty() || !pcm.len().is_multiple_of(2) {
+                    return Err(error("invalid media PCM: expected nonempty 16-bit samples"));
+                }
+                if output.emitted + pcm.len() as u64 / 2 > live.output_audio_limit {
+                    // Use the existing cancellation/playback/truncation fence so the
+                    // next turn retains only speech the user actually heard.
+                    self.interrupt(live, ctx.wire, ctx.session_id, &ctx.run_id)
+                        .await?;
+                    media::notify(ctx.wire, ctx.session_id, &ctx.run_id,
+                        json!({"type":"response_limited","responseId":response,"reason":"max_output_audio"})).await?;
+                    return Ok(None);
                 }
                 media::notify(
                     ctx.wire,
@@ -583,7 +589,7 @@ impl State {
                 if limited {
                     media::notify(ctx.wire, ctx.session_id, &ctx.run_id, json!({"type":"response_limited","responseId":response["id"],"reason":response["status_details"]["reason"]})).await?;
                 }
-                for item in items.iter().filter(|_| !limited) {
+                for item in items.iter().filter(|_| !limited && !self.interrupted) {
                     live.remember(field(item, "id")?)?;
                     if item["type"] == "function_call" {
                         if item["status"] != "completed" {

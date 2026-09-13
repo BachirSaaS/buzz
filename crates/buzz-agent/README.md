@@ -431,6 +431,12 @@ Existing clients keep manual turns unless they opt in:
    for client-initiated interruption. Positions cannot exceed emitted samples.
 6. Send `.../close` to end the live prompt, or use ordinary `session/cancel`.
 
+Each live spoken reply allows up to two minutes of audio (or the provider's
+smaller advertised limit). Reaching this cap cancels that reply, clears queued
+playback, and truncates its history to the reported playback position. A
+`response_limited` update reports `max_output_audio`; the microphone session
+stays open and the next reply gets a fresh budget.
+
 When `ready.input` is true, `.../input` accepts the same session/stream IDs and
 optional `context` and `text` strings (each at most 16 KiB). Context replaces a
 pending snapshot without generating a response or changing session instructions.

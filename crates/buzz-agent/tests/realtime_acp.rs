@@ -1,5 +1,7 @@
 //! Real ACP process -> standard Realtime WS -> existing permission/MCP seam.
 mod common;
+#[path = "realtime_acp/live_limits.rs"]
+mod live_limits;
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use common::{approve_permission, Harness};
