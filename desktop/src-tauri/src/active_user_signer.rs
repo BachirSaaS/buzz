@@ -74,6 +74,8 @@ pub(crate) struct ActiveUserSigner {
     public_key: PublicKey,
     signer: Arc<dyn NostrSigner>,
     agent_capabilities: Option<Arc<dyn AgentCapabilities>>,
+    validity: Option<crate::builderlab::session::SessionValidity>,
+    local_crypto: bool,
 }
 
 impl ActiveUserSigner {
@@ -84,6 +86,8 @@ impl ActiveUserSigner {
             public_key: AgentCapabilities::public_key(keys.as_ref()),
             signer: keys.clone(),
             agent_capabilities: Some(keys),
+            validity: None,
+            local_crypto: true,
         }
     }
 
@@ -95,20 +99,42 @@ impl ActiveUserSigner {
             public_key,
             signer,
             agent_capabilities: None,
+            validity: None,
+            local_crypto: false,
         })
     }
 
-    /// Attest to an agent using the captured owner, preserving exact conditions.
+    /// Install an already-verified discovery result with its immutable lifetime.
+    pub(crate) fn remote(
+        public_key: PublicKey,
+        signer: crate::remote_signer::RemoteSigner,
+        validity: crate::builderlab::session::SessionValidity,
+    ) -> Self {
+        let signer = Arc::new(signer);
+        Self {
+            public_key,
+            signer: signer.clone(),
+            validity: Some(validity),
+            agent_capabilities: Some(signer),
+            local_crypto: false,
+        }
+    }
+
+    /// Attest to one agent with the exact NIP-OA conditions, using this owner's
+    /// captured backend. The JSON string is the existing SDK caller format.
     pub(crate) async fn authorize_agent(
         &self,
         agent: &PublicKey,
         conditions: &str,
     ) -> Result<String, String> {
-        self.agent_capabilities
-            .as_ref()
-            .ok_or("signer has no owner authorization")?
-            .authorize_agent(agent, conditions)
-            .await
+        self.run(async {
+            self.agent_capabilities
+                .as_ref()
+                .ok_or("signer has no owner authorization")?
+                .authorize_agent(agent, conditions)
+                .await
+        })
+        .await
     }
 
     /// Validate and decrypt an agent memory with this captured owner. Invalid
@@ -119,11 +145,14 @@ impl ActiveUserSigner {
         event: &Event,
         agent: &PublicKey,
     ) -> Result<Option<buzz_core_pkg::engram::Body>, String> {
-        self.agent_capabilities
-            .as_ref()
-            .ok_or("signer cannot validate keyed agent memory addresses")?
-            .read_agent_memory(event, agent)
-            .await
+        self.run(async {
+            self.agent_capabilities
+                .as_ref()
+                .ok_or("signer cannot validate keyed agent memory addresses")?
+                .read_agent_memory(event, agent)
+                .await
+        })
+        .await
     }
 
     #[cfg(test)]
@@ -138,6 +167,47 @@ impl ActiveUserSigner {
         self
     }
 
+    /// Only a local library decrypt error is definitive ciphertext invalidity.
+    /// Remote operational errors must never be treated as processed records.
+    pub(crate) fn has_local_crypto(&self) -> bool {
+        self.local_crypto
+    }
+
+    /// Native generation supplements pubkey equality, including same-key reauthentication.
+    pub(crate) fn generation(&self) -> Option<u64> {
+        self.validity.as_ref().map(|v| v.generation)
+    }
+
+    /// Reject a held capability after logout, expiry or replacement.
+    pub(crate) fn check_valid(&self) -> Result<(), String> {
+        self.validity.as_ref().map_or(Ok(()), |v| v.check())
+    }
+
+    /// Wait for this captured remote session to end; local capabilities do not expire.
+    pub(crate) async fn canceled(&self) {
+        if let Some(validity) = &self.validity {
+            validity.canceled().await;
+        } else {
+            std::future::pending::<()>().await;
+        }
+    }
+
+    /// Fence an existing foreground effect, including admission, transport and result.
+    /// An already-transmitted request cannot be recalled from the relay.
+    pub(crate) async fn run<T>(
+        &self,
+        work: impl std::future::Future<Output = Result<T, String>>,
+    ) -> Result<T, String> {
+        self.check_valid()?;
+        let result = if let Some(validity) = &self.validity {
+            tokio::select! { biased; _ = validity.canceled() => Err("native authentication canceled or expired".into()), result = work => result }
+        } else {
+            work.await
+        };
+        self.check_valid()?;
+        result
+    }
+
     /// The identity captured with this signing capability.
     pub(crate) fn public_key(&self) -> PublicKey {
         self.public_key
@@ -150,10 +220,13 @@ impl ActiveUserSigner {
 
     /// Build with the captured identity and asynchronously sign without re-fetching it.
     pub(crate) async fn sign_event(&self, builder: EventBuilder) -> Result<Event, String> {
-        self.signer
-            .sign_event(builder.build(self.public_key))
-            .await
-            .map_err(|e| e.to_string())
+        self.run(async {
+            self.signer
+                .sign_event(builder.build(self.public_key))
+                .await
+                .map_err(|e| e.to_string())
+        })
+        .await
     }
 }
 
@@ -163,11 +236,24 @@ impl NostrSigner for ActiveUserSigner {
     }
 
     fn get_public_key(&self) -> BoxedFuture<'_, Result<PublicKey, SignerError>> {
-        Box::pin(async { Ok(self.public_key) })
+        Box::pin(async {
+            self.check_valid()
+                .map_err(|e| SignerError::backend(std::io::Error::other(e)))?;
+            Ok(self.public_key)
+        })
     }
 
     fn sign_event(&self, unsigned: UnsignedEvent) -> BoxedFuture<'_, Result<Event, SignerError>> {
-        self.signer.sign_event(unsigned)
+        Box::pin(async move {
+            self.run(async {
+                self.signer
+                    .sign_event(unsigned)
+                    .await
+                    .map_err(|e| e.to_string())
+            })
+            .await
+            .map_err(|e| SignerError::backend(std::io::Error::other(e)))
+        })
     }
 
     fn nip04_encrypt<'a>(
@@ -175,7 +261,16 @@ impl NostrSigner for ActiveUserSigner {
         public_key: &'a PublicKey,
         content: &'a str,
     ) -> BoxedFuture<'a, Result<String, SignerError>> {
-        self.signer.nip04_encrypt(public_key, content)
+        Box::pin(async move {
+            self.run(async {
+                self.signer
+                    .nip04_encrypt(public_key, content)
+                    .await
+                    .map_err(|e| e.to_string())
+            })
+            .await
+            .map_err(|e| SignerError::backend(std::io::Error::other(e)))
+        })
     }
 
     fn nip04_decrypt<'a>(
@@ -183,7 +278,16 @@ impl NostrSigner for ActiveUserSigner {
         public_key: &'a PublicKey,
         content: &'a str,
     ) -> BoxedFuture<'a, Result<String, SignerError>> {
-        self.signer.nip04_decrypt(public_key, content)
+        Box::pin(async move {
+            self.run(async {
+                self.signer
+                    .nip04_decrypt(public_key, content)
+                    .await
+                    .map_err(|e| e.to_string())
+            })
+            .await
+            .map_err(|e| SignerError::backend(std::io::Error::other(e)))
+        })
     }
 
     fn nip44_encrypt<'a>(
@@ -191,7 +295,16 @@ impl NostrSigner for ActiveUserSigner {
         public_key: &'a PublicKey,
         content: &'a str,
     ) -> BoxedFuture<'a, Result<String, SignerError>> {
-        self.signer.nip44_encrypt(public_key, content)
+        Box::pin(async move {
+            self.run(async {
+                self.signer
+                    .nip44_encrypt(public_key, content)
+                    .await
+                    .map_err(|e| e.to_string())
+            })
+            .await
+            .map_err(|e| SignerError::backend(std::io::Error::other(e)))
+        })
     }
 
     fn nip44_decrypt<'a>(
@@ -199,7 +312,16 @@ impl NostrSigner for ActiveUserSigner {
         public_key: &'a PublicKey,
         content: &'a str,
     ) -> BoxedFuture<'a, Result<String, SignerError>> {
-        self.signer.nip44_decrypt(public_key, content)
+        Box::pin(async move {
+            self.run(async {
+                self.signer
+                    .nip44_decrypt(public_key, content)
+                    .await
+                    .map_err(|e| e.to_string())
+            })
+            .await
+            .map_err(|e| SignerError::backend(std::io::Error::other(e)))
+        })
     }
 }
 

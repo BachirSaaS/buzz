@@ -1,17 +1,22 @@
-//! Prepare archive crypto outside SQLite, then persist accepted records atomically.
+//! Crypto preparation and atomic ready-subset persistence.
+//!
+//! This is not a retry scheduler or a remote activation boundary. The caller
+//! owns original ciphertext until commit succeeds. Remote operational errors
+//! return that ciphertext, never a terminal observer/metric processed marker.
+//! The sync lifecycle still needs its joined, bounded handoff before remote use.
 
-use nostr::{signer::SignerBackend, NostrSigner, PublicKey};
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 use zeroize::Zeroizing;
 
 use super::{
     pipeline::{BucketWithResult, Parsed},
-    store, ArchiveBatchResult,
+    store, ArchiveBatchResult, ArchiveCandidate,
 };
 use crate::active_user_signer::ActiveUserSigner;
 
 pub(crate) struct PreparedBatch {
     ready: Vec<Ready>,
+    pub(crate) retry: Vec<ArchiveCandidate>,
     dropped: u32,
 }
 
@@ -23,6 +28,13 @@ struct Ready {
     observer_channel: Option<String>,
 }
 
+fn candidate(source: Parsed) -> ArchiveCandidate {
+    ArchiveCandidate {
+        raw_event_json: source.raw_json,
+        matched_scope: source.matched_scope,
+    }
+}
+
 fn select_candidates(
     buckets: Vec<BucketWithResult>,
     ephemeral: Vec<Parsed>,
@@ -30,13 +42,15 @@ fn select_candidates(
 ) -> (PreparedBatch, Vec<Parsed>) {
     let mut batch = PreparedBatch {
         ready: Vec::new(),
+        retry: Vec::new(),
         dropped: pre_dropped,
     };
     let mut selected = ephemeral;
     for bucket in buckets {
         for source in bucket.group {
-            if bucket.relay_failed
-                || source.matched_scope.scope_type.as_str() != bucket.scope_type_str
+            if bucket.relay_failed {
+                batch.retry.push(candidate(source));
+            } else if source.matched_scope.scope_type.as_str() != bucket.scope_type_str
                 || source.matched_scope.scope_value != bucket.scope_value
                 || !bucket.returned_ids.contains(&source.event.id.to_hex())
                 || !bucket
@@ -61,7 +75,8 @@ fn requires_crypto(source: &Parsed) -> bool {
     is_observer(source) || source.event.kind.as_u16() == super::KIND_AGENT_TURN_METRIC
 }
 
-/// Consume a body verdict. Observer invalidity keeps baseline raw+NULL;
+/// Consume a definitive body verdict. None means local ciphertext/body invalid,
+/// NOT remote operational failure. Observer invalidity keeps baseline raw+NULL;
 /// metrics with invalid bodies have no canonical or index row.
 fn finish_body(batch: &mut PreparedBatch, source: Parsed, plaintext: Option<&str>) {
     let mut ready = Ready {
@@ -69,13 +84,11 @@ fn finish_body(batch: &mut PreparedBatch, source: Parsed, plaintext: Option<&str
         metric_json: None,
         observer_channel: None,
     };
-    let plaintext =
-        plaintext.filter(|text| text.len() <= buzz_core_pkg::observer::OBSERVER_MAX_PLAINTEXT_LEN);
     match ready.source.event.kind.as_u16() {
         super::KIND_AGENT_TURN_METRIC => {
             let payload = plaintext
                 .and_then(|text| {
-                    serde_json::from_str::<
+                    buzz_core_pkg::observer::parse_observer_plaintext::<
                         buzz_core_pkg::agent_turn_metric::AgentTurnMetricPayload,
                     >(text)
                     .ok()
@@ -90,7 +103,10 @@ fn finish_body(batch: &mut PreparedBatch, source: Parsed, plaintext: Option<&str
         }
         super::KIND_AGENT_OBSERVER_FRAME if is_observer(&ready.source) => {
             ready.observer_channel = plaintext
-                .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+                .and_then(|text| {
+                    buzz_core_pkg::observer::parse_observer_plaintext::<serde_json::Value>(text)
+                        .ok()
+                })
                 .and_then(|v| v.get("channelId")?.as_str().map(str::to_owned));
         }
         _ => {}
@@ -98,61 +114,85 @@ fn finish_body(batch: &mut PreparedBatch, source: Parsed, plaintext: Option<&str
     batch.ready.push(ready);
 }
 
-/// `Ok(None)` means invalid local ciphertext, not an unavailable backend.
-/// rust-nostr erases signer error types. Only its Keys backend is known to
-/// perform purely local NIP-44 decryption (this crate enables `nip44`); every
-/// other backend error must conservatively propagate, without string matching.
-/// PR2 can refine remote invalid-data verdicts here when its protocol supports
-/// them; crypto callers and the preparation/commit boundary need not change.
-async fn decrypt_body(
-    signer: &dyn NostrSigner,
-    author: &PublicKey,
-    content: &str,
-) -> Result<Option<Zeroizing<String>>, String> {
-    match signer.nip44_decrypt(author, content).await {
-        Ok(text) => Ok(Some(Zeroizing::new(text))),
-        Err(_) if matches!(signer.backend(), SignerBackend::Keys) => Ok(None),
-        // Do not expose backend error strings: they can contain sensitive data.
-        Err(_) => Err("archive decryption backend unavailable".to_owned()),
-    }
-}
-
-/// Decrypt using the captured owner without holding a connection or store lock.
-/// Local invalid bodies retain the historical raw+NULL observer index behavior;
-/// invalid metrics are dropped rather than stored as ciphertext.
-/// Operational errors abort the whole preparation, before any writes. This
-/// does not retain candidates for retry: PR2 owns recovery scheduling,
-/// including ephemeral frames that cannot be fetched again from the relay.
-pub(super) async fn prepare_archive(
+/// Prepare one independent event at a time, without a connection/store lock.
+/// Every signer error after public checks is retryable unless the backend is
+/// the local library (`has_local_crypto` must only identify that backend).
+/// In particular HTTP 400/401, malformed response and missing
+/// capability are not evidence that the signed record is terminal invalid.
+pub(crate) async fn prepare_archive(
     buckets: Vec<BucketWithResult>,
     ephemeral: Vec<Parsed>,
     pre_dropped: u32,
     signer: &ActiveUserSigner,
-) -> Result<PreparedBatch, String> {
+) -> PreparedBatch {
     let (mut batch, selected) = select_candidates(buckets, ephemeral, pre_dropped);
     for source in selected {
-        let text = if requires_crypto(&source)
-            && buzz_core_pkg::observer::content_looks_like_nip44(&source.event.content)
+        if signer.check_valid().is_err() {
+            batch.retry.push(candidate(source));
+            continue;
+        }
+        if !requires_crypto(&source) {
+            finish_body(&mut batch, source, None);
+            continue;
+        }
+        if !buzz_core_pkg::observer::content_looks_like_nip44(&source.event.content) {
+            finish_body(&mut batch, source, None);
+            continue;
+        }
+        match signer
+            .signer()
+            .nip44_decrypt(&source.event.pubkey, &source.event.content)
+            .await
         {
-            decrypt_body(signer.signer(), &source.event.pubkey, &source.event.content).await?
-        } else {
-            None
-        };
-        finish_body(&mut batch, source, text.as_deref().map(String::as_str));
+            Ok(text) => {
+                let text = Zeroizing::new(text);
+                if signer.check_valid().is_err() {
+                    batch.retry.push(candidate(source));
+                } else {
+                    finish_body(&mut batch, source, Some(&text));
+                }
+            }
+            Err(_) if signer.has_local_crypto() && signer.check_valid().is_ok() => {
+                finish_body(&mut batch, source, None);
+            }
+            Err(_) => batch.retry.push(candidate(source)),
+        }
     }
-    Ok(batch)
+    batch
 }
 
-/// Recheck subscriptions and atomically persist prepared rows and indexes.
+/// Commit only prepared records, atomically with their processed markers.
+/// Acquire SQLite write ownership BEFORE admission, including its busy wait.
+/// `admit` must check captured identity/generation/relay/lease. This primitive
+/// does not serialize logout against commit: remote callers additionally need
+/// a lifecycle permit held through COMMIT (remote activation remains closed).
 pub(crate) fn commit_ready(
     batch: &PreparedBatch,
     identity_pk: &str,
     relay_url: &str,
     now: i64,
     conn: &Connection,
+    admit: impl Fn() -> Result<(), String>,
+) -> Result<ArchiveBatchResult, String> {
+    commit_ready_guarded(batch, identity_pk, relay_url, now, conn, || Ok(()), admit)
+}
+
+/// Acquire a short owner permit only AFTER SQLite write acquisition; keep it
+/// through COMMIT. Neither the permit nor a store lock may surround HTTP.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn commit_ready_guarded<G>(
+    batch: &PreparedBatch,
+    identity_pk: &str,
+    relay_url: &str,
+    now: i64,
+    conn: &Connection,
+    acquire: impl FnOnce() -> Result<G, String>,
+    check: impl Fn() -> Result<(), String>,
 ) -> Result<ArchiveBatchResult, String> {
     let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)
         .map_err(|e| format!("failed to begin archive transaction: {e}"))?;
+    let _permit = acquire()?;
+    check()?;
     let mut result = ArchiveBatchResult {
         persisted: 0,
         persisted_agent_metrics: 0,
@@ -173,19 +213,15 @@ pub(crate) fn commit_ready(
             result.dropped += 1;
             continue;
         }
-        if is_observer(p)
-            && super::validate_ephemeral_frame(
+        if is_observer(p) {
+            super::validate_ephemeral_frame(
                 &p.event,
                 identity_pk,
                 scope_value,
                 &tx,
                 identity_pk,
                 relay_url,
-            )
-            .is_err()
-        {
-            result.dropped += 1;
-            continue;
+            )?;
         }
         let eid = p.event.id.to_hex();
         let pubkey = p.event.pubkey.to_hex();
@@ -235,6 +271,7 @@ pub(crate) fn commit_ready(
         }
         result.persisted += 1;
     }
+    check()?;
     tx.commit()
         .map_err(|e| format!("failed to commit archive transaction: {e}"))?;
     Ok(result)

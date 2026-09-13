@@ -4,6 +4,7 @@
 //! `#[path]`-included from there.
 
 use super::pipeline::BucketWithResult;
+use super::prepare::{commit_ready, prepare_archive};
 use super::*;
 use nostr::{EventBuilder, JsonUtil, Keys, Kind, Tag};
 use rusqlite::Connection;
@@ -55,7 +56,7 @@ fn add_sub(
 
 /// Run the full archive pipeline synchronously with a fake relay response.
 ///
-/// Calls `plan_archive` → injects fake relay events → `commit_archive`.
+/// Calls `plan_archive` → injects fake relay events → `prepare_archive` → `commit_ready`.
 /// This mirrors `archive_events` without the async relay calls.
 fn run_batch_sync(
     candidates: Vec<ArchiveCandidate>,
@@ -108,9 +109,8 @@ fn run_batch_sync_with_keys(
         plan.ephemeral,
         plan.pre_dropped,
         &signer,
-    ))
-    .unwrap();
-    commit_ready(&prepared, identity_pk, relay_url, 0, conn).unwrap()
+    ));
+    commit_ready(&prepared, identity_pk, relay_url, 0, conn, || Ok(())).unwrap()
 }
 
 fn candidate(event: &Event, scope_type: ScopeType, scope_value: &str) -> ArchiveCandidate {
@@ -666,7 +666,7 @@ mod real_relay {
     /// is exercised, including NIP-98 signing inside `query_relay`.
     fn make_test_app_state(keys: Keys, relay_url: &str) -> AppState {
         let state = build_app_state();
-        *state.keys.lock().unwrap() = keys;
+        state.replace_local_identity_keys(keys).unwrap();
         *state.relay_url_override.lock().unwrap() = Some(relay_url.to_string());
         state
     }
@@ -739,7 +739,7 @@ mod real_relay {
     /// Mirrors the open/drop/query/reopen pattern of production `archive_events`:
     ///   1. Open DB, run `plan_archive`, drop connection (no conn across `.await`).
     ///   2. Call `query_buckets(plan.buckets, &state).await` — NIP-98 signed.
-    ///   3. Reopen DB for `commit_archive`.
+    ///   3. Reopen DB for `prepare_archive` → `commit_ready`.
     ///
     /// Returns `ArchiveBatchResult`; caller reopens the file for row assertions.
     async fn run_batch_real_relay(
@@ -747,7 +747,7 @@ mod real_relay {
         state: &AppState,
         db_path: &Path,
     ) -> ArchiveBatchResult {
-        let identity_pk = state.keys.lock().unwrap().public_key().to_hex();
+        let identity_pk = state.local_identity_keys().unwrap().public_key().to_hex();
         let relay_url = crate::relay::relay_ws_url_with_override(state);
 
         // Phase 1: plan (sync). Connection dropped before any .await.
@@ -760,15 +760,14 @@ mod real_relay {
         // Phase 2: relay queries (async) — no Connection in scope.
         // Uses the real `query_buckets` path: query_relay → NIP-98 signed /query.
         let signer = state.legacy_local_signer().unwrap();
-        let relay_base = crate::relay::relay_http_base_url(&relay_url);
-        let bucket_results = query_buckets(plan.buckets, state, &signer, &relay_base).await;
-        let prepared = prepare_archive(bucket_results, plan.ephemeral, plan.pre_dropped, &signer)
-            .await
-            .unwrap();
+        let relay_base = crate::relay::relay_api_base_url_with_override(state);
+        let bucket_results = query_buckets(plan.buckets, state, &relay_base, &signer).await;
+        let prepared =
+            prepare_archive(bucket_results, plan.ephemeral, plan.pre_dropped, &signer).await;
 
         // Phase 3: persist (sync). Fresh connection, same file.
         let conn = store::open_archive_db(db_path).expect("open archive db for commit");
-        commit_ready(&prepared, &identity_pk, &relay_url, 0, &conn).unwrap()
+        commit_ready(&prepared, &identity_pk, &relay_url, 0, &conn, || Ok(())).unwrap()
     }
 
     /// Happy path: publish a kind:9 message to a channel, then run the archive

@@ -935,7 +935,7 @@ fn signing_keys_returns_ok_when_normal() {
         "signing_keys() must return Ok when neither flag is set"
     );
     // The returned keys must match the stored keys.
-    let expected = state.keys.lock().unwrap().clone();
+    let expected = state.local_identity_keys().unwrap().clone();
     assert_key_eq(&result.unwrap(), &expected);
 }
 
@@ -1424,11 +1424,27 @@ fn active_signer_preserves_recovery_guard_for_all_states() {
         state.identity_lost.store(lost, Ordering::Release);
         state.keyring_locked.store(locked, Ordering::Release);
         let legacy = state.legacy_local_signer().unwrap();
-        assert_eq!(legacy.public_key(), state.keys.lock().unwrap().public_key());
+        assert_eq!(
+            legacy.public_key(),
+            state.local_identity_keys().unwrap().public_key()
+        );
         let result = state.active_signer();
         assert_eq!(result.is_err(), lost || locked);
         if let Ok(signer) = result {
-            assert_eq!(signer.public_key(), state.keys.lock().unwrap().public_key());
+            assert_eq!(
+                signer.public_key(),
+                state.local_identity_keys().unwrap().public_key()
+            );
         }
     }
+}
+
+#[test]
+fn keyless_construction_ignores_configured_user_key_and_stores_no_placeholder() {
+    let configured = Keys::generate().secret_key().to_bech32().unwrap();
+    with_env_key(Some(&configured), || {
+        let state = build_app_state_for_mode(crate::native_identity::SignerMode::Remote);
+        assert!(state.local_keys.lock().unwrap().is_none());
+        assert_eq!(state.identity_storage(), IdentityStorage::Absent);
+    });
 }

@@ -180,6 +180,7 @@ pub(crate) async fn delete_persona_with<R: tauri::Runtime>(
     app: AppHandle<R>,
 ) -> Result<(), String> {
     use tauri::Manager;
+    crate::owner_authorization::require_owned_workspace(&app.state::<AppState>())?;
     // Capture every disk decision (including cascade membership and team
     // references) before attempting any witness signature.
     let (inputs, work, persona_work) = {
@@ -428,8 +429,8 @@ pub async fn set_persona_active(
 }
 
 pub(crate) const PNG_MAGIC: [u8; 4] = [0x89, 0x50, 0x4E, 0x47];
-mod card;
-mod snapshot;
+pub(crate) mod card;
+pub(crate) mod snapshot;
 pub use card::*;
 #[cfg(test)]
 pub(crate) use snapshot::import::decode_snapshot_from_bytes;

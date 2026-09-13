@@ -1,18 +1,22 @@
-//! Archive planning and captured-authority relay queries.
+//! Archive pipeline — three-phase plan/query/commit split.
 //!
 //! Separated from `mod.rs` to keep that file under the 1500-line gate.
 //!
 //! # Send-safety
 //!
-//! Planning is synchronous; relay queries never hold a SQLite connection.
+//! `rusqlite::Connection` is `!Send`. No `&Connection` borrow crosses an
+//! `.await` point in any function here. Phase 1 (`plan_archive`) and Phase 3
+//! (`prepare::commit_ready`) are sync; query and crypto preparation are async and never
+//! holds a `Connection` reference.
 
 use nostr::{Event, JsonUtil};
 use rusqlite::Connection;
 
+use crate::active_user_signer::ActiveUserSigner;
 use crate::app_state::AppState;
-use crate::{active_user_signer::ActiveUserSigner, relay::query_relay_at_with_signer};
+use crate::relay::query_relay_at_with_signer;
 
-use super::{store, validate_ephemeral_frame, ArchiveCandidate, MatchedScope};
+use super::{store, validate_ephemeral_public, ArchiveCandidate, MatchedScope};
 
 // ── Private helpers ───────────────────────────────────────────────────────────
 
@@ -34,41 +38,41 @@ fn raw_kind_value(raw: &str) -> Option<u64> {
 // ── Private types ────────────────────────────────────────────────────────────
 
 /// A parsed, sig-verified candidate ready for further processing.
-pub(super) struct Parsed {
-    pub(super) event: Event,
-    pub(super) raw_json: String,
-    pub(super) matched_scope: MatchedScope,
+pub(crate) struct Parsed {
+    pub(crate) event: Event,
+    pub(crate) raw_json: String,
+    pub(crate) matched_scope: MatchedScope,
 }
 
 /// One scope bucket: a set of candidates that share a scope type+value,
 /// with the relay filter already built and the subscription kinds loaded.
-pub(super) struct Bucket {
-    pub(super) scope_type_str: String,
-    pub(super) scope_value: String,
-    pub(super) allowed_kinds: Vec<u64>,
-    pub(super) filter: serde_json::Value,
-    pub(super) group: Vec<Parsed>,
+pub(crate) struct Bucket {
+    pub(crate) scope_type_str: String,
+    pub(crate) scope_value: String,
+    pub(crate) allowed_kinds: Vec<u64>,
+    pub(crate) filter: serde_json::Value,
+    pub(crate) group: Vec<Parsed>,
 }
 
 /// Output of the sync planning phase.
-pub(super) struct ArchivePlan {
-    pub(super) buckets: Vec<Bucket>,
-    pub(super) ephemeral: Vec<Parsed>,
+pub(crate) struct ArchivePlan {
+    pub(crate) buckets: Vec<Bucket>,
+    pub(crate) ephemeral: Vec<Parsed>,
     /// Events already accounted as dropped during planning (no subscription,
     /// unknown scope type, parse failure, bad sig).
-    pub(super) pre_dropped: u32,
+    pub(crate) pre_dropped: u32,
 }
 
 /// A bucket with the relay's response attached.
-pub(super) struct BucketWithResult {
-    pub(super) scope_type_str: String,
-    pub(super) scope_value: String,
-    pub(super) allowed_kinds: Vec<u64>,
-    pub(super) group: Vec<Parsed>,
+pub(crate) struct BucketWithResult {
+    pub(crate) scope_type_str: String,
+    pub(crate) scope_value: String,
+    pub(crate) allowed_kinds: Vec<u64>,
+    pub(crate) group: Vec<Parsed>,
     /// Event ids returned by the relay for the scoped filter.
-    pub(super) returned_ids: std::collections::HashSet<String>,
-    /// True if the relay query failed (network error); entire group dropped.
-    pub(super) relay_failed: bool,
+    pub(crate) returned_ids: std::collections::HashSet<String>,
+    /// True if the relay query failed; retain the entire group for retry.
+    pub(crate) relay_failed: bool,
 }
 
 // ── Phase 1 ──────────────────────────────────────────────────────────────────
@@ -78,7 +82,7 @@ pub(super) struct BucketWithResult {
 ///
 /// Returns an [`ArchivePlan`] with no `&Connection` remaining — safe to hold
 /// across `.await`.
-pub(super) fn plan_archive(
+pub(crate) fn plan_archive(
     candidates: Vec<ArchiveCandidate>,
     identity_pk: &str,
     relay_url: &str,
@@ -130,16 +134,21 @@ pub(super) fn plan_archive(
             && raw_kind != super::KIND_AGENT_TURN_METRIC as u64;
 
         if is_ephemeral {
-            if validate_ephemeral_frame(
-                &event,
-                identity_pk,
-                &cand.matched_scope.scope_value,
+            if validate_ephemeral_public(&event, identity_pk).is_err() {
+                pre_dropped += 1;
+                continue;
+            }
+            // DB errors propagate; they are not evidence of invalid input.
+            let allowed = store::get_subscription_kinds(
                 conn,
                 identity_pk,
                 relay_url,
-            )
-            .is_err()
-            {
+                "owner_p",
+                &cand.matched_scope.scope_value,
+            )?
+            .and_then(|json| serde_json::from_str::<Vec<u64>>(&json).ok())
+            .is_some_and(|kinds| kinds.contains(&raw_kind));
+            if !allowed {
                 pre_dropped += 1;
                 continue;
             }
@@ -239,21 +248,26 @@ pub(super) fn plan_archive(
 ///
 /// `state` is `&AppState` — a `Copy` reference — so no `!Send` value is held
 /// across `.await`.
-pub(super) async fn query_buckets(
+pub(crate) async fn query_buckets(
     buckets: Vec<Bucket>,
     state: &AppState,
+    relay_api: &str,
     signer: &ActiveUserSigner,
-    relay_base: &str,
 ) -> Vec<BucketWithResult> {
     let mut results: Vec<BucketWithResult> = Vec::with_capacity(buckets.len());
     for bucket in buckets {
-        let (returned_ids, relay_failed) =
-            match query_relay_at_with_signer(state, relay_base, &[bucket.filter], signer, None)
-                .await
-            {
-                Ok(evs) => (evs.iter().map(|e| e.id.to_hex()).collect(), false),
-                Err(_) => (std::collections::HashSet::new(), true),
-            };
+        let (returned_ids, relay_failed) = match query_relay_at_with_signer(
+            state,
+            relay_api,
+            &[bucket.filter],
+            signer,
+            None,
+        )
+        .await
+        {
+            Ok(evs) => (evs.iter().map(|e| e.id.to_hex()).collect(), false),
+            Err(_) => (std::collections::HashSet::new(), true),
+        };
         results.push(BucketWithResult {
             scope_type_str: bucket.scope_type_str,
             scope_value: bucket.scope_value,

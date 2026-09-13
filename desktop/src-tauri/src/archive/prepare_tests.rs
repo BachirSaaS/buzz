@@ -116,13 +116,13 @@ async fn delayed_decrypt_rechecks_subscription_before_commit() {
     assert!(!task.is_finished());
     conn.execute("DELETE FROM save_subscriptions", []).unwrap();
     controlled.release.notify_one();
-    let prepared = task.await.unwrap().unwrap();
+    let prepared = task.await.unwrap();
     assert_eq!(prepared.ready.len(), 1);
     assert_eq!(
         prepared.ready[0].observer_channel.as_deref(),
         Some("channel-a")
     );
-    let result = commit_ready(&prepared, &owner, relay, 0, &conn).unwrap();
+    let result = commit_ready(&prepared, &owner, relay, 0, &conn, || Ok(())).unwrap();
     assert_eq!(result.persisted, 0);
     assert_eq!(result.dropped, 1);
     let count: i64 = conn
@@ -132,7 +132,7 @@ async fn delayed_decrypt_rechecks_subscription_before_commit() {
 }
 
 #[tokio::test]
-async fn delayed_backend_failure_aborts_observer_and_metric_preparation() {
+async fn delayed_backend_failure_retains_observer_and_metric_ciphertext() {
     for kind in [24200, 44200] {
         let controlled = Arc::new(PausedDecrypt {
             keys: Keys::generate(),
@@ -170,10 +170,28 @@ async fn delayed_backend_failure_aborts_observer_and_metric_preparation() {
             group: vec![source],
             relay_failed: false,
         };
-        let task =
-            tokio::spawn(
-                async move { prepare_archive(vec![bucket], Vec::new(), 0, &signer).await },
-            );
+        let original = bucket.group[0].raw_json.clone();
+        let plain = EventBuilder::new(Kind::Custom(9), "ready message")
+            .sign_with_keys(&agent)
+            .unwrap();
+        let ready_bucket = BucketWithResult {
+            scope_type_str: "channel_h".into(),
+            scope_value: "channel-a".into(),
+            allowed_kinds: vec![9],
+            returned_ids: [plain.id.to_hex()].into_iter().collect(),
+            group: vec![Parsed {
+                raw_json: plain.as_json(),
+                event: plain,
+                matched_scope: MatchedScope {
+                    scope_type: ScopeType::ChannelH,
+                    scope_value: "channel-a".into(),
+                },
+            }],
+            relay_failed: false,
+        };
+        let task = tokio::spawn(async move {
+            prepare_archive(vec![bucket, ready_bucket], Vec::new(), 0, &signer).await
+        });
         tokio::time::timeout(
             std::time::Duration::from_secs(5),
             controlled.entered.notified(),
@@ -183,10 +201,188 @@ async fn delayed_backend_failure_aborts_observer_and_metric_preparation() {
         assert!(!task.is_finished());
         controlled.release.notify_one();
         let result = task.await.unwrap();
-        assert!(
-            matches!(result, Err(ref error) if error == "archive decryption backend unavailable")
-        );
-        // No PreparedBatch is returned: neither a processed observer NULL row
-        // nor a successful dropped-metric result can be committed.
+        assert_eq!(result.ready.len(), 1);
+        assert_eq!(result.ready[0].source.event.kind, Kind::Custom(9));
+        assert_eq!(result.dropped, 0);
+        assert_eq!(result.retry.len(), 1);
+        assert_eq!(result.retry[0].raw_event_json, original);
+        // Operational failure cannot create a processed observer NULL row or
+        // a dropped-metric verdict; the retry owner retains exact ciphertext.
     }
+}
+
+fn fixture() -> (Connection, String, PreparedBatch) {
+    let owner = Keys::generate();
+    let agent = Keys::generate();
+    let owner_pk = owner.public_key().to_hex();
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch(store::SCHEMA).unwrap();
+    store::upsert_save_subscription(
+        &conn, &owner_pk, "relay", "owner_p", &owner_pk, "[24200]", 0,
+    )
+    .unwrap();
+    let ciphertext = buzz_core_pkg::observer::encrypt_observer_payload(
+        &agent,
+        &owner.public_key(),
+        &serde_json::json!({"channelId":"channel"}),
+    )
+    .unwrap();
+    let event = EventBuilder::new(Kind::Custom(24200), ciphertext)
+        .tags([
+            Tag::parse(["p", &owner_pk]).unwrap(),
+            Tag::parse(["agent", &agent.public_key().to_hex()]).unwrap(),
+            Tag::parse(["frame", "telemetry"]).unwrap(),
+        ])
+        .sign_with_keys(&agent)
+        .unwrap();
+    let plan = plan_archive(
+        vec![ArchiveCandidate {
+            raw_event_json: event.as_json(),
+            matched_scope: MatchedScope {
+                scope_type: ScopeType::OwnerP,
+                scope_value: owner_pk.clone(),
+            },
+        }],
+        &owner_pk,
+        "relay",
+        &conn,
+    )
+    .unwrap();
+    let signer = ActiveUserSigner::local(owner.clone());
+    let batch = tauri::async_runtime::block_on(prepare_archive(vec![], plan.ephemeral, 0, &signer));
+    (conn, owner_pk, batch)
+}
+
+#[test]
+fn ready_subset_rolls_back_all_rows_on_marker_failure_and_can_retry() {
+    let (conn, owner, batch) = fixture();
+    conn.execute_batch("CREATE TRIGGER fail_marker BEFORE INSERT ON observer_channel_index BEGIN SELECT RAISE(ABORT, 'injected'); END;").unwrap();
+    assert!(commit_ready(&batch, &owner, "relay", 1, &conn, || Ok(())).is_err());
+    for table in [
+        "archived_events",
+        "archived_event_scopes",
+        "observer_channel_index",
+    ] {
+        assert_eq!(
+            conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r
+                .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+    }
+    conn.execute_batch("DROP TRIGGER fail_marker").unwrap();
+    assert_eq!(
+        commit_ready(&batch, &owner, "relay", 2, &conn, || Ok(()))
+            .unwrap()
+            .persisted,
+        1
+    );
+    assert_eq!(
+        commit_ready(&batch, &owner, "relay", 3, &conn, || Ok(()))
+            .unwrap()
+            .persisted,
+        1
+    );
+    assert_eq!(
+        conn.query_row("SELECT COUNT(*) FROM observer_channel_index", [], |r| r
+            .get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        conn.query_row("SELECT archived_at FROM archived_events", [], |r| r
+            .get::<_, i64>(0))
+            .unwrap(),
+        2
+    );
+}
+
+#[test]
+fn final_admission_failure_rolls_back_and_planning_db_error_is_not_terminal_input() {
+    let (conn, owner, batch) = fixture();
+    let checks = std::cell::Cell::new(0);
+    let result = commit_ready(&batch, &owner, "relay", 1, &conn, || {
+        checks.set(checks.get() + 1);
+        if checks.get() == 2 {
+            Err("expired at final boundary".into())
+        } else {
+            Ok(())
+        }
+    });
+    assert!(result.is_err());
+    assert_eq!(checks.get(), 2);
+    assert_eq!(
+        conn.query_row("SELECT COUNT(*) FROM archived_events", [], |r| r
+            .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    let source = &batch.ready[0].source;
+    let candidates = vec![ArchiveCandidate {
+        raw_event_json: source.raw_json.clone(),
+        matched_scope: source.matched_scope.clone(),
+    }];
+    conn.execute_batch("DROP TABLE save_subscriptions").unwrap();
+    assert!(plan_archive(candidates, &owner, "relay", &conn).is_err());
+}
+
+#[tokio::test]
+async fn admission_is_after_sqlite_busy_acquisition_not_before_it() {
+    use std::cell::RefCell;
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
+    type BusySignal = (
+        tokio::sync::oneshot::Sender<()>,
+        std::sync::mpsc::Receiver<()>,
+    );
+    thread_local! { static BUSY: RefCell<Option<BusySignal>> = const { RefCell::new(None) }; }
+    fn busy(_: i32) -> bool {
+        BUSY.with(|slot| {
+            if let Some((arrived, release)) = slot.borrow_mut().take() {
+                let _ = arrived.send(());
+                release.recv().unwrap();
+            }
+        });
+        true
+    }
+    let (_memory, owner, batch) = tokio::task::spawn_blocking(fixture).await.unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("archive.db");
+    let writer = store::open_archive_db(&path).unwrap();
+    store::upsert_save_subscription(&writer, &owner, "relay", "owner_p", &owner, "[24200]", 0)
+        .unwrap();
+    writer.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
+    let (release, release_rx) = std::sync::mpsc::channel();
+    let valid = Arc::new(AtomicBool::new(true));
+    let check = valid.clone();
+    let task = tokio::task::spawn_blocking(move || {
+        let conn = Connection::open(path).unwrap();
+        BUSY.with(|slot| *slot.borrow_mut() = Some((arrived_tx, release_rx)));
+        conn.busy_handler(Some(busy)).unwrap();
+        commit_ready(&batch, &owner, "relay", 1, &conn, || {
+            if check.load(Ordering::SeqCst) {
+                Ok(())
+            } else {
+                Err("revoked during SQLite busy wait".into())
+            }
+        })
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(3), arrived)
+        .await
+        .unwrap()
+        .unwrap();
+    valid.store(false, Ordering::SeqCst);
+    writer.execute_batch("COMMIT").unwrap();
+    release.send(()).unwrap();
+    assert!(task.await.unwrap().is_err());
+    assert_eq!(
+        writer
+            .query_row("SELECT COUNT(*) FROM archived_events", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
 }

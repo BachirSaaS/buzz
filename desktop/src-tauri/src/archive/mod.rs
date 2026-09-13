@@ -10,7 +10,7 @@
 //! a batched authed `/query`; only events the relay returns are inserted.
 //! For kind-44200 (agent turn metrics), content is decrypted at ingest and
 //! stored as plaintext JSON — invalid local ciphertext is dropped; operational
-//! backend failures propagate before committing the batch.
+//! backend failures retain ciphertext for retry while ready records commit.
 //!
 //! **Ephemeral scope** (`owner_p`, kind 24200 observer frames): the relay
 //! never stores these, so `/query` cannot verify them. The relay's REQ-time
@@ -31,7 +31,6 @@ pub mod sync;
 pub use archive_db::ArchiveDb;
 
 use pipeline::{plan_archive, query_buckets};
-use prepare::{commit_ready, prepare_archive};
 
 use nostr::Event;
 use rusqlite::Connection;
@@ -104,7 +103,7 @@ impl ScopeType {
 // ── archive_events ───────────────────────────────────────────────────────────
 
 /// One event candidate to archive.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct ArchiveCandidate {
     /// Raw Nostr event JSON.
     pub raw_event_json: String,
@@ -114,7 +113,7 @@ pub struct ArchiveCandidate {
 }
 
 /// A scope match assertion from the frontend.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct MatchedScope {
     pub scope_type: ScopeType,
     pub scope_value: String,
@@ -165,13 +164,15 @@ pub(crate) async fn archive_candidates(
     state: &AppState,
     candidates: Vec<ArchiveCandidate>,
 ) -> Result<ArchiveBatchResult, String> {
+    // Remote native ingestion remains inert until the sync owner supplies a
+    // serialized scope/lease commit permit and joined ciphertext handoff.
+    state.require_local_identity()?;
     let signer = state.legacy_local_signer()?;
     let identity_pk = signer.public_key().to_hex();
     let relay_url = relay_ws_url_with_override(state);
-    let relay_base = crate::relay::relay_http_base_url(&relay_url);
+    let relay_api = crate::relay::relay_api_base_url_with_override(state);
     let now = now_secs();
 
-    // ── Phase 1: plan (blocking SQLite) ─────────────────────────────────────
     let plan_identity_pk = identity_pk.clone();
     let plan_relay_url = relay_url.clone();
     let plan = state
@@ -179,16 +180,28 @@ pub(crate) async fn archive_candidates(
         .with_conn(move |conn| plan_archive(candidates, &plan_identity_pk, &plan_relay_url, conn))
         .await?;
 
-    // ── Phase 2: relay queries (async) ───────────────────────────────────────
-    let bucket_results = query_buckets(plan.buckets, state, &signer, &relay_base).await;
-
-    // Crypto preparation is async and owns no SQLite connection or store lock.
+    let bucket_results = query_buckets(plan.buckets, state, &relay_api, &signer).await;
+    // No Connection or ArchiveDb maintenance guard survives into this await.
     let prepared =
-        prepare_archive(bucket_results, plan.ephemeral, plan.pre_dropped, &signer).await?;
-    state
+        prepare::prepare_archive(bucket_results, plan.ephemeral, plan.pre_dropped, &signer).await;
+    let unresolved = prepared.retry.len();
+    let result = state
         .archive_db
-        .with_conn(move |conn| commit_ready(&prepared, &identity_pk, &relay_url, now, conn))
-        .await
+        .with_conn(move |conn| {
+            prepare::commit_ready(&prepared, &identity_pk, &relay_url, now, conn, || {
+                signer.check_valid()
+            })
+        })
+        .await?;
+    if unresolved != 0 {
+        // Foreground callers must replay their page, not advance a cursor on
+        // operational failure. The future sync retry owner will use the exact
+        // retry subset rather than this compatibility Result wrapper.
+        return Err(format!(
+            "archive has {unresolved} unresolved candidates; retry batch"
+        ));
+    }
+    Ok(result)
 }
 
 /// Validate an ephemeral observer frame (kind 24200) against ALL local rules.
@@ -209,6 +222,24 @@ fn validate_ephemeral_frame(
     sub_identity: &str,
     relay_url: &str,
 ) -> Result<(), String> {
+    validate_ephemeral_public(event, identity_pk)?;
+
+    // 6. Matching owner_p subscription exists AND kind 24200 is in its kinds list.
+    let kinds_json =
+        store::get_subscription_kinds(conn, sub_identity, relay_url, "owner_p", scope_value)?
+            .ok_or_else(|| format!("no owner_p subscription for scope_value={scope_value:?}"))?;
+    let allowed_kinds: Vec<u64> = serde_json::from_str::<Vec<u64>>(&kinds_json).unwrap_or_default();
+    if !allowed_kinds.contains(&(KIND_AGENT_OBSERVER_FRAME as u64)) {
+        return Err(format!(
+            "owner_p subscription kinds {kinds_json:?} does not include {KIND_AGENT_OBSERVER_FRAME}"
+        ));
+    }
+
+    Ok(())
+}
+
+/// Validate public observer protocol facts, independent of SQLite and crypto.
+fn validate_ephemeral_public(event: &Event, identity_pk: &str) -> Result<(), String> {
     // 1. Kind guard.
     if event.kind.as_u16() != KIND_AGENT_OBSERVER_FRAME {
         return Err(format!(
@@ -260,17 +291,6 @@ fn validate_ephemeral_frame(
     // 5. Event author == agent tag value.
     if event.pubkey.to_hex() != agent_value {
         return Err("observer frame author does not match agent tag".into());
-    }
-
-    // 6. Matching owner_p subscription exists AND kind 24200 is in its kinds list.
-    let kinds_json =
-        store::get_subscription_kinds(conn, sub_identity, relay_url, "owner_p", scope_value)?
-            .ok_or_else(|| format!("no owner_p subscription for scope_value={scope_value:?}"))?;
-    let allowed_kinds: Vec<u64> = serde_json::from_str::<Vec<u64>>(&kinds_json).unwrap_or_default();
-    if !allowed_kinds.contains(&(KIND_AGENT_OBSERVER_FRAME as u64)) {
-        return Err(format!(
-            "owner_p subscription kinds {kinds_json:?} does not include {KIND_AGENT_OBSERVER_FRAME}"
-        ));
     }
 
     Ok(())
@@ -624,7 +644,7 @@ pub async fn index_observer_channel_id(
 /// `channel_id` is `None` for frames where decryption found no channelId or
 /// failed; those rows are written to `observer_channel_index` with a NULL
 /// channel_id so the frame is treated as processed (no re-decrypt on re-run).
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct ObserverChannelIndexEntry {
     pub event_id: String,
     pub channel_id: Option<String>,
@@ -855,3 +875,11 @@ pub async fn archive_size_stats(
 #[cfg(test)]
 #[path = "mod_tests.rs"]
 mod mod_tests;
+
+// Reuse installed-auth HTTP fixtures against the real native pipeline without
+// making its internals a public app API.
+#[cfg(test)]
+pub(crate) mod ingress_test_support {
+    pub(crate) use super::pipeline::{plan_archive, BucketWithResult};
+    pub(crate) use super::prepare::{commit_ready, prepare_archive, PreparedBatch};
+}

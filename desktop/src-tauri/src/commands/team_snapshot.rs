@@ -512,6 +512,7 @@ pub async fn confirm_team_snapshot_import(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<TeamSnapshotImportResult, String> {
+    crate::owner_authorization::require_owned_workspace(&state)?;
     let owner = crate::owner_authorization::OwnerAuthorizationScope::capture(&state)?;
     // ── Phase 1: validate (no I/O) ───────────────────────────────────────────
     let snapshot = decode_team_snapshot_from_bytes(&input.file_bytes)?;

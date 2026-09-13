@@ -318,3 +318,105 @@ fn auxiliary_capability_must_match_captured_identity() {
     ActiveUserSigner::local(Keys::generate())
         .with_test_agent_capabilities(Arc::new(Keys::generate()));
 }
+
+fn remote_validity() -> crate::builderlab::session::SessionValidity {
+    crate::builderlab::session::SessionValidity {
+        generation: 42,
+        cancel: tokio_util::sync::CancellationToken::new(),
+        expires: chrono::Utc::now() + chrono::Duration::minutes(5),
+    }
+}
+
+#[tokio::test]
+async fn remote_memory_is_explicitly_unsupported_and_session_fenced() {
+    use crate::remote_signer::{RemoteSigner, RemoteSignerSession};
+    use buzz_core_pkg::engram::{build_event, Body};
+
+    let owner = Keys::generate();
+    let agent = Keys::generate();
+    let event = build_event(
+        &agent,
+        &owner.public_key(),
+        &Body::Memory {
+            slug: "mem/remote".into(),
+            value: Some("not an empty listing".into()),
+        },
+        1,
+    )
+    .unwrap();
+    let validity = remote_validity();
+    // No endpoint is contacted: keyed memory validation has no remote API.
+    let remote = RemoteSigner::new(
+        "https://signer.invalid/api/goose",
+        RemoteSignerSession::new("test-session", owner.public_key()).unwrap(),
+    )
+    .unwrap();
+    let signer = ActiveUserSigner::remote(owner.public_key(), remote, validity.clone());
+    assert!(!signer.has_local_crypto());
+    assert_eq!(signer.generation(), Some(42));
+    assert_eq!(
+        signer
+            .read_agent_memory(&event, &agent.public_key())
+            .await
+            .unwrap_err(),
+        "remote signer: unsupported capability"
+    );
+    validity.cancel.cancel();
+    assert!(signer
+        .read_agent_memory(&event, &agent.public_key())
+        .await
+        .unwrap_err()
+        .contains("canceled or expired"));
+    assert!(signer
+        .authorize_agent(&agent.public_key(), "kind=1")
+        .await
+        .unwrap_err()
+        .contains("canceled or expired"));
+    assert!(signer.signer().get_public_key().await.is_err());
+    tokio::time::timeout(std::time::Duration::from_secs(1), signer.canceled())
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn captured_session_cancels_pending_auxiliary_operations() {
+    for memory in [false, true] {
+        let owner = Keys::generate();
+        let agent = Keys::generate();
+        let controlled = Arc::new(ControlledAgentCapabilities {
+            keys: owner.clone(),
+            entered: Notify::new(),
+            release: Notify::new(),
+            fail: false,
+        });
+        let mut signer =
+            ActiveUserSigner::local(owner).with_test_agent_capabilities(controlled.clone());
+        let validity = remote_validity();
+        signer.validity = Some(validity.clone());
+        let task = tokio::spawn(async move {
+            if memory {
+                let event = EventBuilder::new(Kind::TextNote, "unused")
+                    .sign_with_keys(&agent)
+                    .unwrap();
+                signer
+                    .read_agent_memory(&event, &agent.public_key())
+                    .await
+                    .map(|_| ())
+            } else {
+                signer
+                    .authorize_agent(&agent.public_key(), "kind=1")
+                    .await
+                    .map(|_| ())
+            }
+        });
+        controlled.wait_entered().await;
+        validity.cancel.cancel();
+        // Never release the backend: cancellation must drop the pending work.
+        let error = tokio::time::timeout(std::time::Duration::from_secs(1), task)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap_err();
+        assert!(error.contains("canceled or expired"));
+    }
+}

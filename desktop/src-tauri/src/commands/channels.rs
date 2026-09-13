@@ -637,10 +637,16 @@ pub async fn change_channel_member_role(
 }
 
 #[tauri::command]
-pub async fn join_channel(channel_id: String, state: State<'_, AppState>) -> Result<(), String> {
+pub async fn join_channel(
+    channel_id: String,
+    expected_generation: Option<u64>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let signer = crate::native_identity::renderer_signer(&state, expected_generation)?;
+    let relay_base = relay_api_base_url_with_override(&state);
     let uuid = parse_channel_uuid(&channel_id)?;
     let builder = events::build_join(uuid)?;
-    submit_event(builder, &state).await?;
+    submit_event_at(builder, &state, &relay_base, &signer).await?;
     Ok(())
 }
 

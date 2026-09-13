@@ -77,6 +77,7 @@ pub(super) async fn delete_team_with<R: tauri::Runtime>(
     id: String,
     app: AppHandle<R>,
 ) -> Result<(), String> {
+    crate::owner_authorization::require_owned_workspace(&app.state::<AppState>())?;
     let (disk, work) = {
         let state = app.state::<AppState>();
         let _guard = state

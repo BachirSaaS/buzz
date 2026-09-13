@@ -10,23 +10,53 @@ use crate::managed_agents::config_bridge::SessionConfigCache;
 use crate::managed_agents::ManagedAgentRuntimeKey;
 
 impl AppState {
+    /// Whether this native state has remote (keyless) user custody.
+    pub(crate) fn is_remote_identity(&self) -> bool {
+        self.signer_mode.is_remote()
+    }
+
+    /// Reject raw human-key capabilities before parsing, loading or persisting keys.
+    pub(crate) fn require_local_identity(&self) -> Result<(), String> {
+        if self.is_remote_identity() {
+            Err("local user keys are unsupported in remote signer mode".into())
+        } else {
+            Ok(())
+        }
+    }
+
     /// Compatibility local-key access, preserving historical recovery exceptions.
     /// New signing paths must use active_signer/signing_keys instead.
     pub(crate) fn local_identity_keys(&self) -> Result<Keys, String> {
-        self.keys
+        self.require_local_identity()?;
+        self.local_keys
             .lock()
-            .map(|keys| keys.clone())
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?
+            .clone()
+            .ok_or_else(|| "local identity is unavailable".into())
+    }
+
+    /// Hold local identity replacement out of a short archive commit.
+    pub(crate) fn archive_local_admission(
+        &self,
+        owner: nostr::PublicKey,
+    ) -> Result<impl Sized + '_, String> {
+        self.require_local_identity()?;
+        let guard = self.local_keys.lock().map_err(|e| e.to_string())?;
+        if guard.as_ref().is_none_or(|keys| keys.public_key() != owner) {
+            return Err("archive owner changed".into());
+        }
+        Ok(guard)
     }
 
     /// Test-only replacement; production installs identity storage or a workspace.
     #[cfg(test)]
     pub(crate) fn replace_local_identity_keys(&self, keys: Keys) -> Result<(), String> {
+        self.require_local_identity()?;
         let mut generation = self
             .operation_generation
             .lock()
             .map_err(|e| e.to_string())?;
-        *self.keys.lock().map_err(|e| e.to_string())? = keys;
+        *self.local_keys.lock().map_err(|e| e.to_string())? = Some(keys);
         *generation = generation.wrapping_add(1);
         Ok(())
     }
@@ -37,39 +67,42 @@ impl AppState {
         keys: Keys,
         storage: crate::identity_storage::IdentityStorage,
     ) -> Result<(), String> {
+        self.require_local_identity()?;
         let mut generation = self
             .operation_generation
             .lock()
             .map_err(|e| e.to_string())?;
-        let mut guard = self.keys.lock().map_err(|e| e.to_string())?;
-        *guard = keys;
+        let mut guard = self.local_keys.lock().map_err(|e| e.to_string())?;
+        *guard = Some(keys);
         self.set_identity_storage(storage);
         *generation = generation.wrapping_add(1);
         Ok(())
     }
 
     /// Replace the workspace identity and relay as one foreground-operation boundary.
-    /// Reapplying the same local owner/relay is not a new authentication session.
-    /// Retire captures only on a real scope transition (including away and back).
+    /// Identical local owner/relay reapply preserves PR1 operation lifetime.
     pub(crate) fn install_local_workspace(
         &self,
         relay_url: String,
         keys: Option<Keys>,
     ) -> Result<(), String> {
+        self.require_local_identity()?;
         let mut generation = self
             .operation_generation
             .lock()
             .map_err(|e| e.to_string())?;
         let mut relay = self.relay_url_override.lock().map_err(|e| e.to_string())?;
-        let mut current_keys = self.keys.lock().map_err(|e| e.to_string())?;
+        let mut current_keys = self.local_keys.lock().map_err(|e| e.to_string())?;
         let current_relay = relay.clone().unwrap_or_else(crate::relay::relay_ws_url);
         let changed = current_relay != relay_url
-            || keys
-                .as_ref()
-                .is_some_and(|keys| keys.public_key() != current_keys.public_key());
+            || keys.as_ref().is_some_and(|keys| {
+                current_keys
+                    .as_ref()
+                    .is_none_or(|current| current.public_key() != keys.public_key())
+            });
         *relay = Some(relay_url);
         if let Some(keys) = keys {
-            *current_keys = keys;
+            *current_keys = Some(keys);
         }
         if changed {
             *generation = generation.wrapping_add(1);
@@ -82,7 +115,9 @@ impl AppState {
         &self,
     ) -> Result<crate::identity_storage::LocalIdentitySnapshot, String> {
         use std::sync::atomic::Ordering::Acquire;
-        let keys = self.keys.lock().map_err(|e| e.to_string())?;
+        self.require_local_identity()?;
+        let keys = self.local_keys.lock().map_err(|e| e.to_string())?;
+        let keys = keys.as_ref().ok_or("local identity is unavailable")?;
         Ok(crate::identity_storage::LocalIdentitySnapshot {
             pubkey: keys.public_key(),
             storage: self.identity_storage(),
@@ -94,10 +129,10 @@ impl AppState {
 
     /// Public identity for reads that historically allowed local recovery mode.
     pub(crate) fn identity_public_key(&self) -> Result<nostr::PublicKey, String> {
-        self.keys
-            .lock()
-            .map(|keys| keys.public_key())
-            .map_err(|e| e.to_string())
+        if self.is_remote_identity() {
+            return self.active_signer().map(|signer| signer.public_key());
+        }
+        self.local_identity_keys().map(|keys| keys.public_key())
     }
 
     /// Lock the huddle state mutex, converting a poisoned-lock error to a String.
@@ -135,6 +170,9 @@ impl AppState {
     pub(crate) fn active_signer(
         &self,
     ) -> Result<crate::active_user_signer::ActiveUserSigner, String> {
+        if self.is_remote_identity() {
+            return self.native_auth.active_signer();
+        }
         #[cfg(test)]
         {
             self.signing_keys()?;
@@ -154,10 +192,11 @@ impl AppState {
     pub(crate) fn legacy_local_signer(
         &self,
     ) -> Result<crate::active_user_signer::ActiveUserSigner, String> {
-        self.keys
-            .lock()
-            .map_err(|e| e.to_string())
-            .map(|keys| crate::active_user_signer::ActiveUserSigner::local(keys.clone()))
+        if self.is_remote_identity() {
+            return self.active_signer();
+        }
+        self.local_identity_keys()
+            .map(crate::active_user_signer::ActiveUserSigner::local)
     }
 
     /// Return the active identity keys if they are in a signable state.
@@ -169,6 +208,7 @@ impl AppState {
     /// this instead of locking `state.keys` directly, so that recovery mode
     /// blocks publishing under an invalid or inaccessible identity.
     pub fn signing_keys(&self) -> Result<Keys, String> {
+        self.require_local_identity()?;
         if self
             .identity_lost
             .load(std::sync::atomic::Ordering::Acquire)
@@ -180,10 +220,7 @@ impl AppState {
                  until the identity is restored and Buzz is relaunched"
                 .to_string());
         }
-        self.keys
-            .lock()
-            .map_err(|e| e.to_string())
-            .map(|k| k.clone())
+        self.local_identity_keys()
     }
 
     /// Emit the current huddle state to the frontend via Tauri event.

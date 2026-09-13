@@ -44,7 +44,7 @@ pub struct MeshCoordinator {
 pub async fn start_coordinator(app: AppHandle) {
     {
         let state = app.state::<AppState>();
-        if state.mesh_coordinator.lock().await.is_some() {
+        if state.is_remote_identity() || state.mesh_coordinator.lock().await.is_some() {
             return;
         }
     }

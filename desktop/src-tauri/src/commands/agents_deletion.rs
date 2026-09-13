@@ -7,6 +7,7 @@ pub(super) async fn delete_managed_agent_with<R: tauri::Runtime>(
     app: AppHandle<R>,
 ) -> Result<(), String> {
     use tauri::Manager;
+    crate::owner_authorization::require_owned_workspace(&app.state::<AppState>())?;
     // Snapshot the exact target before signing. No destructive operation or
     // process synchronization is allowed before the signatures finish.
     let (record_input, work) = {

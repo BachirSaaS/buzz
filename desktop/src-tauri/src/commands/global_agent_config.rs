@@ -136,7 +136,7 @@ type SavedDefaults = (
 );
 
 /// The blocking save/candidate phase, before any automatic restart awaits.
-pub(super) fn save_defaults_in_scope<R: tauri::Runtime>(
+pub(crate) fn save_defaults_in_scope<R: tauri::Runtime>(
     app: &AppHandle<R>,
     state: &AppState,
     config: &GlobalAgentConfig,

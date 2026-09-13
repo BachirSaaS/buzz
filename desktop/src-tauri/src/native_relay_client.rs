@@ -91,7 +91,7 @@ pub(crate) struct NativeRelayClient {
 }
 
 struct ManagedSession {
-    scope: (String, String),
+    scope: (String, String, Option<u64>),
     session: Arc<RelaySession>,
 }
 
@@ -136,6 +136,19 @@ impl Drop for SessionLease {
 }
 
 impl NativeRelayClient {
+    /// Remove a revoked cached generation without tearing down a replacement.
+    pub(crate) async fn clear_invalidated(&self) {
+        let mut current = self.current.lock().await;
+        if current
+            .as_ref()
+            .is_some_and(|s| s.session.signer.check_valid().is_err())
+        {
+            if let Some(old) = current.take() {
+                old.session.shutdown();
+            }
+        }
+    }
+
     /// Installs the session for `scope`, shutting down whatever scope held the
     /// slot. Destructive on entry, so every caller must already hold proof it
     /// is the current owner — today that is
@@ -145,8 +158,16 @@ impl NativeRelayClient {
         relay_url: String,
         signer: ActiveUserSigner,
     ) -> Arc<RelaySession> {
-        let scope = (relay_url.clone(), signer.public_key().to_hex());
+        let scope = (
+            relay_url.clone(),
+            signer.public_key().to_hex(),
+            signer.generation(),
+        );
         let mut current = self.current.lock().await;
+        if signer.check_valid().is_err() {
+            return start_managed(relay_url, signer, None);
+        }
+
         if let Some(managed) = current.as_ref().filter(|managed| managed.scope == scope) {
             return Arc::clone(&managed.session);
         }
@@ -196,8 +217,28 @@ impl NativeRelayClient {
         relay_url: String,
         signer: ActiveUserSigner,
     ) -> SessionLease {
-        let scope = (relay_url.clone(), signer.public_key().to_hex());
+        let scope = (
+            relay_url.clone(),
+            signer.public_key().to_hex(),
+            signer.generation(),
+        );
         let mut current = self.current.lock().await;
+        // Old private leases cannot refill a cleared cache, even on same-key login.
+        if signer.check_valid().is_err() {
+            return SessionLease {
+                session: start_managed(relay_url, signer, None),
+                private: true,
+            };
+        }
+        if current
+            .as_ref()
+            .is_some_and(|s| s.session.signer.check_valid().is_err())
+        {
+            if let Some(old) = current.take() {
+                old.session.shutdown();
+            }
+        }
+
         if let Some(managed) = current.as_ref() {
             return if managed.scope == scope {
                 SessionLease {
@@ -245,6 +286,7 @@ impl NativeRelayClient {
 }
 
 pub(crate) struct RelaySession {
+    signer: ActiveUserSigner,
     state: Arc<Mutex<SessionState>>,
     requests: Arc<Mutex<HashMap<String, PendingRequest>>>,
     /// The archive is the sole persistent-event consumer. Sending through its
@@ -322,34 +364,38 @@ impl RelaySession {
         filter: serde_json::Value,
         timeout: Duration,
     ) -> Result<Vec<Event>, String> {
-        let id = format!("native-fetch-{}", uuid::Uuid::new_v4());
-        let (complete, result) = oneshot::channel();
-        self.requests.lock().await.insert(
-            id.clone(),
-            PendingRequest {
-                events: Vec::new(),
-                complete,
-            },
-        );
-        {
-            let mut state = self.state.lock().await;
-            state.transient.push(Subscription {
-                id: id.clone(),
-                filter,
-            });
-        }
-        let _ = self.wake.try_send(());
+        self.signer
+            .run(async {
+                let id = format!("native-fetch-{}", uuid::Uuid::new_v4());
+                let (complete, result) = oneshot::channel();
+                self.requests.lock().await.insert(
+                    id.clone(),
+                    PendingRequest {
+                        events: Vec::new(),
+                        complete,
+                    },
+                );
+                {
+                    let mut state = self.state.lock().await;
+                    state.transient.push(Subscription {
+                        id: id.clone(),
+                        filter,
+                    });
+                }
+                let _ = self.wake.try_send(());
 
-        let outcome = tokio::select! {
-            _ = self.cancel.cancelled() => Err("relay session cancelled".to_string()),
-            value = tokio::time::timeout(timeout, result) => match value {
-                Ok(Ok(value)) => value,
-                Ok(Err(_)) => Err("relay request ended before EOSE".to_string()),
-                Err(_) => Err("relay request timed out".to_string()),
-            }
-        };
-        self.finish_request(&id).await;
-        outcome
+                let outcome = tokio::select! {
+                    _ = self.cancel.cancelled() => Err("relay session cancelled".to_string()),
+                    value = tokio::time::timeout(timeout, result) => match value {
+                        Ok(Ok(value)) => value,
+                        Ok(Err(_)) => Err("relay request ended before EOSE".to_string()),
+                        Err(_) => Err("relay request timed out".to_string()),
+                    }
+                };
+                self.finish_request(&id).await;
+                outcome
+            })
+            .await
     }
 
     async fn finish_request(&self, id: &str) {
@@ -420,6 +466,7 @@ fn start_managed(
 ) -> Arc<RelaySession> {
     let (wake, wake_rx) = mpsc::channel(1);
     let session = Arc::new(RelaySession {
+        signer: signer.clone(),
         state: Arc::new(Mutex::new(SessionState::default())),
         requests: Arc::new(Mutex::new(HashMap::new())),
         archive_events: Arc::new(Mutex::new(None)),
@@ -427,13 +474,23 @@ fn start_managed(
         cancel: CancellationToken::new(),
     });
 
-    tauri::async_runtime::spawn(run_session(
-        relay_url,
-        signer,
-        auth_tag,
-        Arc::clone(&session),
-        wake_rx,
-    ));
+    let task_session = Arc::clone(&session);
+    tauri::async_runtime::spawn(async move {
+        let _ = signer
+            .run(async {
+                run_session(
+                    relay_url,
+                    signer.clone(),
+                    auth_tag,
+                    task_session.clone(),
+                    wake_rx,
+                )
+                .await;
+                Ok(())
+            })
+            .await;
+        task_session.shutdown();
+    });
 
     session
 }

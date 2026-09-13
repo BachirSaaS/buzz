@@ -8,6 +8,7 @@ pub(crate) struct UserOperationScope {
     pub(crate) owner_pubkey: nostr::PublicKey,
     pub(crate) relay_url: String,
     generation: u64,
+    native_generation: Option<u64>,
 }
 
 impl UserOperationScope {
@@ -26,6 +27,11 @@ impl UserOperationScope {
             owner_pubkey: state.identity_public_key()?,
             relay_url: crate::relay::relay_ws_url_with_override(state),
             generation,
+            native_generation: if state.is_remote_identity() {
+                state.active_signer()?.generation()
+            } else {
+                None
+            },
         })
     }
 
@@ -40,6 +46,11 @@ impl UserOperationScope {
             .operation_generation
             .lock()
             .map_err(|e| e.to_string())?;
+        if state.is_remote_identity()
+            && state.active_signer()?.generation() != self.native_generation
+        {
+            return Err("owner authorization scope changed; retry operation".into());
+        }
         if *generation != self.generation
             || state.identity_public_key()? != self.owner_pubkey
             || crate::relay::relay_ws_url_with_override(state) != self.relay_url
@@ -60,6 +71,20 @@ impl<'de, R: tauri::Runtime> tauri::ipc::CommandArg<'de, R> for UserOperationSco
             .try_get::<AppState>()
             .ok_or_else(|| tauri::ipc::InvokeError::from("native app state unavailable"))?;
         let operation = Self::capture(&state)?;
+        if state.is_remote_identity() {
+            let expected = crate::native_identity::invocation_generation(
+                command.message.payload(),
+                command.message.headers(),
+            );
+            if operation.native_generation != expected {
+                return Err(
+                    "renderer operation requires the current native identity generation".into(),
+                );
+            }
+            state
+                .native_auth
+                .workspace_signer(expected, &operation.relay_url)?;
+        }
         Ok(operation)
     }
 }

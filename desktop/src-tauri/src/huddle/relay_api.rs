@@ -185,6 +185,7 @@ pub(crate) async fn connect_audio_relay(
     parent_channel_id: Option<&str>,
     state: &AppState,
 ) -> Result<(CancellationToken, tokio::sync::mpsc::Sender<Vec<u8>>), String> {
+    super::require_owned_human_audio(state)?;
     let relay_url = crate::relay::relay_ws_url_with_override(state);
     let signer = state.legacy_local_signer()?;
 

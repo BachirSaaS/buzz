@@ -427,7 +427,7 @@ pub(crate) async fn update_team_with<R: tauri::Runtime>(
 }
 
 #[tauri::command]
-pub async fn delete_team(id: String, app: AppHandle) -> Result<(), String> {
+pub async fn delete_team<R: tauri::Runtime>(id: String, app: AppHandle<R>) -> Result<(), String> {
     deletion::delete_team_with(id, app).await
 }
 

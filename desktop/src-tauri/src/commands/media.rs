@@ -11,8 +11,8 @@ use crate::relay::{parse_json_response, relay_api_base_url_with_override, relay_
 
 use super::media_filename::sanitize_filename;
 use super::media_transcode::{
-    has_heic_extension, is_heic_file, is_video_file, transcode_and_extract_poster,
-    transcode_and_extract_poster_with_cancellation, transcode_heic_path_to_jpeg_bytes,
+    has_heic_extension, is_heic_file, is_video_file,
+    transcode_and_extract_poster_with_cancellation,
     transcode_heic_path_to_jpeg_bytes_with_cancellation,
 };
 use super::media_upload_progress::{emit_media_upload_phase, send_upload_attempt, UploadAttempt};
@@ -396,23 +396,88 @@ fn should_retry_legacy_upload(status: reqwest::StatusCode) -> bool {
 
 /// One upload destination/identity captured before picker or transcode waits.
 /// Video and poster uploads and legacy retries must all retain this binding.
-struct MediaUploadScope {
+pub(crate) struct MediaUploadScope {
     signer: ActiveUserSigner,
     relay_base: String,
+    cancellation: CancellationToken,
+    cancellation_task: tokio::task::JoinHandle<()>,
+}
+
+impl Drop for MediaUploadScope {
+    fn drop(&mut self) {
+        // Dropping an IPC future must also stop its blocking transcode worker.
+        self.cancellation.cancel();
+        self.cancellation_task.abort();
+    }
 }
 
 impl MediaUploadScope {
-    fn capture(state: &AppState) -> Result<Self, String> {
+    fn capture(state: &AppState, parent: Option<&CancellationToken>) -> Result<Self, String> {
         // Workspace installation uses this lock too: capture one coherent pair,
         // not an old signer with a newly installed relay. Release before I/O.
-        let _generation = state
+        let _admission = state
             .operation_generation
             .lock()
             .map_err(|e| e.to_string())?;
+        let signer = state.active_signer()?;
+        Self::with_signer(state, parent, signer)
+    }
+
+    fn with_signer(
+        state: &AppState,
+        parent: Option<&CancellationToken>,
+        signer: ActiveUserSigner,
+    ) -> Result<Self, String> {
+        let cancellation = parent
+            .map(CancellationToken::child_token)
+            .unwrap_or_default();
+        let cancel = cancellation.clone();
+        let lifetime = signer.clone();
+        let cancellation_task = tokio::spawn(async move {
+            lifetime.canceled().await;
+            cancel.cancel();
+        });
         Ok(Self {
-            signer: state.active_signer()?,
+            signer,
             relay_base: relay_api_base_url_with_override(state),
+            cancellation,
+            cancellation_task,
         })
+    }
+    pub(super) fn with_parent(mut self, parent: Option<&CancellationToken>) -> Self {
+        self.cancellation_task.abort();
+        self.cancellation = parent
+            .map(CancellationToken::child_token)
+            .unwrap_or_default();
+        let cancel = self.cancellation.clone();
+        let signer = self.signer.clone();
+        self.cancellation_task = tokio::spawn(async move {
+            signer.canceled().await;
+            cancel.cancel();
+        });
+        self
+    }
+}
+
+impl<'de, R: tauri::Runtime> tauri::ipc::CommandArg<'de, R> for MediaUploadScope {
+    fn from_command(
+        command: tauri::ipc::CommandItem<'de, R>,
+    ) -> Result<Self, tauri::ipc::InvokeError> {
+        let state = command
+            .message
+            .state_ref()
+            .try_get::<AppState>()
+            .ok_or_else(|| tauri::ipc::InvokeError::from("native app state unavailable"))?;
+        let _admission = state
+            .operation_generation
+            .lock()
+            .map_err(|e| e.to_string())?;
+        let generation = crate::native_identity::invocation_generation(
+            command.message.payload(),
+            command.message.headers(),
+        );
+        let signer = crate::native_identity::renderer_signer(&state, generation)?;
+        Self::with_signer(&state, None, signer).map_err(Into::into)
     }
 }
 
@@ -420,20 +485,41 @@ pub(crate) async fn upload_image_bytes(
     body: Vec<u8>,
     state: &AppState,
 ) -> Result<BlobDescriptor, String> {
-    let upload = MediaUploadScope::capture(state)?;
+    let upload = MediaUploadScope::capture(state, None)?;
     let mime = detect_and_validate_mime(&body)?;
     if !mime.starts_with("image/") {
         return Err("profile avatar must be an image".to_string());
     }
     let body = sanitize_image_for_upload(body, &mime)?;
-    do_upload(body, &mime, state, None, None, &upload).await
+    do_upload::<tauri::Wry>(body, &mime, state, None, None, &upload).await
 }
 
-async fn do_upload(
+async fn do_upload<R: tauri::Runtime>(
     body: Vec<u8>,
     mime: &str,
     state: &AppState,
-    progress: Option<(tauri::AppHandle, String)>,
+    progress: Option<(tauri::AppHandle<R>, String)>,
+    cancellation: Option<&CancellationToken>,
+    upload: &MediaUploadScope,
+) -> Result<BlobDescriptor, String> {
+    upload
+        .signer
+        .run(do_upload_captured(
+            body,
+            mime,
+            state,
+            progress,
+            cancellation,
+            upload,
+        ))
+        .await
+}
+
+async fn do_upload_captured<R: tauri::Runtime>(
+    body: Vec<u8>,
+    mime: &str,
+    state: &AppState,
+    progress: Option<(tauri::AppHandle<R>, String)>,
     cancellation: Option<&CancellationToken>,
     upload: &MediaUploadScope,
 ) -> Result<BlobDescriptor, String> {
@@ -506,8 +592,8 @@ pub async fn upload_media(
     file_path: String,
     is_temp: bool,
     state: State<'_, AppState>,
+    upload: MediaUploadScope,
 ) -> Result<BlobDescriptor, String> {
-    let upload = MediaUploadScope::capture(&state)?;
     let path = std::path::Path::new(&file_path);
     let mut file = std::fs::File::open(path).map_err(|e| e.to_string())?;
 
@@ -526,12 +612,19 @@ pub async fn upload_media(
     drop(file);
 
     if is_temp {
+        let _admission = state
+            .operation_generation
+            .lock()
+            .map_err(|e| e.to_string())?;
+        if state.is_remote_identity() {
+            state.native_auth.check_signer(&upload.signer)?;
+        }
         let _ = std::fs::remove_file(&fd_path);
     }
 
     let mime = detect_and_validate_mime(&body)?;
     let body = sanitize_image_for_upload(body, &mime)?;
-    do_upload(body, &mime, &state, None, None, &upload).await
+    do_upload::<tauri::Wry>(body, &mime, &state, None, None, &upload).await
 }
 
 /// Read a picked path through the TOCTOU-safe pipeline (fd pin → sniff →
@@ -541,11 +634,11 @@ pub async fn upload_media(
 /// not an image (videos and non-image files error out; HEIC/HEIF still
 /// transcode to JPEG, which is an image). This keeps discarded/non-image
 /// files from ever leaving the client on image-only surfaces.
-async fn process_picked_path(
+async fn process_picked_path<R: tauri::Runtime>(
     path: std::path::PathBuf,
     state: &AppState,
     images_only: bool,
-    progress: Option<(tauri::AppHandle, String)>,
+    progress: Option<(tauri::AppHandle<R>, String)>,
     upload: &MediaUploadScope,
 ) -> Result<BlobDescriptor, String> {
     // Pin the inode by opening the fd BEFORE spawn_blocking. This prevents a
@@ -560,6 +653,7 @@ async fn process_picked_path(
 
     // All sync I/O (sniff, transcode, read) runs off the async runtime to
     // avoid blocking Tokio worker threads during long ffmpeg transcodes.
+    let cancellation = upload.cancellation.clone();
     let (body, poster_bytes) =
         tokio::task::spawn_blocking(move || -> Result<(Vec<u8>, Option<Vec<u8>>), String> {
             use std::io::Read;
@@ -579,7 +673,8 @@ async fn process_picked_path(
                 // completes — this prevents the inode from being unlinked or
                 // the resolved path from becoming stale during the ffmpeg run.
                 let fd_path = fd_real_path(&file)?;
-                let result = transcode_and_extract_poster(&fd_path);
+                let result =
+                    transcode_and_extract_poster_with_cancellation(&fd_path, Some(&cancellation));
                 drop(file); // release fd only after ffmpeg is done
                 result
             } else if heic_by_ext || is_heic_file(&header[..n]) {
@@ -588,7 +683,11 @@ async fn process_picked_path(
                 // fd's real path so ffmpeg reads the pinned inode, and keep
                 // `file` alive until the transcode finishes.
                 let fd_path = fd_real_path(&file)?;
-                let result = transcode_heic_path_to_jpeg_bytes(&fd_path).map(|jpeg| (jpeg, None));
+                let result = transcode_heic_path_to_jpeg_bytes_with_cancellation(
+                    &fd_path,
+                    Some(&cancellation),
+                )
+                .map(|jpeg| (jpeg, None));
                 drop(file); // release fd only after ffmpeg is done
                 result
             } else {
@@ -602,6 +701,7 @@ async fn process_picked_path(
         .await
         .map_err(|e| format!("transcode task failed: {e}"))??;
 
+    upload.signer.check_valid()?;
     let mime = detect_and_validate_mime(&body)?;
     let body = sanitize_image_for_upload(body, &mime)?;
 
@@ -615,12 +715,13 @@ async fn process_picked_path(
     // the video descriptor is returned without an image field.
     let mut descriptor = do_upload(body, &mime, state, progress, None, upload).await?;
     if let Some(poster) = poster_bytes {
-        match do_upload(poster, "image/jpeg", state, None, None, upload).await {
+        match do_upload::<R>(poster, "image/jpeg", state, None, None, upload).await {
             Ok(poster_desc) => descriptor.image = Some(poster_desc.url),
             Err(e) => eprintln!("buzz-desktop: poster upload failed (non-fatal): {e}"),
         }
     }
 
+    upload.signer.check_valid()?;
     descriptor.filename = path
         .file_name()
         .and_then(|n| n.to_str())
@@ -650,8 +751,8 @@ pub async fn pick_and_upload_media(
     app: tauri::AppHandle,
     progress_id: Option<String>,
     state: State<'_, AppState>,
+    upload: MediaUploadScope,
 ) -> Result<Vec<BlobDescriptor>, String> {
-    let upload = MediaUploadScope::capture(&state)?;
     use tauri_plugin_dialog::DialogExt;
 
     let (tx, rx) = tokio::sync::oneshot::channel();
@@ -661,7 +762,11 @@ pub async fn pick_and_upload_media(
         let _ = tx.send(paths);
     });
 
-    let file_paths = match rx.await.map_err(|_| "dialog cancelled".to_string())? {
+    let file_paths = match upload
+        .signer
+        .run(async { rx.await.map_err(|_| "dialog cancelled".to_string()) })
+        .await?
+    {
         Some(paths) => paths,
         None => return Ok(Vec::new()),
     };
@@ -691,8 +796,8 @@ pub async fn pick_and_upload_media(
 pub async fn pick_and_upload_image(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
+    upload: MediaUploadScope,
 ) -> Result<Option<BlobDescriptor>, String> {
-    let upload = MediaUploadScope::capture(&state)?;
     use tauri_plugin_dialog::DialogExt;
 
     let (tx, rx) = tokio::sync::oneshot::channel();
@@ -706,25 +811,29 @@ pub async fn pick_and_upload_image(
             let _ = tx.send(path);
         });
 
-    let file_path = match rx.await.map_err(|_| "dialog cancelled".to_string())? {
+    let file_path = match upload
+        .signer
+        .run(async { rx.await.map_err(|_| "dialog cancelled".to_string()) })
+        .await?
+    {
         Some(path) => path,
         None => return Ok(None),
     };
 
     let path = file_path.as_path().ok_or("invalid path")?.to_path_buf();
-    let descriptor = process_picked_path(path, &state, true, None, &upload).await?;
+    let descriptor = process_picked_path::<tauri::Wry>(path, &state, true, None, &upload).await?;
     Ok(Some(descriptor))
 }
 
-pub(super) async fn upload_media_bytes_inner(
+pub(super) async fn upload_media_bytes_in_scope<R: tauri::Runtime>(
     data: Vec<u8>,
     filename: Option<String>,
     progress_id: Option<String>,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
-    cancellation: Option<&CancellationToken>,
+    upload: MediaUploadScope,
 ) -> Result<BlobDescriptor, String> {
-    let upload = MediaUploadScope::capture(&state)?;
+    let cancellation = Some(&upload.cancellation);
     if data.is_empty() {
         return Err("empty upload".to_string());
     }
@@ -802,12 +911,13 @@ pub(super) async fn upload_media_bytes_inner(
 
     emit_media_upload_phase(&app, progress_id.as_deref(), "finishing");
     if let Some(poster) = poster_bytes {
-        match do_upload(poster, "image/jpeg", &state, None, cancellation, &upload).await {
+        match do_upload::<R>(poster, "image/jpeg", &state, None, cancellation, &upload).await {
             Ok(poster_desc) => descriptor.image = Some(poster_desc.url),
             Err(e) => eprintln!("buzz-desktop: poster upload failed (non-fatal): {e}"),
         }
     }
 
+    upload.signer.check_valid()?;
     descriptor.filename = filename.as_deref().map(|name| {
         let upload_name = if is_voice_note {
             voice_note_mp4_filename(name)

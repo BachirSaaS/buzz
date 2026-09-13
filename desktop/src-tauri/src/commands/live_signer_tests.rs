@@ -183,6 +183,7 @@ async fn live_message_command_pins_thread_query_event_auth_and_cursor() {
                 Some(kind),
                 Some(base),
                 Some(owner),
+                None,
                 app.state(),
             )
             .await
@@ -221,6 +222,7 @@ async fn live_message_failure_and_scope_validation_never_egress() {
         send_channel_message(
             uuid::Uuid::new_v4().to_string(),
             "hello".into(),
+            None,
             None,
             None,
             None,
@@ -378,7 +380,15 @@ async fn live_deferred_profile_keeps_monotonic_template_and_captured_scope() {
     let base = f.base.clone();
     let owner = f.controlled.keys.public_key().to_hex();
     let task = tokio::spawn(async move {
-        update_profile_at_relay(base, owner, Some("old".into()), "new".into(), app.state()).await
+        update_profile_at_relay(
+            base,
+            owner,
+            Some("old".into()),
+            "new".into(),
+            None,
+            app.state(),
+        )
+        .await
     });
     f.controlled.wait_entered().await;
     f.switch_identity_and_relay();
@@ -454,6 +464,7 @@ async fn profile_edit_retains_owner_and_relay_across_read_write_reread() {
             Some("Captured profile".into()),
             None,
             Some("About".into()),
+            None,
             None,
             app.state::<AppState>(),
         )

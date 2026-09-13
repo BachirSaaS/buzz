@@ -101,6 +101,9 @@ pub async fn restore_managed_agents_on_launch(
     }
 
     let state = app.state::<AppState>();
+    if state.is_remote_identity() {
+        return Err("remote managed restore is not enabled".into());
+    }
 
     // ── Phase A (under lock): housekeeping + collect agents to restore ──
     let mut agents_to_start: Vec<super::ManagedAgentRecord>;

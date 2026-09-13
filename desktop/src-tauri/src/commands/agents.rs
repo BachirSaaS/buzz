@@ -397,6 +397,7 @@ pub async fn create_managed_agent(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<CreateManagedAgentResponse, String> {
+    crate::owner_authorization::require_owned_workspace(&state)?;
     let owner = crate::owner_authorization::OwnerAuthorizationScope::capture(&state)?;
     let name = input.name.trim().to_string();
     let requested_persona_id = input

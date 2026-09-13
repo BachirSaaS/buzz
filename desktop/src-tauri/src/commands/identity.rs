@@ -52,6 +52,8 @@ mod truncated_display_name_tests {
 
 #[tauri::command]
 pub fn get_identity(state: State<'_, AppState>) -> Result<IdentityInfo, String> {
+    // This legacy IPC retains its local contract. Remote callers use the
+    // optional identity in get_native_identity_status instead.
     let snapshot = state.local_identity_snapshot()?;
     Ok(IdentityInfo {
         pubkey: snapshot.pubkey.to_hex(),
@@ -91,6 +93,9 @@ mod auto_connect_default_relay_tests {
 
 #[tauri::command]
 pub fn is_shared_identity() -> bool {
+    if crate::native_identity::SignerMode::compiled().is_remote() {
+        return false;
+    }
     std::env::var("BUZZ_SHARE_IDENTITY")
         .map(|v| v == "1")
         .unwrap_or(false)
@@ -124,8 +129,9 @@ pub async fn sign_event(
     created_at: Option<u64>,
     tags: Vec<Vec<String>>,
     state: State<'_, AppState>,
+    expected_generation: Option<u64>,
 ) -> Result<String, String> {
-    let signer = state.active_signer()?;
+    let signer = crate::native_identity::renderer_signer(&state, expected_generation)?;
     sign_renderer_event(&signer, kind, content, created_at, tags).await
 }
 
@@ -152,6 +158,7 @@ pub(crate) async fn sign_renderer_event(
         .await
         .map_err(|error| format!("sign failed: {error}"))?;
 
+    signer.check_valid()?;
     Ok(event.as_json())
 }
 
@@ -159,8 +166,9 @@ pub(crate) async fn sign_renderer_event(
 pub async fn decrypt_observer_event(
     event_json: String,
     state: State<'_, AppState>,
+    expected_generation: Option<u64>,
 ) -> Result<serde_json::Value, String> {
-    let signer = state.active_signer()?;
+    let signer = crate::native_identity::renderer_signer(&state, expected_generation)?;
     decrypt_observer_event_with_signer(&signer, &event_json).await
 }
 
@@ -213,8 +221,9 @@ pub async fn build_observer_control_event(
     agent_pubkey: String,
     payload: serde_json::Value,
     state: State<'_, AppState>,
+    expected_generation: Option<u64>,
 ) -> Result<String, String> {
-    let signer = state.active_signer()?;
+    let signer = crate::native_identity::renderer_signer(&state, expected_generation)?;
     build_observer_control_with_signer(&signer, &agent_pubkey, &payload).await
 }
 
@@ -248,6 +257,7 @@ async fn build_observer_control_with_signer(
         .sign_event(builder)
         .await
         .map_err(|error| format!("sign observer control failed: {error}"))?;
+    signer.check_valid()?;
     Ok(event.as_json())
 }
 
@@ -330,6 +340,7 @@ fn verify_ncryptsec_backup_inner(
     ncryptsec: &str,
     password: &str,
 ) -> Result<BackupVerification, String> {
+    state.require_local_identity()?;
     let keys = crate::key_backup::decrypt_ncryptsec(ncryptsec, password)?;
     let pubkey = keys.public_key();
     let current = state.signing_keys()?.public_key();
@@ -370,6 +381,7 @@ pub async fn save_ncryptsec_copy(
     ncryptsec: String,
     app_handle: tauri::AppHandle,
 ) -> Result<Option<String>, String> {
+    app_handle.state::<AppState>().require_local_identity()?;
     // Reject anything that is not a valid encrypted-key blob — this command
     // must not become a generic file writer.
     crate::key_backup::parse_ncryptsec(&ncryptsec)?;
@@ -403,6 +415,7 @@ pub async fn import_identity(
     password: Option<String>,
     app_handle: tauri::AppHandle,
 ) -> Result<IdentityInfo, String> {
+    app_handle.state::<AppState>().require_local_identity()?;
     tokio::task::spawn_blocking(move || {
         // NIP-49 backups require a passphrase and decrypt entirely in Rust.
         // Raw nsec/hex input follows the existing parser path unchanged.
@@ -474,6 +487,7 @@ pub(crate) fn commit_imported_identity(
     keys: nostr::Keys,
     persist: impl FnOnce(&nostr::Keys) -> Result<crate::app_state::IdentityStorage, String>,
 ) -> Result<(nostr::PublicKey, crate::app_state::IdentityStorage), String> {
+    state.require_local_identity()?;
     // Capture the previous pubkey up front for post-commit cleanup.
     let previous_pubkey = state.identity_public_key()?;
 
@@ -530,6 +544,7 @@ pub async fn persist_current_identity(
     tokio::task::spawn_blocking(move || {
         let state = app_handle.state::<AppState>();
 
+        state.require_local_identity()?;
         // Acquire mutation lock before reading identity_lost so that a
         // concurrent import_identity cannot complete between our check and
         // our persist, which would let the stale ephemeral key overwrite the
@@ -595,6 +610,7 @@ pub async fn persist_current_identity(
 /// would be confusing.
 #[tauri::command]
 pub async fn sign_out(app: tauri::AppHandle) -> Result<(), String> {
+    app.state::<AppState>().require_local_identity()?;
     if is_shared_identity() {
         return Err(
             "Sign out isn't available while BUZZ_SHARE_IDENTITY provides your identity. Unset BUZZ_SHARE_IDENTITY and BUZZ_PRIVATE_KEY, then relaunch to sign out."
@@ -688,6 +704,7 @@ pub async fn sign_nostr_identity_binding(
         &expires_at,
     )
     .await?;
+    signer.check_valid()?;
     Ok(event.as_json())
 }
 
@@ -696,8 +713,9 @@ pub async fn create_auth_event(
     challenge: String,
     relay_url: String,
     state: State<'_, AppState>,
+    expected_generation: Option<u64>,
 ) -> Result<String, String> {
-    let signer = state.active_signer()?;
+    let signer = crate::native_identity::renderer_signer(&state, expected_generation)?;
     sign_renderer_auth(&signer, &challenge, &relay_url).await
 }
 
@@ -719,24 +737,45 @@ pub(crate) async fn sign_renderer_auth(
         .await
         .map_err(|error| format!("sign failed: {error}"))?;
 
+    signer.check_valid()?;
     Ok(event.as_json())
 }
 
+/// Encrypt with one captured self identity. Remote callers must bind the native
+/// generation; the existing generationless renderer call remains local-only.
 #[tauri::command]
 pub async fn nip44_encrypt_to_self(
     plaintext: String,
+    expected_generation: Option<u64>,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
-    self_crypto(state.active_signer()?, plaintext, true).await
+    let signer = capture_self_crypto_signer(&state, expected_generation)?;
+    self_crypto(signer, plaintext, true).await
 }
 
-/// Decrypt to the captured identity without exposing its secret key.
+/// Decrypt with the same captured identity used for the self peer and result fence.
 #[tauri::command]
 pub async fn nip44_decrypt_from_self(
     ciphertext: String,
+    expected_generation: Option<u64>,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
-    self_crypto(state.active_signer()?, ciphertext, false).await
+    let signer = capture_self_crypto_signer(&state, expected_generation)?;
+    self_crypto(signer, ciphertext, false).await
+}
+
+fn capture_self_crypto_signer(
+    state: &AppState,
+    expected_generation: Option<u64>,
+) -> Result<ActiveUserSigner, String> {
+    // Both commands historically used signing_keys(), including decrypt. Keep
+    // that local recovery guard; pure remote crypto needs no active workspace.
+    let signer = state.active_signer()?;
+    if signer.generation().is_some() && signer.generation() != expected_generation {
+        return Err("remote self crypto requires the current native identity generation".into());
+    }
+    signer.check_valid()?;
+    Ok(signer)
 }
 
 async fn self_crypto(
@@ -744,6 +783,7 @@ async fn self_crypto(
     content: String,
     encrypt: bool,
 ) -> Result<String, String> {
+    let remote = signer.generation().is_some();
     let work = async move {
         let peer = signer.public_key();
         let result = if encrypt {
@@ -751,13 +791,19 @@ async fn self_crypto(
         } else {
             signer.signer().nip44_decrypt(&peer, &content).await
         };
+        // No fresh credential/public-key lookup at the result boundary.
+        signer.check_valid()?;
         let operation = if encrypt { "encrypt" } else { "decrypt" };
         result.map_err(|e| format!("nip44 {operation} failed: {e}"))
     };
-    // Preserve local CPU offloading; callers no longer need key material.
-    tauri::async_runtime::spawn_blocking(move || tauri::async_runtime::block_on(work))
-        .await
-        .map_err(|e| format!("spawn_blocking failed: {e}"))?
+    if remote {
+        work.await
+    } else {
+        // Retain local CPU offloading and the historical join-error shape.
+        tauri::async_runtime::spawn_blocking(move || tauri::async_runtime::block_on(work))
+            .await
+            .map_err(|e| format!("spawn_blocking failed: {e}"))?
+    }
 }
 
 #[cfg(test)]

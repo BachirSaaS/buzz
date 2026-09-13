@@ -540,6 +540,7 @@ pub async fn mint_agent_card(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<MintedCard, String> {
+    crate::owner_authorization::require_owned_workspace(&state)?;
     let lock = lock.unwrap_or(false);
     let memory_level = parse_memory_level(memory_level.as_deref().unwrap_or(""))?;
     // ── Resolve the record + API key under lock ──────────────────────────────

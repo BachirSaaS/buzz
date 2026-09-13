@@ -323,9 +323,12 @@ pub(crate) async fn decode_snapshot_for_import(
 ) -> Result<(AgentSnapshot, bool), String> {
     if let Some(owner) = owner {
         owner.check_current(state)?;
+    } else if state.is_remote_identity() {
+        // Missing remote authentication is never the local recovery exception.
+        return Err("native owner authentication is required".into());
     }
     // Preserve off-executor PNG/JSON decode for preview; no store guards cross
-    // either this await or signer decryption. Keep outer caps before the copy.
+    // either this await or remote decryption. Keep outer caps before the copy.
     let max_bytes = if file_bytes.starts_with(&PNG_MAGIC) {
         MAX_SNAPSHOT_PNG_BYTES
     } else {
@@ -408,6 +411,7 @@ pub async fn preview_agent_snapshot_import(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<AgentSnapshotImportPreview, String> {
+    crate::owner_authorization::require_owned_workspace(&state)?;
     // Preserve local recovery: only the independent agent record may unlock.
     let owner = crate::owner_authorization::OwnerAuthorizationScope::capture(&state).ok();
     let records = {
@@ -485,6 +489,7 @@ pub async fn confirm_agent_snapshot_import(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<AgentSnapshotImportResult, String> {
+    crate::owner_authorization::require_owned_workspace(&state)?;
     let owner = crate::owner_authorization::OwnerAuthorizationScope::capture(&state)?;
     // ── Phase 1: validate (no writes) ────────────────────────────────────────
     // Locked cards unlock only via this machine's exact key endpoints;
