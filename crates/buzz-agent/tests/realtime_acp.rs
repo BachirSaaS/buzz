@@ -594,6 +594,157 @@ async fn realtime_invalid_image_fails_before_connect_and_keeps_session_usable() 
 }
 
 #[tokio::test]
+async fn realtime_live_context_follows_input_without_resetting_history() {
+    for native in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("ws://{}/v1/realtime", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let mut ws = accept_async(socket).await.unwrap();
+            send(
+                &mut ws,
+                json!({"type":"session.created","session":{"id":"persistent"}}),
+            )
+            .await;
+            let mut session = recv(&mut ws).await["session"].clone();
+            session["frankie"] = json!({"input_context":native});
+            send(&mut ws, json!({"type":"session.updated","session":session})).await;
+            if native {
+                let context = recv(&mut ws).await;
+                assert_eq!(
+                    context,
+                    json!({"type":"frankie.input_context.update","revision":1,"text":"View A"})
+                );
+                send(
+                    &mut ws,
+                    json!({"type":"frankie.input_context.updated","revision":1}),
+                )
+                .await;
+            }
+            assert_eq!(recv(&mut ws).await["type"], "input_audio_buffer.append");
+            send(&mut ws, json!({"type":"input_audio_buffer.speech_started"})).await;
+            if native {
+                let context = recv(&mut ws).await;
+                assert_eq!(context["text"], "View B");
+                assert_eq!(context["revision"], 2);
+            }
+            assert_eq!(recv(&mut ws).await["type"], "input_audio_buffer.append");
+            send(
+                &mut ws,
+                json!({"type":"input_audio_buffer.committed","item_id":"spoken"}),
+            )
+            .await;
+            if !native {
+                let context = recv(&mut ws).await;
+                assert_eq!(context["type"], "conversation.item.create");
+                assert_eq!(context["item"]["content"][0]["text"], "View A");
+            }
+            assert_eq!(recv(&mut ws).await["type"], "response.create");
+            created(&mut ws, "spoken_reply").await;
+            done(&mut ws, "spoken_reply", vec![]).await;
+            for (index, expected) in [
+                if native {
+                    "First text"
+                } else {
+                    "View B\n\nFirst text"
+                },
+                "Second text",
+            ]
+            .iter()
+            .enumerate()
+            {
+                let text = recv(&mut ws).await;
+                assert_eq!(text["type"], "conversation.item.create");
+                assert_eq!(text["item"]["role"], "user");
+                assert_eq!(text["item"]["content"][0]["text"], *expected);
+                send(
+                    &mut ws,
+                    json!({"type":"conversation.item.created","item":text["item"]}),
+                )
+                .await;
+                assert_eq!(recv(&mut ws).await["type"], "response.create");
+                let id = format!("typed_reply_{index}");
+                created(&mut ws, &id).await;
+                done(&mut ws, &id, vec![]).await;
+            }
+            let _ = ws.next().await;
+        });
+        let mut h = Harness::spawn_with_env(&url, &options()).await;
+        let id = h.send("initialize", json!({"protocolVersion":1,"clientCapabilities":{"_meta":{"buzz":{"realtimeAudio":1}}}})).await;
+        h.recv_until(|v| v["id"] == id).await;
+        let id = h
+            .send("session/new", json!({"cwd":dir.path(),"mcpServers":[]}))
+            .await;
+        let sid = h.recv_until(|v| v["id"] == id).await["result"]["sessionId"].clone();
+        let prompt = h
+            .send(
+                "session/prompt",
+                json!({"sessionId":sid,"prompt":[],"_meta":{"buzz":{"realtimeAudio":1}}}),
+            )
+            .await;
+        let ready = h
+            .recv_until(|v| v["params"]["update"]["type"] == "ready" || v["id"] == prompt)
+            .await;
+        assert_eq!(ready["params"]["update"]["input"], true);
+        let stream = ready["params"]["streamId"].clone();
+        for invalid in [
+            json!({"text":""}),
+            json!({"context":"x".repeat(16385)}),
+            json!({"context":"A","data":"AA=="}),
+        ] {
+            let mut params = invalid;
+            params["sessionId"] = sid.clone();
+            params["streamId"] = stream.clone();
+            let id = h.send("_buzz/unstable/realtime/input", params).await;
+            assert!(h.recv_until(|v| v["id"] == id).await.get("error").is_some());
+        }
+        for (sequence, context) in ["View A", "View B"].iter().enumerate() {
+            let id = h
+                .send(
+                    "_buzz/unstable/realtime/input",
+                    json!({"sessionId":sid,"streamId":stream,"context":context}),
+                )
+                .await;
+            assert!(h.recv_until(|v| v["id"] == id).await.get("error").is_none());
+            h.send("_buzz/unstable/realtime/append", json!({"sessionId":sid,"streamId":stream,"sequence":sequence,"data":STANDARD.encode(vec![0u8;960])})).await;
+            h.recv_until(|v| {
+                v["params"]["update"]["type"]
+                    == if sequence == 0 {
+                        "speech_started"
+                    } else {
+                        "response_done"
+                    }
+            })
+            .await;
+        }
+        for text in ["First text", "Second text"] {
+            let id = h
+                .send(
+                    "_buzz/unstable/realtime/input",
+                    json!({"sessionId":sid,"streamId":stream,"text":text}),
+                )
+                .await;
+            let input = h
+                .recv_until(|v| {
+                    v["params"]["update"]["type"] == "input_transcript" || v["id"] == id
+                })
+                .await;
+            assert_eq!(input["params"]["update"]["text"], text);
+            h.recv_until(|v| v["params"]["update"]["type"] == "response_done")
+                .await;
+        }
+        h.send(
+            "_buzz/unstable/realtime/close",
+            json!({"sessionId":sid,"streamId":stream}),
+        )
+        .await;
+        h.recv_until(|v| v["id"] == prompt).await;
+        server.await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn realtime_acp_live_duplex_and_playback_fence() {
     let dir = tempfile::tempdir().unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

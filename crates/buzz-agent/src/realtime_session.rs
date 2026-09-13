@@ -51,6 +51,7 @@ struct Live {
     active_response: Option<String>,
     duplex_audio: bool,
     backchannels: bool,
+    input_context: bool,
     output_audio_limit: u64,
 }
 
@@ -204,6 +205,7 @@ impl RealtimeSession {
                 active_response: None,
                 duplex_audio: false,
                 backchannels: false,
+                input_context: false,
                 output_audio_limit: MAX_PCM as u64 / 2,
             });
             let live = self.live.as_mut().ok_or_else(|| error("missing session"))?;
@@ -237,6 +239,7 @@ impl RealtimeSession {
             let updated = live.next(ctx, deadline).await?;
             live.duplex_audio = updated["session"]["frankie"]["duplex_audio"] == true;
             live.backchannels = updated["session"]["frankie"]["backchannels"] == true;
+            live.input_context = updated["session"]["frankie"]["input_context"] == true;
             if let Some(limit) = updated["session"]["frankie"].get("max_output_audio_samples") {
                 let limit = limit
                     .as_u64()

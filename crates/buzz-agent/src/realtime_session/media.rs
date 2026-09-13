@@ -23,6 +23,13 @@ struct State {
     response_requested: bool,
     fence_deadline: Option<Instant>,
     response_deadline: Option<Instant>,
+    context: (u64, String),
+    speech_context: (u64, String),
+    context_used: u64,
+    input_active: bool,
+    tools_active: bool,
+    text_sequence: u64,
+    committed_context: Option<(u64, String)>,
 }
 
 impl State {
@@ -36,6 +43,13 @@ impl State {
             awaiting_playback: false,
             awaiting_truncate: false,
             pending_input: false,
+            context: (0, String::new()),
+            speech_context: (0, String::new()),
+            context_used: 0,
+            input_active: false,
+            tools_active: false,
+            text_sequence: 0,
+            committed_context: None,
             response_requested: false,
             fence_deadline: None,
             response_deadline: None,
@@ -144,6 +158,14 @@ impl State {
                 self.completed_playback = Some(output);
             }
             self.pending_input = false;
+            // Standard providers receive context beside the committed audio, before output.
+            // Frankie attaches it inside the input item before speculative prefill instead.
+            if let Some((revision, text)) = self.committed_context.take() {
+                if !live.input_context && revision > self.context_used {
+                    live.sender.create_item(json!({"type":"message","role":"user","content":[{"type":"input_text","text":text}]})).await?;
+                    self.context_used = revision;
+                }
+            }
             self.response_requested = true;
             self.response_deadline = Some(Instant::now() + ctx.cfg.llm_timeout);
             live.sender.create_response().await?;
@@ -187,7 +209,7 @@ impl RealtimeSession {
                 live.sender.create_item(json!({"type":"message","role":"user","content":parts})).await?;
             }
             media::notify(ctx.wire, ctx.session_id, &ctx.run_id, json!({"type":"ready","format":"s16le","rate":24000,"channels":1,
-                "maxFrameBytes":media::FRAME_BYTES,"queueFrames":media::QUEUE_FRAMES})).await?;
+                "maxFrameBytes":media::FRAME_BYTES,"queueFrames":media::QUEUE_FRAMES,"input":true})).await?;
             let mut state = State::new();
             let mut heartbeat = tokio::time::interval(Duration::from_secs(15));
             heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -291,6 +313,31 @@ impl State {
                     Ok(())
                 }
                 Action::Close => Ok(()),
+                Action::Input { context, text } => {
+                    if text.is_some() && (self.input_active || self.tools_active || self.pending_input
+                        || self.response_requested || live.active_response.is_some()
+                        || self.awaiting_playback || self.awaiting_truncate
+                        || self.output.as_ref().is_some_and(|o| o.played < o.emitted)) {
+                        return Err(error("Wait for the current turn to finish before sending text."));
+                    }
+                    if let Some(context) = context {
+                        let revision = self.context.0.checked_add(1).ok_or_else(|| error("input context sequence exhausted"))?;
+                        if live.input_context { live.sender.input_context(revision, &context).await?; }
+                        self.context = (revision, context);
+                    }
+                    if let Some(text) = text {
+                        self.text_sequence = self.text_sequence.checked_add(1).ok_or_else(|| error("text input sequence exhausted"))?;
+                        let id = format!("text_{}", self.text_sequence);
+                        let content = if !live.input_context && self.context.0 > self.context_used {
+                            format!("{}\n\n{}", self.context.1, text)
+                        } else { text.clone() };
+                        live.sender.create_item(json!({"id":id,"type":"message","role":"user","content":[{"type":"input_text","text":content}]})).await?;
+                        self.context_used = self.context.0;
+                        media::notify(output, sid, stream, json!({"type":"input_transcript","itemId":id,"text":text})).await?;
+                        self.pending_input = true;
+                    }
+                    Ok(())
+                }
             }
         }
         .await;
@@ -319,6 +366,8 @@ impl State {
                 ))
             }
             Some("input_audio_buffer.speech_started") => {
+                self.input_active = true;
+                self.speech_context = self.context.clone();
                 // Also interrupt completed generation whose audio has not finished playing.
                 if live.active_response.is_some()
                     || self.response_requested
@@ -369,6 +418,7 @@ impl State {
                 .await?;
             }
             Some("input_audio_buffer.cleared") => {
+                self.input_active = false;
                 media::notify(
                     ctx.wire,
                     ctx.session_id,
@@ -378,6 +428,8 @@ impl State {
                 .await?;
             }
             Some("input_audio_buffer.committed") => {
+                self.input_active = false;
+                self.committed_context = Some(self.speech_context.clone());
                 self.pending_input = true;
             }
             Some("conversation.item.truncated") => {
@@ -597,6 +649,7 @@ impl State {
         let (cancel, local) = watch::channel(self.interrupted);
         let saved = std::mem::replace(ctx.cancel, local);
         let start = ctx.history.len();
+        self.tools_active = true;
         let result = {
             let output = ctx.wire.clone();
             let sid = ctx.session_id.to_owned();
@@ -636,6 +689,8 @@ impl State {
                         match event {
                             Some(Ok(event)) => match event["type"].as_str() {
                                 Some("input_audio_buffer.speech_started") => {
+                                    self.input_active = true;
+                                    self.speech_context = self.context.clone();
                                     let _ = cancel.send(true);
                                     if let Err(e) = self.interrupt(live, &output, &sid, &stream).await {
                                         execute.await; break Err(e);
@@ -654,9 +709,10 @@ impl State {
                                         let _ = cancel.send(true); execute.await; break Err(e);
                                     }
                                 }
-                                Some("input_audio_buffer.committed") => self.pending_input = true,
+                                Some("input_audio_buffer.committed") => { self.input_active = false; self.pending_input = true; self.committed_context = Some(self.speech_context.clone()); },
+                                Some("input_audio_buffer.cleared") => self.input_active = false,
                                 Some("error") => { let _ = cancel.send(true); execute.await; break Err(provider_error("provider rejected media operation", &event["error"])); }
-                                Some("rate_limits.updated" | "conversation.item.created" | "conversation.item.added" | "conversation.item.done") => {},
+                                Some("rate_limits.updated" | "conversation.item.created" | "conversation.item.added" | "conversation.item.done" | "frankie.input_context.updated") => {},
                                 _ => { let _ = cancel.send(true); execute.await; break Err(error("unexpected provider event during tools")); }
                             },
                             _ => { let _ = cancel.send(true); execute.await; break Err(error("provider disconnected during tools")); }
@@ -667,6 +723,7 @@ impl State {
             }
         };
         *ctx.cancel = saved;
+        self.tools_active = false;
         result?;
         let results: Vec<_> = ctx.history.drain(start..).collect();
         for result in results {

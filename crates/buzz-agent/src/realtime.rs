@@ -124,6 +124,15 @@ impl RealtimeConnection {
 }
 
 impl RealtimeSender {
+    /// Update context for the next input only when the provider advertises this capability.
+    pub(crate) async fn input_context(
+        &mut self,
+        revision: u64,
+        text: &str,
+    ) -> Result<(), AgentError> {
+        self.send(json!({"type":"frankie.input_context.update", "revision":revision, "text":text}))
+            .await
+    }
     /// Send a GA session update. Reject unsupported settings at the server,
     /// rather than translating them into model-specific wire fields.
     pub async fn update_session(&mut self, session: Value) -> Result<(), AgentError> {

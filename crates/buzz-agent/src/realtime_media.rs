@@ -25,6 +25,10 @@ pub(crate) enum Action {
     },
     Playback(Playback),
     Interrupt(Option<Playback>),
+    Input {
+        context: Option<String>,
+        text: Option<String>,
+    },
     Close,
 }
 
@@ -52,6 +56,10 @@ struct Params {
     playback_data: Option<String>,
     #[serde(default)]
     playback: Option<Playback>,
+    #[serde(default)]
+    context: Option<String>,
+    #[serde(default)]
+    text: Option<String>,
 }
 
 pub(crate) struct Ingress {
@@ -89,6 +97,28 @@ pub(crate) fn enabled(meta: &Value) -> bool {
 }
 
 fn action(operation: &str, params: &mut Params) -> Result<Action, &'static str> {
+    if operation == "input" {
+        if params.sequence.is_some()
+            || params.data.is_some()
+            || params.playback.is_some()
+            || params.playback_data.is_some()
+            || (params.context.is_none() && params.text.is_none())
+            || params.context.as_ref().is_some_and(|s| s.len() > 16384)
+            || params
+                .text
+                .as_ref()
+                .is_some_and(|s| s.trim().is_empty() || s.len() > 16384)
+        {
+            return Err("invalid realtime input");
+        }
+        return Ok(Action::Input {
+            context: params.context.take(),
+            text: params.text.take(),
+        });
+    }
+    if params.context.is_some() || params.text.is_some() {
+        return Err("unexpected input fields");
+    }
     if operation != "append" && params.playback_data.is_some() {
         return Err("playback audio is only valid with capture");
     }

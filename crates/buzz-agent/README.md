@@ -431,6 +431,15 @@ Existing clients keep manual turns unless they opt in:
    for client-initiated interruption. Positions cannot exceed emitted samples.
 6. Send `.../close` to end the live prompt, or use ordinary `session/cancel`.
 
+When `ready.input` is true, `.../input` accepts the same session/stream IDs and
+optional `context` and `text` strings (each at most 16 KiB). Context replaces a
+pending snapshot without generating a response or changing session instructions.
+It is latched for the next utterance. A provider advertising
+`frankie.input_context` attaches it before audio prefill; standard providers
+receive a user context item beside the committed audio before response creation.
+Typed text is accepted between turns and shares the pending context. Text sent
+during speech, output, or tools is rejected without ending the call.
+
 Provider VAD commits user turns. Buzz coordinates response creation, cancellation,
 playback truncation acknowledgment, and the existing tool executor and permission
 broker. Capture and control queues are separate and bounded; stale stream IDs,
