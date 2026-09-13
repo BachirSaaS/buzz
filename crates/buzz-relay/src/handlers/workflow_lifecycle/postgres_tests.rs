@@ -764,4 +764,6 @@ async fn nip11_workflow_contract_requires_bound_host_and_stable_identity() {
     );
 }
 
-mod report_delete;
+mod report_delete_postgres_tests;
+
+mod stale_execution_postgres_tests;
