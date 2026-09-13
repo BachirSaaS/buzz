@@ -228,3 +228,83 @@ async fn stale_engine_cannot_bind_old_actions_to_recreated_uuid() {
 async fn stale_engine_cannot_bind_identical_definition_to_new_incarnation() {
     stale_engine_cannot_admit(Transition::RecreateIdentical).await;
 }
+
+/// Exercise the production scheduler loop without exposing a test-only tick API.
+#[tokio::test]
+#[ignore = "requires PostgreSQL"]
+async fn cluster_global_scheduler_fences_selected_revision_after_writer_settles() {
+    let mut f = Fixture::new().await;
+    let engine = &f.state.workflow_engine;
+    let sink = Arc::new(RecordingSink::default());
+    engine.set_action_sink(sink.clone());
+    let make_schedule = |id: Uuid, text: &str| {
+        f.sign(Kind::Custom(KIND_WORKFLOW_DEF as u16), f.now,
+            &format!("name: scheduled fence\ntrigger:\n  on: schedule\n  cron: '* * * * * *'\nsteps:\n  - id: emit\n    action: send_message\n    text: {text}\n"),
+            vec![vec!["d".into(), id.to_string()], vec!["h".into(), f.channel.to_string()]])
+    };
+    let stale_id = f.id;
+    assert!(
+        f.send(&make_schedule(stale_id, "stale-schedule"))
+            .await
+            .expect("stale workflow")
+            .accepted
+    );
+    let control_id = Uuid::new_v4();
+    assert!(
+        f.send(&make_schedule(control_id, "current-schedule"))
+            .await
+            .expect("control workflow")
+            .accepted
+    );
+    let mut writer = f.pool.begin().await.expect("writer");
+    let writer_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *writer)
+        .await
+        .expect("writer pid");
+    // Ordinary MVCC scheduler selection still sees the old enabled revision;
+    // the admission fence must wait and recheck after this writer commits.
+    sqlx::query(r#"UPDATE workflows SET definition_hash = $3, definition = jsonb_set(definition, '{steps,0,text}', '"new-schedule"'::jsonb) WHERE community_id=$1 AND id=$2"#)
+        .bind(f.tenant.community().as_uuid()).bind(stale_id).bind(vec![0x99_u8;32])
+        .execute(&mut *writer).await.expect("in-flight revision update");
+    let task_engine = Arc::clone(engine);
+    let task = tokio::spawn(async move { task_engine.run().await });
+    let wait = tokio::time::timeout(Duration::from_secs(75), async {
+        loop {
+            let blocked: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND query LIKE '%WITH eligible AS%' AND $1 = ANY(pg_blocking_pids(pid)))")
+                .bind(writer_pid).fetch_one(&f.pool).await.expect("observe scheduler admission wait");
+            if blocked { break; }
+            // If the caller refreshes and bypasses the fence, the loop reaches
+            // the newer control workflow; that is a failed control, not a timeout.
+            assert!(sink.0.lock().expect("sink").is_empty(), "scheduler ran before the revision writer settled");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }).await;
+    if wait.is_err() {
+        task.abort();
+    }
+    wait.expect("scheduler must reach the real admission lock");
+    writer.commit().await.expect("commit revision update");
+    // created_at ordering puts the control after the stale candidate; its
+    // completed run proves the scheduler passed the rejected candidate.
+    f.id = control_id;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let rows = runs(&f).await;
+            if rows.len() == 1 && rows[0].status == RunStatus::Completed {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("current schedule remains runnable");
+    task.abort();
+    let _ = task.await;
+    f.id = stale_id;
+    assert!(
+        runs(&f).await.is_empty(),
+        "scheduler admitted a superseded selection"
+    );
+    assert_eq!(*sink.0.lock().expect("sink"), ["current-schedule"]);
+}
