@@ -693,8 +693,9 @@ pub async fn execute_kick_with_marker(
 /// Atomically execute a soft-delete mutation and commit the step marker in one
 /// transaction, fenced by `action_id` AND the caller's `lease_token`.
 ///
-/// The delete is idempotent: if the event is already deleted the marker is still
-/// committed (soft-delete is already-done = success).
+/// Workflow definitions are rejected, including already-deleted ones; they require
+/// canonical author-signed lifecycle deletion. For other events, an already-deleted
+/// target is idempotent success and the marker is still committed.
 pub async fn execute_delete_with_marker(
     pool: &PgPool,
     action_id: Uuid,
@@ -725,6 +726,25 @@ pub async fn execute_delete_with_marker(
     if !owned {
         tx.rollback().await?;
         return Ok(false);
+    }
+
+    // Workflow definitions are one projection of executable state. This shared
+    // boundary also serves recovery-worker retries, so HTTP-only validation is
+    // insufficient. Reject tombstoned definitions too: they do not make a new
+    // moderation action an author-signed lifecycle deletion. Event kind is immutable.
+    let workflow: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM events WHERE community_id = $1 AND id = $2 AND kind = $3)",
+    )
+    .bind(community_id.as_uuid())
+    .bind(target_event_id)
+    .bind(buzz_core::kind::KIND_WORKFLOW_DEF as i32)
+    .fetch_one(&mut *tx)
+    .await?;
+    if workflow {
+        tx.rollback().await?;
+        return Err(crate::DbError::InvalidData(
+            "workflow definitions require canonical author-signed deletion".into(),
+        ));
     }
 
     // Soft-delete the event and update thread metadata (idempotent: already-deleted is a no-op).

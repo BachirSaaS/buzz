@@ -762,3 +762,5 @@ async fn nip11_workflow_contract_requires_bound_host_and_stable_identity() {
         "failed binding must not advertise"
     );
 }
+
+mod report_delete;
