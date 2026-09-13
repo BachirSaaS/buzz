@@ -313,6 +313,8 @@ pub async fn create_workflow(
 }
 
 /// Insert or update a workflow at the caller-supplied NIP-33 `d`-tag UUID.
+/// Runtime eligibility is projected from the same canonical definition on every
+/// save; an omitted `enabled` field keeps the workflow language's true default.
 ///
 /// Updates are allowed only when the existing row has the same owner and
 /// channel. That keeps a learned workflow UUID from becoming a cross-user or
@@ -381,11 +383,12 @@ async fn upsert_workflow_on<'e>(
         r#"
         INSERT INTO workflows
             (community_id, id, name, owner_pubkey, channel_id, definition, definition_hash, status, enabled)
-        VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, 'active', TRUE)
+        VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, 'active', COALESCE(($6::jsonb->>'enabled')::boolean, TRUE))
         ON CONFLICT (community_id, id) DO UPDATE
         SET name = EXCLUDED.name,
             definition = EXCLUDED.definition,
             definition_hash = EXCLUDED.definition_hash,
+            enabled = EXCLUDED.enabled,
             updated_at = NOW()
         WHERE workflows.owner_pubkey = EXCLUDED.owner_pubkey
           AND workflows.channel_id IS NOT DISTINCT FROM EXCLUDED.channel_id

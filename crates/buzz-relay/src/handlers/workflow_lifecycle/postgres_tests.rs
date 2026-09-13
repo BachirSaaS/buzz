@@ -179,6 +179,82 @@ fn reject(result: Result<IngestResult, IngestError>, prefix: &str) {
 
 #[tokio::test]
 #[ignore = "requires PostgreSQL"]
+async fn ingest_save_projects_enabled_for_creation_updates_and_default() {
+    let f = Fixture::new().await;
+    let mut previous = None;
+    for (index, configured) in [Some(false), Some(true), Some(false), None, Some(false)]
+        .into_iter()
+        .enumerate()
+    {
+        let enabled = configured.unwrap_or(true);
+        let setting = configured
+            .map(|value| format!("enabled: {value}\n"))
+            .unwrap_or_default();
+        let yaml = format!("name: enabled projection\n{setting}trigger:\n  on: reaction_added\nsteps:\n  - id: wait\n    action: delay\n    duration: 1s\n");
+        let mut tags = vec![
+            vec!["d".into(), f.id.to_string()],
+            vec!["h".into(), f.channel.to_string()],
+        ];
+        if let Some(revision) = previous {
+            tags.push(vec!["expected-revision".into(), revision]);
+        }
+        let event = f.sign(
+            Kind::Custom(KIND_WORKFLOW_DEF as u16),
+            f.now + index as u64,
+            &yaml,
+            tags,
+        );
+        assert!(
+            f.send(&event)
+                .await
+                .expect("save configured state")
+                .accepted
+        );
+        let row = f
+            .state
+            .db
+            .get_workflow(f.tenant.community(), f.id)
+            .await
+            .expect("runtime");
+        assert_eq!(
+            row.definition["enabled"], enabled,
+            "canonical definition step {index}"
+        );
+        assert_eq!(
+            row.enabled, enabled,
+            "runtime enabled projection step {index}"
+        );
+        assert_eq!(f.live().await.0, Some(event.id.to_bytes().to_vec()));
+        let eligible = f
+            .state
+            .db
+            .list_enabled_channel_workflows(f.tenant.community(), f.channel)
+            .await
+            .expect("trigger eligibility");
+        assert_eq!(
+            eligible.iter().any(|row| row.id == f.id),
+            enabled,
+            "automatic eligibility step {index}"
+        );
+        if !enabled {
+            let trigger = f.sign(
+                Kind::Custom(buzz_core::kind::KIND_WORKFLOW_TRIGGER as u16),
+                f.now + 20 + index as u64,
+                "",
+                vec![
+                    vec!["d".into(), f.id.to_string()],
+                    vec!["h".into(), f.channel.to_string()],
+                ],
+            );
+            reject(f.send(&trigger).await, "forbidden: workflow is disabled");
+            assert!(!f.seen(&trigger).await);
+        }
+        previous = Some(event.id.to_hex());
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL"]
 async fn ingest_save_delete_replay_and_both_timestamp_orders() {
     let f = Fixture::new().await;
     let create = f.save(f.now, "first");
