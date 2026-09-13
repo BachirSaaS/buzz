@@ -13,14 +13,17 @@ use nostr::{
 pub(crate) struct ActiveUserSigner {
     public_key: PublicKey,
     signer: Arc<dyn NostrSigner>,
+    authorization: Option<Arc<Keys>>,
 }
 
 impl ActiveUserSigner {
     /// Capture a local identity, deriving the cached public key from those keys.
     pub(crate) fn local(keys: Keys) -> Self {
+        let keys = Arc::new(keys);
         Self {
             public_key: keys.public_key(),
-            signer: Arc::new(keys),
+            signer: keys.clone(),
+            authorization: Some(keys),
         }
     }
 
@@ -28,7 +31,32 @@ impl ActiveUserSigner {
     #[cfg(test)]
     pub(crate) async fn new(signer: Arc<dyn NostrSigner>) -> Result<Self, String> {
         let public_key = signer.get_public_key().await.map_err(|e| e.to_string())?;
-        Ok(Self { public_key, signer })
+        Ok(Self {
+            public_key,
+            signer,
+            authorization: None,
+        })
+    }
+
+    /// Attest to an agent using the captured owner, preserving exact conditions.
+    pub(crate) async fn authorize_agent(
+        &self,
+        agent: &PublicKey,
+        conditions: &str,
+    ) -> Result<String, String> {
+        let keys = self
+            .authorization
+            .as_ref()
+            .ok_or("signer has no owner authorization")?;
+        buzz_sdk_pkg::nip_oa::compute_auth_tag(keys, agent, conditions)
+            .map_err(|e| format!("failed to compute NIP-OA auth tag: {e}"))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_test_authorization(mut self, keys: Keys) -> Self {
+        assert_eq!(self.public_key, keys.public_key());
+        self.authorization = Some(Arc::new(keys));
+        self
     }
 
     /// The identity captured with this signing capability.

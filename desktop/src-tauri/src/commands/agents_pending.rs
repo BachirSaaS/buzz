@@ -60,12 +60,12 @@ pub(super) fn persona_id_from_head(content: &str) -> Option<String> {
 /// Definition-linked agents carry the persona id in `content`, where it survives the
 /// kind:30177 tombstone as owner-signed historical alias data. The request uses the
 /// same builder as the GUI Archive action and the NIP-IA `retired` reason.
-pub(crate) fn build_agent_archive_request(
-    keys: &nostr::Keys,
+pub(crate) async fn build_agent_archive_request(
+    signer: &crate::active_user_signer::ActiveUserSigner,
     agent_pubkey: &str,
     persona_id: Option<&str>,
 ) -> Result<nostr::EventBuilder, String> {
-    let auth_tag = if keys
+    let auth_tag = if signer
         .public_key()
         .to_hex()
         .eq_ignore_ascii_case(agent_pubkey)
@@ -74,7 +74,9 @@ pub(crate) fn build_agent_archive_request(
     } else {
         let agent = nostr::PublicKey::from_hex(agent_pubkey)
             .map_err(|e| format!("invalid agent pubkey: {e}"))?;
-        let tag_json = buzz_sdk_pkg::nip_oa::compute_auth_tag(keys, &agent, "")
+        let tag_json = signer
+            .authorize_agent(&agent, "")
+            .await
             .map_err(|e| format!("failed to build owner auth tag: {e}"))?;
         let parts: Vec<String> = serde_json::from_str(&tag_json)
             .map_err(|e| format!("failed to parse owner auth tag: {e}"))?;
@@ -110,7 +112,7 @@ mod tests {
     ) -> Result<(), String> {
         use super::super::deletion_witness::{commit_agent_deletions, prepare_agent_tombstone};
         let signer = crate::active_user_signer::ActiveUserSigner::local(keys.clone());
-        let witness = prepare_agent_tombstone(db, &signer, keys, agent)?
+        let witness = prepare_agent_tombstone(db, &signer, agent)?
             .sign(&signer)
             .await;
         commit_agent_deletions(vec![Ok(witness)], || Ok(()))

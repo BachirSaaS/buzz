@@ -43,7 +43,9 @@ impl Fixture {
         std::env::set_var("HOME", temp.path());
         std::env::set_var("XDG_DATA_HOME", temp.path());
         let state = build_app_state();
-        *state.keys.lock().unwrap() = signer.keys.clone();
+        state
+            .replace_local_identity_keys(signer.keys.clone())
+            .unwrap();
         *state.test_signer.lock().unwrap() = Some(capability);
         *state.relay_url_override.lock().unwrap() = Some("ws://127.0.0.1:1".into());
         let app = tauri::test::mock_builder()
@@ -152,7 +154,7 @@ impl Fixture {
 
     fn switch_scope(&self) {
         let state = self.app.state::<AppState>();
-        *state.keys.lock().unwrap() = Keys::generate();
+        state.replace_local_identity_keys(Keys::generate()).unwrap();
         *state.test_signer.lock().unwrap() = None;
         *state.relay_url_override.lock().unwrap() = Some("ws://127.0.0.1:2".into());
     }

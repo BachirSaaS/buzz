@@ -305,7 +305,7 @@ async fn delayed_share_after_delete_never_republishes_the_catalog_head() {
     // 3. Flush the tombstone to the relay (Carl's contract: the tombstone
     //    lands BEFORE the delayed publish is released).
     let state = build_app_state();
-    *state.keys.lock().unwrap() = keys.clone();
+    state.replace_local_identity_keys(keys.clone()).unwrap();
     *state.relay_url_override.lock().unwrap() = Some(relay_url);
     flush_pending_events_at(
         &db_path,
@@ -453,7 +453,7 @@ async fn concurrent_flushes_never_land_the_head_after_its_tombstone() {
     let _prepared = prepared(&db_path, relay_url.clone(), keys.clone(), true).await;
 
     let state = Arc::new(build_app_state());
-    *state.keys.lock().unwrap() = keys.clone();
+    state.replace_local_identity_keys(keys.clone()).unwrap();
     *state.relay_url_override.lock().unwrap() = Some(relay_url.clone());
 
     // Flush H: publishes the pending head. Its POST blocks in the gated relay,

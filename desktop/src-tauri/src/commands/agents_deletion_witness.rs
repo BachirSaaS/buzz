@@ -26,7 +26,8 @@ pub(crate) struct AgentTombstone {
     // the two columns used to build the witnesses. Timestamps alone are not a fence.
     head: Option<(String, i64, String)>,
     tombstone: EventBuilder,
-    archive: Option<EventBuilder>,
+    archive_persona: Option<Option<String>>,
+    signer: ActiveUserSigner,
     kind: u32,
 }
 
@@ -37,13 +38,9 @@ fn head_token(head: Option<RetainedEvent>) -> Option<(String, i64, String)> {
 pub(crate) fn prepare_agent_tombstone(
     db_path: &Path,
     signer: &ActiveUserSigner,
-    owner_attestation_keys: &nostr::Keys,
     agent: &str,
 ) -> Result<AgentTombstone, String> {
     let owner = signer.public_key().to_hex();
-    if signer.public_key() != owner_attestation_keys.public_key() {
-        return Err("agent archive attestation does not match captured owner".into());
-    }
     let conn = open_retention_db(db_path)?;
     let head = get_retained_event(&conn, KIND_MANAGED_AGENT, &owner, agent)?;
     let persona_id = head
@@ -55,14 +52,8 @@ pub(crate) fn prepare_agent_tombstone(
             head.as_ref().map(|head| head.created_at),
         )),
         kind: KIND_MANAGED_AGENT,
-        archive: Some(
-            super::pending::build_agent_archive_request(
-                owner_attestation_keys,
-                agent,
-                persona_id.as_deref(),
-            )?
-            .custom_created_at(nostr::Timestamp::now()),
-        ),
+        archive_persona: Some(persona_id),
+        signer: signer.clone(),
         head: head_token(head),
         owner,
         agent: agent.to_owned(),
@@ -83,11 +74,24 @@ impl AgentTombstone {
             if signer.public_key().to_hex() != self.owner {
                 return Err("agent tombstone signer does not own captured scope".into());
             }
+            let signer = &self.signer;
+            // Authorize before signing or destructive commit, with no SQLite lock.
+            let archive_builder = match &self.archive_persona {
+                Some(persona) => Some(
+                    super::pending::build_agent_archive_request(
+                        &self.signer,
+                        &self.agent,
+                        persona.as_deref(),
+                    )
+                    .await?,
+                ),
+                None => None,
+            };
             let tombstone = signer
                 .sign_event(self.tombstone.clone())
                 .await
                 .map_err(|e| format!("failed to sign managed-agent tombstone: {e}"))?;
-            let archive = match self.archive.clone() {
+            let archive = match archive_builder {
                 Some(builder) => Some(
                     signer
                         .sign_event(builder)
@@ -115,7 +119,7 @@ pub(crate) fn prepare_agent_deletion<R: tauri::Runtime>(
 ) -> Result<(AgentTombstone, ActiveUserSigner), String> {
     let scope = crate::managed_agents::retention::active_retention_scope(app, state)?;
     let signer = scope.owner_signer();
-    let plan = prepare_agent_tombstone(&scope.db_path, &signer, &state.signing_keys()?, agent)?;
+    let plan = prepare_agent_tombstone(&scope.db_path, &signer, agent)?;
     Ok((plan, signer))
 }
 
@@ -183,7 +187,6 @@ pub(crate) fn commit_agent_deletions<T>(
             Err(error) => ready.push(Err(error)),
         }
     }
-    // Cancellation before this synchronous phase never reaches disk deletion.
     let result = delete()?;
     for witness in ready {
         let outcome = witness.and_then(|(index, witness)| {
@@ -269,7 +272,8 @@ pub(crate) fn prepare_definition_tombstone(
         kind,
         tombstone: builder
             .custom_created_at(monotonic_created_at(head.as_ref().map(|h| h.created_at))),
-        archive: None,
+        archive_persona: None,
+        signer: signer.clone(),
         head: head_token(head),
     })
 }
@@ -282,6 +286,7 @@ impl AgentDeletionWitness {
         let tx = conn
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
             .map_err(|e| e.to_string())?;
+        // Recheck the retained head after acquiring SQLite write ownership.
         if head_token(get_retained_event(
             &tx,
             self.plan.kind,

@@ -77,7 +77,9 @@ impl Fixture {
         let task = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
         let controlled = ControlledSigner::new(fail);
         let state = build_app_state();
-        *state.keys.lock().unwrap() = controlled.keys.clone();
+        state
+            .replace_local_identity_keys(controlled.keys.clone())
+            .unwrap();
         *state.test_signer.lock().unwrap() =
             Some(ActiveUserSigner::new(controlled.clone()).await.unwrap());
         *state.relay_url_override.lock().unwrap() = Some(base.clone());
@@ -97,7 +99,9 @@ impl Fixture {
     fn switch_identity_and_relay(&self) {
         let state = self.app.state::<AppState>();
         let replacement = Keys::generate();
-        *state.keys.lock().unwrap() = replacement.clone();
+        state
+            .replace_local_identity_keys(replacement.clone())
+            .unwrap();
         *state.test_signer.lock().unwrap() = Some(ActiveUserSigner::local(replacement));
         *state.relay_url_override.lock().unwrap() = Some("http://127.0.0.1:1".into());
         assert!(state.managed_agents_store_lock.try_lock().is_ok());
@@ -307,10 +311,8 @@ async fn live_dm_and_channel_create_keep_metadata_and_owner_overlay_in_scope() {
             let new_owner = f
                 .app
                 .state::<AppState>()
-                .keys
-                .lock()
+                .identity_public_key()
                 .unwrap()
-                .public_key()
                 .to_hex();
             assert!(!f
                 .app

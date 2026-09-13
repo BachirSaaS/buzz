@@ -37,7 +37,7 @@ async fn mesh_status_submit_preserves_author_auth_and_failure() {
             .await
         });
         controlled.wait_entered().await;
-        *state.keys.lock().unwrap() = Keys::generate();
+        state.replace_local_identity_keys(Keys::generate()).unwrap();
         *state.relay_url_override.lock().unwrap() = Some("http://127.0.0.1:1".into());
         controlled.release.notify_one();
         if fail {

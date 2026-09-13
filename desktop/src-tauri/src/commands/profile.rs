@@ -396,8 +396,7 @@ pub async fn get_presence(
 }
 
 fn current_pubkey_hex(state: &AppState) -> Result<String, String> {
-    let keys = state.keys.lock().map_err(|e| e.to_string())?;
-    Ok(keys.public_key().to_hex())
+    Ok(state.identity_public_key()?.to_hex())
 }
 
 fn current_pubkey_hex_unwrap(state: &AppState) -> String {
@@ -428,11 +427,17 @@ mod tests {
 
         let captured = capture_expected_signer(&state, &original_pubkey)
             .expect("matching identity should be captured");
-        *state.keys.lock().expect("lock keys") = nostr::Keys::generate();
+        state
+            .replace_local_identity_keys(nostr::Keys::generate())
+            .unwrap();
 
         assert_eq!(captured.public_key().to_hex(), original_pubkey);
         assert_ne!(
-            state.keys.lock().expect("lock keys").public_key().to_hex(),
+            state
+                .local_identity_keys()
+                .expect("local keys")
+                .public_key()
+                .to_hex(),
             original_pubkey
         );
         assert_eq!(

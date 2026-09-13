@@ -100,17 +100,18 @@ fn persona_record(id: &str, model: Option<&str>, provider: Option<&str>) -> Agen
 
 /// Auto-archive uses the same NIP-IA wire builder as the explicit GUI action,
 /// attaches owner consent, and marks a deliberate delete as `retired`.
-#[test]
-fn build_agent_archive_request_attaches_owner_auth_and_retired_reason() {
+#[tokio::test]
+async fn build_agent_archive_request_attaches_owner_auth_and_retired_reason() {
     use nostr::JsonUtil;
 
     let owner = nostr::Keys::generate();
     let agent = nostr::Keys::generate();
     let event = build_agent_archive_request(
-        &owner,
+        &crate::active_user_signer::ActiveUserSigner::local(owner.clone()),
         &agent.public_key().to_hex(),
         Some("persona-reviewer"),
     )
+    .await
     .expect("build archive request")
     .sign_with_keys(&owner)
     .unwrap();

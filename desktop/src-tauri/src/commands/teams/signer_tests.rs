@@ -36,7 +36,9 @@ impl Fixture {
         std::env::set_var("HOME", temp.path());
         std::env::set_var("XDG_DATA_HOME", temp.path());
         let state = crate::app_state::build_app_state();
-        *state.keys.lock().unwrap() = signer.keys.clone();
+        state
+            .replace_local_identity_keys(signer.keys.clone())
+            .unwrap();
         *state.test_signer.lock().unwrap() = Some(capability);
         *state.relay_url_override.lock().unwrap() = Some("wss://original.example".into());
         let app = tauri::test::mock_builder()
@@ -141,7 +143,10 @@ async fn team_definition_finishes_in_captured_scope_with_future_floor() {
     let task = tokio::spawn(async move { finish_team_pending(&app, work).await });
     f.signer.wait_entered().await;
     f.unlocked();
-    *f.app.state::<AppState>().keys.lock().unwrap() = nostr::Keys::generate();
+    f.app
+        .state::<AppState>()
+        .replace_local_identity_keys(nostr::Keys::generate())
+        .unwrap();
     *f.app.state::<AppState>().relay_url_override.lock().unwrap() =
         Some("wss://other.example".into());
     f.done(task).await;

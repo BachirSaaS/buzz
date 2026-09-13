@@ -101,14 +101,16 @@ async fn scoped_archive_flush_keeps_owner_relay_tags_and_retained_retry_identity
     let row = seed(&path, &controlled.keys, true, 1, "original");
     let (url, mut rx, server) = relay().await;
     let state = Arc::new(crate::app_state::build_app_state());
-    *state.keys.lock().unwrap() = controlled.keys.clone();
+    state
+        .replace_local_identity_keys(controlled.keys.clone())
+        .unwrap();
     let task = {
         let (path, state, url) = (path.clone(), state.clone(), url.clone());
         tokio::spawn(async move { flush_pending_events_at(&path, &state, &url, &signer).await })
     };
     controlled.wait_entered().await;
     assert!(rx.try_recv().is_err());
-    *state.keys.lock().unwrap() = Keys::generate();
+    state.replace_local_identity_keys(Keys::generate()).unwrap();
     *state.relay_url_override.lock().unwrap() = Some("http://127.0.0.1:1".into());
     // A writer can take SQLite's write reservation while signing is suspended.
     let conn = open_retention_db(&path).unwrap();
@@ -318,7 +320,9 @@ async fn retention_scope_publisher_uses_captured_capability_not_rebuilt_local_ke
     crate::relay_admission::reset_rate_limit_gate();
     let controlled = ControlledSigner::new(true);
     let state = std::sync::Arc::new(crate::app_state::build_app_state());
-    *state.keys.lock().unwrap() = controlled.keys.clone();
+    state
+        .replace_local_identity_keys(controlled.keys.clone())
+        .unwrap();
     *state.test_signer.lock().unwrap() =
         Some(ActiveUserSigner::new(controlled.clone()).await.unwrap());
     let dir = tempfile::tempdir().unwrap();
@@ -342,7 +346,7 @@ async fn retention_scope_publisher_uses_captured_capability_not_rebuilt_local_ke
         .await
     });
     controlled.wait_entered().await;
-    *state.keys.lock().unwrap() = Keys::generate();
+    state.replace_local_identity_keys(Keys::generate()).unwrap();
     *state.test_signer.lock().unwrap() = None;
     assert!(state.managed_agents_store_lock.try_lock().is_ok());
     let conn = open_retention_db(&path).unwrap();

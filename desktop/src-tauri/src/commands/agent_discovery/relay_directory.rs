@@ -79,9 +79,8 @@ fn managed_policy_filters(
 
 fn current_user_pubkey(state: &AppState) -> Result<String, String> {
     state
-        .keys
-        .lock()
-        .map(|keys| keys.public_key().to_hex())
+        .identity_public_key()
+        .map(|key| key.to_hex())
         .map_err(|error| error.to_string())
 }
 
@@ -457,7 +456,7 @@ mod real_relay_tests {
 
     fn state_for(keys: Keys) -> AppState {
         let state = build_app_state();
-        *state.keys.lock().unwrap() = keys;
+        state.replace_local_identity_keys(keys).unwrap();
         *state.relay_url_override.lock().unwrap() = Some(relay_ws_url());
         state
     }

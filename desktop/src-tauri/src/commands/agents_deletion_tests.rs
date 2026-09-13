@@ -37,7 +37,10 @@ struct Fixture {
 impl Fixture {
     async fn new(fail: bool, count: usize) -> Self {
         let signer = ControlledSigner::new(fail);
-        let capability = ActiveUserSigner::new(signer.clone()).await.unwrap();
+        let capability = ActiveUserSigner::new(signer.clone())
+            .await
+            .unwrap()
+            .with_test_authorization(signer.keys.clone());
         let environment = crate::managed_agents::lock_path_mutex();
         let temp = tempfile::tempdir().unwrap();
         let old_home = std::env::var_os("HOME");
@@ -45,7 +48,9 @@ impl Fixture {
         std::env::set_var("HOME", temp.path());
         std::env::set_var("XDG_DATA_HOME", temp.path());
         let state = build_app_state();
-        *state.keys.lock().unwrap() = signer.keys.clone();
+        state
+            .replace_local_identity_keys(signer.keys.clone())
+            .unwrap();
         *state.test_signer.lock().unwrap() = Some(capability);
         *state.relay_url_override.lock().unwrap() = Some("ws://127.0.0.1:1".into());
         let app = tauri::test::mock_builder()
@@ -194,7 +199,7 @@ async fn captured_owner_future_head_and_pair_persist_after_real_delete() {
     f.unlocked();
     assert_eq!(f.records().len(), 1);
     let state = f.app.state::<AppState>();
-    *state.keys.lock().unwrap() = Keys::generate();
+    state.replace_local_identity_keys(Keys::generate()).unwrap();
     *state.test_signer.lock().unwrap() = None;
     *state.relay_url_override.lock().unwrap() = Some("ws://127.0.0.1:2".into());
     f.finish(task, 1).await.unwrap();

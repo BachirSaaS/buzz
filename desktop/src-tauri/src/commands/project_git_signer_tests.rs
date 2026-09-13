@@ -36,7 +36,7 @@ async fn live_project_user_signer_delay_and_failure_preserve_recovery_contract()
         });
         controlled.wait_entered().await;
         assert!(state.managed_agents_store_lock.try_lock().is_ok());
-        *state.keys.lock().unwrap() = Keys::generate();
+        state.replace_local_identity_keys(Keys::generate()).unwrap();
         *state.test_signer.lock().unwrap() = None;
         controlled.release.notify_one();
         if fail {

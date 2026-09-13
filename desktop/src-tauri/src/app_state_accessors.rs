@@ -10,6 +10,56 @@ use crate::managed_agents::config_bridge::SessionConfigCache;
 use crate::managed_agents::ManagedAgentRuntimeKey;
 
 impl AppState {
+    /// Compatibility local-key access, preserving historical recovery exceptions.
+    /// New signing paths must use active_signer/signing_keys instead.
+    pub(crate) fn local_identity_keys(&self) -> Result<Keys, String> {
+        self.keys
+            .lock()
+            .map(|keys| keys.clone())
+            .map_err(|e| e.to_string())
+    }
+
+    /// Swap a local identity after the caller's persistence/transaction boundary.
+    pub(crate) fn replace_local_identity_keys(&self, keys: Keys) -> Result<(), String> {
+        *self.keys.lock().map_err(|e| e.to_string())? = keys;
+        Ok(())
+    }
+
+    /// Atomically replace local keys and their storage metadata after persistence.
+    pub(crate) fn install_local_identity(
+        &self,
+        keys: Keys,
+        storage: crate::identity_storage::IdentityStorage,
+    ) -> Result<(), String> {
+        let mut guard = self.keys.lock().map_err(|e| e.to_string())?;
+        *guard = keys;
+        self.set_identity_storage(storage);
+        Ok(())
+    }
+
+    /// Preserve the local identity IPC's key/metadata snapshot under the key lock.
+    pub(crate) fn local_identity_snapshot(
+        &self,
+    ) -> Result<crate::identity_storage::LocalIdentitySnapshot, String> {
+        use std::sync::atomic::Ordering::Acquire;
+        let keys = self.keys.lock().map_err(|e| e.to_string())?;
+        Ok(crate::identity_storage::LocalIdentitySnapshot {
+            pubkey: keys.public_key(),
+            storage: self.identity_storage(),
+            lost: self.identity_lost.load(Acquire),
+            locked: self.keyring_locked.load(Acquire),
+            reset_failed: self.reset_failed.load(Acquire),
+        })
+    }
+
+    /// Public identity for reads that historically allowed local recovery mode.
+    pub(crate) fn identity_public_key(&self) -> Result<nostr::PublicKey, String> {
+        self.keys
+            .lock()
+            .map(|keys| keys.public_key())
+            .map_err(|e| e.to_string())
+    }
+
     /// Lock the huddle state mutex, converting a poisoned-lock error to a String.
     ///
     /// Convenience wrapper — replaces 15+ instances of

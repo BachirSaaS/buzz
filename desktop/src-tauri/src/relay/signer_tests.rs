@@ -23,7 +23,9 @@ async fn scoped_submit_keeps_identity_relay_and_nip98_template_across_await() {
     let controlled = ControlledSigner::new(false);
     let signer = ActiveUserSigner::new(controlled.clone()).await.unwrap();
     let state = Arc::new(crate::app_state::build_app_state());
-    *state.keys.lock().unwrap() = controlled.keys.clone();
+    state
+        .replace_local_identity_keys(controlled.keys.clone())
+        .unwrap();
     *state.relay_url_override.lock().unwrap() = Some(base.clone());
     let captured_base = relay_api_base_url_with_override(&state);
     let task_state = state.clone();
@@ -39,7 +41,7 @@ async fn scoped_submit_keeps_identity_relay_and_nip98_template_across_await() {
     controlled.wait_entered().await;
     assert!(!task.is_finished());
     assert!(rx.try_recv().is_err());
-    *state.keys.lock().unwrap() = Keys::generate();
+    state.replace_local_identity_keys(Keys::generate()).unwrap();
     *state.relay_url_override.lock().unwrap() = Some("http://127.0.0.1:1".into());
     controlled.release.notify_one();
     controlled.wait_entered().await;
@@ -146,7 +148,9 @@ async fn generic_submit_signing_failure_precedes_rate_admission() {
     let controlled = ControlledSigner::new(true);
     let signer = ActiveUserSigner::new(controlled.clone()).await.unwrap();
     let state = crate::app_state::build_app_state();
-    *state.keys.lock().unwrap() = controlled.keys.clone();
+    state
+        .replace_local_identity_keys(controlled.keys.clone())
+        .unwrap();
     *state.test_signer.lock().unwrap() = Some(signer);
     let before = tokio::time::Instant::now();
     let task = tokio::spawn(async move {

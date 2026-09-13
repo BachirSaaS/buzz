@@ -1,4 +1,4 @@
-use nostr::{Keys, ToBech32};
+use nostr::Keys;
 use tauri::{AppHandle, State};
 
 use super::managed_agent_definition::validate_create_definition;
@@ -23,8 +23,7 @@ use crate::{
 /// Read the workspace owner pubkey without holding the lock. Used to populate `BUZZ_ACP_AGENT_OWNER`
 /// as a fallback for legacy agent records that have no NIP-OA `auth_tag`.
 pub(super) fn workspace_owner_hex(state: &AppState) -> Result<String, String> {
-    let keys = state.keys.lock().map_err(|e| e.to_string())?;
-    Ok(keys.public_key().to_hex())
+    Ok(state.identity_public_key()?.to_hex())
 }
 
 #[path = "agents_pending.rs"]
@@ -349,12 +348,37 @@ pub async fn list_managed_agents(app: AppHandle) -> Result<Vec<ManagedAgentSumma
     .map_err(|e| format!("spawn_blocking failed: {e}"))?
 }
 
+/// Create's proof/definition preparation phase, completed before store writes.
+pub(crate) async fn prepare_create_agent<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+    state: &AppState,
+    owner: &crate::owner_authorization::OwnerAuthorizationScope,
+    persona_id: Option<&str>,
+) -> Result<crate::owner_authorization::AuthorizedAgent, String> {
+    let agent = crate::owner_authorization::prepare_agent(&owner.signer).await?;
+    owner.check_current(state)?;
+    // load_personas merges and SAVES definitions. Defer it (not just explicit
+    // housekeeping) until proof success, then recheck scope under the store lock.
+    {
+        let _store_guard = state
+            .managed_agents_store_lock
+            .lock()
+            .map_err(|e| e.to_string())?;
+        owner.check_current(state)?;
+        if let Some(persona_id) = persona_id {
+            ensure_persona_is_active(&load_personas(app)?, persona_id)?;
+        }
+    }
+    Ok(agent)
+}
+
 #[tauri::command]
 pub async fn create_managed_agent(
     input: CreateManagedAgentRequest,
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<CreateManagedAgentResponse, String> {
+    let owner = crate::owner_authorization::OwnerAuthorizationScope::capture(&state)?;
     let name = input.name.trim().to_string();
     let requested_persona_id = input
         .persona_id
@@ -387,52 +411,12 @@ pub async fn create_managed_agent(
         );
     }
 
-    // ── Phase 1: generate keys (sync lock) ────────────────────────────────────
-    let (agent_keys, private_key_nsec, pubkey, resolved_relay_url, input) = {
-        let _store_guard = state
-            .managed_agents_store_lock
-            .lock()
-            .map_err(|error| error.to_string())?;
-        let mut records = load_managed_agents(&app)?;
-        let mut runtimes = state
-            .managed_agent_processes
-            .lock()
-            .map_err(|error| error.to_string())?;
-
-        let (sync_changed, exited_pubkeys) =
-            sync_managed_agent_processes(&mut records, &mut runtimes, &current_instance_id(&app));
-        if sync_changed {
-            save_managed_agents(&app, &records)?;
-        }
-        for pubkey in &exited_pubkeys {
-            state.clear_agent_session_caches(pubkey);
-        }
-        if let Some(persona_id) = requested_persona_id.as_deref() {
-            let personas = load_personas(&app)?;
-            ensure_persona_is_active(&personas, persona_id)?;
-        }
-        let keys = Keys::generate();
-        let pubkey = keys.public_key().to_hex();
-        if records.iter().any(|record| record.pubkey == pubkey) {
-            return Err(format!("agent {pubkey} already exists"));
-        }
-        let private_key_nsec = keys
-            .secret_key()
-            .to_bech32()
-            .map_err(|error| format!("failed to encode private key: {error}"))?;
-
-        // Store the relay override exactly as supplied (trimmed). An explicit
-        // value pins the agent; empty stays empty and resolves to the active
-        // workspace relay at read-time. Uniform for Local and Provider.
-        let resolved_relay_url = input
-            .relay_url
-            .as_deref()
-            .map(str::trim)
-            .unwrap_or("")
-            .to_string();
-
-        (keys, private_key_nsec, pubkey, resolved_relay_url, input)
-    };
+    let resolved_relay_url = input
+        .relay_url
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or("")
+        .to_string();
 
     // ── Pre-Phase 2: validate provider config BEFORE any side effects ────────
     if let BackendKind::Provider { ref config, ref id } = input.backend {
@@ -443,20 +427,14 @@ pub async fn create_managed_agent(
 
     let relay_mesh = normalize_relay_mesh(input.relay_mesh.as_ref(), &input.backend)?;
 
-    // ── Phase 2: compute NIP-OA auth tag (sync) ──────────────────────────────
-    // Agents authenticate via the auth tag in their kind:0 profile event.
-    // No tokens are minted. Fail closed: bad auth tag → don't create agent.
-    let auth_tag = {
-        let owner_keys = state.signing_keys()?;
-        // Bridge nostr 0.37 → 0.36 (buzz-sdk) via hex round-trip.
-        let compat_owner = nostr::Keys::parse(&owner_keys.secret_key().to_secret_hex())
-            .map_err(|e| format!("failed to bridge owner keys: {e}"))?;
-        let compat_agent = nostr::PublicKey::from_hex(&agent_keys.public_key().to_hex())
-            .map_err(|e| format!("failed to bridge agent pubkey: {e}"))?;
-        let tag = buzz_sdk_pkg::nip_oa::compute_auth_tag(&compat_owner, &compat_agent, "")
-            .map_err(|e| format!("failed to compute NIP-OA auth tag: {e}"))?;
-        Some(tag)
-    };
+    // Proof preparation is asynchronous, outside all store/SQLite locks.
+    let crate::owner_authorization::AuthorizedAgent {
+        keys: agent_keys,
+        private_key_nsec,
+        pubkey,
+        auth_tag,
+    } = prepare_create_agent(&app, &state, &owner, requested_persona_id.as_deref()).await?;
+    owner.check_current(&state)?;
 
     // ── Phase 3: save record (sync lock) ───────────────────────────────────────
     let (agent, resolved_avatar_url, profile_about, retention) = {
@@ -464,6 +442,10 @@ pub async fn create_managed_agent(
             .managed_agents_store_lock
             .lock()
             .map_err(|error| error.to_string())?;
+        owner.check_current(&state)?;
+        if let Some(persona_id) = requested_persona_id.as_deref() {
+            ensure_persona_is_active(&load_personas(&app)?, persona_id)?;
+        }
         let mut records = load_managed_agents(&app)?;
         let mut runtimes = state
             .managed_agent_processes

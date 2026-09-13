@@ -21,6 +21,7 @@ mod agent_usage;
 mod archive_db;
 mod metric_store;
 mod pipeline;
+mod prepare;
 pub mod retention;
 pub mod store;
 mod store_migrations;
@@ -28,7 +29,8 @@ pub mod sync;
 
 pub use archive_db::ArchiveDb;
 
-use pipeline::{commit_archive, plan_archive, query_buckets};
+use pipeline::{plan_archive, query_buckets};
+use prepare::{commit_ready, prepare_archive};
 
 use nostr::Event;
 use rusqlite::Connection;
@@ -63,8 +65,7 @@ pub fn spawn_warm_init(app: tauri::AppHandle) {
 }
 
 fn identity_pubkey(state: &AppState) -> Result<String, String> {
-    let keys = state.keys.lock().map_err(|e| e.to_string())?;
-    Ok(keys.public_key().to_hex())
+    Ok(state.identity_public_key()?.to_hex())
 }
 
 fn now_secs() -> i64 {
@@ -163,8 +164,10 @@ pub(crate) async fn archive_candidates(
     state: &AppState,
     candidates: Vec<ArchiveCandidate>,
 ) -> Result<ArchiveBatchResult, String> {
-    let identity_pk = identity_pubkey(state)?;
+    let signer = state.legacy_local_signer()?;
+    let identity_pk = signer.public_key().to_hex();
     let relay_url = relay_ws_url_with_override(state);
+    let relay_base = crate::relay::relay_http_base_url(&relay_url);
     let now = now_secs();
 
     // ── Phase 1: plan (blocking SQLite) ─────────────────────────────────────
@@ -176,30 +179,13 @@ pub(crate) async fn archive_candidates(
         .await?;
 
     // ── Phase 2: relay queries (async) ───────────────────────────────────────
-    let bucket_results = query_buckets(plan.buckets, state).await;
+    let bucket_results = query_buckets(plan.buckets, state, &signer, &relay_base).await;
 
-    // ── Phase 3: persist (blocking SQLite) ──────────────────────────────────
-    let owner_keys = {
-        let keys_guard = state.keys.lock().map_err(|e| e.to_string())?;
-        keys_guard.clone()
-        // guard drops here, before awaiting the blocking commit task.
-    };
-    let commit_identity_pk = identity_pk.clone();
-    let commit_relay_url = relay_url.clone();
+    // Crypto preparation is async and owns no SQLite connection or store lock.
+    let prepared = prepare_archive(bucket_results, plan.ephemeral, plan.pre_dropped, &signer).await;
     state
         .archive_db
-        .with_conn(move |conn| {
-            commit_archive(
-                bucket_results,
-                plan.ephemeral,
-                plan.pre_dropped,
-                &commit_identity_pk,
-                &commit_relay_url,
-                &owner_keys,
-                now,
-                conn,
-            )
-        })
+        .with_conn(move |conn| commit_ready(&prepared, &identity_pk, &relay_url, now, conn))
         .await
 }
 

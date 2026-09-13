@@ -1,7 +1,5 @@
 use crate::active_user_signer::ActiveUserSigner;
-use nostr::{
-    nips::nip44, Event, EventBuilder, JsonUtil, Keys, Kind, PublicKey, Tag, Timestamp, ToBech32,
-};
+use nostr::{Event, EventBuilder, JsonUtil, Keys, Kind, PublicKey, Tag, Timestamp, ToBech32};
 use tauri::Manager;
 use tauri::State;
 
@@ -54,27 +52,14 @@ mod truncated_display_name_tests {
 
 #[tauri::command]
 pub fn get_identity(state: State<'_, AppState>) -> Result<IdentityInfo, String> {
-    let keys = state.keys.lock().map_err(|error| error.to_string())?;
-    let pubkey = keys.public_key();
-    let pubkey_hex = pubkey.to_hex();
-    let display_name = truncated_display_name(&pubkey)?;
-    let lost = state
-        .identity_lost
-        .load(std::sync::atomic::Ordering::Acquire);
-    let locked = state
-        .keyring_locked
-        .load(std::sync::atomic::Ordering::Acquire);
-    let reset_failed = state
-        .reset_failed
-        .load(std::sync::atomic::Ordering::Acquire);
-
+    let snapshot = state.local_identity_snapshot()?;
     Ok(IdentityInfo {
-        pubkey: pubkey_hex,
-        display_name,
-        storage: state.identity_storage().as_str().to_string(),
-        lost,
-        locked,
-        reset_failed,
+        pubkey: snapshot.pubkey.to_hex(),
+        display_name: truncated_display_name(&snapshot.pubkey)?,
+        storage: snapshot.storage.as_str().to_string(),
+        lost: snapshot.lost,
+        locked: snapshot.locked,
+        reset_failed: snapshot.reset_failed,
     })
 }
 
@@ -477,7 +462,7 @@ pub(crate) fn commit_imported_identity(
     persist: impl FnOnce(&nostr::Keys) -> Result<crate::app_state::IdentityStorage, String>,
 ) -> Result<(nostr::PublicKey, crate::app_state::IdentityStorage), String> {
     // Capture the previous pubkey up front for post-commit cleanup.
-    let previous_pubkey = state.keys.lock().map_err(|e| e.to_string())?.public_key();
+    let previous_pubkey = state.identity_public_key()?;
 
     let storage = persist(&keys)?;
 
@@ -485,11 +470,7 @@ pub(crate) fn commit_imported_identity(
     // stores below pair with Acquire loads in get_identity: a reader
     // observing false is guaranteed to see the updated keys.
     let pubkey = keys.public_key();
-    {
-        let mut active_keys = state.keys.lock().map_err(|e| e.to_string())?;
-        *active_keys = keys;
-        state.set_identity_storage(storage);
-    }
+    state.install_local_identity(keys, storage)?;
 
     // Clear both recovery flags — an import is valid in either lost or
     // keyring-locked state and resolves both. In the locked case the
@@ -550,7 +531,7 @@ pub async fn persist_current_identity(
         }
 
         // Clone current keys without holding the mutex across keyring I/O.
-        let keys = state.keys.lock().map_err(|e| e.to_string())?.clone();
+        let keys = state.local_identity_keys()?;
 
         let data_dir = app_handle
             .path()
@@ -733,34 +714,37 @@ pub async fn nip44_encrypt_to_self(
     plaintext: String,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
-    let keys = state.signing_keys()?;
-
-    tauri::async_runtime::spawn_blocking(move || {
-        nip44::encrypt(
-            keys.secret_key(),
-            &keys.public_key(),
-            &plaintext,
-            nip44::Version::V2,
-        )
-        .map_err(|e| format!("nip44 encrypt failed: {e}"))
-    })
-    .await
-    .map_err(|e| format!("spawn_blocking failed: {e}"))?
+    self_crypto(state.active_signer()?, plaintext, true).await
 }
 
+/// Decrypt to the captured identity without exposing its secret key.
 #[tauri::command]
 pub async fn nip44_decrypt_from_self(
     ciphertext: String,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
-    let keys = state.signing_keys()?;
+    self_crypto(state.active_signer()?, ciphertext, false).await
+}
 
-    tauri::async_runtime::spawn_blocking(move || {
-        nip44::decrypt(keys.secret_key(), &keys.public_key(), &ciphertext)
-            .map_err(|e| format!("nip44 decrypt failed: {e}"))
-    })
-    .await
-    .map_err(|e| format!("spawn_blocking failed: {e}"))?
+async fn self_crypto(
+    signer: ActiveUserSigner,
+    content: String,
+    encrypt: bool,
+) -> Result<String, String> {
+    let work = async move {
+        let peer = signer.public_key();
+        let result = if encrypt {
+            signer.signer().nip44_encrypt(&peer, &content).await
+        } else {
+            signer.signer().nip44_decrypt(&peer, &content).await
+        };
+        let operation = if encrypt { "encrypt" } else { "decrypt" };
+        result.map_err(|e| format!("nip44 {operation} failed: {e}"))
+    };
+    // Preserve local CPU offloading; callers no longer need key material.
+    tauri::async_runtime::spawn_blocking(move || tauri::async_runtime::block_on(work))
+        .await
+        .map_err(|e| format!("spawn_blocking failed: {e}"))?
 }
 
 #[cfg(test)]

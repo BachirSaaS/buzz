@@ -512,6 +512,7 @@ pub async fn confirm_team_snapshot_import(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<TeamSnapshotImportResult, String> {
+    let owner = crate::owner_authorization::OwnerAuthorizationScope::capture(&state)?;
     // ── Phase 1: validate (no I/O) ───────────────────────────────────────────
     let snapshot = decode_team_snapshot_from_bytes(&input.file_bytes)?;
     let now = now_iso();
@@ -523,10 +524,7 @@ pub async fn confirm_team_snapshot_import(
 
     // ── Phase 2: mint keys + auth tags (sync, outside lock) ─────────────────
     // All mints must succeed before we enter the store. If any fails, zero writes.
-    let owner_pubkey_hex = {
-        let keys = state.signing_keys()?;
-        keys.public_key().to_hex()
-    };
+    let owner_pubkey_hex = owner.signer.public_key().to_hex();
 
     let mut minted: Vec<MintedMember> = Vec::with_capacity(snapshot.members.len());
     for (member, definition) in snapshot.members.iter().zip(definitions) {
@@ -535,28 +533,13 @@ pub async fn confirm_team_snapshot_import(
         let respond_to_wire = definition.respond_to.clone();
         let minted_parallelism = definition.parallelism;
 
-        let (agent_keys, private_key_nsec, pubkey, auth_tag) = {
-            let owner_keys = state.signing_keys()?;
-            let agent_keys = nostr::Keys::generate();
-            let pubkey = agent_keys.public_key().to_hex();
-            let private_key_nsec = {
-                use nostr::ToBech32;
-                agent_keys
-                    .secret_key()
-                    .to_bech32()
-                    .map_err(|e| format!("failed to encode agent private key: {e}"))?
-            };
-            // NIP-OA auth tag: bridge nostr 0.37 → 0.36 (buzz-sdk) via hex round-trip.
-            let compat_owner = nostr::Keys::parse(&owner_keys.secret_key().to_secret_hex())
-                .map_err(|e| format!("failed to bridge owner keys: {e}"))?;
-            let compat_agent = nostr::PublicKey::from_hex(&pubkey)
-                .map_err(|e| format!("failed to bridge agent pubkey: {e}"))?;
-            let auth_tag = Some(
-                buzz_sdk_pkg::nip_oa::compute_auth_tag(&compat_owner, &compat_agent, "")
-                    .map_err(|e| format!("failed to compute NIP-OA auth tag: {e}"))?,
-            );
-            (agent_keys, private_key_nsec, pubkey, auth_tag)
-        };
+        let crate::owner_authorization::AuthorizedAgent {
+            keys: agent_keys,
+            private_key_nsec,
+            pubkey,
+            auth_tag,
+        } = crate::owner_authorization::prepare_agent(&owner.signer).await?;
+        owner.check_current(&state)?;
 
         // Build the ManagedAgentRecord for this member.
         let record = ManagedAgentRecord {
@@ -642,6 +625,7 @@ pub async fn confirm_team_snapshot_import(
         });
     }
 
+    owner.check_current(&state)?;
     // ── Phase 3: store (sync, inside lock) ──────────────────────────────────
     let (team, agent_retention, persona_retention, team_retention) = {
         let _store_guard = state
@@ -649,6 +633,7 @@ pub async fn confirm_team_snapshot_import(
             .lock()
             .map_err(|e| e.to_string())?;
 
+        owner.check_current(&state)?;
         // Guard against duplicate pubkeys (astronomically unlikely).
         let existing_records = load_managed_agents(&app)?;
         for m in &minted {

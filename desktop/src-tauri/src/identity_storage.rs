@@ -60,3 +60,12 @@ pub(crate) struct ResolvedIdentity {
     pub(crate) recovery: RecoveryState,
     pub(crate) storage: IdentityStorage,
 }
+
+/// Public identity and recovery metadata captured under one key lock.
+pub(crate) struct LocalIdentitySnapshot {
+    pub(crate) pubkey: nostr::PublicKey,
+    pub(crate) storage: IdentityStorage,
+    pub(crate) lost: bool,
+    pub(crate) locked: bool,
+    pub(crate) reset_failed: bool,
+}

@@ -107,11 +107,11 @@ pub struct ActiveWorkspaceInfo {
 /// Returns the current active workspace info (relay URL + pubkey).
 #[tauri::command]
 pub fn get_active_workspace(state: State<'_, AppState>) -> Result<ActiveWorkspaceInfo, String> {
-    let keys = state.keys.lock().map_err(|e| e.to_string())?;
+    let public_key = state.identity_public_key()?;
     let relay_url = relay::relay_ws_url_with_override(&state);
     Ok(ActiveWorkspaceInfo {
         relay_url,
-        pubkey: keys.public_key().to_hex(),
+        pubkey: public_key.to_hex(),
     })
 }
 
@@ -220,8 +220,7 @@ pub async fn apply_workspace(
         crate::relay_admission::reset_gate_for_workspace_change();
 
         if let Some(keys) = parsed_keys {
-            let mut keys_guard = state.keys.lock().map_err(|e| e.to_string())?;
-            *keys_guard = keys;
+            state.replace_local_identity_keys(keys)?;
         }
 
         // Keep the backend-side reconcile guard aligned with the frontend

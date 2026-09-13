@@ -102,17 +102,14 @@ fn run_batch_sync_with_keys(
         })
         .collect();
 
-    commit_archive(
+    let signer = crate::active_user_signer::ActiveUserSigner::local(owner_keys.clone());
+    let prepared = tauri::async_runtime::block_on(prepare_archive(
         bucket_results,
         plan.ephemeral,
         plan.pre_dropped,
-        identity_pk,
-        relay_url,
-        owner_keys,
-        0,
-        conn,
-    )
-    .unwrap()
+        &signer,
+    ));
+    commit_ready(&prepared, identity_pk, relay_url, 0, conn).unwrap()
 }
 
 fn candidate(event: &Event, scope_type: ScopeType, scope_value: &str) -> ArchiveCandidate {
@@ -761,22 +758,15 @@ mod real_relay {
 
         // Phase 2: relay queries (async) — no Connection in scope.
         // Uses the real `query_buckets` path: query_relay → NIP-98 signed /query.
-        let bucket_results = query_buckets(plan.buckets, state).await;
+        let signer = state.legacy_local_signer().unwrap();
+        let relay_base = crate::relay::relay_http_base_url(&relay_url);
+        let bucket_results = query_buckets(plan.buckets, state, &signer, &relay_base).await;
+        let prepared =
+            prepare_archive(bucket_results, plan.ephemeral, plan.pre_dropped, &signer).await;
 
         // Phase 3: persist (sync). Fresh connection, same file.
         let conn = store::open_archive_db(db_path).expect("open archive db for commit");
-        let owner_keys = state.keys.lock().unwrap().clone();
-        commit_archive(
-            bucket_results,
-            plan.ephemeral,
-            plan.pre_dropped,
-            &identity_pk,
-            &relay_url,
-            &owner_keys,
-            0,
-            &conn,
-        )
-        .unwrap()
+        commit_ready(&prepared, &identity_pk, &relay_url, 0, &conn).unwrap()
     }
 
     /// Happy path: publish a kind:9 message to a channel, then run the archive

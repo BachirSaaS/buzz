@@ -28,7 +28,7 @@ impl Fixture {
         std::env::set_var("HOME", temp.path());
         std::env::set_var("XDG_DATA_HOME", temp.path());
         let state = crate::app_state::build_app_state();
-        *state.keys.lock().unwrap() = keys.clone();
+        state.replace_local_identity_keys(keys.clone()).unwrap();
         *state.relay_url_override.lock().unwrap() = Some("wss://tombstone-original.example".into());
         let app = tauri::test::mock_builder()
             .manage(state)
@@ -160,7 +160,10 @@ async fn future_head_atomic_purge_uses_captured_scope_without_locks() {
     f.assert_unlocked();
     assert!(f.head().is_some());
     // A workspace/identity switch cannot redirect either author or database.
-    *f.app.state::<AppState>().keys.lock().unwrap() = Keys::generate();
+    f.app
+        .state::<AppState>()
+        .replace_local_identity_keys(Keys::generate())
+        .unwrap();
     *f.app.state::<AppState>().relay_url_override.lock().unwrap() =
         Some("wss://new.example".into());
     backend.release.notify_one();
