@@ -729,6 +729,7 @@ async fn nip11_workflow_contract_requires_bound_host_and_stable_identity() {
     let mut f = Fixture::new().await;
     // No stable key: no forward compatibility promise, even on a mapped host.
     let state = Arc::get_mut(&mut f.state).expect("sole state owner");
+    Arc::make_mut(&mut state.config).advertise_workflow_lifecycle = true;
     Arc::make_mut(&mut state.config).relay_private_key = None;
     let info = crate::nip11::nip11_document(&f.state, f.tenant.host()).await;
     assert!(info.workflows.is_none());
