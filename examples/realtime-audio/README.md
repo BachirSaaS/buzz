@@ -3,7 +3,8 @@
 Run a local voice conversation through the native llama.cpp Frankie server, Buzz
 agent, and this webpage. The browser captures and plays mono PCM16 at 24 kHz.
 Buzz owns MCP tools and their permission decisions; llama.cpp loads the single
-GGUF and runs the brain, Parakeet, Qwen3-TTS, vision, and turn models through ggml.
+GGUF and runs the brain, Parakeet, Qwen3-TTS or Breeze, vision, and turn models
+through ggml. The package selects the mouth.
 No Python inference service or hosted model API is needed.
 
 The page includes live transcripts, interruption, thinking controls, tool
@@ -14,39 +15,30 @@ approval, and latency measured from the end of speech to actual playback.
 ## Get the model
 
 Obtain a compatible Frankie GGUF separately and save it as
-`models/frankie-studio-c10-q8-audio.gguf` outside the source repositories.
-Model weights are not distributed through this repository.
+`models/frankie.gguf` outside the source repositories. Both Qwen-TTS and Breeze
+v3 packages work with the fork revision below. Model weights and reference
+recordings are not distributed through this repository.
 
-The tested September 10, 2026 package has:
-
-- Size: **20,326,799,488 bytes** (20.33 GB / 18.93 GiB).
-- SHA-256: `1822228c2caa051fb4fa8535c9a3105c2bb67440968dc5a9f6ee44ffbc439c50`.
-- Custom Q4_1 brain; supported Parakeet and Qwen3-TTS matrices in Q8_0.
-  Convolutions and sensitive tensors retain their original types; vision is F16.
-- The packaged c10 reference voice. A custom reference can replace it at launch.
-
-Verify the download with `shasum -a 256 models/frankie-studio-c10-q8-audio.gguf`
-(macOS) or `sha256sum` (Linux). A different hash identifies a different package;
-the compatibility results here apply to the hash above. Model and reference-voice
-licensing are separate from the code license; consult the package's source and
-voice metadata before redistribution.
+Verify the package against the checksum supplied with it using
+`shasum -a 256 models/frankie.gguf` (macOS) or `sha256sum` (Linux). Keep its
+manifest and model/voice license information with the artifact.
 
 ## Build llama.cpp
 
 Prerequisites: Git, CMake, a C/C++ toolchain, ICU development headers/libraries,
 and OpenSSL development headers/libraries. For CUDA, install the CUDA toolkit;
 for Metal, use macOS with Xcode command-line tools. See the fork's
-[Frankie build guide](https://github.com/tlongwell-block/llama.cpp/blob/d0aa7352535cbdc2bddfd5512b5f95d731761f72/tools/frankie/README.md)
+[Frankie build guide](https://github.com/tlongwell-block/llama.cpp/blob/c622f8f174ba869bebd7f2d4478c79586ff57ebf/tools/frankie/README.md)
 for native dependencies and tuning.
 
 Use the Frankie fork, including [PR #1](https://github.com/tlongwell-block/llama.cpp/pull/1).
-The pinned revision below is the one used to validate this GGUF; stock llama.cpp
-cannot run this package.
+The pinned revision includes both mouths, custom WAV references, and Breeze
+sentence continuity. Stock llama.cpp cannot run this package.
 
 ```sh
 git clone https://github.com/tlongwell-block/llama.cpp.git llama-frankie
 cd llama-frankie
-git checkout d0aa7352535cbdc2bddfd5512b5f95d731761f72
+git checkout c622f8f174ba869bebd7f2d4478c79586ff57ebf
 
 # Metal (macOS)
 cmake -S . -B build-frankie -DCMAKE_BUILD_TYPE=Release \
@@ -77,7 +69,7 @@ cargo build --release -p buzz-agent -p buzz-dev-mcp
 
 node examples/realtime-audio/launch.mjs \
   --native ../llama-frankie/build-frankie/bin/llama-frankie-realtime \
-  --model ../models/frankie-studio-c10-q8-audio.gguf \
+  --model ../models/frankie.gguf \
   --device gpu
 ```
 
@@ -110,14 +102,20 @@ Add a non-silent WAV up to 20 seconds to replace the bundled voice:
 ```sh
 node examples/realtime-audio/launch.mjs \
   --native ../llama-frankie/build-frankie/bin/llama-frankie-realtime \
-  --model ../models/frankie-studio-c10-q8-audio.gguf \
+  --model ../models/frankie.gguf \
   --voice /path/to/my-voice.wav
 ```
 
-WAV-only conditioning uses the native speaker encoder; rebuilding the GGUF is
-unnecessary. Optional `--voice-text-file` and `--voice-codes` must be supplied
-together with the matching WAV. Codec IDs must already exist; the native runtime
-does not generate these optional ICL codes from arbitrary WAVs.
+Both mouths accept `--voice` directly when the package includes its reference
+encoder. Qwen3-TTS computes a speaker embedding; Breeze encodes and transcribes
+the reference once at startup. Rebuilding a complete v3 GGUF for each voice is
+unnecessary. Breeze also retains bounded speech context between chunks within
+one reply for more consistent prosody; this is enabled in the native runtime.
+
+For optional Qwen3-TTS ICL conditioning, `--voice-text-file` and `--voice-codes`
+must be supplied together with the matching WAV. Codec IDs must already exist;
+the native runtime does not generate these optional Qwen ICL codes. Do not pass
+Qwen codec IDs to Breeze. See the native guide for mouth-specific options.
 
 Choose **Off**, **Minimal**, **Low**, **Medium**, **High**, **Very high**, or
 **Maximum** thinking before connecting. Off is the default. Buzz forwards the
@@ -128,11 +126,15 @@ change the level.
 The launcher defaults to `--context 131072 --cache-type q4_0 --threads 4`.
 `--context`, `--cache-type q4_0|q8_0|f16`, and `--threads` are configurable. File
 size is not peak GPU memory: KV/recurrent state and compute buffers also count.
-CPU and Metal have native integration coverage. CUDA and a complete 128K workload
-on a 24 GiB consumer GPU still require hardware validation; the default context
-allocation does not establish that memory or throughput target.
+CPU, Metal, and CUDA use the same runtime options. Measure the complete voice
+pipeline on the intended device; allocating 128K context alone does not establish
+memory capacity or throughput under that workload.
 
 ## Operation and troubleshooting
+
+- Buzz allows two minutes of generated speech per live reply, or a smaller
+  provider limit. At the cap, it stops that reply and keeps the call open. Each
+  subsequent reply receives a fresh budget.
 
 - Only one browser connection can use this demo at a time. Close an existing
   conversation before opening another. The page requires a fresh connection
