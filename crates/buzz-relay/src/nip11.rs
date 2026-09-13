@@ -327,7 +327,11 @@ pub(crate) async fn nip11_document(state: &crate::state::AppState, raw_host: &st
             .push("nip-pl".to_string());
         info.push = Some(push);
     }
-    if let (Some(_), Some(host)) = (relay_self, tenant_host) {
+    if let (true, Some(_), Some(host)) = (
+        state.config.advertise_workflow_lifecycle,
+        relay_self,
+        tenant_host,
+    ) {
         info.supported_extensions
             .get_or_insert_default()
             .push("buzz-workflows".to_string());
@@ -418,6 +422,9 @@ const _RELAY_INFO_BUILD_STATIC_INPUT_FENCE: fn(
     Option<&str>,
     Option<&str>,
 ) -> RelayInfo = RelayInfo::build;
+
+#[cfg(test)]
+mod postgres_tests;
 
 #[cfg(test)]
 mod tests {

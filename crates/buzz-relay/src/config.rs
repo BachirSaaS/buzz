@@ -209,6 +209,13 @@ pub struct Config {
     /// are permitted regardless of auth method (API token, NIP-42).
     pub require_relay_membership: bool,
 
+    /// Advertise the host-wide workflow lifecycle contract in NIP-11.
+    /// Default off. Enable `BUZZ_ADVERTISE_WORKFLOW_LIFECYCLE=true` only after
+    /// every endpoint and existing connection for every served host runs
+    /// compatible lifecycle code; see deploy/charts/buzz/README.md#workflow-lifecycle-activation.
+    /// This gates discovery only, never the atomic save/delete enforcement.
+    pub advertise_workflow_lifecycle: bool,
+
     /// Whether this deployment can serve huddle (voice) audio.
     ///
     /// Huddle audio frames are relayed peer-to-peer *within a single pod*
@@ -668,6 +675,10 @@ impl Config {
             .unwrap_or(false);
 
         let require_relay_membership = std::env::var("BUZZ_REQUIRE_RELAY_MEMBERSHIP")
+            .map(|v| v == "true" || v == "1")
+            .unwrap_or(false);
+
+        let advertise_workflow_lifecycle = std::env::var("BUZZ_ADVERTISE_WORKFLOW_LIFECYCLE")
             .map(|v| v == "true" || v == "1")
             .unwrap_or(false);
 
@@ -1226,6 +1237,7 @@ impl Config {
             metrics_port,
             pubkey_allowlist_enabled,
             require_relay_membership,
+            advertise_workflow_lifecycle,
             huddle_audio_available,
             mesh,
             mesh_demo_echo,
@@ -1332,6 +1344,42 @@ mod tests {
         );
 
         assert!(found.is_empty(), "unrelated vars must not warn: {found:?}");
+    }
+
+    #[test]
+    fn workflow_lifecycle_advertisement_requires_explicit_opt_in() {
+        // Config::from_env readers elsewhere do not share ENV_MUTEX. Keep
+        // this flag matrix in an isolated child rather than racing them.
+        const CHILD: &str = "BUZZ_TEST_WORKFLOW_ADVERTISEMENT_CONFIG_CHILD";
+        let _guard = ENV_MUTEX.lock().unwrap();
+        if std::env::var_os(CHILD).is_none() {
+            crate::test_support::run_exact_test_child(
+                "config::tests::workflow_lifecycle_advertisement_requires_explicit_opt_in",
+                CHILD,
+            );
+            return;
+        }
+        for (value, enabled) in [
+            (None, false),
+            (Some(""), false),
+            (Some("false"), false),
+            (Some("0"), false),
+            (Some("typo"), false),
+            (Some("true"), true),
+            (Some("1"), true),
+        ] {
+            match value {
+                Some(value) => std::env::set_var("BUZZ_ADVERTISE_WORKFLOW_LIFECYCLE", value),
+                None => std::env::remove_var("BUZZ_ADVERTISE_WORKFLOW_LIFECYCLE"),
+            }
+            assert_eq!(
+                Config::from_env()
+                    .expect("config")
+                    .advertise_workflow_lifecycle,
+                enabled,
+                "advertisement config {value:?}"
+            );
+        }
     }
 
     #[test]

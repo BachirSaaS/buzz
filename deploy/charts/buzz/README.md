@@ -291,11 +291,59 @@ default so long-lived WebSocket connections have time to drain.
 
 ## Upgrades
 
-Schema migrations are embedded in the relay binary via `sqlx::migrate!` and run at startup, gated by `BUZZ_AUTO_MIGRATE` (default `true`). Multiple replicas race-safely behind a Postgres advisory lock. `helm upgrade` is the entire upgrade procedure.
+Schema migrations are embedded in the relay binary via `sqlx::migrate!` and run at startup, gated by `BUZZ_AUTO_MIGRATE` (default `true`). Multiple replicas race-safely behind a Postgres advisory lock. Use `helm upgrade` for code rollouts; host-wide capability activation may require a separate post-drain step, as described below.
 
 Migration 0032 is a hard compatibility boundary for relay versions that publish repaired channel rosters. The relay verifies the roster-fence trigger catalog and behavior before opening listeners and refuses to start if 0032 is missing or inert. Apply migrations before rolling the relay; for large installations, prefer a controlled `buzz-admin migrate` job with PostgreSQL lock monitoring before the code rollout.
 
 If you prefer decoupling migrations from serving, set `migrate.autoMigrate=false`. **In that mode the chart does not run migrations for you** — you own running `buzz-admin migrate` (separate Pod / one-shot Job) against the database before every `helm install` / `helm upgrade`. Readiness probes only verify DB connectivity, not schema freshness, so a pod will appear healthy against an unmigrated schema and fail under load. A pre-upgrade Helm Job for this is on the chart roadmap; the values knob `migrate.preUpgradeJob.enabled` is reserved.
+
+### Workflow lifecycle activation
+
+The NIP-11 `buzz-workflows` extension and `workflows: {lifecycle: 1, host: ...}`
+are a **host-wide** forward save/delete guarantee, not a statement about the pod
+that answered discovery. `BUZZ_ADVERTISE_WORKFLOW_LIFECYCLE` defaults to off;
+only `true` or `1` enables it. This startup setting gates advertisement only:
+new binaries enforce atomic lifecycle writes even while it is off. Stable relay
+identity and successful request-host binding are still required to advertise.
+
+Do not enable it in the same rolling upgrade that first installs lifecycle-capable
+code. `RollingUpdate` and the version-independent Service can route a later
+connection to an old replica; existing WebSockets can also continue writing
+through an old replica after it leaves the Service endpoints. The additive
+`workflow_deletions` migration/serving fence does not drain those old processes.
+
+1. **Deploy with advertisement off** (unset or `false` on every replica). Apply
+   the required schema and roll out the lifecycle-capable image. While old and
+   new replicas coexist, clients must not rely on lifecycle 1. Existing split
+   state, including writes made during this phase, is not repaired by activation.
+2. **Verify drain before enabling.** Wait for rollout completion, then verify
+   every HTTP/WebSocket endpoint behind every served host uses compatible code.
+   Include canary pools, alternate ingress routes and other deployments sharing
+   those hosts. Remove incompatible endpoints and finish draining/terminating
+   their existing connections and in-flight writes. A single successful NIP-11
+   probe or a ready new pod is not evidence of this host-wide condition.
+3. **Activate separately**, retaining the compatible image, using the existing
+   `relay.extraEnv` list (append this entry; preserve other entries):
+
+   ```yaml
+   relay:
+     extraEnv:
+       - name: BUZZ_ADVERTISE_WORKFLOW_LIFECYCLE
+         value: "true"
+   ```
+
+   Run a second `helm upgrade`/GitOps sync and wait for this config rollout.
+   Mixed off/on replicas are now safe because all replicas already enforce the
+   contract. Verify `/info` and `/` with `Accept: application/nostr+json` for each
+   served host: `buzz-workflows` is listed, `workflows.lifecycle` is `1`, and
+   `workflows.host` matches the normalized request host.
+
+**Rollback:** switching this flag off does not disable enforcement or revoke
+capabilities clients already observed. Prefer rolling back only to compatible
+code. Before reintroducing incompatible code, stop traffic for the affected
+hosts, disable advertisement everywhere, drain active connections/in-flight
+writes, and require clients to discard cached discovery and rediscover before
+resuming. If that cannot be guaranteed, do not downgrade those hosts.
 
 ## Backups
 
