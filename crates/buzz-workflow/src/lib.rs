@@ -91,15 +91,10 @@ pub struct WorkflowEngine {
     /// `(community_id, channel_id)`. Most channels have no workflows, so this
     /// removes one SELECT from nearly every ingested event.
     ///
-    /// Consistency: the relay invalidates this cache on its own pod at the two
-    /// workflow mutation sites (command upsert, NIP-09 deletion). There is
-    /// deliberately no cross-pod invalidation — workflow triggering is not an
-    /// access-control fence, so the worst case on another pod is a just-deleted
-    /// workflow firing (or a just-created one missing events) for up to the TTL.
-    /// The same TTL also bounds the same-pod look-aside race (a stale fill
-    /// landing just after an invalidation). Workflow mutations are rare; the
-    /// 10s window matches the relay's other moka caches (see `AppState` in
-    /// `buzz-relay`).
+    /// Consistency: mutations invalidate the accepting pod's cache. Other pods
+    /// (and stale look-aside fills) may miss new triggers until the 10s TTL,
+    /// but cached records cannot admit superseded, disabled or recreated work:
+    /// run creation atomically fences the selected record against the live row.
     pub(crate) workflow_cache:
         moka::sync::Cache<(CommunityId, Uuid), Arc<Vec<buzz_db::workflow::WorkflowRecord>>>,
 }
@@ -405,14 +400,17 @@ impl WorkflowEngine {
             let run_id = match self
                 .db
                 .create_workflow_run(
-                    community_id,
-                    workflow.id,
+                    workflow,
                     Some(&trigger_event_id_bytes),
                     Some(&trigger_ctx_json),
                 )
                 .await
             {
-                Ok(id) => id,
+                Ok(Some(id)) => id,
+                Ok(None) => {
+                    tracing::debug!(workflow_id = %workflow.id, "Skipping stale or inactive workflow");
+                    continue;
+                }
                 Err(e) => {
                     tracing::error!(workflow_id = %workflow.id, "Failed to create run: {e}");
                     continue;
@@ -667,14 +665,17 @@ impl WorkflowEngine {
                 let run_id = match self
                     .db
                     .create_workflow_run(
-                        community_id,
-                        workflow.id,
+                        workflow,
                         None, // no trigger event for cron
                         trigger_ctx_json.as_ref(),
                     )
                     .await
                 {
-                    Ok(id) => id,
+                    Ok(Some(id)) => id,
+                    Ok(None) => {
+                        tracing::debug!(workflow_id = %workflow.id, "Cron tick: skipping stale or inactive workflow");
+                        continue;
+                    }
                     Err(e) => {
                         tracing::error!(
                             workflow_id = %workflow.id,

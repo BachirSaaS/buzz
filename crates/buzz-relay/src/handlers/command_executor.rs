@@ -953,14 +953,12 @@ async fn handle_workflow_trigger(
     let event_id_bytes = event.id.as_bytes().to_vec();
     let run_id = state
         .db
-        .create_workflow_run(
-            community_id,
-            workflow_id,
-            Some(&event_id_bytes),
-            trigger_ctx_json.as_ref(),
-        )
+        .create_workflow_run(&workflow, Some(&event_id_bytes), trigger_ctx_json.as_ref())
         .await
-        .map_err(|e| IngestError::Internal(format!("error: db create_workflow_run: {e}")))?;
+        .map_err(|e| IngestError::Internal(format!("error: db create_workflow_run: {e}")))?
+        .ok_or_else(|| {
+            IngestError::Rejected("forbidden: workflow changed or is no longer active".into())
+        })?;
 
     // Finalize the idempotency record after the separate run creation succeeds.
     tx.commit()
@@ -1675,3 +1673,6 @@ mod postgres_tests {
         ));
     }
 }
+
+#[cfg(test)]
+mod run_admission_postgres_tests;

@@ -862,12 +862,6 @@ mod postgres_tests {
             ..Default::default()
         };
         let trigger_ctx_json = serde_json::to_value(&trigger_ctx).expect("serialize trigger");
-        let run_id = state
-            .db
-            .create_workflow_run(community, workflow_id, None, Some(&trigger_ctx_json))
-            .await
-            .expect("create workflow run");
-
         // Load the definition back from Postgres before execution. This pins the
         // authority source to the durable owner-authored template rather than a
         // second test-only string passed directly to RelayActionSink.
@@ -876,6 +870,13 @@ mod postgres_tests {
             .get_workflow(community, workflow_id)
             .await
             .expect("load stored workflow");
+        let run_id = state
+            .db
+            .create_workflow_run(&stored_workflow, None, Some(&trigger_ctx_json))
+            .await
+            .expect("create workflow run")
+            .expect("current workflow admitted");
+
         let stored_definition: buzz_workflow::WorkflowDef =
             serde_json::from_value(stored_workflow.definition).expect("parse stored definition");
         let result = buzz_workflow::executor::execute_run(

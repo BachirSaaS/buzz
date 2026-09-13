@@ -2180,9 +2180,10 @@ pub async fn workflow_webhook(
 
     let run_id = state
         .db
-        .create_workflow_run(community_id, id, None, trigger_ctx_json.as_ref())
+        .create_workflow_run(&workflow, None, trigger_ctx_json.as_ref())
         .await
-        .map_err(|e| super::internal_error(&format!("db error: {e}")))?;
+        .map_err(|e| super::internal_error(&format!("db error: {e}")))?
+        .ok_or_else(|| not_found("workflow not found"))?;
 
     // Spawn workflow execution asynchronously.
     let engine = Arc::clone(&state.workflow_engine);

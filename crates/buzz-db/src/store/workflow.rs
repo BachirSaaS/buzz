@@ -10,6 +10,9 @@
 /// Transactional workflow-coordinate lifecycle operations.
 pub mod lifecycle;
 
+mod run_admission;
+pub use run_admission::create_workflow_run;
+
 use std::fmt;
 use std::str::FromStr;
 
@@ -867,38 +870,6 @@ pub async fn delete_workflow_for_owner(
 
 // -- Workflow Run CRUD --------------------------------------------------------
 
-/// Insert a new workflow run. Returns the new run's UUID.
-///
-/// `trigger_context` is the serialized `TriggerContext` for this run. It is stored
-/// so that post-approval resume steps can restore the original trigger data and
-/// correctly resolve `{{trigger.*}}` template variables.
-pub async fn create_workflow_run(
-    pool: &PgPool,
-    community_id: CommunityId,
-    workflow_id: Uuid,
-    trigger_event_id: Option<&[u8]>,
-    trigger_context: Option<&serde_json::Value>,
-) -> Result<Uuid> {
-    let id = Uuid::new_v4();
-
-    sqlx::query(
-        r#"
-        INSERT INTO workflow_runs
-            (community_id, id, workflow_id, status, trigger_event_id, current_step, execution_trace, trigger_context)
-        VALUES ($1, $2, $3, 'pending', $4, 0, '[]', $5)
-        "#,
-    )
-    .bind(community_id.as_uuid())
-    .bind(id)
-    .bind(workflow_id)
-    .bind(trigger_event_id)
-    .bind(trigger_context)
-    .execute(pool)
-    .await?;
-
-    Ok(id)
-}
-
 /// Fetch a single workflow run by ID, scoped to its community.
 pub async fn get_workflow_run(
     pool: &PgPool,
@@ -1343,19 +1314,18 @@ pub async fn find_by_owner_and_name(
 // -- Run and approval Db API --------------------------------------------------
 
 impl Db {
-    /// Create a new workflow run.
+    /// Admit a run only for the still-current, active/enabled selected workflow.
+    /// See [`create_workflow_run`] for the atomic admission contract.
     #[datastore_span(name = "create_workflow_run", system = "postgresql")]
     pub async fn create_workflow_run(
         &self,
-        community_id: CommunityId,
-        workflow_id: Uuid,
+        workflow: &WorkflowRecord,
         trigger_event_id: Option<&[u8]>,
         trigger_context: Option<&serde_json::Value>,
-    ) -> Result<Uuid> {
+    ) -> Result<Option<Uuid>> {
         crate::workflow::create_workflow_run(
             &self.pool,
-            community_id,
-            workflow_id,
+            workflow,
             trigger_event_id,
             trigger_context,
         )
@@ -2452,9 +2422,11 @@ mod postgres_tests {
             .expect("claim wins");
 
         // Create the run the won claim is responsible for, then attach it.
-        let run_id = create_workflow_run(&pool, community, workflow_id, None, None)
+        let workflow = get_workflow(&pool, community, workflow_id).await.unwrap();
+        let run_id = create_workflow_run(&pool, &workflow, None, None)
             .await
-            .expect("create run ok");
+            .expect("create run ok")
+            .expect("current workflow admitted");
 
         let attached =
             attach_scheduled_workflow_run(&pool, community, workflow_id, scheduled_for, run_id)
@@ -2481,9 +2453,10 @@ mod postgres_tests {
 
         // A second attach is a no-op: the `workflow_run_id IS NULL` guard means
         // an already-linked claim is never re-pointed to a different run.
-        let other_run = create_workflow_run(&pool, community, workflow_id, None, None)
+        let other_run = create_workflow_run(&pool, &workflow, None, None)
             .await
-            .expect("create second run ok");
+            .expect("create second run ok")
+            .expect("current workflow admitted");
         let reattached =
             attach_scheduled_workflow_run(&pool, community, workflow_id, scheduled_for, other_run)
                 .await
@@ -2762,12 +2735,16 @@ mod postgres_tests {
         insert_workflow_with_ids(&pool, community_a, workflow_id, channel_id, "wf-A").await;
         insert_workflow_with_ids(&pool, community_b, workflow_id, Uuid::new_v4(), "wf-B").await;
 
-        let run_a = create_workflow_run(&pool, community_a, workflow_id, None, None)
+        let workflow_a = get_workflow(&pool, community_a, workflow_id).await.unwrap();
+        let workflow_b = get_workflow(&pool, community_b, workflow_id).await.unwrap();
+        let run_a = create_workflow_run(&pool, &workflow_a, None, None)
             .await
-            .expect("run A");
-        let run_b = create_workflow_run(&pool, community_b, workflow_id, None, None)
+            .expect("run A")
+            .expect("current workflow admitted");
+        let run_b = create_workflow_run(&pool, &workflow_b, None, None)
             .await
-            .expect("run B");
+            .expect("run B")
+            .expect("current workflow admitted");
 
         let token = "shared-approval-token";
         let expires = Utc::now() + chrono::Duration::hours(1);
