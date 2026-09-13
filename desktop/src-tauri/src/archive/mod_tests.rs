@@ -108,7 +108,8 @@ fn run_batch_sync_with_keys(
         plan.ephemeral,
         plan.pre_dropped,
         &signer,
-    ));
+    ))
+    .unwrap();
     commit_ready(&prepared, identity_pk, relay_url, 0, conn).unwrap()
 }
 
@@ -761,8 +762,9 @@ mod real_relay {
         let signer = state.legacy_local_signer().unwrap();
         let relay_base = crate::relay::relay_http_base_url(&relay_url);
         let bucket_results = query_buckets(plan.buckets, state, &signer, &relay_base).await;
-        let prepared =
-            prepare_archive(bucket_results, plan.ephemeral, plan.pre_dropped, &signer).await;
+        let prepared = prepare_archive(bucket_results, plan.ephemeral, plan.pre_dropped, &signer)
+            .await
+            .unwrap();
 
         // Phase 3: persist (sync). Fresh connection, same file.
         let conn = store::open_archive_db(db_path).expect("open archive db for commit");
@@ -1014,5 +1016,88 @@ mod real_relay {
         );
         println!("  archived_events:       {event_count} row(s)");
         println!("  archived_event_scopes: {scope_count} row(s)");
+    }
+}
+
+#[test]
+fn local_invalid_ciphertext_keeps_observer_raw_null_and_drops_metric() {
+    let conn = in_memory();
+    let owner = Keys::generate();
+    let other = Keys::generate();
+    let agent = Keys::generate();
+    let owner_pk = owner.public_key().to_hex();
+    let relay = "wss://relay.example";
+    add_sub(
+        &conn,
+        &owner_pk,
+        relay,
+        "owner_p",
+        &owner_pk,
+        "[24200,44200]",
+    );
+    // A valid envelope encrypted to another key reaches local decryption and
+    // fails authentication, rather than merely failing the envelope precheck.
+    let content = buzz_core_pkg::observer::encrypt_observer_payload(
+        &agent,
+        &other.public_key(),
+        &serde_json::json!({"channelId": "private-channel"}),
+    )
+    .unwrap();
+    let events: Vec<Event> = [24200, 44200]
+        .into_iter()
+        .map(|kind| {
+            EventBuilder::new(Kind::Custom(kind), content.clone())
+                .tags([
+                    Tag::public_key(owner.public_key()),
+                    Tag::parse(["agent", &agent.public_key().to_hex()]).unwrap(),
+                    Tag::parse(["frame", "telemetry"]).unwrap(),
+                ])
+                .sign_with_keys(&agent)
+                .unwrap()
+        })
+        .collect();
+    let result = run_batch_sync_with_keys(
+        events
+            .iter()
+            .map(|e| candidate(e, ScopeType::OwnerP, &owner_pk))
+            .collect(),
+        &owner_pk,
+        relay,
+        &conn,
+        events.clone(),
+        &owner,
+    );
+    assert_eq!(result.persisted, 1);
+    assert_eq!(result.persisted_agent_metrics, 0);
+    assert_eq!(result.dropped, 1);
+    let raw: String = conn
+        .query_row(
+            "SELECT raw_json FROM archived_events WHERE id = ?1",
+            [events[0].id.to_hex()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(raw, events[0].as_json());
+    let channel: Option<String> = conn
+        .query_row(
+            "SELECT channel_id FROM observer_channel_index WHERE id = ?1",
+            [events[0].id.to_hex()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(channel, None);
+    for table in [
+        "archived_events",
+        "archived_event_scopes",
+        "agent_metric_index",
+    ] {
+        let count: i64 = conn
+            .query_row(
+                &format!("SELECT count(*) FROM {table} WHERE id = ?1"),
+                [events[1].id.to_hex()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 0, "invalid metric must not enter {table}");
     }
 }

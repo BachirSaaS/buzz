@@ -442,3 +442,45 @@ async fn live_starter_membership_joins_share_the_captured_signer() {
             .any(|t| t.as_slice() == ["h", channel.id.as_str()]));
     }
 }
+
+#[tokio::test]
+async fn profile_edit_retains_owner_and_relay_across_read_write_reread() {
+    let _serial = crate::relay_admission::TEST_SERIAL.lock().await;
+    crate::relay_admission::reset_rate_limit_gate();
+    let f = Fixture::new(false, vec![]).await;
+    let app = f.app.handle().clone();
+    let task = tokio::spawn(async move {
+        update_profile(
+            Some("Captured profile".into()),
+            None,
+            Some("About".into()),
+            None,
+            app.state::<AppState>(),
+        )
+        .await
+    });
+    f.controlled.wait_entered().await;
+    f.switch_identity_and_relay();
+    f.controlled.release.notify_one();
+    // Event signature, its HTTP auth, and canonical reread HTTP auth.
+    f.release(3).await;
+    let profile = task.await.unwrap().unwrap();
+    let events = f.verify_requests(3);
+    assert_eq!(events.len(), 1);
+    let content: Value = serde_json::from_str(&events[0].content).unwrap();
+    assert_eq!(content["display_name"], "Captured profile");
+    assert_eq!(profile.pubkey, f.controlled.keys.public_key().to_hex());
+    for request in f
+        .requests
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|request| request.path == "/query")
+    {
+        let filters: Value = serde_json::from_slice(&request.body).unwrap();
+        assert_eq!(
+            filters[0]["authors"][0],
+            f.controlled.keys.public_key().to_hex()
+        );
+    }
+}

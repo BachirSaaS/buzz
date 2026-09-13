@@ -9,7 +9,8 @@
 //! the relay is the source of truth. Candidates are grouped and re-queried via
 //! a batched authed `/query`; only events the relay returns are inserted.
 //! For kind-44200 (agent turn metrics), content is decrypted at ingest and
-//! stored as plaintext JSON — fail-closed (decrypt error → drop).
+//! stored as plaintext JSON — invalid local ciphertext is dropped; operational
+//! backend failures propagate before committing the batch.
 //!
 //! **Ephemeral scope** (`owner_p`, kind 24200 observer frames): the relay
 //! never stores these, so `/query` cannot verify them. The relay's REQ-time
@@ -182,7 +183,8 @@ pub(crate) async fn archive_candidates(
     let bucket_results = query_buckets(plan.buckets, state, &signer, &relay_base).await;
 
     // Crypto preparation is async and owns no SQLite connection or store lock.
-    let prepared = prepare_archive(bucket_results, plan.ephemeral, plan.pre_dropped, &signer).await;
+    let prepared =
+        prepare_archive(bucket_results, plan.ephemeral, plan.pre_dropped, &signer).await?;
     state
         .archive_db
         .with_conn(move |conn| commit_ready(&prepared, &identity_pk, &relay_url, now, conn))

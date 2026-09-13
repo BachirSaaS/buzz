@@ -77,7 +77,10 @@ pub use inbound::reconcile_inbound_persona_event;
 pub(crate) use inbound::retain_inbound_catalog_witness;
 
 #[tauri::command]
-pub async fn list_personas(app: AppHandle) -> Result<Vec<AgentDefinition>, String> {
+pub async fn list_personas<R: tauri::Runtime>(
+    app: AppHandle<R>,
+    operation: crate::user_operation::UserOperationScope,
+) -> Result<Vec<AgentDefinition>, String> {
     use tauri::Manager;
     tokio::task::spawn_blocking(move || {
         let state = app.state::<AppState>();
@@ -85,6 +88,7 @@ pub async fn list_personas(app: AppHandle) -> Result<Vec<AgentDefinition>, Strin
             .managed_agents_store_lock
             .lock()
             .map_err(|error| error.to_string())?;
+        let _admission = operation.admit(&state)?;
         let mut personas = load_personas(&app)?;
         pending::project_active_persona_sharing(&app, &state, &mut personas);
         Ok(personas)

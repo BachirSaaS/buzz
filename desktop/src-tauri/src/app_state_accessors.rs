@@ -19,9 +19,15 @@ impl AppState {
             .map_err(|e| e.to_string())
     }
 
-    /// Swap a local identity after the caller's persistence/transaction boundary.
+    /// Test-only replacement; production installs identity storage or a workspace.
+    #[cfg(test)]
     pub(crate) fn replace_local_identity_keys(&self, keys: Keys) -> Result<(), String> {
+        let mut generation = self
+            .operation_generation
+            .lock()
+            .map_err(|e| e.to_string())?;
         *self.keys.lock().map_err(|e| e.to_string())? = keys;
+        *generation = generation.wrapping_add(1);
         Ok(())
     }
 
@@ -31,9 +37,43 @@ impl AppState {
         keys: Keys,
         storage: crate::identity_storage::IdentityStorage,
     ) -> Result<(), String> {
+        let mut generation = self
+            .operation_generation
+            .lock()
+            .map_err(|e| e.to_string())?;
         let mut guard = self.keys.lock().map_err(|e| e.to_string())?;
         *guard = keys;
         self.set_identity_storage(storage);
+        *generation = generation.wrapping_add(1);
+        Ok(())
+    }
+
+    /// Replace the workspace identity and relay as one foreground-operation boundary.
+    /// Reapplying the same local owner/relay is not a new authentication session.
+    /// Retire captures only on a real scope transition (including away and back).
+    pub(crate) fn install_local_workspace(
+        &self,
+        relay_url: String,
+        keys: Option<Keys>,
+    ) -> Result<(), String> {
+        let mut generation = self
+            .operation_generation
+            .lock()
+            .map_err(|e| e.to_string())?;
+        let mut relay = self.relay_url_override.lock().map_err(|e| e.to_string())?;
+        let mut current_keys = self.keys.lock().map_err(|e| e.to_string())?;
+        let current_relay = relay.clone().unwrap_or_else(crate::relay::relay_ws_url);
+        let changed = current_relay != relay_url
+            || keys
+                .as_ref()
+                .is_some_and(|keys| keys.public_key() != current_keys.public_key());
+        *relay = Some(relay_url);
+        if let Some(keys) = keys {
+            *current_keys = keys;
+        }
+        if changed {
+            *generation = generation.wrapping_add(1);
+        }
         Ok(())
     }
 

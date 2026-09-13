@@ -535,3 +535,29 @@ async fn persona_only_delete_fences_its_own_head_before_disk_removal() {
         .any(|p| p.id == PERSONA));
     assert!(f.pending().is_empty());
 }
+
+#[tokio::test]
+async fn repeated_delete_replays_committed_assignment_cleanup_before_not_found() {
+    use crate::managed_agents::bestie_assignment::{assignment_matches, replace_assignment};
+    let f = Fixture::new(false, 1).await;
+    let agent = &f.agents[0];
+    replace_assignment(&mut open_retention_db(&f.scope.db_path).unwrap(), agent).unwrap();
+    let journal = managed_agents_base_dir(f.app.handle())
+        .unwrap()
+        .join("bestie-assignment-recovery.json");
+    std::fs::write(
+        &journal,
+        serde_json::to_vec(&serde_json::json!({
+            "version": 1, "assignments": [{"agent_pubkey": agent, "path": f.scope.db_path}]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    save_managed_agents(f.app.handle(), &[]).unwrap();
+    let error = delete_managed_agent_with(agent.clone(), None, f.app.handle().clone())
+        .await
+        .unwrap_err();
+    assert!(error.contains("not found"));
+    assert!(!journal.exists());
+    assert!(!assignment_matches(&open_retention_db(&f.scope.db_path).unwrap(), agent).unwrap());
+}

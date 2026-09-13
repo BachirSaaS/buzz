@@ -36,6 +36,9 @@ pub struct AppState {
     pub relay_url_override: Mutex<Option<String>>,
     pub workspace_apply_lock: Arc<AsyncMutex<()>>,
     pub workspace_apply_generation: AtomicU64,
+    /// Serializes captured foreground-operation admission with identity/relay replacement.
+    /// Acquire after a store lock, before identity locks; never hold across an await.
+    pub(crate) operation_generation: std::sync::Arc<Mutex<u64>>,
     /// Defers managed-agent restore until `apply_workspace` installs relay and identity.
     pub managed_agent_restore_pending: AtomicBool,
     /// Experiment state applied to managed-agent starts and profile reconciliation.
@@ -219,6 +222,7 @@ pub fn build_app_state() -> AppState {
         relay_url_override: Mutex::new(None),
         workspace_apply_lock: Arc::new(AsyncMutex::new(())),
         workspace_apply_generation: AtomicU64::new(0),
+        operation_generation: std::sync::Arc::new(Mutex::new(0)),
         managed_agent_restore_pending: AtomicBool::new(false),
         managed_agent_experiments: crate::managed_agents::ManagedAgentExperimentState::default(),
         shutdown_started: AtomicBool::new(false),

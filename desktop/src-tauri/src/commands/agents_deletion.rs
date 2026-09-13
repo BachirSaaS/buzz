@@ -16,6 +16,13 @@ pub(super) async fn delete_managed_agent_with<R: tauri::Runtime>(
             .lock()
             .map_err(|e| e.to_string())?;
         let records = load_managed_agents(&app)?;
+        // Replay even on repeated deletion: the missing record is the durable
+        // evidence that cleanup must finish, not a reason to skip its journal.
+        recover_pending_assignment_cleanup(&managed_agents_base_dir(&app)?, |pending_pubkey| {
+            records
+                .iter()
+                .any(|record| record.pubkey.eq_ignore_ascii_case(pending_pubkey))
+        })?;
         let record = records
             .iter()
             .find(|record| record.pubkey == pubkey)

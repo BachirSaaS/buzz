@@ -131,3 +131,190 @@ async fn caches_identity_and_waits_for_async_signer_failure() {
     );
     assert_eq!(controlled.public_key_reads.load(Ordering::SeqCst), 1);
 }
+
+#[tokio::test]
+async fn owner_memory_capability_preserves_keyed_address_validation() {
+    use buzz_core_pkg::engram::{build_event, Body};
+    let owner = Keys::generate();
+    let agent = Keys::generate();
+    let signer = ActiveUserSigner::local(owner.clone());
+    let body = Body::Memory {
+        slug: "mem/test-memory".into(),
+        value: Some("remember".into()),
+    };
+    let event = build_event(&agent, &owner.public_key(), &body, 1).unwrap();
+    assert_eq!(
+        signer
+            .read_agent_memory(&event, &agent.public_key())
+            .await
+            .unwrap()
+            .unwrap()
+            .to_json_bytes(),
+        body.to_json_bytes()
+    );
+
+    // Correct signature and decryptable ciphertext do not make a false address valid.
+    let invalid = EventBuilder::new(event.kind, event.content.clone())
+        .tags([
+            nostr::Tag::parse(["d", &"0".repeat(64)]).unwrap(),
+            nostr::Tag::parse(["p", &owner.public_key().to_hex()]).unwrap(),
+        ])
+        .sign_with_keys(&agent)
+        .unwrap();
+    invalid.verify().unwrap();
+    assert!(signer
+        .read_agent_memory(&invalid, &agent.public_key())
+        .await
+        .unwrap()
+        .is_none());
+    assert!(signer
+        .read_agent_memory(&event, &Keys::generate().public_key())
+        .await
+        .unwrap()
+        .is_none());
+
+    // Envelope, ciphertext, and keyed address alone cannot authenticate a record.
+    let mut invalid_signature = event.clone();
+    invalid_signature.sig = EventBuilder::new(Kind::TextNote, "unrelated")
+        .sign_with_keys(&agent)
+        .unwrap()
+        .sig;
+    assert!(signer
+        .read_agent_memory(&invalid_signature, &agent.public_key())
+        .await
+        .unwrap()
+        .is_none());
+
+    // Operational inability must not be transformed into a legitimate empty list.
+    let unavailable = ActiveUserSigner::new(Arc::new(owner)).await.unwrap();
+    assert!(unavailable
+        .read_agent_memory(&event, &agent.public_key())
+        .await
+        .unwrap_err()
+        .contains("keyed agent memory"));
+}
+
+#[derive(Debug)]
+struct ControlledAgentCapabilities {
+    keys: Keys,
+    entered: Notify,
+    release: Notify,
+    fail: bool,
+}
+
+impl ControlledAgentCapabilities {
+    async fn gate(&self) -> Result<(), String> {
+        self.entered.notify_one();
+        self.release.notified().await;
+        if self.fail {
+            return Err("deliberate auxiliary failure".into());
+        }
+        Ok(())
+    }
+
+    async fn wait_entered(&self) {
+        tokio::time::timeout(std::time::Duration::from_secs(5), self.entered.notified())
+            .await
+            .unwrap();
+    }
+}
+
+impl super::AgentCapabilities for ControlledAgentCapabilities {
+    fn public_key(&self) -> PublicKey {
+        self.keys.public_key()
+    }
+
+    fn authorize_agent<'a>(
+        &'a self,
+        agent: &'a PublicKey,
+        conditions: &'a str,
+    ) -> BoxedFuture<'a, Result<String, String>> {
+        Box::pin(async move {
+            self.gate().await?;
+            super::AgentCapabilities::authorize_agent(&self.keys, agent, conditions).await
+        })
+    }
+
+    fn read_agent_memory<'a>(
+        &'a self,
+        event: &'a Event,
+        agent: &'a PublicKey,
+    ) -> BoxedFuture<'a, Result<Option<buzz_core_pkg::engram::Body>, String>> {
+        Box::pin(async move {
+            self.gate().await?;
+            super::AgentCapabilities::read_agent_memory(&self.keys, event, agent).await
+        })
+    }
+}
+
+#[tokio::test]
+async fn auxiliary_operations_await_captured_backend_without_local_fallback() {
+    use buzz_core_pkg::engram::{build_event, Body};
+
+    for fail in [false, true] {
+        let owner = Keys::generate();
+        let agent = Keys::generate();
+        let agent_key = agent.public_key();
+        let conditions = "kind=1&created_at<2000000000";
+        let body = Body::Memory {
+            slug: "mem/captured-owner".into(),
+            value: Some("captured memory".into()),
+        };
+        let event = build_event(&agent, &owner.public_key(), &body, 1).unwrap();
+        let controlled = Arc::new(ControlledAgentCapabilities {
+            keys: owner.clone(),
+            entered: Notify::new(),
+            release: Notify::new(),
+            fail,
+        });
+        // The ordinary signer still has usable local keys: failure must not
+        // fall back to them. Only the auxiliary capability is replaced.
+        let mut active =
+            ActiveUserSigner::local(owner.clone()).with_test_agent_capabilities(controlled.clone());
+        let captured = active.clone();
+        let task = tokio::spawn(async move {
+            let authorization = captured.authorize_agent(&agent_key, conditions).await;
+            let memory = captured.read_agent_memory(&event, &agent_key).await;
+            (captured.public_key(), authorization, memory)
+        });
+
+        controlled.wait_entered().await;
+        assert!(!task.is_finished());
+        active = ActiveUserSigner::local(Keys::generate());
+        assert_ne!(active.public_key(), owner.public_key());
+        controlled.release.notify_one();
+        controlled.wait_entered().await;
+        assert!(!task.is_finished());
+        controlled.release.notify_one();
+
+        let (identity, authorization, memory) =
+            tokio::time::timeout(std::time::Duration::from_secs(5), task)
+                .await
+                .unwrap()
+                .unwrap();
+        assert_eq!(identity, owner.public_key());
+        if fail {
+            assert_eq!(authorization.unwrap_err(), "deliberate auxiliary failure");
+            assert_eq!(memory.unwrap_err(), "deliberate auxiliary failure");
+        } else {
+            let authorization = authorization.unwrap();
+            assert_eq!(
+                buzz_sdk_pkg::nip_oa::verify_auth_tag(&authorization, &agent_key).unwrap(),
+                owner.public_key()
+            );
+            let fields: serde_json::Value = serde_json::from_str(&authorization).unwrap();
+            assert_eq!(fields[2].as_str(), Some(conditions));
+            assert_eq!(
+                memory.unwrap().unwrap().to_json_bytes(),
+                body.to_json_bytes()
+            );
+        }
+    }
+}
+
+#[test]
+#[should_panic(expected = "assertion `left == right` failed")]
+fn auxiliary_capability_must_match_captured_identity() {
+    ActiveUserSigner::local(Keys::generate())
+        .with_test_agent_capabilities(Arc::new(Keys::generate()));
+}

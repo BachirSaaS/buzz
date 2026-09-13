@@ -84,6 +84,17 @@ pub(super) async fn start_local_agent_pairs_with_preflight(
     pubkey: &str,
     relay_urls: &[String],
 ) -> Result<ManagedAgentSummary, String> {
+    let operation = crate::user_operation::UserOperationScope::capture(state)?;
+    start_local_agent_pairs_in_scope(app, state, pubkey, relay_urls, &operation).await
+}
+
+pub(super) async fn start_local_agent_pairs_in_scope(
+    app: &AppHandle,
+    state: &AppState,
+    pubkey: &str,
+    relay_urls: &[String],
+    operation: &crate::user_operation::UserOperationScope,
+) -> Result<ManagedAgentSummary, String> {
     let record_snapshot = {
         let _store_guard = state
             .managed_agents_store_lock
@@ -97,7 +108,14 @@ pub(super) async fn start_local_agent_pairs_with_preflight(
     if record_snapshot.backend != BackendKind::Local {
         return Err(format!("agent {pubkey} is not a local agent"));
     }
-    let personas_for_preflight = load_personas(app).unwrap_or_default();
+    let personas_for_preflight = {
+        let _store = state
+            .managed_agents_store_lock
+            .lock()
+            .map_err(|e| e.to_string())?;
+        let _admission = operation.admit(state)?;
+        load_personas(app).unwrap_or_default()
+    };
     let global_for_preflight =
         crate::managed_agents::load_global_agent_config(app).unwrap_or_default();
     let mesh_model_id =
@@ -113,6 +131,7 @@ pub(super) async fn start_local_agent_pairs_with_preflight(
             .managed_agents_store_lock
             .lock()
             .map_err(|e| e.to_string())?;
+        let _admission = operation.admit(state)?;
         let mut records = load_managed_agents(app)?;
         let record = find_managed_agent_mut(&mut records, pubkey)?;
         let personas = load_personas(app).unwrap_or_default();
@@ -132,10 +151,11 @@ pub(super) async fn start_local_agent_pairs_with_preflight(
 
     let mut errors = Vec::new();
     for relay_url in relay_urls {
-        if let Err(error) = crate::managed_agents::start_managed_agent_runtime_pair_lazy(
+        if let Err(error) = crate::managed_agents::start_managed_agent_runtime_pair_in_scope(
             pubkey.to_string(),
             relay_url.clone(),
             app.clone(),
+            operation,
         ) {
             errors.push(format!("{relay_url}: {error}"));
         }
@@ -151,6 +171,7 @@ pub(super) async fn start_local_agent_pairs_with_preflight(
         .managed_agents_store_lock
         .lock()
         .map_err(|e| e.to_string())?;
+    let _admission = operation.admit(state)?;
     let records = load_managed_agents(app)?;
     let runtimes = state
         .managed_agent_processes
@@ -168,10 +189,13 @@ pub(super) async fn start_local_agent_with_preflight(
     state: &AppState,
     pubkey: &str,
     allow_fresh_create_start: bool,
-    expected_relay_url: Option<&str>,
-    expected_signer_pubkey: Option<&str>,
+    operation: &crate::user_operation::UserOperationScope,
     replay_floor_unix: Option<u64>,
 ) -> Result<ManagedAgentSummary, String> {
+    let workspace_relay_url =
+        crate::relay::bind_expected_relay_scope(None, operation.relay_url.clone())?;
+    let workspace_owner =
+        crate::relay::bind_expected_signer(None, operation.owner_pubkey.to_hex())?;
     let record_snapshot = {
         let _store_guard = state
             .managed_agents_store_lock
@@ -196,7 +220,14 @@ pub(super) async fn start_local_agent_with_preflight(
     // between saves is reflected here without needing a prospective re-snapshot;
     // for a global-inherited blank definition, it also folds in the global
     // default, which record-byte sniffing could never see.
-    let personas = load_personas(app).unwrap_or_default();
+    let personas = {
+        let _store_guard = state
+            .managed_agents_store_lock
+            .lock()
+            .map_err(|e| e.to_string())?;
+        let _admission = operation.admit(state)?;
+        load_personas(app).unwrap_or_default()
+    };
     let global = crate::managed_agents::load_global_agent_config(app).unwrap_or_default();
     let mesh_model_id =
         crate::managed_agents::effective_config::resolve_effective_relay_mesh_model_id(
@@ -206,29 +237,12 @@ pub(super) async fn start_local_agent_with_preflight(
         );
     ensure_relay_mesh_for_record(app, mesh_model_id.as_deref(), allow_fresh_create_start).await?;
 
-    // The mesh preflight above is the suspension window Projects callbacks
-    // capture their scope against: a community switch during that await
-    // would otherwise spawn this pair keyed to the *new* workspace relay.
-    // Read the workspace relay ONCE, assert the caller's captured scope
-    // against that exact read, and hand the same bound value to the spawn
-    // below — the check is tied to its use, so a switch landing after this
-    // point can no longer retarget the spawn (it only changes state this
-    // call no longer consults).
-    let workspace_relay_url = crate::relay::bind_expected_relay_scope(
-        expected_relay_url,
-        crate::relay::relay_ws_url_with_override(state),
-    )?;
-    // Bind the active owner after the same final await as the relay. A
-    // same-relay identity replacement during mesh preflight must not release
-    // the stale preflight owner to spawn.
-    let workspace_owner =
-        crate::relay::bind_expected_signer(expected_signer_pubkey, workspace_owner_hex(state)?)?;
-
     let (summary, retention) = {
         let _store_guard = state
             .managed_agents_store_lock
             .lock()
             .map_err(|e| e.to_string())?;
+        let _admission = operation.admit(state)?;
         let mut records = load_managed_agents(app)?;
         let mut runtimes = state
             .managed_agent_processes
@@ -300,52 +314,57 @@ pub(crate) use provider_deploy::deploy_to_provider;
 // from the owned AppHandle inside the closure because `State<'_, _>` is borrowed
 // and `std::sync::MutexGuard` is not `Send`.
 #[tauri::command]
-pub async fn list_managed_agents(app: AppHandle) -> Result<Vec<ManagedAgentSummary>, String> {
+pub async fn list_managed_agents<R: tauri::Runtime>(
+    app: AppHandle<R>,
+    operation: crate::user_operation::UserOperationScope,
+) -> Result<Vec<ManagedAgentSummary>, String> {
     use tauri::Manager;
     tokio::task::spawn_blocking(move || {
         let state = app.state::<AppState>();
-        let _store_guard = state
-            .managed_agents_store_lock
-            .lock()
-            .map_err(|error| error.to_string())?;
-        let mut records = load_managed_agents(&app)?;
-        let mut runtimes = state
-            .managed_agent_processes
-            .lock()
-            .map_err(|error| error.to_string())?;
-
-        let (sync_changed, exited_pubkeys) =
-            sync_managed_agent_processes(&mut records, &mut runtimes, &current_instance_id(&app));
-        if sync_changed {
-            save_managed_agents(&app, &records)?;
-        }
-        for pubkey in &exited_pubkeys {
-            state.clear_agent_session_caches(pubkey);
-        }
-
-        let personas = load_personas(&app).unwrap_or_default();
-        // One disk read for the whole list — build_managed_agent_summary takes
-        // teams and config as parameters precisely so this poll-every-5s call
-        // does not re-read them per record.
-        let teams = load_teams(&app).unwrap_or_default();
-        let global_config =
-            crate::managed_agents::load_global_agent_config(&app).unwrap_or_default();
-        records
-            .iter()
-            .map(|record| {
-                build_managed_agent_summary(
-                    &app,
-                    record,
-                    &runtimes,
-                    &personas,
-                    &teams,
-                    &global_config,
-                )
-            })
-            .collect()
+        list_managed_agents_in_scope(&app, &state, &operation)
     })
     .await
     .map_err(|e| format!("spawn_blocking failed: {e}"))?
+}
+
+/// Blocking list core: reconciliation and persona loading can both persist state.
+fn list_managed_agents_in_scope<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+    state: &AppState,
+    operation: &crate::user_operation::UserOperationScope,
+) -> Result<Vec<ManagedAgentSummary>, String> {
+    let _store_guard = state
+        .managed_agents_store_lock
+        .lock()
+        .map_err(|error| error.to_string())?;
+    let _admission = operation.admit(state)?;
+    let mut records = load_managed_agents(app)?;
+    let mut runtimes = state
+        .managed_agent_processes
+        .lock()
+        .map_err(|error| error.to_string())?;
+
+    let (sync_changed, exited_pubkeys) =
+        sync_managed_agent_processes(&mut records, &mut runtimes, &current_instance_id(app));
+    if sync_changed {
+        save_managed_agents(app, &records)?;
+    }
+    for pubkey in &exited_pubkeys {
+        state.clear_agent_session_caches(pubkey);
+    }
+
+    let personas = load_personas(app).unwrap_or_default();
+    // One disk read for the whole list — build_managed_agent_summary takes
+    // teams and config as parameters precisely so this poll-every-5s call
+    // does not re-read them per record.
+    let teams = load_teams(app).unwrap_or_default();
+    let global_config = crate::managed_agents::load_global_agent_config(app).unwrap_or_default();
+    records
+        .iter()
+        .map(|record| {
+            build_managed_agent_summary(app, record, &runtimes, &personas, &teams, &global_config)
+        })
+        .collect()
 }
 
 /// Create's proof/definition preparation phase, completed before store writes.
@@ -364,7 +383,7 @@ pub(crate) async fn prepare_create_agent<R: tauri::Runtime>(
             .managed_agents_store_lock
             .lock()
             .map_err(|e| e.to_string())?;
-        owner.check_current(state)?;
+        let _admission = owner.admit(state)?;
         if let Some(persona_id) = persona_id {
             ensure_persona_is_active(&load_personas(app)?, persona_id)?;
         }
@@ -442,7 +461,7 @@ pub async fn create_managed_agent(
             .managed_agents_store_lock
             .lock()
             .map_err(|error| error.to_string())?;
-        owner.check_current(&state)?;
+        let _admission = owner.admit(&state)?;
         if let Some(persona_id) = requested_persona_id.as_deref() {
             ensure_persona_is_active(&load_personas(&app)?, persona_id)?;
         }
@@ -712,7 +731,8 @@ pub async fn create_managed_agent(
     // ── Phase 3b: local spawn (async preflight outside store lock) ───────────
     let mut spawn_error = None;
     let agent = if input.spawn_after_create && input.backend == BackendKind::Local {
-        match start_local_agent_with_preflight(&app, &state, &pubkey, true, None, None, None).await
+        match start_local_agent_with_preflight(&app, &state, &pubkey, true, &owner.operation, None)
+            .await
         {
             Ok(agent) => agent,
             Err(error) => {
@@ -748,7 +768,7 @@ pub async fn create_managed_agent(
     // later reconciliation agree on the same value.
     let mut profile_sync_error = profile::publish_agent_profile_with_about(
         &state,
-        &resolved_relay_url,
+        &owner.relay_base,
         &agent_keys,
         &name,
         resolved_avatar_url.as_deref(),
@@ -825,34 +845,15 @@ pub async fn start_managed_agent(
     replay_floor_unix: Option<u64>,
     app: AppHandle,
     state: State<'_, AppState>,
+    operation: crate::user_operation::UserOperationScope,
 ) -> Result<ManagedAgentSummary, String> {
-    // Snapshot the workspace owner pubkey for the legacy auth_tag fallback.
-    // Read outside the records lock to keep lock ordering simple.
-    let owner_hex = workspace_owner_hex(&state)?;
-    // Callers with a captured tenant scope (Projects agent sends) pass
-    // `expected_relay_url` / `expected_signer_pubkey`. Starting an agent
-    // activates the (agent, relay) pair — a channel/tool-capable side effect
-    // — so a stale callback must fail closed here before any spawn or deploy
-    // when the active community or identity changed while it was suspended.
-    // After the mesh-preflight awaits, the local path re-checks and BINDS
-    // the workspace relay (`bind_expected_relay_scope`) so the spawn consumes
-    // the checked value rather than re-reading mutable state; the provider
-    // path asserts against the relay embedded in the deploy payload before
-    // deploying.
-    crate::relay::assert_expected_relay_scope(
-        expected_relay_url.as_deref(),
-        &crate::relay::relay_api_base_url_with_override(&state),
+    crate::relay::assert_expected_signer(
+        expected_signer_pubkey.as_deref(),
+        &operation.owner_pubkey.to_hex(),
     )?;
-    crate::relay::assert_expected_signer(expected_signer_pubkey.as_deref(), &owner_hex)?;
-    // Pin the relay for the fire-and-forget profile reconciliation spawned
-    // after a successful start: one validated workspace-relay read, captured
-    // NOW. The background task may execute long after this command returns —
-    // resolving the relay at execution time would let a community switch
-    // landing in between retarget the kind:0 query/publish to the new
-    // tenant's relay under authorization the caller only gave for this one.
     let reconcile_relay = crate::relay::bind_expected_relay_scope(
         expected_relay_url.as_deref(),
-        relay_ws_url_with_override(&state),
+        operation.relay_url.clone(),
     )?;
     enum StartTarget {
         Local,
@@ -870,6 +871,7 @@ pub async fn start_managed_agent(
             .managed_agents_store_lock
             .lock()
             .map_err(|error| error.to_string())?;
+        let _admission = operation.admit(&state)?;
         let mut records = load_managed_agents(&app)?;
         let mut runtimes = state
             .managed_agent_processes
@@ -920,8 +922,7 @@ pub async fn start_managed_agent(
                 &state,
                 &pubkey,
                 false,
-                expected_relay_url.as_deref(),
-                expected_signer_pubkey.as_deref(),
+                &operation,
                 replay_floor_unix,
             )
             .await
@@ -1006,6 +1007,7 @@ pub async fn start_managed_agent(
 pub async fn stop_managed_agent(
     pubkey: String,
     app: AppHandle,
+    operation: crate::user_operation::UserOperationScope,
 ) -> Result<ManagedAgentSummary, String> {
     use tauri::Manager;
     tokio::task::spawn_blocking(move || {
@@ -1014,6 +1016,7 @@ pub async fn stop_managed_agent(
             .managed_agents_store_lock
             .lock()
             .map_err(|error| error.to_string())?;
+        let _admission = operation.admit(&state)?;
         let mut records = load_managed_agents(&app)?;
         let mut runtimes = state
             .managed_agent_processes
@@ -1109,3 +1112,7 @@ mod tests;
 #[cfg(test)]
 #[path = "agents_deletion_tests.rs"]
 mod deletion_tests;
+
+#[cfg(test)]
+#[path = "agents_operation_tests.rs"]
+mod operation_tests;

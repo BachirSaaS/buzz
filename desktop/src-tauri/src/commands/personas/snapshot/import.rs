@@ -522,7 +522,6 @@ pub async fn confirm_agent_snapshot_import(
         pubkey,
         auth_tag,
     } = crate::owner_authorization::prepare_agent(&owner.signer).await?;
-    let owner_pubkey_hex = owner.signer.public_key().to_hex();
     owner.check_current(&state)?;
 
     // Profile metadata must contain a hosted URL. Inline avatar data can be far
@@ -556,7 +555,7 @@ pub async fn confirm_agent_snapshot_import(
             .lock()
             .map_err(|e| e.to_string())?;
 
-        owner.check_current(&state)?;
+        let _admission = owner.admit(&state)?;
         let mut personas = load_personas(&app)?;
         let mut records = load_managed_agents(&app)?;
 
@@ -698,11 +697,15 @@ pub async fn confirm_agent_snapshot_import(
     super::super::pending::finish_persona_pending(&app, persona_retention).await;
     crate::commands::agents::finish_managed_agent_pending(&app, &state, agent_retention).await;
 
+    // Creation is committed. Complete independent-agent work at the captured
+    // destination even if the human switches workspace/identity during retention
+    // or publication. Return the committed identity with explicit partial errors;
+    // re-admitting here would discard it and encourage a duplicate import.
     // ── Phase 3b: publish kind:0 profile (async, outside lock) ───────────────
     let relay_url = effective_agent_relay_url(&record.relay_url, &owner.relay_base);
     let profile_sync_error = crate::commands::agents::publish_persona_profile(
         &state,
-        &record.relay_url,
+        &relay_url,
         &agent_keys,
         &display_name,
         effective_avatar.as_deref(),
@@ -717,15 +720,13 @@ pub async fn confirm_agent_snapshot_import(
     let mut memory_errors: Vec<String> = Vec::new();
 
     if memory_total > 0 {
-        let owner_pubkey = nostr::PublicKey::from_hex(&owner_pubkey_hex)
-            .map_err(|e| format!("failed to parse owner pubkey: {e}"))?;
+        let owner_pubkey = owner.signer.public_key();
 
         // Monotonic timestamp seed: use current time, bumped by 1 per entry
         // so no two events land at the same second.
         let base_ts = nostr::Timestamp::now().as_secs();
 
         for (idx, entry) in snapshot.memory.entries.iter().enumerate() {
-            owner.check_current(&state)?;
             let body = if entry.slug == buzz_core_pkg::engram::CORE_SLUG {
                 buzz_core_pkg::engram::Body::Core {
                     profile: entry.body.clone(),
@@ -763,7 +764,6 @@ pub async fn confirm_agent_snapshot_import(
         }
     }
 
-    owner.check_current(&state)?;
     Ok(AgentSnapshotImportResult {
         display_name,
         new_pubkey: pubkey,

@@ -7,13 +7,73 @@ use nostr::{
     SignerError, UnsignedEvent,
 };
 
+/// Owner operations not covered by rust-nostr's signing/encryption interface.
+/// Implementations belong to the captured identity; they must not resolve the
+/// current user or fall back to another backend when an operation fails.
+pub(crate) trait AgentCapabilities: std::fmt::Debug + Send + Sync {
+    fn public_key(&self) -> PublicKey;
+
+    fn authorize_agent<'a>(
+        &'a self,
+        agent: &'a PublicKey,
+        conditions: &'a str,
+    ) -> BoxedFuture<'a, Result<String, String>>;
+
+    /// Invalid records yield `Ok(None)`; operational failures yield `Err`.
+    /// Validation includes the event signature, envelope, and keyed address.
+    fn read_agent_memory<'a>(
+        &'a self,
+        event: &'a Event,
+        agent: &'a PublicKey,
+    ) -> BoxedFuture<'a, Result<Option<buzz_core_pkg::engram::Body>, String>>;
+}
+
+impl AgentCapabilities for Keys {
+    fn public_key(&self) -> PublicKey {
+        Keys::public_key(self)
+    }
+
+    fn authorize_agent<'a>(
+        &'a self,
+        agent: &'a PublicKey,
+        conditions: &'a str,
+    ) -> BoxedFuture<'a, Result<String, String>> {
+        Box::pin(async move {
+            buzz_sdk_pkg::nip_oa::compute_auth_tag(self, agent, conditions)
+                .map_err(|e| format!("failed to compute NIP-OA auth tag: {e}"))
+        })
+    }
+
+    fn read_agent_memory<'a>(
+        &'a self,
+        event: &'a Event,
+        agent: &'a PublicKey,
+    ) -> BoxedFuture<'a, Result<Option<buzz_core_pkg::engram::Body>, String>> {
+        Box::pin(async move {
+            // The original engram listing verified before validate_and_decrypt,
+            // which validates the envelope/keyed address but not the signature.
+            if event.verify().is_err() {
+                return Ok(None);
+            }
+            Ok(buzz_core_pkg::engram::validate_and_decrypt(
+                event,
+                agent,
+                &self.public_key(),
+                self.secret_key(),
+                agent,
+            )
+            .ok())
+        })
+    }
+}
+
 /// A signer's immutable identity and its asynchronous rust-nostr capability.
 /// No secret-key accessor is exposed by this boundary.
 #[derive(Clone, Debug)]
 pub(crate) struct ActiveUserSigner {
     public_key: PublicKey,
     signer: Arc<dyn NostrSigner>,
-    authorization: Option<Arc<Keys>>,
+    agent_capabilities: Option<Arc<dyn AgentCapabilities>>,
 }
 
 impl ActiveUserSigner {
@@ -21,9 +81,9 @@ impl ActiveUserSigner {
     pub(crate) fn local(keys: Keys) -> Self {
         let keys = Arc::new(keys);
         Self {
-            public_key: keys.public_key(),
+            public_key: AgentCapabilities::public_key(keys.as_ref()),
             signer: keys.clone(),
-            authorization: Some(keys),
+            agent_capabilities: Some(keys),
         }
     }
 
@@ -34,7 +94,7 @@ impl ActiveUserSigner {
         Ok(Self {
             public_key,
             signer,
-            authorization: None,
+            agent_capabilities: None,
         })
     }
 
@@ -44,18 +104,37 @@ impl ActiveUserSigner {
         agent: &PublicKey,
         conditions: &str,
     ) -> Result<String, String> {
-        let keys = self
-            .authorization
+        self.agent_capabilities
             .as_ref()
-            .ok_or("signer has no owner authorization")?;
-        buzz_sdk_pkg::nip_oa::compute_auth_tag(keys, agent, conditions)
-            .map_err(|e| format!("failed to compute NIP-OA auth tag: {e}"))
+            .ok_or("signer has no owner authorization")?
+            .authorize_agent(agent, conditions)
+            .await
+    }
+
+    /// Validate and decrypt an agent memory with this captured owner. Invalid
+    /// records are skippable; an unavailable crypto capability is an operation
+    /// failure and must never be presented as an empty memory listing.
+    pub(crate) async fn read_agent_memory(
+        &self,
+        event: &Event,
+        agent: &PublicKey,
+    ) -> Result<Option<buzz_core_pkg::engram::Body>, String> {
+        self.agent_capabilities
+            .as_ref()
+            .ok_or("signer cannot validate keyed agent memory addresses")?
+            .read_agent_memory(event, agent)
+            .await
     }
 
     #[cfg(test)]
-    pub(crate) fn with_test_authorization(mut self, keys: Keys) -> Self {
-        assert_eq!(self.public_key, keys.public_key());
-        self.authorization = Some(Arc::new(keys));
+    pub(crate) fn with_test_authorization(self, keys: Keys) -> Self {
+        self.with_test_agent_capabilities(Arc::new(keys))
+    }
+
+    #[cfg(test)]
+    fn with_test_agent_capabilities(mut self, capabilities: Arc<dyn AgentCapabilities>) -> Self {
+        assert_eq!(self.public_key, capabilities.public_key());
+        self.agent_capabilities = Some(capabilities);
         self
     }
 

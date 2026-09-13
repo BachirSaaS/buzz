@@ -1,4 +1,5 @@
 //! Foreground owner-proof preparation, not workspace activation or agent custody.
+use crate::user_operation::UserOperationScope;
 use crate::{active_user_signer::ActiveUserSigner, app_state::AppState};
 use nostr::{Keys, ToBech32};
 
@@ -6,30 +7,49 @@ use nostr::{Keys, ToBech32};
 pub(crate) struct OwnerAuthorizationScope {
     pub(crate) signer: ActiveUserSigner,
     pub(crate) relay_base: String,
+    pub(crate) operation: UserOperationScope,
     legacy_recovery: bool,
 }
 
 impl OwnerAuthorizationScope {
     pub(crate) fn capture(state: &AppState) -> Result<Self, String> {
-        Ok(Self {
-            legacy_recovery: false,
-            signer: state.active_signer()?,
-            relay_base: crate::relay::relay_api_base_url_with_override(state),
-        })
+        Self::capture_with_recovery(state, false)
     }
 
     /// Preserve the historical missing-tag repair's local recovery exception.
     pub(crate) fn capture_legacy_repair(state: &AppState) -> Result<Self, String> {
+        Self::capture_with_recovery(state, true)
+    }
+
+    fn capture_with_recovery(state: &AppState, legacy_recovery: bool) -> Result<Self, String> {
+        let generation = state
+            .operation_generation
+            .lock()
+            .map_err(|e| e.to_string())?;
         Ok(Self {
-            signer: state.legacy_local_signer()?,
+            signer: if legacy_recovery {
+                state.legacy_local_signer()?
+            } else {
+                state.active_signer()?
+            },
             relay_base: crate::relay::relay_api_base_url_with_override(state),
-            legacy_recovery: true,
+            operation: UserOperationScope::capture_locked(state, *generation)?,
+            legacy_recovery,
         })
     }
 
-    /// Revalidate owner and relay before a synchronous commit or publication.
-    /// Never replace the captured capability with the current one.
+    /// Point-in-time check for callers that do not commit synchronous side effects.
+    /// Use `admit` and retain its guard for a write or process start.
     pub(crate) fn check_current(&self, state: &AppState) -> Result<(), String> {
+        drop(self.admit(state)?);
+        Ok(())
+    }
+
+    pub(crate) fn admit<'a>(
+        &self,
+        state: &'a AppState,
+    ) -> Result<std::sync::MutexGuard<'a, u64>, String> {
+        let guard = self.operation.admit(state)?;
         let current = if self.legacy_recovery {
             state.legacy_local_signer()?
         } else {
@@ -40,7 +60,7 @@ impl OwnerAuthorizationScope {
         {
             return Err("owner authorization scope changed; retry operation".into());
         }
-        Ok(())
+        Ok(guard)
     }
 }
 
@@ -66,3 +86,7 @@ pub(crate) async fn prepare_agent(owner: &ActiveUserSigner) -> Result<Authorized
         auth_tag,
     })
 }
+
+#[cfg(test)]
+#[path = "owner_authorization_tests.rs"]
+mod tests;

@@ -20,7 +20,7 @@ use crate::{
         load_managed_agents, load_personas, load_teams, load_teams_readonly, save_managed_agents,
         save_personas, save_teams, AgentDefinition, ManagedAgentRecord, TeamRecord,
     },
-    relay::{effective_agent_relay_url, relay_ws_url_with_override, sync_managed_agent_profile},
+    relay::{effective_agent_relay_url, sync_managed_agent_profile},
     util::now_iso,
 };
 
@@ -524,7 +524,6 @@ pub async fn confirm_team_snapshot_import(
 
     // ── Phase 2: mint keys + auth tags (sync, outside lock) ─────────────────
     // All mints must succeed before we enter the store. If any fails, zero writes.
-    let owner_pubkey_hex = owner.signer.public_key().to_hex();
 
     let mut minted: Vec<MintedMember> = Vec::with_capacity(snapshot.members.len());
     for (member, definition) in snapshot.members.iter().zip(definitions) {
@@ -633,7 +632,7 @@ pub async fn confirm_team_snapshot_import(
             .lock()
             .map_err(|e| e.to_string())?;
 
-        owner.check_current(&state)?;
+        let _admission = owner.admit(&state)?;
         // Guard against duplicate pubkeys (astronomically unlikely).
         let existing_records = load_managed_agents(&app)?;
         for m in &minted {
@@ -776,11 +775,13 @@ pub async fn confirm_team_snapshot_import(
     crate::commands::teams::finish_team_pending(&app, team_retention).await;
 
     // ── Phase 4 & 5: profile sync + memory restore (async, outside lock) ────
-    let relay_ws = relay_ws_url_with_override(&state);
+    // The team is committed: finish independent-agent publication against the
+    // captured destination, retaining per-member partial errors in the result.
+    let relay_ws = &owner.relay_base;
     let mut member_results: Vec<TeamSnapshotImportMemberResult> = Vec::with_capacity(minted.len());
 
     for (m, snap_member) in minted.iter().zip(snapshot.members.iter()) {
-        let relay_url = effective_agent_relay_url(&m.record.relay_url, &relay_ws);
+        let relay_url = effective_agent_relay_url(&m.record.relay_url, relay_ws);
 
         // Phase 4: profile sync (best-effort).
         let profile_about =
@@ -803,8 +804,7 @@ pub async fn confirm_team_snapshot_import(
         let mut memory_errors: Vec<String> = Vec::new();
 
         if memory_total > 0 {
-            let owner_pubkey = nostr::PublicKey::from_hex(&owner_pubkey_hex)
-                .map_err(|e| format!("failed to parse owner pubkey: {e}"))?;
+            let owner_pubkey = owner.signer.public_key();
             let base_ts = nostr::Timestamp::now().as_secs();
 
             for (idx, entry) in snap_member.memory.entries.iter().enumerate() {

@@ -14,6 +14,7 @@ struct PausedDecrypt {
     keys: Keys,
     entered: Notify,
     release: Notify,
+    fail: bool,
 }
 
 macro_rules! delegate {
@@ -49,7 +50,11 @@ impl NostrSigner for PausedDecrypt {
         Box::pin(async move {
             self.entered.notify_one();
             self.release.notified().await;
-            self.keys.nip44_decrypt(peer, content).await
+            if self.fail {
+                Err(SignerError::from("backend disconnected"))
+            } else {
+                self.keys.nip44_decrypt(peer, content).await
+            }
         })
     }
 }
@@ -63,6 +68,7 @@ async fn delayed_decrypt_rechecks_subscription_before_commit() {
         keys: Keys::generate(),
         entered: Notify::new(),
         release: Notify::new(),
+        fail: false,
     });
     let signer = ActiveUserSigner::new(controlled.clone()).await.unwrap();
     let owner = signer.public_key().to_hex();
@@ -110,7 +116,7 @@ async fn delayed_decrypt_rechecks_subscription_before_commit() {
     assert!(!task.is_finished());
     conn.execute("DELETE FROM save_subscriptions", []).unwrap();
     controlled.release.notify_one();
-    let prepared = task.await.unwrap();
+    let prepared = task.await.unwrap().unwrap();
     assert_eq!(prepared.ready.len(), 1);
     assert_eq!(
         prepared.ready[0].observer_channel.as_deref(),
@@ -123,4 +129,64 @@ async fn delayed_decrypt_rechecks_subscription_before_commit() {
         .query_row("SELECT count(*) FROM archived_events", [], |row| row.get(0))
         .unwrap();
     assert_eq!(count, 0);
+}
+
+#[tokio::test]
+async fn delayed_backend_failure_aborts_observer_and_metric_preparation() {
+    for kind in [24200, 44200] {
+        let controlled = Arc::new(PausedDecrypt {
+            keys: Keys::generate(),
+            entered: Notify::new(),
+            release: Notify::new(),
+            fail: true,
+        });
+        let signer = ActiveUserSigner::new(controlled.clone()).await.unwrap();
+        let agent = Keys::generate();
+        let content = buzz_core_pkg::observer::encrypt_observer_payload(
+            &agent,
+            &signer.public_key(),
+            &serde_json::json!({"channelId": "channel-a"}),
+        )
+        .unwrap();
+        let event = EventBuilder::new(Kind::Custom(kind), content)
+            .sign_with_keys(&agent)
+            .unwrap();
+        let owner = signer.public_key().to_hex();
+        let source = Parsed {
+            raw_json: event.as_json(),
+            matched_scope: MatchedScope {
+                scope_type: ScopeType::OwnerP,
+                scope_value: owner.clone(),
+            },
+            event,
+        };
+        // Both kinds enter via an accepted bucket so the test exercises the
+        // same selection/decrypt/finish boundary, not a test-only classifier.
+        let bucket = BucketWithResult {
+            scope_type_str: "owner_p".into(),
+            scope_value: owner,
+            allowed_kinds: vec![u64::from(kind)],
+            returned_ids: [source.event.id.to_hex()].into_iter().collect(),
+            group: vec![source],
+            relay_failed: false,
+        };
+        let task =
+            tokio::spawn(
+                async move { prepare_archive(vec![bucket], Vec::new(), 0, &signer).await },
+            );
+        tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            controlled.entered.notified(),
+        )
+        .await
+        .unwrap();
+        assert!(!task.is_finished());
+        controlled.release.notify_one();
+        let result = task.await.unwrap();
+        assert!(
+            matches!(result, Err(ref error) if error == "archive decryption backend unavailable")
+        );
+        // No PreparedBatch is returned: neither a processed observer NULL row
+        // nor a successful dropped-metric result can be committed.
+    }
 }

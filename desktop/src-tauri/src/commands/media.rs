@@ -394,16 +394,39 @@ fn should_retry_legacy_upload(status: reqwest::StatusCode) -> bool {
     )
 }
 
+/// One upload destination/identity captured before picker or transcode waits.
+/// Video and poster uploads and legacy retries must all retain this binding.
+struct MediaUploadScope {
+    signer: ActiveUserSigner,
+    relay_base: String,
+}
+
+impl MediaUploadScope {
+    fn capture(state: &AppState) -> Result<Self, String> {
+        // Workspace installation uses this lock too: capture one coherent pair,
+        // not an old signer with a newly installed relay. Release before I/O.
+        let _generation = state
+            .operation_generation
+            .lock()
+            .map_err(|e| e.to_string())?;
+        Ok(Self {
+            signer: state.active_signer()?,
+            relay_base: relay_api_base_url_with_override(state),
+        })
+    }
+}
+
 pub(crate) async fn upload_image_bytes(
     body: Vec<u8>,
     state: &AppState,
 ) -> Result<BlobDescriptor, String> {
+    let upload = MediaUploadScope::capture(state)?;
     let mime = detect_and_validate_mime(&body)?;
     if !mime.starts_with("image/") {
         return Err("profile avatar must be an image".to_string());
     }
     let body = sanitize_image_for_upload(body, &mime)?;
-    do_upload(body, &mime, state, None, None).await
+    do_upload(body, &mime, state, None, None, &upload).await
 }
 
 async fn do_upload(
@@ -412,6 +435,7 @@ async fn do_upload(
     state: &AppState,
     progress: Option<(tauri::AppHandle, String)>,
     cancellation: Option<&CancellationToken>,
+    upload: &MediaUploadScope,
 ) -> Result<BlobDescriptor, String> {
     let sha256 = hex::encode(Sha256::digest(&body));
 
@@ -423,11 +447,9 @@ async fn do_upload(
     } else {
         300
     };
-    let base_url = relay_api_base_url_with_override(state);
-    let auth_event = {
-        let signer = state.active_signer()?;
-        sign_blossom_upload_auth(&signer, &sha256, expiry_secs, &base_url).await?
-    };
+    let base_url = &upload.relay_base;
+    let auth_event =
+        sign_blossom_upload_auth(&upload.signer, &sha256, expiry_secs, base_url).await?;
 
     let auth_header = format!(
         "Nostr {}",
@@ -485,6 +507,7 @@ pub async fn upload_media(
     is_temp: bool,
     state: State<'_, AppState>,
 ) -> Result<BlobDescriptor, String> {
+    let upload = MediaUploadScope::capture(&state)?;
     let path = std::path::Path::new(&file_path);
     let mut file = std::fs::File::open(path).map_err(|e| e.to_string())?;
 
@@ -508,7 +531,7 @@ pub async fn upload_media(
 
     let mime = detect_and_validate_mime(&body)?;
     let body = sanitize_image_for_upload(body, &mime)?;
-    do_upload(body, &mime, &state, None, None).await
+    do_upload(body, &mime, &state, None, None, &upload).await
 }
 
 /// Read a picked path through the TOCTOU-safe pipeline (fd pin → sniff →
@@ -523,6 +546,7 @@ async fn process_picked_path(
     state: &AppState,
     images_only: bool,
     progress: Option<(tauri::AppHandle, String)>,
+    upload: &MediaUploadScope,
 ) -> Result<BlobDescriptor, String> {
     // Pin the inode by opening the fd BEFORE spawn_blocking. This prevents a
     // local attacker from swapping the file between dialog return and read.
@@ -589,9 +613,9 @@ async fn process_picked_path(
 
     // Upload video first, then poster (best-effort). If poster upload fails,
     // the video descriptor is returned without an image field.
-    let mut descriptor = do_upload(body, &mime, state, progress, None).await?;
+    let mut descriptor = do_upload(body, &mime, state, progress, None, upload).await?;
     if let Some(poster) = poster_bytes {
-        match do_upload(poster, "image/jpeg", state, None, None).await {
+        match do_upload(poster, "image/jpeg", state, None, None, upload).await {
             Ok(poster_desc) => descriptor.image = Some(poster_desc.url),
             Err(e) => eprintln!("buzz-desktop: poster upload failed (non-fatal): {e}"),
         }
@@ -627,6 +651,7 @@ pub async fn pick_and_upload_media(
     progress_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<Vec<BlobDescriptor>, String> {
+    let upload = MediaUploadScope::capture(&state)?;
     use tauri_plugin_dialog::DialogExt;
 
     let (tx, rx) = tokio::sync::oneshot::channel();
@@ -645,7 +670,7 @@ pub async fn pick_and_upload_media(
     for file_path in file_paths {
         let path = file_path.as_path().ok_or("invalid path")?.to_path_buf();
         let progress = progress_id.clone().map(|id| (app.clone(), id));
-        let descriptor = process_picked_path(path, &state, false, progress).await?;
+        let descriptor = process_picked_path(path, &state, false, progress, &upload).await?;
         descriptors.push(descriptor);
     }
 
@@ -667,6 +692,7 @@ pub async fn pick_and_upload_image(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<Option<BlobDescriptor>, String> {
+    let upload = MediaUploadScope::capture(&state)?;
     use tauri_plugin_dialog::DialogExt;
 
     let (tx, rx) = tokio::sync::oneshot::channel();
@@ -686,7 +712,7 @@ pub async fn pick_and_upload_image(
     };
 
     let path = file_path.as_path().ok_or("invalid path")?.to_path_buf();
-    let descriptor = process_picked_path(path, &state, true, None).await?;
+    let descriptor = process_picked_path(path, &state, true, None, &upload).await?;
     Ok(Some(descriptor))
 }
 
@@ -698,6 +724,7 @@ pub(super) async fn upload_media_bytes_inner(
     state: State<'_, AppState>,
     cancellation: Option<&CancellationToken>,
 ) -> Result<BlobDescriptor, String> {
+    let upload = MediaUploadScope::capture(&state)?;
     if data.is_empty() {
         return Err("empty upload".to_string());
     }
@@ -771,11 +798,11 @@ pub(super) async fn upload_media_bytes_inner(
     if cancellation.is_some_and(CancellationToken::is_cancelled) {
         return Err("upload cancelled".to_string());
     }
-    let mut descriptor = do_upload(body, &mime, &state, progress, cancellation).await?;
+    let mut descriptor = do_upload(body, &mime, &state, progress, cancellation, &upload).await?;
 
     emit_media_upload_phase(&app, progress_id.as_deref(), "finishing");
     if let Some(poster) = poster_bytes {
-        match do_upload(poster, "image/jpeg", &state, None, cancellation).await {
+        match do_upload(poster, "image/jpeg", &state, None, cancellation, &upload).await {
             Ok(poster_desc) => descriptor.image = Some(poster_desc.url),
             Err(e) => eprintln!("buzz-desktop: poster upload failed (non-fatal): {e}"),
         }

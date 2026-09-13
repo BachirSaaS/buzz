@@ -39,3 +39,81 @@ async fn blossom_auth_uses_async_signer_and_preserves_upload_scope() {
         .unwrap_err()
         .contains("deliberate signer failure"));
 }
+
+#[tokio::test]
+async fn captured_upload_keeps_relay_owner_and_body_through_legacy_retry() {
+    use axum::{
+        body::Bytes,
+        http::{HeaderMap, StatusCode},
+        routing::put,
+        Json, Router,
+    };
+    use std::sync::{Arc, Mutex};
+    let requests = Arc::new(Mutex::new(Vec::<(HeaderMap, Bytes)>::new()));
+    let first = requests.clone();
+    let second = requests.clone();
+    let router = Router::new()
+        .route("/upload", put(move |headers: HeaderMap, body: Bytes| {
+            first.lock().unwrap().push((headers, body));
+            async { StatusCode::NOT_FOUND }
+        }))
+        .route("/media/upload", put(move |headers: HeaderMap, body: Bytes| {
+            second.lock().unwrap().push((headers, body));
+            async { Json(serde_json::json!({"url":"http://original/media/blob", "sha256":"test", "size":4, "type":"application/octet-stream", "uploaded":1})) }
+        }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+    let controlled = ControlledSigner::new(false);
+    let state = crate::app_state::build_app_state();
+    state
+        .replace_local_identity_keys(controlled.keys.clone())
+        .unwrap();
+    *state.test_signer.lock().unwrap() =
+        Some(ActiveUserSigner::new(controlled.clone()).await.unwrap());
+    *state.relay_url_override.lock().unwrap() = Some(base.clone());
+    let upload = MediaUploadScope::capture(&state).unwrap();
+    let send = do_upload(
+        vec![1, 2, 3, 4],
+        "application/octet-stream",
+        &state,
+        None,
+        None,
+        &upload,
+    );
+    let replace = async {
+        controlled.wait_entered().await;
+        state
+            .install_local_workspace("http://127.0.0.1:1".into(), Some(nostr::Keys::generate()))
+            .unwrap();
+        controlled.release.notify_one();
+    };
+    let (result, ()) = tokio::join!(send, replace);
+    server.abort();
+    result.unwrap();
+    let requests = requests.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+    for (headers, body) in requests.iter() {
+        assert_eq!(body.as_ref(), &[1, 2, 3, 4]);
+        let auth = headers["authorization"]
+            .to_str()
+            .unwrap()
+            .strip_prefix("Nostr ")
+            .unwrap();
+        let event = nostr::Event::from_json(URL_SAFE_NO_PAD.decode(auth).unwrap()).unwrap();
+        event.verify().unwrap();
+        assert_eq!(event.pubkey, controlled.keys.public_key());
+        assert!(event
+            .tags
+            .iter()
+            .any(|tag| tag.as_slice()
+                == ["server", extract_server_authority(&base).unwrap().as_str()]));
+        assert!(
+            event
+                .tags
+                .iter()
+                .any(|tag| tag.as_slice()
+                    == ["x", hex::encode(Sha256::digest([1, 2, 3, 4])).as_str()])
+        );
+    }
+}

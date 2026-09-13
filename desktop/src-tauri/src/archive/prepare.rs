@@ -1,5 +1,6 @@
 //! Prepare archive crypto outside SQLite, then persist accepted records atomically.
 
+use nostr::{signer::SignerBackend, NostrSigner, PublicKey};
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 use zeroize::Zeroizing;
 
@@ -97,32 +98,49 @@ fn finish_body(batch: &mut PreparedBatch, source: Parsed, plaintext: Option<&str
     batch.ready.push(ready);
 }
 
+/// `Ok(None)` means invalid local ciphertext, not an unavailable backend.
+/// rust-nostr erases signer error types. Only its Keys backend is known to
+/// perform purely local NIP-44 decryption (this crate enables `nip44`); every
+/// other backend error must conservatively propagate, without string matching.
+/// PR2 can refine remote invalid-data verdicts here when its protocol supports
+/// them; crypto callers and the preparation/commit boundary need not change.
+async fn decrypt_body(
+    signer: &dyn NostrSigner,
+    author: &PublicKey,
+    content: &str,
+) -> Result<Option<Zeroizing<String>>, String> {
+    match signer.nip44_decrypt(author, content).await {
+        Ok(text) => Ok(Some(Zeroizing::new(text))),
+        Err(_) if matches!(signer.backend(), SignerBackend::Keys) => Ok(None),
+        // Do not expose backend error strings: they can contain sensitive data.
+        Err(_) => Err("archive decryption backend unavailable".to_owned()),
+    }
+}
+
 /// Decrypt using the captured owner without holding a connection or store lock.
 /// Local invalid bodies retain the historical raw+NULL observer index behavior;
 /// invalid metrics are dropped rather than stored as ciphertext.
+/// Operational errors abort the whole preparation, before any writes. This
+/// does not retain candidates for retry: PR2 owns recovery scheduling,
+/// including ephemeral frames that cannot be fetched again from the relay.
 pub(super) async fn prepare_archive(
     buckets: Vec<BucketWithResult>,
     ephemeral: Vec<Parsed>,
     pre_dropped: u32,
     signer: &ActiveUserSigner,
-) -> PreparedBatch {
+) -> Result<PreparedBatch, String> {
     let (mut batch, selected) = select_candidates(buckets, ephemeral, pre_dropped);
     for source in selected {
         let text = if requires_crypto(&source)
             && buzz_core_pkg::observer::content_looks_like_nip44(&source.event.content)
         {
-            signer
-                .signer()
-                .nip44_decrypt(&source.event.pubkey, &source.event.content)
-                .await
-                .ok()
-                .map(Zeroizing::new)
+            decrypt_body(signer.signer(), &source.event.pubkey, &source.event.content).await?
         } else {
             None
         };
         finish_body(&mut batch, source, text.as_deref().map(String::as_str));
     }
-    batch
+    Ok(batch)
 }
 
 /// Recheck subscriptions and atomically persist prepared rows and indexes.

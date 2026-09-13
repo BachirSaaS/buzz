@@ -52,6 +52,7 @@ mod terminal_transport;
 #[cfg(target_os = "macos")]
 mod tray_menu;
 mod unread_catch_up;
+mod user_operation;
 mod util;
 #[cfg(target_os = "linux")]
 pub mod webkit_rendering;

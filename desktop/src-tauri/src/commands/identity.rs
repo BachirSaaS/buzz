@@ -160,16 +160,12 @@ pub async fn decrypt_observer_event(
     event_json: String,
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    let keys = state.signing_keys()?;
-    tauri::async_runtime::spawn_blocking(move || {
-        decrypt_observer_event_with_keys(&keys, &event_json)
-    })
-    .await
-    .map_err(|e| format!("spawn_blocking failed: {e}"))?
+    let signer = state.active_signer()?;
+    decrypt_observer_event_with_signer(&signer, &event_json).await
 }
 
-fn decrypt_observer_event_with_keys(
-    keys: &Keys,
+async fn decrypt_observer_event_with_signer(
+    signer: &ActiveUserSigner,
     event_json: &str,
 ) -> Result<serde_json::Value, String> {
     let event = Event::from_json(event_json).map_err(|error| format!("invalid event: {error}"))?;
@@ -179,8 +175,25 @@ fn decrypt_observer_event_with_keys(
     if !event.verify_signature() {
         return Err("observer event has invalid signature".into());
     }
-    buzz_core_pkg::observer::decrypt_observer_payload(keys, &event)
-        .map_err(|error| format!("decrypt observer event failed: {error}"))
+    use buzz_core_pkg::observer::{content_looks_like_nip44, ObserverPayloadError};
+    if !content_looks_like_nip44(&event.content) {
+        return Err(format!(
+            "decrypt observer event failed: {}",
+            ObserverPayloadError::InvalidCiphertextLength(event.content.len())
+        ));
+    }
+    // Keep decrypted bytes zeroized on both validation and JSON parsing errors.
+    let plaintext = zeroize::Zeroizing::new(
+        signer
+            .signer()
+            .nip44_decrypt(&event.pubkey, &event.content)
+            .await
+            .map_err(|error| format!("decrypt observer event failed: NIP-44 error: {error}"))?,
+    );
+    check_observer_plaintext(&plaintext)
+        .map_err(|error| format!("decrypt observer event failed: {error}"))?;
+    serde_json::from_str(&plaintext)
+        .map_err(|error| format!("decrypt observer event failed: JSON error: {error}"))
 }
 
 fn check_observer_plaintext(plaintext: &str) -> Result<(), String> {

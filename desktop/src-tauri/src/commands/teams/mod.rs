@@ -291,7 +291,10 @@ pub(crate) fn tombstone_team_at(
 }
 
 #[tauri::command]
-pub async fn list_teams(app: AppHandle) -> Result<Vec<TeamRecord>, String> {
+pub async fn list_teams<R: tauri::Runtime>(
+    app: AppHandle<R>,
+    operation: crate::user_operation::UserOperationScope,
+) -> Result<Vec<TeamRecord>, String> {
     use tauri::Manager;
     tokio::task::spawn_blocking(move || {
         let state = app.state::<AppState>();
@@ -299,6 +302,7 @@ pub async fn list_teams(app: AppHandle) -> Result<Vec<TeamRecord>, String> {
             .managed_agents_store_lock
             .lock()
             .map_err(|error| error.to_string())?;
+        let _admission = operation.admit(&state)?;
         let mut teams = load_teams(&app)?;
         pending::project_active_team_sharing(&app, &state, &mut teams);
         Ok(teams)

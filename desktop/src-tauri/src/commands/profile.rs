@@ -10,9 +10,7 @@ use crate::{
     managed_agents::persona_events::monotonic_created_at,
     models::{ProfileInfo, SearchUsersResponse, UserNotesResponse, UsersBatchResponse},
     nostr_convert,
-    relay::{
-        query_relay, query_relay_at_with_signer, relay_http_base_url, submit_event, submit_event_at,
-    },
+    relay::{query_relay, query_relay_at_with_signer, relay_http_base_url, submit_event_at},
 };
 
 #[tauri::command]
@@ -44,14 +42,19 @@ pub async fn update_profile(
     state: State<'_, AppState>,
 ) -> Result<ProfileInfo, String> {
     // Read-merge-write: kind 0 is a full profile snapshot.
-    let my_pubkey = current_pubkey_hex(&state)?;
-    let prior_events = query_relay(
+    let signer = state.active_signer()?;
+    let relay_base = crate::relay::relay_api_base_url_with_override(&state);
+    let my_pubkey = signer.public_key().to_hex();
+    let prior_events = query_relay_at_with_signer(
         &state,
+        &relay_base,
         &[serde_json::json!({
             "kinds": [0],
             "authors": [my_pubkey],
             "limit": 1
         })],
+        &signer,
+        None,
     )
     .await?;
 
@@ -77,16 +80,19 @@ pub async fn update_profile(
         .or_else(|| current.get("nip05").and_then(Value::as_str));
 
     let builder = events::build_profile(dn, name, picture, ab, nip05)?;
-    submit_event(builder, &state).await?;
+    submit_event_at(builder, &state, &relay_base, &signer).await?;
 
     // Re-fetch to return canonical profile.
-    let events = query_relay(
+    let events = query_relay_at_with_signer(
         &state,
+        &relay_base,
         &[serde_json::json!({
             "kinds": [0],
-            "authors": [current_pubkey_hex(&state)?],
+            "authors": [my_pubkey],
             "limit": 1
         })],
+        &signer,
+        None,
     )
     .await?;
 
@@ -94,7 +100,7 @@ pub async fn update_profile(
         .first()
         .map(nostr_convert::profile_info_from_event)
         .transpose()?
-        .unwrap_or_else(|| empty_profile_info(&current_pubkey_hex_unwrap(&state))))
+        .unwrap_or_else(|| empty_profile_info(&my_pubkey)))
 }
 
 #[tauri::command]
