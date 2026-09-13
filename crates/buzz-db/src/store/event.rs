@@ -388,6 +388,8 @@ async fn insert_event_on(
         return Err(DbError::EphemeralEventRejected(kind_u16));
     }
 
+    super::work_object::guard_event_insert(connection, community_id, event, channel_id).await?;
+
     let id_bytes = event.id.as_bytes();
     let pubkey_bytes = event.pubkey.to_bytes();
     let sig_bytes = event.sig.serialize();

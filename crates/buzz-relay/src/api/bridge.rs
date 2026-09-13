@@ -3814,6 +3814,9 @@ mod postgres_tests {
     // closure guarantees the handler runs on the same thread as the recorder.
     // ──────────────────────────────────────────────────────────────────────────
 
+    #[path = "work_object_tests.rs"]
+    mod work_object_tests;
+
     struct AlwaysFreshReplayGuard;
 
     impl Nip98ReplayGuard for AlwaysFreshReplayGuard {

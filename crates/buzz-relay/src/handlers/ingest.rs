@@ -436,6 +436,7 @@ fn map_push_accept_error(error: super::push_lease::AcceptError) -> IngestError {
 /// Returns `Err` for unknown kinds — the relay rejects them.
 fn required_scope_for_kind(kind: u32, event: &Event) -> Result<Scope, &'static str> {
     match kind {
+        k if buzz_core::kind::is_work_object(k) => Ok(Scope::MessagesWrite),
         KIND_PROFILE => Ok(Scope::UsersWrite),
         KIND_TEXT_NOTE | KIND_LONG_FORM => Ok(Scope::MessagesWrite),
         KIND_CONTACT_LIST | KIND_READ_STATE | KIND_USER_STATUS | KIND_AGENT_ENGRAM
@@ -705,9 +706,10 @@ pub(crate) fn is_global_only_kind(kind: u32) -> bool {
 
 /// Kinds that require an `h` tag for channel scoping.
 pub(crate) fn requires_h_channel_scope(kind: u32) -> bool {
-    matches!(
-        kind,
-        KIND_STREAM_MESSAGE
+    buzz_core::kind::is_work_object(kind)
+        || matches!(
+            kind,
+            KIND_STREAM_MESSAGE
             | KIND_STREAM_MESSAGE_V2
             | KIND_STREAM_MESSAGE_EDIT
             | KIND_STREAM_MESSAGE_PINNED
@@ -732,7 +734,7 @@ pub(crate) fn requires_h_channel_scope(kind: u32) -> bool {
             | KIND_HUDDLE_PARTICIPANT_LEFT
             | KIND_HUDDLE_ENDED
             | KIND_HUDDLE_GUIDELINES
-    )
+        )
 }
 
 /// Check channel membership: member OR open-visibility channel.
@@ -2256,6 +2258,8 @@ async fn ingest_event_inner(
         ));
     }
 
+    super::work_object::validate_capability(&event, &auth)?;
+
     let required = match required_scope_for_kind(kind_u32, &event) {
         Ok(scope) => scope,
         Err(msg) => return Err(IngestError::Rejected(msg.into())),
@@ -2710,6 +2714,7 @@ async fn ingest_event_inner(
     // NIP-09: kind:5 may reference targets via `e` tag (regular events) OR
     // `a` tag (addressable/parameterized-replaceable events like kind:30620).
     if kind_u32 == KIND_NIP29_DELETE_EVENT || kind_u32 == KIND_DELETION {
+        super::work_object::guard_deletion(tenant, &event, state).await?;
         let e_count = count_e_tags(&event);
         let a_count = event
             .tags
@@ -2998,17 +3003,18 @@ async fn ingest_event_inner(
             .map_err(|e| IngestError::Rejected(format!("invalid: {e}")))?;
     }
 
-    let thread_meta = if requires_h_channel_scope(kind_u32) {
-        if let Some(ch_id) = channel_id {
-            resolve_nip10_thread_meta(tenant.community(), &event, ch_id, state)
-                .await
-                .map_err(|msg| IngestError::Rejected(format!("invalid: {msg}")))?
+    let thread_meta =
+        if requires_h_channel_scope(kind_u32) && !buzz_core::kind::is_work_object(kind_u32) {
+            if let Some(ch_id) = channel_id {
+                resolve_nip10_thread_meta(tenant.community(), &event, ch_id, state)
+                    .await
+                    .map_err(|msg| IngestError::Rejected(format!("invalid: {msg}")))?
+            } else {
+                None
+            }
         } else {
             None
-        }
-    } else {
-        None
-    };
+        };
 
     // Pre-validate kind:0 content before storage so we don't store an event
     // whose profile sync will silently fail in the side-effect handler.
@@ -3144,7 +3150,18 @@ async fn ingest_event_inner(
         });
     }
 
-    let (stored_event, was_inserted) = if buzz_core::kind::is_replaceable(kind_u32) {
+    let (stored_event, was_inserted) = if buzz_core::kind::is_work_object(kind_u32) {
+        state
+            .db
+            .accept_work_object(tenant.community(), &event)
+            .await
+            .map_err(|e| match e {
+                buzz_db::DbError::InvalidData(reason) => {
+                    IngestError::Rejected(format!("invalid: {reason}"))
+                }
+                other => IngestError::Internal(format!("error: {other}")),
+            })?
+    } else if buzz_core::kind::is_replaceable(kind_u32) {
         // NIP-16 replaceable event — atomic replace with stale-write protection.
         // channel_id is None for global kinds (0, 1, 3) due to step 5b above.
         state

@@ -633,8 +633,36 @@ pub const KIND_GIT_STATUS_DRAFT: u32 = 1633;
 /// announcement, never a project. See `docs/nips/NIP-MP.md`.
 pub const KIND_PROJECT: u32 = 30621;
 
+/// Canonical project revision (NIP-WO draft).
+pub const KIND_WORK_PROJECT: u32 = 45010;
+/// Canonical repository home revision (NIP-WO draft).
+pub const KIND_WORK_REPOSITORY: u32 = 45011;
+/// Canonical task revision (NIP-WO draft).
+pub const KIND_WORK_TASK: u32 = 45012;
+/// Canonical document revision (NIP-WO draft).
+pub const KIND_WORK_DOCUMENT: u32 = 45013;
+/// Explicit branch home revision, independent of Git refs (NIP-WO draft).
+pub const KIND_WORK_BRANCH: u32 = 45014;
+
+/// Whether a kind uses the canonical work-object revision protocol.
+pub fn is_work_object(kind: u32) -> bool {
+    matches!(
+        kind,
+        KIND_WORK_PROJECT
+            | KIND_WORK_REPOSITORY
+            | KIND_WORK_TASK
+            | KIND_WORK_DOCUMENT
+            | KIND_WORK_BRANCH
+    )
+}
+
 /// All registered kind constants — used for duplicate detection and iteration.
 pub const ALL_KINDS: &[u32] = &[
+    KIND_WORK_PROJECT,
+    KIND_WORK_REPOSITORY,
+    KIND_WORK_TASK,
+    KIND_WORK_DOCUMENT,
+    KIND_WORK_BRANCH,
     KIND_PROFILE,
     KIND_TEXT_NOTE,
     KIND_CONTACT_LIST,

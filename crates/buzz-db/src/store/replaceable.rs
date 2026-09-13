@@ -110,6 +110,7 @@ async fn replace_parameterized_event_in_transaction_impl(
     channel_id: Option<Uuid>,
     precondition: ParameterizedReplacePrecondition<'_>,
 ) -> Result<ParameterizedReplaceResult> {
+    super::work_object::guard_repository_replacement(tx, community_id, event, d_tag).await?;
     let kind_i32 = buzz_core::kind::event_kind_i32(event);
     let pubkey_bytes = event.pubkey.to_bytes();
     let created_at_secs = event.created_at.as_secs() as i64;

@@ -54,3 +54,6 @@ pub mod usage;
 pub mod user;
 /// Workflow, run, and approval persistence.
 pub mod workflow;
+
+/// Canonical object claims and revisions.
+pub mod work_object;
