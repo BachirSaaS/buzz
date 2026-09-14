@@ -228,9 +228,8 @@ pub async fn apply_workspace(
         // experiment before launch-time restore can spawn any agents. Missing
         // means the stable behavior: desktop remains authoritative.
         state
-            .managed_agent_profile_reconcile_enabled
+            .managed_agent_profile_reconcile_enabled()
             .store(!agent_managed_profiles.unwrap_or(false), Ordering::Release);
-
         // ── Filesystem side-effect (non-fatal) ────────────────────────────────
         // Persist the *effective* repos_dir (None when the candidate failed
         // validation) for the backend to read at boot, then re-point REPOS to
