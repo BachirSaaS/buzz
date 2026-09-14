@@ -140,7 +140,7 @@ async fn proxy_response_captured(
             headers.insert(key, value.clone());
         }
     }
-    if scope.remote {
+    if scope.requires_session() {
         // Content addressing is not authorization. Do not let a webview cache
         // satisfy requests after native revocation without reaching this guard.
         headers.insert("cache-control", HeaderValue::from_static("no-store"));

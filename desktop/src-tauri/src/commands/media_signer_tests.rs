@@ -119,14 +119,14 @@ async fn captured_upload_keeps_relay_owner_and_body_through_legacy_retry() {
 }
 
 #[tokio::test]
-async fn upload_scope_drop_cancels_blocking_work_without_canceling_parent() {
+async fn local_upload_scope_drop_preserves_existing_worker_cancellation() {
     let state = crate::app_state::build_app_state();
     let parent = CancellationToken::new();
     let scope = MediaUploadScope::capture(&state, Some(&parent)).unwrap();
     let worker_token = scope.cancellation.clone();
     assert!(!worker_token.is_cancelled());
     drop(scope);
-    assert!(worker_token.is_cancelled());
+    assert!(!worker_token.is_cancelled());
     assert!(!parent.is_cancelled());
     let scope = MediaUploadScope::capture(&state, Some(&parent)).unwrap();
     parent.cancel();

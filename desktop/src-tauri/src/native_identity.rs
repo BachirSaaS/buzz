@@ -281,20 +281,7 @@ pub(crate) fn preview_dispatch<R: tauri::Runtime>(
 }
 
 /// Raw binary IPC carries metadata in headers; never expand file bytes into JSON.
-pub(crate) fn invocation_generation(
-    body: &tauri::ipc::InvokeBody,
-    headers: &tauri::http::HeaderMap,
-) -> Option<u64> {
-    match body {
-        tauri::ipc::InvokeBody::Json(body) => body
-            .get("expectedGeneration")
-            .and_then(serde_json::Value::as_u64),
-        tauri::ipc::InvokeBody::Raw(_) => headers
-            .get("x-buzz-identity-generation")
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.parse::<u64>().ok()),
-    }
-}
+pub(crate) use crate::invocation_authority::invocation_generation;
 
 #[cfg(test)]
 mod raw_generation_tests {

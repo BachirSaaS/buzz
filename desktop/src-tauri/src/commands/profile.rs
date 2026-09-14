@@ -184,16 +184,7 @@ fn capture_profile_scope(
     let destination = explicit_relay
         .map(relay_http_base_url)
         .unwrap_or(configured_base.clone());
-    let signer = if state.is_remote_identity() {
-        if destination != configured_base {
-            return Err("remote profile save requires the configured workspace relay".into());
-        }
-        state
-            .native_auth
-            .workspace_signer(expected_generation, &configured_relay)?
-    } else {
-        state.active_signer()?
-    };
+    let signer = state.renderer_signer_at(expected_generation, &destination)?;
     Ok((signer, destination))
 }
 

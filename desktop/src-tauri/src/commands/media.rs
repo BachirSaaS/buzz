@@ -406,7 +406,9 @@ pub(crate) struct MediaUploadScope {
 impl Drop for MediaUploadScope {
     fn drop(&mut self) {
         // Dropping an IPC future must also stop its blocking transcode worker.
-        self.cancellation.cancel();
+        if self.signer.generation().is_some() {
+            self.cancellation.cancel();
+        }
         self.cancellation_task.abort();
     }
 }
@@ -429,7 +431,13 @@ impl MediaUploadScope {
         signer: ActiveUserSigner,
     ) -> Result<Self, String> {
         let cancellation = parent
-            .map(CancellationToken::child_token)
+            .map(|token| {
+                if signer.generation().is_some() {
+                    token.child_token()
+                } else {
+                    token.clone()
+                }
+            })
             .unwrap_or_default();
         let cancel = cancellation.clone();
         let lifetime = signer.clone();
@@ -447,7 +455,13 @@ impl MediaUploadScope {
     pub(super) fn with_parent(mut self, parent: Option<&CancellationToken>) -> Self {
         self.cancellation_task.abort();
         self.cancellation = parent
-            .map(CancellationToken::child_token)
+            .map(|token| {
+                if self.signer.generation().is_some() {
+                    token.child_token()
+                } else {
+                    token.clone()
+                }
+            })
             .unwrap_or_default();
         let cancel = self.cancellation.clone();
         let signer = self.signer.clone();
@@ -472,11 +486,11 @@ impl<'de, R: tauri::Runtime> tauri::ipc::CommandArg<'de, R> for MediaUploadScope
             .operation_generation
             .lock()
             .map_err(|e| e.to_string())?;
-        let generation = crate::native_identity::invocation_generation(
+        let generation = crate::invocation_authority::invocation_generation(
             command.message.payload(),
             command.message.headers(),
         );
-        let signer = crate::native_identity::renderer_signer(&state, generation)?;
+        let signer = state.renderer_signer(generation)?;
         Self::with_signer(&state, None, signer).map_err(Into::into)
     }
 }
@@ -616,9 +630,7 @@ pub async fn upload_media(
             .operation_generation
             .lock()
             .map_err(|e| e.to_string())?;
-        if state.is_remote_identity() {
-            state.native_auth.check_signer(&upload.signer)?;
-        }
+        upload.signer.check_valid()?;
         let _ = std::fs::remove_file(&fd_path);
     }
 

@@ -102,7 +102,7 @@ fn local_bootstrap_and_recovery_capabilities_remain_distinct() {
 #[ignore = "runs under an actual native remote build, independently from the local suite"]
 fn compiled_remote_bootstrap_is_keyless() {
     assert_eq!(SignerMode::compiled(), SignerMode::Remote);
-    let state = crate::app_state::build_app_state();
+    let state = build_app_state_for_mode(SignerMode::compiled());
     assert!(state.is_remote_identity());
     assert!(state.local_identity_keys().is_err());
     assert!(state.active_signer().is_err());

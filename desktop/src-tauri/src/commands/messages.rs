@@ -440,7 +440,7 @@ pub async fn send_channel_message(
     // exact snapshot signs the event and its NIP-98 auth below.
     let relay_base = crate::relay::relay_api_base_url_with_override(&state);
     assert_expected_relay_scope(expected_relay_url.as_deref(), &relay_base)?;
-    let signing_keys = crate::native_identity::renderer_signer(&state, expected_generation)?;
+    let signing_keys = state.renderer_signer(expected_generation)?;
     assert_expected_signer(
         expected_signer_pubkey.as_deref(),
         &signing_keys.public_key().to_hex(),

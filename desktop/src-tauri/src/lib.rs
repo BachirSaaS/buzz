@@ -14,6 +14,7 @@ mod events;
 mod huddle;
 mod identity_storage;
 mod initial_window;
+mod invocation_authority;
 mod key_backup;
 mod link_preview_tags;
 mod linux_media;

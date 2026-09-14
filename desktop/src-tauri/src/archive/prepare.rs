@@ -140,21 +140,10 @@ pub(crate) async fn prepare_archive(
             continue;
         }
         match signer
-            .signer()
-            .nip44_decrypt(&source.event.pubkey, &source.event.content)
+            .decrypt_record(&source.event.pubkey, &source.event.content)
             .await
         {
-            Ok(text) => {
-                let text = Zeroizing::new(text);
-                if signer.check_valid().is_err() {
-                    batch.retry.push(candidate(source));
-                } else {
-                    finish_body(&mut batch, source, Some(&text));
-                }
-            }
-            Err(_) if signer.has_local_crypto() && signer.check_valid().is_ok() => {
-                finish_body(&mut batch, source, None);
-            }
+            Ok(text) => finish_body(&mut batch, source, text.as_deref().map(String::as_str)),
             Err(_) => batch.retry.push(candidate(source)),
         }
     }

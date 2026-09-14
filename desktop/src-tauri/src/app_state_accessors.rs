@@ -10,6 +10,57 @@ use crate::managed_agents::config_bridge::SessionConfigCache;
 use crate::managed_agents::ManagedAgentRuntimeKey;
 
 impl AppState {
+    /// Capture the authority supplied by this renderer realm.
+    pub(crate) fn renderer_signer(
+        &self,
+        generation: Option<u64>,
+    ) -> Result<crate::active_user_signer::ActiveUserSigner, String> {
+        self.renderer_signer_at(generation, &crate::relay::relay_ws_url_with_override(self))
+    }
+
+    /// Remote authority is limited to its enrolled workspace and immutable generation.
+    pub(crate) fn renderer_signer_at(
+        &self,
+        generation: Option<u64>,
+        relay: &str,
+    ) -> Result<crate::active_user_signer::ActiveUserSigner, String> {
+        if self.is_remote_identity() {
+            let configured = crate::relay::relay_ws_url_with_override(self);
+            if crate::relay::relay_http_base_url(relay)
+                != crate::relay::relay_http_base_url(&configured)
+            {
+                return Err("remote operation requires the configured workspace relay".into());
+            }
+            self.native_auth.workspace_signer(generation, &configured)
+        } else {
+            self.active_signer()
+        }
+    }
+
+    /// Local recovery may read unsigned; remote media always requires captured authority.
+    pub(crate) fn media_read_scope(
+        &self,
+        generation: Option<u64>,
+        operation_generation: u64,
+    ) -> Result<crate::media_read::MediaReadScope, String> {
+        let relay = crate::relay::relay_ws_url_with_override(self);
+        let (signer, operation) = if self.is_remote_identity() {
+            let signer = self.renderer_signer_at(generation, &relay)?;
+            let operation = crate::user_operation::UserOperationScope::capture_locked(
+                self,
+                operation_generation,
+            )?;
+            (Some(signer), Some(operation))
+        } else {
+            (self.active_signer().ok(), None)
+        };
+        Ok(crate::media_read::MediaReadScope::new(
+            signer,
+            crate::relay::relay_http_base_url(&relay),
+            operation,
+        ))
+    }
+
     /// Whether this native state has remote (keyless) user custody.
     pub(crate) fn is_remote_identity(&self) -> bool {
         self.signer_mode.is_remote()

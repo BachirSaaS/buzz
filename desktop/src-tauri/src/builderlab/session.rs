@@ -28,6 +28,20 @@ impl SessionValidity {
     }
 }
 
+impl crate::active_user_signer::CapabilityLifetime for SessionValidity {
+    fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    fn check(&self) -> Result<(), String> {
+        SessionValidity::check(self)
+    }
+
+    fn canceled(&self) -> nostr::util::BoxedFuture<'_, ()> {
+        Box::pin(SessionValidity::canceled(self))
+    }
+}
+
 #[derive(Clone, Default)]
 pub(crate) struct BuilderlabSession {
     state: Arc<Mutex<AuthState>>,

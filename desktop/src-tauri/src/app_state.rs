@@ -192,7 +192,13 @@ pub fn build_media_fetch_client() -> reqwest::Result<reqwest::Client> {
 }
 
 pub fn build_app_state() -> AppState {
-    build_app_state_for_mode(crate::native_identity::SignerMode::compiled())
+    #[cfg(not(test))]
+    let mode = crate::native_identity::SignerMode::compiled();
+    // The historical fixture constructs local keys. Remote tests request their
+    // mode explicitly; packaging configuration must not change fixture identity.
+    #[cfg(test)]
+    let mode = crate::native_identity::SignerMode::Local;
+    build_app_state_for_mode(mode)
 }
 
 pub(crate) fn build_app_state_for_mode(mode: crate::native_identity::SignerMode) -> AppState {

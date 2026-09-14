@@ -13,6 +13,7 @@ versions of messages, profiles, snapshots, or agent-management features.
 
 | Boundary | Local implementation and callers | Second-branch responsibility |
 | --- | --- | --- |
+| Captured lifetime | `CapabilityLifetime`, optional on `ActiveUserSigner`; absent for local keys; shared signing/query/publication boundaries execute through `run` | Implement immutable validity/cancellation and same-key replacement generation; no credential lookup in shared callers |
 | Public identity | `AppState::identity_public_key`, cached `ActiveUserSigner::public_key` | Obtain a stable public identity without a local secret |
 | Event signing | `ActiveUserSigner` wraps `nostr::NostrSigner`; event builders stay unchanged | Implement structured-event signing and verify the returned artifact |
 | NIP-04/NIP-44 | The existing `NostrSigner` crypto methods | Supply supported ciphers; report unsupported operations explicitly |

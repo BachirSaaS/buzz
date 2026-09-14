@@ -67,6 +67,17 @@ impl AgentCapabilities for Keys {
     }
 }
 
+/// Backend-owned lifetime of a captured capability. It must never resolve a
+/// replacement identity. Local capabilities omit this contract and do not expire.
+pub(crate) trait CapabilityLifetime: std::fmt::Debug + Send + Sync {
+    /// Distinguishes replacement sessions even when their public keys match.
+    fn generation(&self) -> u64;
+    /// Reject a capability that can no longer authorize work.
+    fn check(&self) -> Result<(), String>;
+    /// Resolve when this capability can no longer authorize work.
+    fn canceled(&self) -> BoxedFuture<'_, ()>;
+}
+
 /// A signer's immutable identity and its asynchronous rust-nostr capability.
 /// No secret-key accessor is exposed by this boundary.
 #[derive(Clone, Debug)]
@@ -74,7 +85,7 @@ pub(crate) struct ActiveUserSigner {
     public_key: PublicKey,
     signer: Arc<dyn NostrSigner>,
     agent_capabilities: Option<Arc<dyn AgentCapabilities>>,
-    validity: Option<crate::builderlab::session::SessionValidity>,
+    validity: Option<Arc<dyn CapabilityLifetime>>,
     local_crypto: bool,
 }
 
@@ -92,7 +103,6 @@ impl ActiveUserSigner {
     }
 
     /// Resolve the cached identity from the signer itself, never caller input.
-    #[cfg(test)]
     pub(crate) async fn new(signer: Arc<dyn NostrSigner>) -> Result<Self, String> {
         let public_key = signer.get_public_key().await.map_err(|e| e.to_string())?;
         Ok(Self {
@@ -104,20 +114,10 @@ impl ActiveUserSigner {
         })
     }
 
-    /// Install an already-verified discovery result with its immutable lifetime.
-    pub(crate) fn remote(
-        public_key: PublicKey,
-        signer: crate::remote_signer::RemoteSigner,
-        validity: crate::builderlab::session::SessionValidity,
-    ) -> Self {
-        let signer = Arc::new(signer);
-        Self {
-            public_key,
-            signer: signer.clone(),
-            validity: Some(validity),
-            agent_capabilities: Some(signer),
-            local_crypto: false,
-        }
+    /// Bind this captured capability to a backend-owned immutable lifetime.
+    pub(crate) fn with_lifetime(mut self, lifetime: Arc<dyn CapabilityLifetime>) -> Self {
+        self.validity = Some(lifetime);
+        self
     }
 
     /// Attest to one agent with the exact NIP-OA conditions, using this owner's
@@ -160,11 +160,37 @@ impl ActiveUserSigner {
         self.with_test_agent_capabilities(Arc::new(keys))
     }
 
-    #[cfg(test)]
-    fn with_test_agent_capabilities(mut self, capabilities: Arc<dyn AgentCapabilities>) -> Self {
-        assert_eq!(self.public_key, capabilities.public_key());
+    /// Attach purpose-specific capabilities only when they attest to this identity.
+    pub(crate) fn with_agent_capabilities(
+        mut self,
+        capabilities: Arc<dyn AgentCapabilities>,
+    ) -> Result<Self, String> {
+        if self.public_key != capabilities.public_key() {
+            return Err("agent capabilities do not match signer identity".into());
+        }
         self.agent_capabilities = Some(capabilities);
-        self
+        Ok(self)
+    }
+
+    #[cfg(test)]
+    fn with_test_agent_capabilities(self, capabilities: Arc<dyn AgentCapabilities>) -> Self {
+        self.with_agent_capabilities(capabilities)
+            .expect("test capabilities must match signer identity")
+    }
+
+    /// Distinguish invalid local ciphertext from unavailable cryptography.
+    /// Only the locally constructed Keys capability gives a definitive negative verdict.
+    pub(crate) async fn decrypt_record(
+        &self,
+        author: &PublicKey,
+        content: &str,
+    ) -> Result<Option<zeroize::Zeroizing<String>>, String> {
+        self.check_valid()?;
+        match self.nip44_decrypt(author, content).await {
+            Ok(text) => Ok(Some(zeroize::Zeroizing::new(text))),
+            Err(_) if self.has_local_crypto() && self.check_valid().is_ok() => Ok(None),
+            Err(_) => Err("archive decryption backend unavailable".into()),
+        }
     }
 
     /// Only a local library decrypt error is definitive ciphertext invalidity.
@@ -175,7 +201,7 @@ impl ActiveUserSigner {
 
     /// Native generation supplements pubkey equality, including same-key reauthentication.
     pub(crate) fn generation(&self) -> Option<u64> {
-        self.validity.as_ref().map(|v| v.generation)
+        self.validity.as_ref().map(|v| v.generation())
     }
 
     /// Reject a held capability after logout, expiry or replacement.
@@ -183,7 +209,7 @@ impl ActiveUserSigner {
         self.validity.as_ref().map_or(Ok(()), |v| v.check())
     }
 
-    /// Wait for this captured remote session to end; local capabilities do not expire.
+    /// Wait for this captured capability to end; local capabilities do not expire.
     pub(crate) async fn canceled(&self) {
         if let Some(validity) = &self.validity {
             validity.canceled().await;
@@ -244,6 +270,9 @@ impl NostrSigner for ActiveUserSigner {
     }
 
     fn sign_event(&self, unsigned: UnsignedEvent) -> BoxedFuture<'_, Result<Event, SignerError>> {
+        if self.validity.is_none() {
+            return self.signer.sign_event(unsigned);
+        }
         Box::pin(async move {
             self.run(async {
                 self.signer
@@ -261,6 +290,9 @@ impl NostrSigner for ActiveUserSigner {
         public_key: &'a PublicKey,
         content: &'a str,
     ) -> BoxedFuture<'a, Result<String, SignerError>> {
+        if self.validity.is_none() {
+            return self.signer.nip04_encrypt(public_key, content);
+        }
         Box::pin(async move {
             self.run(async {
                 self.signer
@@ -278,6 +310,9 @@ impl NostrSigner for ActiveUserSigner {
         public_key: &'a PublicKey,
         content: &'a str,
     ) -> BoxedFuture<'a, Result<String, SignerError>> {
+        if self.validity.is_none() {
+            return self.signer.nip04_decrypt(public_key, content);
+        }
         Box::pin(async move {
             self.run(async {
                 self.signer
@@ -295,6 +330,9 @@ impl NostrSigner for ActiveUserSigner {
         public_key: &'a PublicKey,
         content: &'a str,
     ) -> BoxedFuture<'a, Result<String, SignerError>> {
+        if self.validity.is_none() {
+            return self.signer.nip44_encrypt(public_key, content);
+        }
         Box::pin(async move {
             self.run(async {
                 self.signer
@@ -312,6 +350,9 @@ impl NostrSigner for ActiveUserSigner {
         public_key: &'a PublicKey,
         content: &'a str,
     ) -> BoxedFuture<'a, Result<String, SignerError>> {
+        if self.validity.is_none() {
+            return self.signer.nip44_decrypt(public_key, content);
+        }
         Box::pin(async move {
             self.run(async {
                 self.signer

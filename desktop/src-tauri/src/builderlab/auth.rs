@@ -136,11 +136,13 @@ pub(super) async fn finish_login(
         let remote = RemoteSigner::new(base.as_str(), binding)
             .map_err(|e| e.to_string())?
             .with_validity(validity.clone());
-        Some(crate::active_user_signer::ActiveUserSigner::remote(
-            pubkey,
-            remote,
-            validity.clone(),
-        ))
+        let remote = std::sync::Arc::new(remote);
+        Some(
+            crate::active_user_signer::ActiveUserSigner::new(remote.clone())
+                .await?
+                .with_agent_capabilities(remote)?
+                .with_lifetime(std::sync::Arc::new(validity.clone())),
+        )
     } else {
         None
     };

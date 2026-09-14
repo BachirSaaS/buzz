@@ -59,3 +59,37 @@ acceptance or full-app acceptance. No claim of readiness to replace the preview.
 Workspace receipts: `WORK_LOGS/REMOTE_SIGNER_PR2_2026_09_13/` in `/Users/baxen/.buzz`.
 Original snapshot includes full patches, tar and SHA256 manifest. No push or
 installation is part of this checkpoint.
+
+## Review boundary after separation — 2026-09-14
+
+PR1 owns the backend-neutral captured capability lifetime, renderer authority
+parsing, media read/upload scopes, profile destination capture, relay cache
+identity, and common owner/query/publication admission. Local capabilities do not
+expire; unsigned media recovery and best-effort local deletion remain intact.
+PR2 wires Builderlab session validity and credentials into those boundaries.
+
+Profile editing and deferred avatar updates remain enabled within the existing
+remote preview allowlist. This cleanup does not remove functionality or broaden
+that allowlist. Existing unsupported memory validation, Git subprocess credentials,
+and workspace mutation workflows remain explicitly gated.
+
+Archive retry stays in PR2: retaining ciphertext across service failure and fencing
+its eventual commit against session replacement is remote lifecycle behavior, not
+a behavior-preserving local caller refactor. Keyless initialization, enrollment,
+remote transport/configuration and renderer generation propagation also stay here.
+
+### Validation for this separation pass
+
+Recorded working-tree runs (not a claim of full green CI):
+
+- Frontend: 6,511 passed, zero failed.
+- Remote native: 3,404 library tests passed, 22 ignored; integration suites passed.
+  The command failed at doctests with missing dependency crate errors.
+- Local native on PR2: 3,400 passed, four discovery/subprocess failures, 22 ignored.
+- PR1 native: 3,280 passed, ten provider/discovery failures, 19 ignored.
+
+No tests were deleted or disabled to obtain these results. Full CI, clean native
+reruns and isolated app acceptance remain outstanding. This is ready for boundary
+review, not a claim of merge readiness or full remote parity. No new package was
+built or installed during this separation pass.
+

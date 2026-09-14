@@ -1,6 +1,6 @@
 //! Captured identity, relay and lifetime shared by media read transports.
+use crate::app_state::AppState;
 use crate::commands::media::{sign_blossom_get_auth_header, MEDIA_GET_AUTH_EXPIRY_SECS};
-use crate::{app_state::AppState, relay};
 
 /// A media read never looks up replacement credentials after admission.
 #[derive(Clone)]
@@ -8,7 +8,6 @@ pub(crate) struct MediaReadScope {
     operation: Option<crate::user_operation::UserOperationScope>,
     signer: Option<crate::active_user_signer::ActiveUserSigner>,
     pub(crate) base: String,
-    pub(crate) remote: bool,
 }
 
 impl MediaReadScope {
@@ -20,42 +19,29 @@ impl MediaReadScope {
             .operation_generation
             .lock()
             .map_err(|e| e.to_string())?;
-        let remote = state.is_remote_identity();
-        let operation = if remote {
-            Some(crate::user_operation::UserOperationScope::capture_locked(
-                state,
-                *generation_guard,
-            )?)
-        } else {
-            None
-        };
-        let (signer, base) = if remote {
-            let relay_url = relay::relay_ws_url_with_override(state);
-            let signer = state.native_auth.workspace_signer(generation, &relay_url)?;
-            (Some(signer), relay::relay_http_base_url(&relay_url))
-        } else {
-            // Preserve unsigned recovery-mode reads in local builds only.
-            (
-                state.active_signer().ok(),
-                relay::relay_api_base_url_with_override(state),
-            )
-        };
-        Ok(Self {
-            operation,
+        state.media_read_scope(generation, *generation_guard)
+    }
+
+    pub(crate) fn new(
+        signer: Option<crate::active_user_signer::ActiveUserSigner>,
+        base: String,
+        operation: Option<crate::user_operation::UserOperationScope>,
+    ) -> Self {
+        Self {
             signer,
             base,
-            remote,
-        })
+            operation,
+        }
+    }
+
+    pub(crate) fn requires_session(&self) -> bool {
+        self.operation.is_some()
     }
 
     /// Command entrypoints capture before their first await. IPC admission is
     /// separate; this pins all downstream signing and HTTP to the same identity.
     pub(crate) fn capture_command(state: &AppState) -> Result<Self, String> {
-        let generation = if state.is_remote_identity() {
-            state.active_signer()?.generation()
-        } else {
-            None
-        };
+        let generation = state.active_signer().ok().and_then(|s| s.generation());
         Self::capture_renderer(state, generation)
     }
 
@@ -63,9 +49,16 @@ impl MediaReadScope {
     pub(crate) async fn authorization(&self) -> Result<Option<String>, String> {
         match &self.signer {
             Some(signer) => {
-                sign_blossom_get_auth_header(signer, &self.base, MEDIA_GET_AUTH_EXPIRY_SECS)
+                match sign_blossom_get_auth_header(signer, &self.base, MEDIA_GET_AUTH_EXPIRY_SECS)
                     .await
-                    .map(Some)
+                {
+                    Ok(header) => Ok(Some(header)),
+                    Err(error) if !self.requires_session() => {
+                        eprintln!("buzz-desktop: media get auth signing failed (unsigned request): {error}");
+                        Ok(None)
+                    }
+                    Err(error) => Err(error),
+                }
             }
             None => Ok(None),
         }
@@ -106,7 +99,7 @@ impl<'de, R: tauri::Runtime> tauri::ipc::CommandArg<'de, R> for MediaReadScope {
             .state_ref()
             .try_get::<AppState>()
             .ok_or_else(|| tauri::ipc::InvokeError::from("native app state unavailable"))?;
-        let generation = crate::native_identity::invocation_generation(
+        let generation = crate::invocation_authority::invocation_generation(
             command.message.payload(),
             command.message.headers(),
         );

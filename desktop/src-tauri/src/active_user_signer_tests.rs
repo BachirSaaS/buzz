@@ -313,7 +313,7 @@ async fn auxiliary_operations_await_captured_backend_without_local_fallback() {
 }
 
 #[test]
-#[should_panic(expected = "assertion `left == right` failed")]
+#[should_panic(expected = "test capabilities must match signer identity")]
 fn auxiliary_capability_must_match_captured_identity() {
     ActiveUserSigner::local(Keys::generate())
         .with_test_agent_capabilities(Arc::new(Keys::generate()));
@@ -351,7 +351,13 @@ async fn remote_memory_is_explicitly_unsupported_and_session_fenced() {
         RemoteSignerSession::new("test-session", owner.public_key()).unwrap(),
     )
     .unwrap();
-    let signer = ActiveUserSigner::remote(owner.public_key(), remote, validity.clone());
+    let remote = Arc::new(remote);
+    let signer = ActiveUserSigner::new(remote.clone())
+        .await
+        .unwrap()
+        .with_agent_capabilities(remote)
+        .unwrap()
+        .with_lifetime(Arc::new(validity.clone()));
     assert!(!signer.has_local_crypto());
     assert_eq!(signer.generation(), Some(42));
     assert_eq!(
@@ -392,7 +398,7 @@ async fn captured_session_cancels_pending_auxiliary_operations() {
         let mut signer =
             ActiveUserSigner::local(owner).with_test_agent_capabilities(controlled.clone());
         let validity = remote_validity();
-        signer.validity = Some(validity.clone());
+        signer.validity = Some(Arc::new(validity.clone()));
         let task = tokio::spawn(async move {
             if memory {
                 let event = EventBuilder::new(Kind::TextNote, "unused")
@@ -419,4 +425,64 @@ async fn captured_session_cancels_pending_auxiliary_operations() {
             .unwrap_err();
         assert!(error.contains("canceled or expired"));
     }
+}
+
+#[derive(Debug)]
+struct TestLifetime(tokio_util::sync::CancellationToken);
+impl super::CapabilityLifetime for TestLifetime {
+    fn generation(&self) -> u64 {
+        17
+    }
+    fn check(&self) -> Result<(), String> {
+        if self.0.is_cancelled() {
+            Err("retired capability".into())
+        } else {
+            Ok(())
+        }
+    }
+    fn canceled(&self) -> nostr::util::BoxedFuture<'_, ()> {
+        Box::pin(self.0.cancelled())
+    }
+}
+
+#[tokio::test]
+async fn captured_lifetime_cancels_pending_work_without_replacement() {
+    let lifetime = Arc::new(TestLifetime(tokio_util::sync::CancellationToken::new()));
+    let signer = ActiveUserSigner::local(Keys::generate()).with_lifetime(lifetime.clone());
+    assert_eq!(signer.generation(), Some(17));
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let started = entered.clone();
+    let task = tokio::spawn(async move {
+        signer
+            .run(async move {
+                started.notify_one();
+                std::future::pending::<Result<(), String>>().await
+            })
+            .await
+    });
+    entered.notified().await;
+    lifetime.0.cancel();
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_secs(1), task)
+            .await
+            .unwrap()
+            .unwrap()
+            .is_err()
+    );
+}
+
+#[tokio::test]
+async fn local_lifetime_does_not_change_success_or_error() {
+    let signer = ActiveUserSigner::local(Keys::generate());
+    assert_eq!(signer.generation(), None);
+    assert_eq!(signer.run(async { Ok(19) }).await, Ok(19));
+    assert_eq!(
+        signer.run(async { Err::<(), _>("original".into()) }).await,
+        Err("original".into())
+    );
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(1), signer.canceled())
+            .await
+            .is_err()
+    );
 }

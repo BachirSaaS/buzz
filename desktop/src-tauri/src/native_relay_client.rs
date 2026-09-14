@@ -364,9 +364,11 @@ impl RelaySession {
         filter: serde_json::Value,
         timeout: Duration,
     ) -> Result<Vec<Event>, String> {
-        self.signer
+        self.signer.check_valid()?;
+        let id = format!("native-fetch-{}", uuid::Uuid::new_v4());
+        let outcome = self
+            .signer
             .run(async {
-                let id = format!("native-fetch-{}", uuid::Uuid::new_v4());
                 let (complete, result) = oneshot::channel();
                 self.requests.lock().await.insert(
                     id.clone(),
@@ -392,10 +394,11 @@ impl RelaySession {
                         Err(_) => Err("relay request timed out".to_string()),
                     }
                 };
-                self.finish_request(&id).await;
                 outcome
             })
-            .await
+            .await;
+        self.finish_request(&id).await;
+        outcome
     }
 
     async fn finish_request(&self, id: &str) {
