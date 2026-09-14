@@ -39,11 +39,11 @@ pub async fn update_profile(
     avatar_url: Option<String>,
     about: Option<String>,
     nip05_handle: Option<String>,
+    expected_generation: Option<u64>,
     state: State<'_, AppState>,
 ) -> Result<ProfileInfo, String> {
     // Read-merge-write: kind 0 is a full profile snapshot.
-    let signer = state.active_signer()?;
-    let relay_base = crate::relay::relay_api_base_url_with_override(&state);
+    let (signer, relay_base) = capture_profile_scope(&state, expected_generation, None)?;
     let my_pubkey = signer.public_key().to_hex();
     let prior_events = query_relay_at_with_signer(
         &state,
@@ -109,11 +109,12 @@ pub async fn update_profile_at_relay(
     expected_pubkey: String,
     expected_avatar_url: Option<String>,
     avatar_url: String,
+    expected_generation: Option<u64>,
     state: State<'_, AppState>,
 ) -> Result<ProfileInfo, String> {
-    let signer = capture_expected_signer(&state, &expected_pubkey)?;
-
-    let api_base_url = relay_http_base_url(&relay_url);
+    let (signer, api_base_url) =
+        capture_profile_scope(&state, expected_generation, Some(&relay_url))?;
+    assert_expected_profile_identity(&signer, &expected_pubkey)?;
     let filter = serde_json::json!({
         "kinds": [0],
         "authors": [expected_pubkey],
@@ -171,15 +172,30 @@ fn build_deferred_profile_event(
     )
 }
 
-fn capture_expected_signer(
+// Capture one destination before acquiring remote workspace authority. The caller's
+// generation is mandatory remotely, including for delayed same-pubkey callbacks.
+fn capture_profile_scope(
     state: &AppState,
+    expected_generation: Option<u64>,
+    explicit_relay: Option<&str>,
+) -> Result<(crate::active_user_signer::ActiveUserSigner, String), String> {
+    let configured_relay = crate::relay::relay_ws_url_with_override(state);
+    let configured_base = relay_http_base_url(&configured_relay);
+    let destination = explicit_relay
+        .map(relay_http_base_url)
+        .unwrap_or(configured_base.clone());
+    let signer = state.renderer_signer_at(expected_generation, &destination)?;
+    Ok((signer, destination))
+}
+
+fn assert_expected_profile_identity(
+    signer: &crate::active_user_signer::ActiveUserSigner,
     expected_pubkey: &str,
-) -> Result<crate::active_user_signer::ActiveUserSigner, String> {
-    let signer = state.active_signer()?;
+) -> Result<(), String> {
     if signer.public_key().to_hex() != expected_pubkey {
         return Err("profile identity changed before avatar save".to_string());
     }
-    Ok(signer)
+    Ok(())
 }
 
 fn normalized_avatar_url(avatar_url: Option<&str>) -> Option<&str> {
@@ -431,8 +447,9 @@ mod tests {
         let original = state.signing_keys().expect("signable identity");
         let original_pubkey = original.public_key().to_hex();
 
-        let captured = capture_expected_signer(&state, &original_pubkey)
+        let (captured, _) = capture_profile_scope(&state, None, None)
             .expect("matching identity should be captured");
+        assert_expected_profile_identity(&captured, &original_pubkey).unwrap();
         state
             .replace_local_identity_keys(nostr::Keys::generate())
             .unwrap();
@@ -447,7 +464,8 @@ mod tests {
             original_pubkey
         );
         assert_eq!(
-            capture_expected_signer(&state, &original_pubkey).unwrap_err(),
+            assert_expected_profile_identity(&state.active_signer().unwrap(), &original_pubkey)
+                .unwrap_err(),
             "profile identity changed before avatar save"
         );
     }

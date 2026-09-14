@@ -10,6 +10,36 @@ use crate::managed_agents::config_bridge::SessionConfigCache;
 use crate::managed_agents::ManagedAgentRuntimeKey;
 
 impl AppState {
+    /// Capture the authority supplied by this renderer realm. Local builds have no realm token.
+    pub(crate) fn renderer_signer(
+        &self,
+        _generation: Option<u64>,
+    ) -> Result<crate::active_user_signer::ActiveUserSigner, String> {
+        self.active_signer()
+    }
+
+    /// Capture the signer for an explicit destination before any asynchronous work.
+    pub(crate) fn renderer_signer_at(
+        &self,
+        generation: Option<u64>,
+        _relay: &str,
+    ) -> Result<crate::active_user_signer::ActiveUserSigner, String> {
+        self.renderer_signer(generation)
+    }
+
+    /// Capture media authority; local recovery may retain unsigned media reads.
+    pub(crate) fn media_read_scope(
+        &self,
+        _generation: Option<u64>,
+        _operation_generation: u64,
+    ) -> Result<crate::media_read::MediaReadScope, String> {
+        Ok(crate::media_read::MediaReadScope::new(
+            self.active_signer().ok(),
+            crate::relay::relay_api_base_url_with_override(self),
+            None,
+        ))
+    }
+
     /// Compatibility local-key access, preserving historical recovery exceptions.
     /// New signing paths must use active_signer/signing_keys instead.
     pub(crate) fn local_identity_keys(&self) -> Result<Keys, String> {

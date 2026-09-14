@@ -14,6 +14,7 @@ mod events;
 mod huddle;
 mod identity_storage;
 mod initial_window;
+mod invocation_authority;
 mod key_backup;
 mod link_preview_tags;
 mod linux_media;
@@ -21,6 +22,7 @@ mod linux_media;
 mod macos_notifications;
 mod managed_agents;
 mod media_proxy;
+mod media_read;
 #[cfg(feature = "mesh-llm")]
 mod mesh_llm;
 #[cfg(not(feature = "mesh-llm"))]

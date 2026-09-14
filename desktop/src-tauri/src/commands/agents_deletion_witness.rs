@@ -71,7 +71,10 @@ pub(crate) struct AgentDeletionWitness {
 impl AgentTombstone {
     pub(crate) async fn sign(self, signer: &ActiveUserSigner) -> AgentDeletionWitness {
         let outcome = async {
-            if signer.public_key().to_hex() != self.owner {
+            self.signer.check_valid()?;
+            if signer.public_key().to_hex() != self.owner
+                || signer.generation() != self.signer.generation()
+            {
                 return Err("agent tombstone signer does not own captured scope".into());
             }
             let signer = &self.signer;
@@ -145,6 +148,7 @@ pub(crate) fn commit_agent_deletions<T>(
 ) -> Result<T, String> {
     let mut databases: Vec<(PathBuf, rusqlite::Connection)> = Vec::new();
     let mut ready = Vec::new();
+    let mut captured_signers = Vec::new();
     for witness in work {
         let witness = match witness {
             Ok(witness) => witness,
@@ -153,6 +157,11 @@ pub(crate) fn commit_agent_deletions<T>(
                 continue;
             }
         };
+        witness.plan.signer.check_valid()?;
+        captured_signers.push(witness.plan.signer.clone());
+        if witness.plan.signer.generation().is_some() {
+            witness.outcome.as_ref().map_err(Clone::clone)?;
+        }
         let path = &witness.plan.db_path;
         let index = match databases.iter().position(|(existing, _)| existing == path) {
             Some(index) => index,
@@ -186,6 +195,12 @@ pub(crate) fn commit_agent_deletions<T>(
             }
             Err(error) => ready.push(Err(error)),
         }
+    }
+    // SQLite busy waits can outlive the initial admission check. Fence again
+    // immediately before the irreversible synchronous body (including plans
+    // whose retention I/O failed under the existing best-effort policy).
+    for signer in captured_signers {
+        signer.check_valid()?;
     }
     let result = delete()?;
     for witness in ready {
@@ -282,11 +297,14 @@ impl AgentDeletionWitness {
     /// Strict standalone commit for boot recovery and test adapters. Direct
     /// deletions use the best-effort batch coordinator before disk mutation.
     pub(crate) fn commit(self) -> Result<(), String> {
+        self.plan.signer.check_valid()?;
         let mut conn = open_retention_db(&self.plan.db_path)?;
         let tx = conn
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
             .map_err(|e| e.to_string())?;
-        // Recheck the retained head after acquiring SQLite write ownership.
+        // SQLite acquisition can wait behind another writer while native auth
+        // is canceled or replaced. Fence the captured session after that wait.
+        self.plan.signer.check_valid()?;
         if head_token(get_retained_event(
             &tx,
             self.plan.kind,

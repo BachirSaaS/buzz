@@ -417,6 +417,7 @@ pub async fn send_channel_message(
     kind: Option<u32>,
     expected_relay_url: Option<String>,
     expected_signer_pubkey: Option<String>,
+    expected_generation: Option<u64>,
     state: State<'_, AppState>,
 ) -> Result<SendChannelMessageResponse, String> {
     let channel_uuid = uuid::Uuid::parse_str(&channel_id)
@@ -439,7 +440,7 @@ pub async fn send_channel_message(
     // exact snapshot signs the event and its NIP-98 auth below.
     let relay_base = crate::relay::relay_api_base_url_with_override(&state);
     assert_expected_relay_scope(expected_relay_url.as_deref(), &relay_base)?;
-    let signing_keys = state.active_signer()?;
+    let signing_keys = state.renderer_signer(expected_generation)?;
     assert_expected_signer(
         expected_signer_pubkey.as_deref(),
         &signing_keys.public_key().to_hex(),
@@ -836,7 +837,10 @@ pub async fn send_managed_agent_channel_message<R: tauri::Runtime>(
             created_at,
         })
     };
-    work.await
+    match &owner {
+        Some(owner) => owner.signer.run(work).await,
+        None => work.await,
+    }
 }
 
 #[tauri::command]

@@ -50,12 +50,14 @@ impl OwnerAuthorizationScope {
         state: &'a AppState,
     ) -> Result<std::sync::MutexGuard<'a, u64>, String> {
         let guard = self.operation.admit(state)?;
+        self.signer.check_valid()?;
         let current = if self.legacy_recovery {
             state.legacy_local_signer()?
         } else {
             state.active_signer()?
         };
-        if current.public_key() != self.signer.public_key()
+        if current.generation() != self.signer.generation()
+            || current.public_key() != self.signer.public_key()
             || crate::relay::relay_api_base_url_with_override(state) != self.relay_base
         {
             return Err("owner authorization scope changed; retry operation".into());
@@ -76,6 +78,7 @@ pub(crate) struct AuthorizedAgent {
 /// Shared production mint boundary for create and both snapshot import callers.
 /// Human custody comes only from `owner`; fresh keys belong only to the new agent.
 pub(crate) async fn prepare_agent(owner: &ActiveUserSigner) -> Result<AuthorizedAgent, String> {
+    owner.check_valid()?;
     let keys = Keys::generate();
     let auth_tag = Some(owner.authorize_agent(&keys.public_key(), "").await?);
     let private_key_nsec = keys.secret_key().to_bech32().map_err(|e| e.to_string())?;

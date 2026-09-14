@@ -72,8 +72,8 @@ async fn captured_upload_keeps_relay_owner_and_body_through_legacy_retry() {
     *state.test_signer.lock().unwrap() =
         Some(ActiveUserSigner::new(controlled.clone()).await.unwrap());
     *state.relay_url_override.lock().unwrap() = Some(base.clone());
-    let upload = MediaUploadScope::capture(&state).unwrap();
-    let send = do_upload(
+    let upload = MediaUploadScope::capture(&state, None).unwrap();
+    let send = do_upload::<tauri::Wry>(
         vec![1, 2, 3, 4],
         "application/octet-stream",
         &state,
@@ -116,4 +116,19 @@ async fn captured_upload_keeps_relay_owner_and_body_through_legacy_retry() {
                     == ["x", hex::encode(Sha256::digest([1, 2, 3, 4])).as_str()])
         );
     }
+}
+
+#[tokio::test]
+async fn local_upload_scope_drop_preserves_existing_worker_cancellation() {
+    let state = crate::app_state::build_app_state();
+    let parent = CancellationToken::new();
+    let scope = MediaUploadScope::capture(&state, Some(&parent)).unwrap();
+    let worker_token = scope.cancellation.clone();
+    assert!(!worker_token.is_cancelled());
+    drop(scope);
+    assert!(!worker_token.is_cancelled());
+    assert!(!parent.is_cancelled());
+    let scope = MediaUploadScope::capture(&state, Some(&parent)).unwrap();
+    parent.cancel();
+    assert!(scope.cancellation.is_cancelled());
 }

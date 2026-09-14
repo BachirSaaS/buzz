@@ -8,6 +8,7 @@ pub(crate) struct UserOperationScope {
     pub(crate) owner_pubkey: nostr::PublicKey,
     pub(crate) relay_url: String,
     generation: u64,
+    signer: crate::active_user_signer::ActiveUserSigner,
 }
 
 impl UserOperationScope {
@@ -26,6 +27,7 @@ impl UserOperationScope {
             owner_pubkey: state.identity_public_key()?,
             relay_url: crate::relay::relay_ws_url_with_override(state),
             generation,
+            signer: state.legacy_local_signer()?,
         })
     }
 
@@ -40,6 +42,7 @@ impl UserOperationScope {
             .operation_generation
             .lock()
             .map_err(|e| e.to_string())?;
+        self.signer.check_valid()?;
         if *generation != self.generation
             || state.identity_public_key()? != self.owner_pubkey
             || crate::relay::relay_ws_url_with_override(state) != self.relay_url
@@ -60,6 +63,18 @@ impl<'de, R: tauri::Runtime> tauri::ipc::CommandArg<'de, R> for UserOperationSco
             .try_get::<AppState>()
             .ok_or_else(|| tauri::ipc::InvokeError::from("native app state unavailable"))?;
         let operation = Self::capture(&state)?;
+        if operation.signer.generation().is_some() {
+            let generation = crate::invocation_authority::invocation_generation(
+                command.message.payload(),
+                command.message.headers(),
+            );
+            let signer = state.renderer_signer(generation)?;
+            if signer.generation() != operation.signer.generation() {
+                return Err(
+                    "renderer operation requires the current native identity generation".into(),
+                );
+            }
+        }
         Ok(operation)
     }
 }

@@ -36,6 +36,7 @@ pub(crate) async fn encrypt_snapshot_envelope_with_signer(
         .nip44_encrypt(agent, plaintext)
         .await
         .map_err(|e| format!("Failed to encrypt card manifest: {e}"))?;
+    owner.check_valid()?;
     validate_envelope(&envelope)?;
     Ok(envelope)
 }
@@ -53,8 +54,16 @@ pub(crate) async fn decrypt_envelope_with_signer(
     let result = owner
         .nip44_decrypt(&agent, &envelope.encryption.ciphertext)
         .await;
-    // Preserve the local locked-card refusal for failed decryption.
-    let plaintext = result.map_err(|_| LOCKED_CARD_REFUSAL.to_string())?;
+    owner.check_valid()?;
+    // Keep the local locked-card refusal; remote session/transport/response
+    // failures must propagate, never masquerade as a malformed card or fallback.
+    let plaintext = result.map_err(|e| {
+        if owner.generation().is_some() {
+            format!("Failed to decrypt card manifest: {e}")
+        } else {
+            LOCKED_CARD_REFUSAL.into()
+        }
+    })?;
     if plaintext.len() > NIP44_PLAINTEXT_MAX {
         return Err(LOCKED_CARD_REFUSAL.into());
     }
@@ -80,5 +89,6 @@ pub(crate) async fn encode_locked_snapshot_png_with_signer(
         return Err("Locked card envelope exceeds the maximum size.".into());
     }
     let png = encode_chunk_payload_png(&json, avatar_bytes)?;
+    owner.check_valid()?;
     Ok(png)
 }
