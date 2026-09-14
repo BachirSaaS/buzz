@@ -3815,7 +3815,7 @@ mod postgres_tests {
     // ──────────────────────────────────────────────────────────────────────────
 
     #[path = "work_object_tests.rs"]
-    mod work_object_tests;
+    mod work_object_postgres_tests;
 
     struct AlwaysFreshReplayGuard;
 

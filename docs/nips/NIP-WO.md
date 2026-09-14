@@ -1,115 +1,146 @@
-# NIP-WO: Canonical work objects (draft)
+# NIP-WO: Versioned work relationships (draft)
 
-This is a relay-only first implementation of the rooms model in vision PR #7615.
-It intentionally replaces the *canonical* semantics proposed in VISION_PROJECTS
-(author-owned grouping and branch channels), without changing the legacy NIP-MP
-or NIP-34 wire contracts. No client adoption or automatic migration is included.
+Relay-only draft of vision PR #7615. This revision replaces the initial five-object
+proposal: **new projects and tasks, reused Git objects, explicit versioned home tags**.
+It intentionally supersedes the old project-grouping/branch-channel interpretation
+in VISION_PROJECTS for enrolled work. No client changes or automatic migration.
 
-## Kinds and identity
+## Objects versus relationships
 
-| Kind | Object | Home | Writers |
+| Kind | Meaning | Identity | Home |
 |---|---|---|---|
-| 45010 | Project | Exclusive channel | Channel owners/admins |
-| 45011 | Repository adoption | Exclusive channel | Git owner **and** channel owner/admin |
-| 45012 | Task | Exclusive thread in its project channel | Non-guest channel members |
-| 45013 | Document | Exclusive thread | Non-guest channel members |
-| 45014 | Registered branch | Thread, optionally shared with tasks/branches | Repository channel owner/admin **and** discussion channel member |
+| 45010 | New project state | Community-local UUID | Exclusive channel |
+| 45012 | New task state | Community-local UUID | Exclusive thread in project channel |
+| 45011 | Repository home binding, NOT repository state | Existing `30617:<owner>:<d>` | Exclusive repository channel |
+| 45014 | Branch home binding, NOT ref state | Repository coordinate + full `refs/heads/...` | Thread; may share with task/other branches |
 
-These are ordinary persisted events, **not** addressable replacements. Identity is
-`(community, object UUID)`, independent of signer. Each revision repeats exactly
-two tags: `["h", "<channel UUID>"]` and `["object", "<object UUID>"]`.
-No `e` reply tags: state updates are not messages or replies and do not increment
-thread counters. Query these kinds explicitly; the JSON `previous` chain determines
-revision order, never client timestamps. Historical revisions remain queryable.
+Repositories remain NIP-34 30617, refs remain 30618, PRs/patches/updates/statuses
+retain their existing identities and code meanings. A 30618 can contain many refs:
+its event ID is **not** one branch's identity. No new repo/branch UUID is introduced.
+The binding's revision event ID is evidence of a claim, not a replacement Git ID.
+Git binding `state` must be null: no duplicate title, commit, ref or protection state.
 
-Content is a strict JSON envelope:
+Tasks belong to projects, never require a repository, and are not NIP-34 issues.
+Optional implementing-code references belong in task state and grant no access.
+Project/repository grouping can remain many-to-many metadata, not ownership.
+Documents are deferred: 45013 is not registered/accepted by this protocol. Existing
+canvases/articles are not automatically canonical documents. A future document
+contract must share the task/document exclusive-thread constraint from the vision.
+
+## Signed tags: `buzz-rooms-1`
+
+Every declaration carries exactly one `v=buzz-rooms-1` and one `h=<channel UUID>`.
+Tags are two-element arrays. UUIDs use non-nil lowercase hyphenated form; event IDs
+are lowercase 64-hex. Duplicate, unknown, malformed or inapplicable tags are rejected
+on these four declaration kinds; this is a deliberately strict first version.
+
+| Tag | Project | Task | Repo binding | Branch binding |
+|---|---|---|---|---|
+| `v`, `h` | required | required | required | required |
+| `object` UUID | required | required | prohibited | prohibited |
+| `root` event ID | prohibited | required | prohibited | required |
+| `project` UUID | prohibited | required | prohibited | prohibited |
+| `parent` task UUID | prohibited | optional | prohibited | prohibited |
+| `a` repo coordinate | prohibited | prohibited | required | required |
+| `ref` full Git ref | prohibited | prohibited | prohibited | required |
+
+`a` retains its standard address-reference meaning. Custom `root` is an explicit
+home pointer, not an `e` reply: declarations are state, do not increment thread
+counters, and do not become messages. No JSON `home` duplicate is accepted.
+
+Example task (placeholders below stand for valid IDs):
 
 ```json
 {
-  "home": {
-    "object": "<UUID>",
-    "channel": "<UUID>",
-    "root": null,
-    "project": null,
-    "parent": null,
-    "repository": null,
-    "git": null,
-    "branch": null
-  },
-  "previous": null,
-  "deleted": false,
-  "state": {"title": "Improve sign-in"}
+  "kind": 45012,
+  "tags": [
+    ["v", "buzz-rooms-1"],
+    ["h", "<project-channel-uuid>"],
+    ["object", "<task-uuid>"],
+    ["project", "<project-uuid>"],
+    ["root", "<ordinary-message-event-id>"]
+  ],
+  "content": "{\"previous\":null,\"deleted\":false,\"state\":{\"title\":\"Improve sign-in\"}}"
 }
 ```
 
-The entire `home` is immutable. Creation has no `previous`; updates name the exact
-accepted head event ID. Concurrent writes cannot silently overwrite each other.
-A current-head retry is idempotent; stale revisions fail. `deleted=true` is a
-terminal tombstone, not a way to free a room or code identity. Archive/close are
-state, not moves. References/grouping in `state` confer no permissions.
+A branch binding substitutes `a` and `ref` for task/project identity, retains its
+own discussion `h`/`root`, and carries `state:null`. The repo coordinate parser splits
+only the first two colons, preserving external repository identifiers with colons.
 
-Task `project` names a live 45010. Optional `parent` names a live task in that same
-project; a subtask still gets its own thread in the project channel. Thread roots
-must already exist as live top-level ordinary messages with thread metadata.
-Legacy roots lacking metadata must be deliberately prepared before adoption.
-Claims do not create/move/hide messages. Channel homes must be non-ephemeral;
-expired rooms cannot support durable identity.
+## What the relay enforces at write time
 
-Project/repository claims compete for one channel slot. Task/document claims
-compete for one thread slot. Branches may share task or standalone thread roots,
-but not document roots. The same repository/ref may register only one home.
-Deletion and archival retain all reservations; community deletion purges them.
+| Write | Draft behavior |
+|---|---|
+| Legacy project/issue/canvas or unbound Git record | Existing acceptance rules; does not acquire a canonical home |
+| New declaration without valid version/tags | Reject; no legacy fallback for new kinds |
+| Valid-shaped declaration | Validate membership, authority, relationship targets and atomic exclusive claims |
+| Concurrent claim for same channel/task thread | One succeeds; other fails without persisting an orphan declaration |
+| Task/subtask | Live project required; root in project channel; parent task in same project |
+| Revision | Same identity and home; exact current-head `previous`; no timestamp overwrite |
+| Repo announcement after binding | Reject missing/duplicate/different `buzz-channel`, or retired binding, even through raw insert/recreation |
+| Git ref push | Existing transport rules; does not require/create a branch discussion |
 
-## Code and legacy compatibility
+Only accepted declarations enroll an identity. A `v` tag on a legacy kind does not
+enroll it. Future clients query these declaration kinds and validate the scheme,
+then resolve reused Git targets; a bare legacy 30617 is not a canonical repo card.
+They ignore off-scheme objects **in new work-object views**, rather than infer homes
+from old tags, synthesize projects from repos, or create proxy repos for tasks.
+The relay need not reject all old data merely because the new client ignores it.
 
-Repository adoption names `git="30617:<owner hex>:<d>"`. The existing announcement
-must have exactly one `buzz-channel` matching the proposed home. Only the Git
-owner may adopt it. Replacements of the old announcement are transactionally
-fenced against changing that home after adoption. Project/repository grouping
-remains many-to-many metadata; it is not adoption.
+Channel/home and index updates commit atomically with the signed declaration.
+Project and repository bindings compete for one channel slot. Tasks have exclusive
+thread slots. Branch bindings may share those task threads or standalone roots.
+Roots must be live top-level ordinary messages with thread metadata. Legacy roots
+without metadata require explicit preparation; no automatic conversation moves.
 
-Branches name a canonical `repository` UUID and a full `refs/heads/...` name.
-Registration does **not** create or require a live ref. Git transport, manifests,
-protection rules and raw ref lifecycle remain unchanged. Deleting/recreating a ref
-does not free its registration. Branch declarations follow the *discussion*
-channel audience and contain no code. Repository access does not grant discussion
-access, nor vice versa. Registration currently requires an unscoped token plus
-`messages:write` and `repos:write`; multi-channel token capabilities are deferred.
+Project writes require channel owner/admin; task writes require non-guest membership.
+Repository adoption requires the repository signer AND destination channel admin,
+and exactly one existing `buzz-channel` matching that destination. Branch binding
+requires repository-channel admin AND discussion-channel membership. Scoped tokens
+cannot currently register cross-channel branches; unscoped `messages:write` plus
+`repos:write` is required. Claims lock channel/member rows during acceptance.
 
-Legacy events are not canonical revisions. They cannot update canonical state.
-Existing community-global Git metadata remains global: this draft does not claim
-to retroactively hide old announcements, patches or manifests, and does not export
-private canonical snapshots into legacy kinds. Code read/push authority continues
-to use the existing Git gates and the now-immutable adopted binding.
+## Revisions and lifecycle: draft choices, not requirements of the vision
 
-## Persistence and security
+Declarations are regular persisted events, not author-addressed NIP-01 replacements.
+Their content has `previous`, `deleted`, and `state`. CAS/shared channel writers are
+retained from the initial draft for review; they are **not needed just to version
+relationships**. State is opaque project/task JSON, not a settled task workflow or
+assignment engine. Existing issue status/assignment events never mutate tasks.
 
-A small community-scoped `work_objects` index stores homes, heads and tombstones.
-Acceptance atomically writes the signed event and index. Partial unique indexes
-reserve channel/thread/code identities across types, even after tombstoning.
-A per-community declaration lock serializes CAS and relationship checks; it is a
-conservative draft choice, not a generic graph or a new HTTP API. Channel/member
-rows are locked against concurrent revocation/archive during commit. HTTP and WS
-use shared ingest and normal channel-scoped storage/fanout, with no global fallback.
+Homes are immutable. Tombstones are terminal and retain reservations, preventing
+reuse through a new identity. Generic deletion of declaration events is rejected.
+Repository binding retirement is not Git deletion or code-access revocation. A raw
+ref may disappear/reappear without changing its home binding. Renames/new ref names
+are distinct targets; automated rename/move workflows are not implemented.
 
-Generic `state` is intentionally opaque in this draft (not a document CRDT, task
-workflow engine or assignee operation protocol). Review should settle typed state,
-writer granularity, lifecycle restrictions, and adoption UX before enabling clients.
+The `work_objects` table is a derived community-scoped index: project/task UUIDs,
+repo coordinates, or unambiguous encoded repo/ref tuples are its keys. It is not a
+second public Git namespace. This revision edits the unshipped migration 0045;
+it is not an upgrade path from a database running the first draft of this PR.
 
-## Review / follow-up boundary
+## Audience and rollout blockers — do not mistake filtering for privacy
 
-This is not ready for client rollout. In particular:
+Project/task state and home declarations use channel-scoped storage and fanout.
+A branch declaration follows its discussion audience. Access to its code continues
+to follow the repo channel. A relation never grants access across those boundaries.
 
-- Root deletion/retention and channel lifecycle races still need a complete policy
-  and dedicated concurrency coverage. Reservations survive, but deleting a root
-  can leave a retained object without a live discussion entry point.
-- A repository tombstone retires the *canonical object*, not the Git repository
-  or its read credentials. Use the existing repository-channel lifecycle to
-  restrict code access; this event is not a code-revocation mechanism.
-- Existing generic event edits/moderation, Git announcement deletion/recreation,
-  code-access gates, and reference disclosure need further adversarial coverage.
-- Private history and count use the production access-scoping helper in the
-  regression test. Dedicated private search and live-delivery tests for these
-  new kinds, and more tenant-fence/migration behavior tests, remain to be added.
-- State events have no thread metadata. Consumers must filter message kinds for
-  chat windows rather than treating every channel-scoped event as conversation.
+**This draft does NOT yet retrofit the community-global NIP-34 metadata audience.**
+Existing repository announcements, ref state (including relay-generated 30618),
+PRs and patches still follow legacy metadata paths. Home binding alone must not be
+marketed as making those records private. Before enabling private canonical Git
+work, implement repo-derived audience checks across ingestion, generated writes,
+history/query/count/search/live fanout, and reference disclosure. Previously delivered
+global content cannot be made unseen; do not export private state as global copies.
+
+Remaining review/rollout requirements:
+- Complete root retention/deletion and channel lifecycle race policy and coverage.
+- Expand deletion/moderation/Git announcement deletion-recreation adversarial tests;
+  raw repository writes are fenced but this is not a complete lifecycle proof.
+- Private search/live-delivery and broader multi-tenant tests for declarations.
+- Settle project/task typed state, writer granularity and revision policy.
+- Define document representation and migration/adoption UX separately.
+- Explicitly repair conflicting project/default-repo shared homes; do not auto-adopt.
+
+No client implementation, production data migration, or readiness-to-merge claim.

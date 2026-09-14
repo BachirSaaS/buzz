@@ -36,7 +36,7 @@ async fn related(
     kind: u32,
 ) -> Result<(Uuid, Revision)> {
     let row = sqlx::query("SELECT channel_id, home FROM work_objects WHERE community_id=$1 AND object_id=$2 AND kind=$3 AND NOT deleted")
-        .bind(community.as_uuid()).bind(id).bind(kind as i32).fetch_optional(&mut **tx).await?
+        .bind(community.as_uuid()).bind(id.to_string()).bind(kind as i32).fetch_optional(&mut **tx).await?
         .ok_or_else(|| invalid("missing or retired related object"))?;
     let home = serde_json::from_value(row.try_get("home")?).map_err(|e| invalid(&e.to_string()))?;
     Ok((
@@ -81,11 +81,11 @@ impl Db {
             community,
             h.channel,
             &actor,
-            matches!(kind, KIND_WORK_PROJECT | KIND_WORK_REPOSITORY),
+            matches!(kind, KIND_WORK_PROJECT | KIND_REPOSITORY_HOME),
         )
         .await?;
         let existing = sqlx::query("SELECT kind, home, head, deleted FROM work_objects WHERE community_id=$1 AND object_id=$2 FOR UPDATE")
-            .bind(community.as_uuid()).bind(h.object).fetch_optional(&mut *tx).await?;
+            .bind(community.as_uuid()).bind(h.identity()).fetch_optional(&mut *tx).await?;
         let home_json = serde_json::to_value(h).map_err(|e| invalid(&e.to_string()))?;
         if let Some(row) = existing {
             let head: Vec<u8> = row.try_get("head")?;
@@ -128,25 +128,23 @@ impl Db {
                 return Err(invalid("subtask must share its parent project"));
             }
         }
-        if let Some(repository) = h.repository {
-            let (channel, _) =
-                related(&mut tx, community, repository, KIND_WORK_REPOSITORY).await?;
-            membership(&mut tx, community, channel, &actor, true).await?;
-            // Branches may share task roots or standalone roots, not document roots.
-            let document: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM work_objects WHERE community_id=$1 AND root_id=$2 AND kind=45013)")
-                .bind(community.as_uuid()).bind(h.root.as_ref().and_then(|r| hex::decode(r).ok())).fetch_one(&mut *tx).await?;
-            if document {
-                return Err(invalid("branch cannot claim a document thread"));
-            }
+        if kind == KIND_BRANCH_HOME {
+            let channel: Option<Uuid> = sqlx::query_scalar("SELECT channel_id FROM work_objects WHERE community_id=$1 AND git_coordinate=$2 AND kind=45011 AND NOT deleted")
+                .bind(community.as_uuid()).bind(&h.git).fetch_optional(&mut *tx).await?;
+            membership(
+                &mut tx,
+                community,
+                channel.ok_or_else(|| invalid("repository has no live home binding"))?,
+                &actor,
+                true,
+            )
+            .await?;
         }
-        if kind == KIND_WORK_DOCUMENT {
-            let branch: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM work_objects WHERE community_id=$1 AND root_id=$2 AND kind=45014)")
-                .bind(community.as_uuid()).bind(h.root.as_ref().and_then(|r| hex::decode(r).ok())).fetch_one(&mut *tx).await?;
-            if branch {
-                return Err(invalid("document cannot claim a branch thread"));
-            }
-        }
-        if let Some(git) = &h.git {
+        if kind == KIND_REPOSITORY_HOME {
+            let git = h
+                .git
+                .as_ref()
+                .ok_or_else(|| invalid("missing repository coordinate"))?;
             let parts: Vec<_> = git.splitn(3, ':').collect();
             if parts[1] != event.pubkey.to_hex() {
                 return Err(invalid(
@@ -167,9 +165,9 @@ impl Db {
                 return Err(invalid("Git binding must match canonical repository home"));
             }
         }
-        sqlx::query("INSERT INTO work_objects (community_id,object_id,kind,channel_id,root_id,repository_id,git_coordinate,branch_ref,home,head,deleted) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (community_id,object_id) DO UPDATE SET head=EXCLUDED.head, deleted=EXCLUDED.deleted")
-            .bind(community.as_uuid()).bind(h.object).bind(kind as i32).bind(h.channel)
-            .bind(h.root.as_ref().and_then(|r| hex::decode(r).ok())).bind(h.repository).bind(&h.git).bind(&h.branch)
+        sqlx::query("INSERT INTO work_objects (community_id,object_id,kind,channel_id,root_id,git_coordinate,branch_ref,home,head,deleted) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (community_id,object_id) DO UPDATE SET head=EXCLUDED.head, deleted=EXCLUDED.deleted")
+            .bind(community.as_uuid()).bind(h.identity()).bind(kind as i32).bind(h.channel)
+            .bind(h.root.as_ref().and_then(|r| hex::decode(r).ok())).bind(&h.git).bind(&h.branch)
             .bind(home_json).bind(event.id.as_bytes().as_slice()).bind(revision.deleted).execute(&mut *tx).await
             .map_err(|e| if e.as_database_error().is_some_and(|e| e.is_unique_violation()) { invalid("room or code identity already claimed") } else {e.into()})?;
         let result =
@@ -188,20 +186,29 @@ pub(crate) async fn guard_repository_replacement(
     event: &Event,
     d_tag: &str,
 ) -> Result<()> {
+    guard_repository_write(tx, community, event, d_tag).await
+}
+
+async fn guard_repository_write(
+    connection: &mut sqlx::PgConnection,
+    community: CommunityId,
+    event: &Event,
+    d_tag: &str,
+) -> Result<()> {
     if event.kind.as_u16() as u32 != KIND_GIT_REPO_ANNOUNCEMENT {
         return Ok(());
     }
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 45010))")
         .bind(community.as_uuid().to_string())
-        .execute(&mut **tx)
+        .execute(&mut *connection)
         .await?;
     let coordinate = format!("30617:{}:{d_tag}", event.pubkey.to_hex());
     let row = sqlx::query(
-        "SELECT channel_id, deleted FROM work_objects WHERE community_id=$1 AND git_coordinate=$2",
+        "SELECT channel_id, deleted FROM work_objects WHERE community_id=$1 AND git_coordinate=$2 AND kind=45011",
     )
     .bind(community.as_uuid())
     .bind(coordinate)
-    .fetch_optional(&mut **tx)
+    .fetch_optional(&mut *connection)
     .await?;
     if let Some(row) = row {
         let channel: Uuid = row.try_get("channel_id")?;
@@ -233,6 +240,10 @@ pub(crate) async fn guard_event_insert(
     event: &Event,
     channel: Option<Uuid>,
 ) -> Result<()> {
+    if event.kind.as_u16() as u32 == KIND_GIT_REPO_ANNOUNCEMENT {
+        let d = event.tags.identifier().unwrap_or_default();
+        guard_repository_write(connection, community, event, d).await?;
+    }
     if !is_work_object(event.kind.as_u16() as u32) {
         return Ok(());
     }
@@ -241,7 +252,7 @@ pub(crate) async fn guard_event_insert(
         return Err(invalid("canonical state cannot be global"));
     }
     let accepted: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM work_objects WHERE community_id=$1 AND object_id=$2 AND head=$3 AND channel_id=$4)")
-        .bind(community.as_uuid()).bind(revision.home.object).bind(event.id.as_bytes().as_slice()).bind(channel)
+        .bind(community.as_uuid()).bind(revision.home.identity()).bind(event.id.as_bytes().as_slice()).bind(channel)
         .fetch_one(connection).await?;
     if !accepted {
         return Err(invalid("use atomic canonical acceptance"));

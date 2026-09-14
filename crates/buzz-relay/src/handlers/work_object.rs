@@ -1,7 +1,7 @@
 //! Canonical object ingress checks outside the ordinary message protocol.
 use std::sync::Arc;
 
-use buzz_core::kind::{is_work_object, KIND_WORK_BRANCH, KIND_WORK_REPOSITORY};
+use buzz_core::kind::{is_work_object, KIND_BRANCH_HOME, KIND_REPOSITORY_HOME};
 use nostr::Event;
 
 use super::ingest::{IngestAuth, IngestError};
@@ -13,17 +13,17 @@ pub(super) fn validate_capability(event: &Event, auth: &IngestAuth) -> Result<()
     if !is_work_object(event.kind.as_u16() as u32) {
         return Ok(());
     }
-    let revision = buzz_core::work_object::parse(event)
+    buzz_core::work_object::parse(event)
         .map_err(|e| IngestError::Rejected(format!("invalid: {e}")))?;
     // Fail closed until the ingress API can express both channel capabilities.
-    if revision.home.repository.is_some() && auth.channel_ids().is_some() {
+    if event.kind.as_u16() as u32 == KIND_BRANCH_HOME && auth.channel_ids().is_some() {
         return Err(IngestError::AuthFailed(
             "restricted: branch registration requires an unscoped token".into(),
         ));
     }
     if matches!(
         event.kind.as_u16() as u32,
-        KIND_WORK_REPOSITORY | KIND_WORK_BRANCH
+        KIND_REPOSITORY_HOME | KIND_BRANCH_HOME
     ) && !auth.scopes().contains(&Scope::ReposWrite)
     {
         return Err(IngestError::AuthFailed(

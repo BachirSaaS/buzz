@@ -35,12 +35,11 @@ async fn channel(db: &Db, c: CommunityId, id: Uuid, keys: &Keys) {
 fn revision(channel: Uuid) -> Revision {
     Revision {
         home: Home {
-            object: Uuid::new_v4(),
+            object: Some(Uuid::new_v4()),
             channel,
             root: None,
             project: None,
             parent: None,
-            repository: None,
             git: None,
             branch: None,
         },
@@ -50,14 +49,12 @@ fn revision(channel: Uuid) -> Revision {
     }
 }
 fn signed(kind: u32, r: &Revision, keys: &Keys) -> Event {
-    EventBuilder::new(Kind::Custom(kind as u16), serde_json::to_string(r).unwrap())
-        .tags([
-            Tag::parse(["h", &r.home.channel.to_string()]).unwrap(),
-            Tag::parse(["object", &r.home.object.to_string()]).unwrap(),
-        ])
+    buzz_core::work_object::build(kind, r)
+        .unwrap()
         .sign_with_keys(keys)
         .unwrap()
 }
+
 async fn root(db: &Db, c: CommunityId, channel: Uuid, keys: &Keys) -> Event {
     let event = EventBuilder::new(Kind::Custom(9), Uuid::new_v4().to_string())
         .tags([Tag::parse(["h", &channel.to_string()]).unwrap()])
@@ -118,7 +115,7 @@ async fn claims_cas_authority_and_tombstones_are_atomic() {
 }
 #[tokio::test]
 #[ignore = "requires Postgres"]
-async fn task_project_and_cross_type_thread_constraints() {
+async fn task_project_and_exclusive_thread_constraints() {
     let (db, c, ch, keys) = fixture().await;
     let project = revision(ch);
     db.accept_work_object(c, &signed(KIND_WORK_PROJECT, &project, &keys))
@@ -127,19 +124,19 @@ async fn task_project_and_cross_type_thread_constraints() {
     let root = root(&db, c, ch, &keys).await;
     let mut task = revision(ch);
     task.home.root = Some(root.id.to_hex());
-    task.home.project = Some(project.home.object);
+    task.home.project = project.home.object;
     db.accept_work_object(c, &signed(KIND_WORK_TASK, &task, &keys))
         .await
         .unwrap();
-    let mut document = revision(ch);
-    document.home.root = task.home.root.clone();
+    let mut duplicate = task.clone();
+    duplicate.home.object = Some(Uuid::new_v4());
     assert!(db
-        .accept_work_object(c, &signed(KIND_WORK_DOCUMENT, &document, &keys))
+        .accept_work_object(c, &signed(KIND_WORK_TASK, &duplicate, &keys))
         .await
         .is_err());
     let ch2 = Uuid::new_v4();
     channel(&db, c, ch2, &keys).await;
-    task.home.object = Uuid::new_v4();
+    task.home.object = Some(Uuid::new_v4());
     task.home.channel = ch2;
     assert!(db
         .accept_work_object(c, &signed(KIND_WORK_TASK, &task, &keys))
@@ -177,35 +174,57 @@ async fn adoption_fences_legacy_moves_and_branch_home_is_unique() {
         .await
         .unwrap();
     let mut repo = revision(ch);
+    repo.home.object = None;
+    repo.state = serde_json::Value::Null;
     repo.home.git = Some(format!("30617:{}:repo", keys.public_key().to_hex()));
-    db.accept_work_object(c, &signed(KIND_WORK_REPOSITORY, &repo, &keys))
+    db.accept_work_object(c, &signed(KIND_REPOSITORY_HOME, &repo, &keys))
         .await
         .unwrap();
     assert!(db
         .replace_parameterized_event(c, &announce(Uuid::new_v4()), "repo", None)
         .await
         .is_err());
+    // Omitting legacy binding tags cannot escape an enrolled repository's home.
+    let unbound = EventBuilder::new(Kind::Custom(30617), "unbound")
+        .tags([Tag::parse(["d", "repo"]).unwrap()])
+        .sign_with_keys(&keys)
+        .unwrap();
+    assert!(db
+        .replace_parameterized_event(c, &unbound, "repo", None)
+        .await
+        .is_err());
+    assert!(db.insert_event(c, &unbound, None).await.is_err());
+    let off_scheme = EventBuilder::new(Kind::Custom(30617), "legacy remains allowed")
+        .tags([Tag::parse(["d", "other-repo"]).unwrap()])
+        .sign_with_keys(&keys)
+        .unwrap();
+    db.replace_parameterized_event(c, &off_scheme, "other-repo", None)
+        .await
+        .unwrap();
+    assert!(db
+        .replace_parameterized_event(c, &announce(ch), "repo", None)
+        .await
+        .is_ok());
+    let collision = signed(KIND_WORK_PROJECT, &revision(ch), &keys);
+    assert!(db.accept_work_object(c, &collision).await.is_err());
     let r = root(&db, c, ch, &keys).await;
     let mut branch = revision(ch);
     branch.home.root = Some(r.id.to_hex());
-    branch.home.repository = Some(repo.home.object);
+    branch.home.object = None;
+    branch.state = serde_json::Value::Null;
+    branch.home.git = repo.home.git.clone();
     branch.home.branch = Some("refs/heads/feature".into());
-    db.accept_work_object(c, &signed(KIND_WORK_BRANCH, &branch, &keys))
+    db.accept_work_object(c, &signed(KIND_BRANCH_HOME, &branch, &keys))
         .await
         .unwrap();
-    branch.home.object = Uuid::new_v4();
+    let other_root = root(&db, c, ch, &keys).await;
+    branch.home.root = Some(other_root.id.to_hex());
     assert!(db
-        .accept_work_object(c, &signed(KIND_WORK_BRANCH, &branch, &keys))
+        .accept_work_object(c, &signed(KIND_BRANCH_HOME, &branch, &keys))
         .await
         .is_err());
     branch.home.branch = Some("refs/heads/feature-two".into());
-    db.accept_work_object(c, &signed(KIND_WORK_BRANCH, &branch, &keys))
+    db.accept_work_object(c, &signed(KIND_BRANCH_HOME, &branch, &keys))
         .await
         .unwrap();
-    let mut doc = revision(ch);
-    doc.home.root = Some(r.id.to_hex());
-    assert!(db
-        .accept_work_object(c, &signed(KIND_WORK_DOCUMENT, &doc, &keys))
-        .await
-        .is_err());
 }
