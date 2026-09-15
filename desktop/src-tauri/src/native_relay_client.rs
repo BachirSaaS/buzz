@@ -445,7 +445,18 @@ async fn run_session(
             return;
         }
 
-        let connection = async {
+        let identity_lease = identity
+            .as_ref()
+            .and_then(|i| i.as_ref().ok())
+            .map(|i| i.lease_ended(&relay_url, keys.public_key()));
+        let identity_lease = async move {
+            match identity_lease {
+                Some(lease) => lease.await,
+                None => std::future::pending::<()>().await,
+            }
+        };
+        tokio::pin!(identity_lease);
+        let connect = async {
             let mut conn = if let Some(identity) = &identity {
                 let request = identity
                     .as_ref()
@@ -468,8 +479,13 @@ async fn run_session(
                 .await
                 .map_err(|e| e.to_string())?;
             Ok::<_, String>(conn)
-        }
-        .await;
+        };
+        let connection = tokio::select! {
+            biased;
+            _ = &mut identity_lease => Err("enterprise authentication changed".to_string()),
+            _ = session.cancel.cancelled() => return,
+            result = connect => result,
+        };
         match connection {
             Ok(conn) => {
                 // A connection that authenticated is healthy regardless of how
@@ -477,7 +493,14 @@ async fn run_session(
                 // clean exit — a socket that drops after one event must not
                 // inherit the previous failure's delay.
                 delay = RECONNECT_BASE_DELAY;
-                run_connection(conn, &session, &mut wake_rx).await;
+                if let Some(Ok(_)) = &identity {
+                    tokio::select! {
+                        _ = &mut identity_lease => {},
+                        _ = run_connection(conn, &session, &mut wake_rx) => {},
+                    }
+                } else {
+                    run_connection(conn, &session, &mut wake_rx).await;
+                }
             }
             Err(error) => {
                 eprintln!("buzz-desktop: native_relay_client: connect failed: {error}");

@@ -942,7 +942,8 @@ pub(crate) async fn submit_engram_event(
             .header("Content-Type", "application/json"),
         url,
         &auth,
-    )?;
+    )
+    .await?;
     if let Some(tag) = auth_tag {
         request = request.header("x-auth-tag", tag);
     }

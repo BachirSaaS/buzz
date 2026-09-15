@@ -10,6 +10,7 @@ mod deep_link;
 mod egress_guard;
 mod event_sync;
 mod events;
+mod federated_agent_broker;
 mod federated_identity;
 mod huddle;
 mod identity_storage;
@@ -379,6 +380,8 @@ pub fn run() {
                 eprintln!("buzz-desktop: failed to create nest: {error}");
             }
             archive::spawn_warm_init(app_handle.clone());
+            tauri::async_runtime::spawn(federated_identity::renew_loop(app_handle.clone()));
+            tauri::async_runtime::spawn(federated_agent_broker::run(app_handle.clone()));
 
             // Resolve the REPOS symlink from the persisted repos_dir BEFORE
             // agents are restored below, and decide whether restore is safe.
@@ -543,6 +546,7 @@ pub fn run() {
             acknowledge_pending_entity_deep_link,
             start_builderlab_login,
             federated_identity::acquire_federated_assertion,
+            federated_identity::federated_identity_required,
             cancel_builderlab_login,
             get_builderlab_auth,
             clear_builderlab_auth,

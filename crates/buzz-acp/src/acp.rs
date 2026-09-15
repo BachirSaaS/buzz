@@ -38,10 +38,19 @@ pub struct McpServer {
 }
 
 /// A single environment variable for an MCP server.
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Clone, serde::Serialize)]
 pub struct EnvVar {
     pub name: String,
     pub value: String,
+}
+
+impl std::fmt::Debug for EnvVar {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EnvVar")
+            .field("name", &self.name)
+            .field("value", &"[REDACTED]")
+            .finish()
+    }
 }
 
 /// Stop reason returned by `session/prompt` when the agent finishes a turn.
@@ -1125,7 +1134,9 @@ impl AcpClient {
             "params": params,
         });
 
-        tracing::debug!(target: "acp::wire", "→ {}", &serde_json::to_string(&msg).unwrap_or_default());
+        // session/new carries MCP credentials (including enterprise capabilities).
+        // Log only method/id; never serialize credential-bearing parameters.
+        tracing::debug!(target: "acp::wire", method, id, "→ request");
 
         // Wrap write + read in a single timeout so a hung agent can't block forever.
         // We cannot use an async block that borrows `self` mutably across two awaits

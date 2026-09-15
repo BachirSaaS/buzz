@@ -203,14 +203,43 @@ async fn connect(
     on_message: Channel<InvokeResponseBody>,
     _config: Option<serde_json::Value>,
 ) -> Result<Id, String> {
-    let request = crate::federated_identity::session(&state)?
-        .websocket_request(
-            &url,
-            state.signing_keys()?.public_key(),
-            crate::federated_identity::now()?,
-        )
+    let key = state.signing_keys()?.public_key();
+    crate::federated_identity::ensure(&state, &url, key).await?;
+    let identity = Arc::clone(crate::federated_identity::session(&state)?);
+    let request = identity
+        .websocket_request(&url, key, crate::federated_identity::now()?)
         .map_err(|e| e.to_string())?;
-    open_connection_request(manager.inner(), request, on_message).await
+    let generation = identity.generation().map_err(|e| e.to_string())?;
+    let deadline = identity
+        .expires_at(key)
+        .map_err(|e| e.to_string())?
+        .unwrap_or(0);
+    let lease = identity.lease_ended(&url, key);
+    tokio::pin!(lease);
+    let id = tokio::select! {
+        biased;
+        _ = &mut lease => return Err("enterprise authentication changed".into()),
+        result = open_connection_request(manager.inner(), request, on_message) => result?,
+    };
+    if identity.protects(&url).map_err(|e| e.to_string())? {
+        let manager = manager.inner().clone();
+        let identity = Arc::clone(&identity);
+        tauri::async_runtime::spawn(async move {
+            loop {
+                if !manager.connections.lock().await.contains_key(&id) {
+                    return;
+                }
+                if identity.generation().ok() != Some(generation)
+                    || crate::federated_identity::now().unwrap_or(u64::MAX) >= deadline
+                {
+                    manager.disconnect(id).await;
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(250)).await;
+            }
+        });
+    }
+    Ok(id)
 }
 
 pub(crate) async fn send_message(
@@ -308,6 +337,10 @@ async fn run_connection<S>(
                         reason: "disconnect".into(),
                     }))),
                 ).await;
+                if let Ok(frame) = serde_json::to_string(&OutboundMessage::Close(None)) {
+                    batch.push(frame);
+                    batch.flush(&on_message);
+                }
                 break;
             }
             _ = batch.due() => batch.flush(&on_message),

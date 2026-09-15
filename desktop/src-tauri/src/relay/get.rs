@@ -23,7 +23,7 @@ pub async fn get_relay_json<T: DeserializeOwned>(
         path_with_query
     );
     let auth = build_nip98_auth_header(&Method::GET, &url, &[], state)?;
-    let response = crate::federated_identity::authorize(
+    let request = crate::federated_identity::authorize(
         state,
         state
             .media_fetch_client
@@ -31,12 +31,22 @@ pub async fn get_relay_json<T: DeserializeOwned>(
             .header("Authorization", &auth),
         &url,
         &auth,
-    )?
-    .send()
+    )
+    .await?;
+    crate::federated_identity::guard(
+        state,
+        &url,
+        crate::federated_identity::proof_key(&auth)?,
+        async {
+            let response = request
+                .send()
+                .await
+                .map_err(|error| classify_request_error(&error))?;
+            if !response.status().is_success() {
+                return Err(relay_error_message(response).await);
+            }
+            parse_json_response(response).await
+        },
+    )
     .await
-    .map_err(|error| classify_request_error(&error))?;
-    if !response.status().is_success() {
-        return Err(relay_error_message(response).await);
-    }
-    parse_json_response(response).await
 }

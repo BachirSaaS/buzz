@@ -375,14 +375,23 @@ pub async fn query_relay_at(
     let body_bytes =
         serde_json::to_vec(filters).map_err(|e| format!("filter serialization failed: {e}"))?;
     let auth = build_nip98_auth_header(&Method::POST, &url, &body_bytes, state)?;
-    send_query_request(
-        &state.media_fetch_client,
+    let identity = crate::federated_identity::http_header(state, &url, &auth).await?;
+    crate::federated_identity::guard(
+        state,
         &url,
-        &auth,
-        crate::federated_identity::http_header(state, &url, &auth)?,
-        None,
-        body_bytes,
-        QUERY_REQUEST_TIMEOUT,
+        crate::federated_identity::proof_key(&auth)?,
+        async {
+            send_query_request(
+                &state.media_fetch_client,
+                &url,
+                &auth,
+                identity,
+                None,
+                body_bytes,
+                QUERY_REQUEST_TIMEOUT,
+            )
+            .await
+        },
     )
     .await
 }
@@ -399,14 +408,23 @@ pub async fn query_relay_at_with_keys(
     let body_bytes =
         serde_json::to_vec(filters).map_err(|e| format!("filter serialization failed: {e}"))?;
     let auth = build_nip98_auth_header_for_keys(keys, &Method::POST, &url, &body_bytes)?;
-    send_query_request(
-        &state.media_fetch_client,
+    let identity = crate::federated_identity::http_header(state, &url, &auth).await?;
+    crate::federated_identity::guard(
+        state,
         &url,
-        &auth,
-        crate::federated_identity::http_header(state, &url, &auth)?,
-        auth_tag,
-        body_bytes,
-        QUERY_REQUEST_TIMEOUT,
+        crate::federated_identity::proof_key(&auth)?,
+        async {
+            send_query_request(
+                &state.media_fetch_client,
+                &url,
+                &auth,
+                identity,
+                auth_tag,
+                body_bytes,
+                QUERY_REQUEST_TIMEOUT,
+            )
+            .await
+        },
     )
     .await
 }
@@ -551,7 +569,8 @@ pub async fn sync_managed_agent_profile(
             .header("Content-Type", "application/json"),
         &url,
         &auth,
-    )?;
+    )
+    .await?;
     if let Some(tag) = auth_tag {
         request = request.header("x-auth-tag", tag);
     }
@@ -682,7 +701,8 @@ pub async fn submit_signed_event_with_keys(
             .header("Content-Type", "application/json"),
         &url,
         &auth_header,
-    )?;
+    )
+    .await?;
     if let Some(tag) = auth_tag {
         request = request.header("x-auth-tag", tag);
     }

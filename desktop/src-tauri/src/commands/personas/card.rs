@@ -675,11 +675,10 @@ pub async fn mint_agent_card(
             let auth = is_same_origin(url, &relay_base)
                 .then(|| crate::commands::media::mint_media_get_auth(&state, &relay_base))
                 .flatten();
-            let identity = auth
-                .as_deref()
-                .map(|auth| crate::federated_identity::http_header(&state, url, auth))
-                .transpose()?
-                .flatten();
+            let identity = match auth.as_deref() {
+                Some(auth) => crate::federated_identity::http_header(&state, url, auth).await?,
+                None => None,
+            };
             fetch_avatar(url, auth.as_deref(), identity).await?
         }
         _ => {

@@ -58,13 +58,23 @@ async fn proxy_handler(AxumState(state): AxumState<ProxyState>, req: Request) ->
 
     // `upstream_url` is always `{relay base}{path}`, so the token can't reach
     // a third-party origin (mint_media_get_auth safety contract).
-    if let Some(auth) = mint_media_get_auth(&app_state, &base_url) {
+    let auth = mint_media_get_auth(&app_state, &base_url);
+    if auth.is_none()
+        && crate::federated_identity::session(&app_state)
+            .and_then(|s| s.protects(&base_url).map_err(|e| e.to_string()))
+            .unwrap_or(true)
+    {
+        return (StatusCode::UNAUTHORIZED, "enterprise sign-in required").into_response();
+    }
+    if let Some(auth) = auth {
         upstream = match crate::federated_identity::authorize(
             &app_state,
             upstream.header("authorization", &auth),
             &upstream_url,
             &auth,
-        ) {
+        )
+        .await
+        {
             Ok(request) => request,
             Err(_) => {
                 return (
@@ -131,6 +141,14 @@ async fn proxy_handler(AxumState(state): AxumState<ProxyState>, req: Request) ->
     }
 
     // Stream the body — no buffering.
+    if crate::federated_identity::session(&app_state)
+        .and_then(|s| s.protects(&base_url).map_err(|e| e.to_string()))
+        .unwrap_or(true)
+    {
+        headers.insert("cache-control", HeaderValue::from_static("no-store"));
+        headers.remove("etag");
+        headers.remove("last-modified");
+    }
     let stream = resp.bytes_stream().map_err(std::io::Error::other);
     let body = Body::from_stream(stream);
 
@@ -197,13 +215,23 @@ pub async fn handle_buzz_media(
 
     // `upstream_url` is always `{relay base}{path}`, so the token can't reach
     // a third-party origin (mint_media_get_auth safety contract).
-    if let Some(auth) = mint_media_get_auth(&state, &base) {
+    let auth = mint_media_get_auth(&state, &base);
+    if auth.is_none()
+        && crate::federated_identity::session(&state)
+            .and_then(|s| s.protects(&base).map_err(|e| e.to_string()))
+            .unwrap_or(true)
+    {
+        return error_response(401, "enterprise sign-in required");
+    }
+    if let Some(auth) = auth {
         upstream = match crate::federated_identity::authorize(
             &state,
             upstream.header("authorization", &auth),
             &upstream_url,
             &auth,
-        ) {
+        )
+        .await
+        {
             Ok(request) => request,
             Err(_) => return error_response(401, "enterprise authentication required"),
         };
@@ -249,22 +277,30 @@ pub async fn handle_buzz_media(
             // channel switch. The relay sends
             // `Cache-Control: public, max-age=31536000, immutable`;
             // `etag`/`last-modified` are forwarded if upstream supplies them.
-            let cache_control = resp
+            let mut cache_control = resp
                 .headers()
                 .get("cache-control")
                 .and_then(|v| v.to_str().ok())
                 .map(|s| s.to_string());
-            let etag = resp
+            let mut etag = resp
                 .headers()
                 .get("etag")
                 .and_then(|v| v.to_str().ok())
                 .map(|s| s.to_string());
-            let last_modified = resp
+            let mut last_modified = resp
                 .headers()
                 .get("last-modified")
                 .and_then(|v| v.to_str().ok())
                 .map(|s| s.to_string());
 
+            if crate::federated_identity::session(&state)
+                .and_then(|s| s.protects(&base).map_err(|e| e.to_string()))
+                .unwrap_or(true)
+            {
+                cache_control = Some("no-store".into());
+                etag = None;
+                last_modified = None;
+            }
             // OOM guard: if this is a non-range GET and the upstream body is
             // larger than our cap, bail with 413 instead of buffering into RAM.
             // Tauri's protocol handler requires Vec<u8> so we can't truly stream.

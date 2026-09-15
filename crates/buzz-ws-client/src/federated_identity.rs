@@ -4,7 +4,11 @@
 //! trusted authenticated API; the relay remains the verifier. Keep this session
 //! separate from local signing, and never put its credential in event tags.
 
-use std::{collections::HashSet, fmt, sync::RwLock};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt,
+    sync::RwLock,
+};
 
 use nostr::PublicKey;
 use tokio_tungstenite::tungstenite::{
@@ -12,6 +16,14 @@ use tokio_tungstenite::tungstenite::{
     http::{HeaderValue, Request},
 };
 use url::Url;
+
+/// Current Unix seconds, failing closed if the clock is unavailable.
+pub fn unix_now() -> Result<u64, IdentityError> {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|t| t.as_secs())
+        .map_err(|_| IdentityError::Unavailable)
+}
 
 /// The only permitted assertion carrier.
 pub const IDENTITY_HEADER: &str = "nostr-federated-identity";
@@ -47,6 +59,7 @@ pub struct Assertion {
     header: HeaderValue,
     pubkey: PublicKey,
     expires_at: u64,
+    binding: Option<(String, String, String)>,
 }
 
 impl fmt::Debug for Assertion {
@@ -56,6 +69,12 @@ impl fmt::Debug for Assertion {
 }
 
 impl Assertion {
+    /// Pin issuer, subject, and audience for this signing key until explicit logout.
+    pub(crate) fn bind(mut self, issuer: String, subject: String, audience: String) -> Self {
+        self.binding = Some((issuer, subject, audience));
+        self
+    }
+
     /// Construct from a trusted adapter result. `expires_at` must be no later
     /// than the token's effective deadline; API integration owns that check.
     pub fn new(
@@ -85,6 +104,7 @@ impl Assertion {
             header,
             pubkey,
             expires_at,
+            binding: None,
         })
     }
 }
@@ -92,7 +112,7 @@ impl Assertion {
 #[derive(Default)]
 struct State {
     generation: u64,
-    assertion: Option<Assertion>,
+    assertions: HashMap<PublicKey, Assertion>,
 }
 
 /// Process-owned assertion slot for one configured enterprise realm.
@@ -146,6 +166,49 @@ impl IdentitySession {
         })
     }
 
+    /// Whether this destination belongs to the explicitly configured realm.
+    pub fn protects(&self, destination: &str) -> Result<bool, IdentityError> {
+        if self.origins.is_empty() {
+            return Ok(false);
+        }
+        Ok(self.origins.contains(&origin(destination)?))
+    }
+
+    /// Read the effective expiry without exposing the assertion.
+    pub fn expires_at(&self, key: PublicKey) -> Result<Option<u64>, IdentityError> {
+        Ok(self
+            .state
+            .read()
+            .map_err(|_| IdentityError::Unavailable)?
+            .assertions
+            .get(&key)
+            .map(|a| a.expires_at))
+    }
+
+    /// Transport lease: closes on logout, key replacement, or this token's expiry.
+    /// Renewal does not extend a previously admitted socket's lease.
+    pub fn lease_ended(
+        &self,
+        destination: &str,
+        key: PublicKey,
+    ) -> impl std::future::Future<Output = ()> + Send + '_ {
+        let protected = self.protects(destination) != Ok(false);
+        let generation = self.generation();
+        let deadline = self.expires_at(key).ok().flatten().unwrap_or(0);
+        async move {
+            if !protected {
+                std::future::pending::<()>().await;
+                return;
+            }
+            loop {
+                if self.generation() != generation || unix_now().unwrap_or(u64::MAX) >= deadline {
+                    return;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+            }
+        }
+    }
+
     /// Begin login/logout/identity replacement, invalidating outstanding results.
     /// Existing transport owners must also cancel sockets and in-flight work.
     pub fn invalidate(&self) -> Result<u64, IdentityError> {
@@ -154,7 +217,7 @@ impl IdentitySession {
             .generation
             .checked_add(1)
             .ok_or(IdentityError::Unavailable)?;
-        state.assertion = None;
+        state.assertions.clear();
         Ok(state.generation)
     }
 
@@ -174,7 +237,15 @@ impl IdentitySession {
         if generation != state.generation {
             return Err(IdentityError::Superseded);
         }
-        state.assertion = Some(assertion);
+        if state.assertions.len() >= 256 && !state.assertions.contains_key(&assertion.pubkey) {
+            return Err(IdentityError::Unavailable);
+        }
+        if let Some(previous) = state.assertions.get(&assertion.pubkey) {
+            if previous.binding != assertion.binding {
+                return Err(IdentityError::KeyMismatch);
+            }
+        }
+        state.assertions.insert(assertion.pubkey, assertion);
         Ok(())
     }
 
@@ -194,9 +265,13 @@ impl IdentitySession {
         }
         let state = self.state.read().map_err(|_| IdentityError::Unavailable)?;
         let assertion = state
-            .assertion
-            .as_ref()
-            .ok_or(IdentityError::LoginRequired)?;
+            .assertions
+            .get(&proof_key)
+            .ok_or(if state.assertions.is_empty() {
+                IdentityError::LoginRequired
+            } else {
+                IdentityError::KeyMismatch
+            })?;
         if now >= assertion.expires_at {
             return Err(IdentityError::Expired);
         }

@@ -28,7 +28,7 @@ pub async fn submit_signed_event_at_with_keys(
     crate::egress_guard::assert_no_key_backup_bytes(&body_bytes, "relay event submit")?;
     let auth_header = build_nip98_auth_header_for_keys(keys, &Method::POST, &url, &body_bytes)?;
 
-    let response = crate::federated_identity::authorize(
+    let request = crate::federated_identity::authorize(
         state,
         state
             .media_fetch_client
@@ -38,21 +38,26 @@ pub async fn submit_signed_event_at_with_keys(
             .body(body_bytes),
         &url,
         &auth_header,
-    )?
-    .send()
+    )
+    .await?;
+    crate::federated_identity::guard(state, &url, keys.public_key(), async {
+        let response = request
+            .send()
+            .await
+            .map_err(|e| classify_request_error(&e))?;
+
+        if !response.status().is_success() {
+            return Err(relay_error_message(response).await);
+        }
+
+        let result: SubmitEventResponse = parse_json_response(response).await?;
+        if !result.accepted {
+            return Err(format!("relay rejected event: {}", result.message));
+        }
+
+        Ok(result)
+    })
     .await
-    .map_err(|e| classify_request_error(&e))?;
-
-    if !response.status().is_success() {
-        return Err(relay_error_message(response).await);
-    }
-
-    let result: SubmitEventResponse = parse_json_response(response).await?;
-    if !result.accepted {
-        return Err(format!("relay rejected event: {}", result.message));
-    }
-
-    Ok(result)
 }
 
 /// Sign with an explicit identity and POST the event to an explicit relay.

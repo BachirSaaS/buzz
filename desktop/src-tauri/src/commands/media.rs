@@ -414,10 +414,8 @@ async fn do_upload(
     // Admission freshness is bounded to 60s, independently of upload duration.
     let expiry_secs = 60;
     let base_url = relay_api_base_url_with_override(state);
-    let auth_event = {
-        let keys = state.signing_keys()?;
-        sign_blossom_upload_auth(&keys, &sha256, expiry_secs, &base_url)?
-    };
+    let keys = state.signing_keys()?;
+    let auth_event = sign_blossom_upload_auth(&keys, &sha256, expiry_secs, &base_url)?;
 
     let auth_header = format!(
         "Nostr {}",
@@ -441,6 +439,11 @@ async fn do_upload(
     )
     .await?;
     if should_retry_legacy_upload(resp.status()) {
+        let fresh = sign_blossom_upload_auth(&keys, &sha256, expiry_secs, &base_url)?;
+        let auth_header = format!(
+            "Nostr {}",
+            URL_SAFE_NO_PAD.encode(fresh.as_json().as_bytes())
+        );
         resp = send_upload_attempt(
             state,
             UploadAttempt {
