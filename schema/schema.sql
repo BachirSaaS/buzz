@@ -99,11 +99,20 @@ CREATE TABLE channels (
     purpose_set_by  BYTEA,
     purpose_set_at  TIMESTAMPTZ,
     participant_hash BYTEA,
+    is_session BOOLEAN NOT NULL DEFAULT false,
+    parent_channel_id UUID,
+    CONSTRAINT session_parent_same_community FOREIGN KEY (community_id, parent_channel_id)
+        REFERENCES channels (community_id, id),
+    CONSTRAINT session_parent_shape CHECK (parent_channel_id IS NULL OR (is_session AND parent_channel_id <> id)),
+    CONSTRAINT sessions_are_private CHECK (NOT is_session OR visibility = 'private'),
     ttl_seconds     INT,
     ttl_deadline    TIMESTAMPTZ,
     PRIMARY KEY (community_id, id),
     CONSTRAINT chk_channels_id_not_nil CHECK (id <> '00000000-0000-0000-0000-000000000000'::uuid)
 );
+
+CREATE INDEX channels_session_parent ON channels (community_id, parent_channel_id)
+    WHERE parent_channel_id IS NOT NULL;
 
 -- nip29 group id and DM participant hash are unique WITHIN a community, not globally.
 CREATE UNIQUE INDEX idx_channels_nip29_group ON channels (community_id, nip29_group_id)
@@ -159,6 +168,19 @@ CREATE TABLE channel_members (
 
 CREATE INDEX idx_channel_members_pubkey ON channel_members (community_id, pubkey)
     WHERE removed_at IS NULL;
+
+CREATE VIEW effective_channel_members AS
+  SELECT m.community_id, m.channel_id, m.pubkey, m.role, m.joined_at,
+         m.invited_by, m.removed_at, m.removed_by, m.hidden_at FROM channel_members m
+  JOIN channels c ON c.community_id = m.community_id AND c.id = m.channel_id
+  WHERE c.parent_channel_id IS NULL
+  UNION ALL
+  SELECT m.community_id, c.id AS channel_id, m.pubkey, m.role,
+         m.joined_at, m.invited_by, m.removed_at, m.removed_by, m.hidden_at
+  FROM channels c
+  JOIN channels p ON p.community_id = c.community_id AND p.id = c.parent_channel_id
+  JOIN channel_members m ON m.community_id = p.community_id AND m.channel_id = p.id
+  WHERE p.deleted_at IS NULL AND NOT p.is_session;
 
 -- ── Users ─────────────────────────────────────────────────────────────────────
 -- Conformance: "Users, profiles, NIP-05, and user search". One profile per
@@ -1010,6 +1032,7 @@ FOR EACH ROW EXECUTE FUNCTION refresh_channel_ttl_after_event_insert();
 CREATE OR REPLACE FUNCTION guard_channel_roster_snapshot()
 RETURNS TRIGGER AS $$
 DECLARE
+    parent_id UUID;
     canonical_members TEXT[];
     snapshot_members TEXT[];
 BEGIN
@@ -1022,12 +1045,22 @@ BEGIN
         0
     ));
 
+    -- The child lock serializes moves; the parent lock serializes inherited
+    -- membership capture with additions/removals, including administrative kicks.
+    SELECT parent_channel_id INTO parent_id FROM channels
+     WHERE community_id = NEW.community_id AND id = NEW.channel_id;
+    IF parent_id IS NOT NULL THEN
+        PERFORM pg_advisory_xact_lock(hashtextextended(
+            'buzz_channel_membership:' || NEW.community_id::text || ':' || parent_id::text, 0
+        ));
+    END IF;
+
     SELECT COALESCE(
                array_agg(encode(cm.pubkey, 'hex') || ':' || cm.role::text ORDER BY cm.pubkey),
                ARRAY[]::TEXT[]
            )
       INTO canonical_members
-      FROM channel_members cm
+      FROM effective_channel_members cm
      WHERE cm.community_id = NEW.community_id
        AND cm.channel_id = NEW.channel_id
        AND cm.removed_at IS NULL;

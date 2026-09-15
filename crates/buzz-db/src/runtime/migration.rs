@@ -702,7 +702,7 @@ mod postgres_tests {
         let mut migrations: Vec<_> = MIGRATOR.iter().collect();
         migrations.sort_by_key(|migration| migration.version);
 
-        assert_eq!(migrations.len(), 44);
+        assert_eq!(migrations.len(), 45);
         assert_eq!(migrations[0].version, 1);
         assert_eq!(&*migrations[0].description, "initial schema");
         assert!(migrations[0]
@@ -1141,18 +1141,26 @@ mod postgres_tests {
         assert!(roster_fence.contains("snapshot_members IS DISTINCT FROM canonical_members"));
         assert!(roster_fence.contains("ERRCODE = '23514'"));
 
-        // Fresh desired-state bootstrap must install the identical executable
-        // fence as migration 0032. CI and isolated relay startup use schema.sql
+        // Migration 0045 extends the fence to inherited session membership;
+        // keep 0032 immutable and compare the current executable fence instead.
+        // CI and isolated relay startup use schema.sql
         // without running migrations, so drift reopens rolling-deploy races.
         fn extract_roster_fence(sql: &str) -> &str {
             let fence_start = "CREATE OR REPLACE FUNCTION guard_channel_roster_snapshot()";
-            let fence_end = "    FOR EACH ROW EXECUTE FUNCTION guard_channel_roster_snapshot();";
+            let fence_end = "$$ LANGUAGE plpgsql;";
             let start = sql.find(fence_start).expect("roster fence function");
-            let relative_end = sql[start..].find(fence_end).expect("roster fence trigger");
+            let relative_end = sql[start..].find(fence_end).expect("roster fence body");
             &sql[start..start + relative_end + fence_end.len()]
         }
+        assert_eq!(migrations[44].version, 45);
+        let sessions = migrations[44].sql.as_str();
+        assert!(sessions.contains("FROM effective_channel_members cm"));
+        assert!(sessions.contains("SELECT parent_channel_id INTO parent_id"));
+        assert!(desired_schema.contains("CREATE TRIGGER trg_events_guard_channel_roster_snapshot"));
+        assert!(desired_schema
+            .contains("FOR EACH ROW EXECUTE FUNCTION guard_channel_roster_snapshot();"));
         assert_eq!(
-            extract_roster_fence(roster_fence),
+            extract_roster_fence(sessions),
             extract_roster_fence(desired_schema)
         );
 

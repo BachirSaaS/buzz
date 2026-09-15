@@ -621,6 +621,9 @@ pub async fn execute_kick_with_marker(
     actor_pubkey: &[u8],
 ) -> Result<KickWithMarkerResult> {
     let mut tx = pool.begin().await?;
+    crate::channel_members::acquire_channel_membership_lock(&mut tx, community_id, channel_id)
+        .await?;
+    crate::sessions::require_independent_membership(&mut tx, community_id, channel_id).await?;
 
     let owned: bool = sqlx::query_scalar(
         r#"
@@ -1570,6 +1573,11 @@ pub async fn deploy_kick_member(
     target_pubkey: &[u8],
     actor_pubkey: &[u8],
 ) -> Result<KickResult> {
+    let mut tx = pool.begin().await?;
+    crate::channel_members::acquire_channel_membership_lock(&mut tx, community_id, channel_id)
+        .await?;
+    crate::sessions::require_independent_membership(&mut tx, community_id, channel_id).await?;
+
     // Use a direct UPDATE to avoid the tenant ownership check in channel::remove_member.
     // This is the deployment-authority primitive: no actor role check.
     let result = sqlx::query(
@@ -1583,9 +1591,10 @@ pub async fn deploy_kick_member(
     .bind(community_id.as_uuid())
     .bind(channel_id)
     .bind(target_pubkey)
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
 
+    tx.commit().await?;
     if result.rows_affected() > 0 {
         Ok(KickResult::Removed)
     } else {

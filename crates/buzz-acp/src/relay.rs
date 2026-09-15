@@ -154,7 +154,9 @@ pub(crate) fn channel_type_from_tags(tags: &[serde_json::Value]) -> String {
             }
         }
     }
-    if declared_type == Some("dm") || is_hidden {
+    if declared_type == Some("session") {
+        "session".to_string()
+    } else if declared_type == Some("dm") || is_hidden {
         "dm".to_string()
     } else if declared_type == Some("private") || is_private {
         "private".to_string()

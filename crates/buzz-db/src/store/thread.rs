@@ -656,6 +656,28 @@ pub(crate) async fn get_channel_window_on(
     cursor: Option<(DateTime<Utc>, Vec<u8>)>,
     kind_filter: Option<&[u32]>,
 ) -> Result<ChannelWindow> {
+    get_conversation_window_on(
+        conn,
+        community_id,
+        channel_id,
+        limit,
+        cursor,
+        kind_filter,
+        false,
+    )
+    .await
+}
+
+/// Shared bounded window, optionally including replies for a session timeline.
+pub(crate) async fn get_conversation_window_on(
+    conn: &mut sqlx::PgConnection,
+    community_id: CommunityId,
+    channel_id: Uuid,
+    limit: u32,
+    cursor: Option<(DateTime<Utc>, Vec<u8>)>,
+    kind_filter: Option<&[u32]>,
+    include_replies: bool,
+) -> Result<ChannelWindow> {
     let mut param_idx = 3u32; // $1 is community_id, $2 is channel_id
     let mut sql = String::from(
         r#"
@@ -680,13 +702,15 @@ pub(crate) async fn get_channel_window_on(
         WHERE e.community_id = $1
           AND e.channel_id = $2
           AND e.deleted_at IS NULL
-          AND (
-                tm.depth IS NULL
-             OR tm.depth = 0
-             OR (tm.depth = 1 AND tm.broadcast = true)
-          )
+
         "#,
     );
+
+    if !include_replies {
+        sql.push_str(
+            " AND (tm.depth IS NULL OR tm.depth = 0 OR (tm.depth = 1 AND tm.broadcast = true))",
+        );
+    }
 
     if cursor.is_some() {
         // Composite keyset: with ORDER BY created_at DESC, id ASC, the page

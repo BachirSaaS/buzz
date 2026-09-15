@@ -566,17 +566,33 @@ async fn handle_channel_window_filter(
         .as_ref()
         .map(|ks| ks.iter().map(|k| k.as_u16() as u32).collect());
 
-    let (window, mut session) = state
-        .db
-        .get_channel_window_with_session(
-            tenant.community(),
-            ch_id,
-            limit,
-            cursor.clone(),
-            kind_filter.as_deref(),
-        )
-        .await
-        .map_err(|e| internal_error(&format!("channel window error: {e}")))?;
+    let (window, mut session) = if extension_flag(raw, "session_timeline") {
+        state
+            .db
+            .session_window(
+                tenant.community(),
+                ch_id,
+                limit,
+                cursor.clone(),
+                kind_filter.as_deref(),
+            )
+            .await
+    } else {
+        state
+            .db
+            .get_channel_window_with_session(
+                tenant.community(),
+                ch_id,
+                limit,
+                cursor.clone(),
+                kind_filter.as_deref(),
+            )
+            .await
+    }
+    .map_err(|e| match e {
+        buzz_db::DbError::InvalidData(message) => api_error(StatusCode::BAD_REQUEST, &message),
+        _ => internal_error(&format!("channel window error: {e}")),
+    })?;
 
     // 1. Rows, in keyset order.
     let mut row_ids_hex = Vec::with_capacity(window.rows.len());
@@ -1188,7 +1204,7 @@ async fn query_events_authed(
     // Channel-window filters (`top_level: true`) — the GUI read-model surface.
     // Dispatched first: a window filter is never a feed/thread/catchall query.
     for (idx, (raw, filter)) in raw_filters.iter().zip(filters.iter()).enumerate() {
-        if !extension_flag(raw, "top_level") {
+        if !extension_flag(raw, "top_level") && !extension_flag(raw, "session_timeline") {
             continue;
         }
         handle_channel_window_filter(

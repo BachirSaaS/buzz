@@ -1038,11 +1038,19 @@ impl AppState {
     pub(crate) fn invalidate_membership_local(
         &self,
         community_id: CommunityId,
-        channel_id: Uuid,
+        _channel_id: Uuid,
         pubkey: &[u8],
     ) {
-        self.membership_cache
-            .invalidate(&(community_id, channel_id, pubkey.to_vec()));
+        let member = pubkey.to_vec();
+        if self
+            .membership_cache
+            .invalidate_entries_if(move |(community, _, key), _| {
+                *community == community_id && *key == member
+            })
+            .is_err()
+        {
+            self.membership_cache.invalidate_all();
+        }
         self.accessible_channels_cache
             .invalidate(&(community_id, pubkey.to_vec()));
     }
@@ -1621,6 +1629,36 @@ pub(crate) mod tests {
         async fn audit_worker_retries_lock_timeout_until_original_entry_is_appended_once() {
             super::audit_worker_retries_lock_timeout_until_original_entry_is_appended_once().await;
         }
+    }
+
+    #[tokio::test]
+    async fn session_parent_invalidation_clears_warm_child_access() {
+        let state = test_state().await;
+        let community = CommunityId::from_uuid(Uuid::new_v4());
+        let other = CommunityId::from_uuid(Uuid::new_v4());
+        let parent = Uuid::new_v4();
+        let child = Uuid::new_v4();
+        let key = vec![1; 32];
+        state
+            .membership_cache
+            .insert((community, parent, key.clone()), true);
+        state
+            .membership_cache
+            .insert((community, child, key.clone()), true);
+        state
+            .membership_cache
+            .insert((other, child, key.clone()), true);
+        state.invalidate_membership_local(community, parent, &key);
+        state.membership_cache.run_pending_tasks();
+        assert!(state
+            .membership_cache
+            .get(&(community, parent, key.clone()))
+            .is_none());
+        assert!(state
+            .membership_cache
+            .get(&(community, child, key.clone()))
+            .is_none());
+        assert_eq!(state.membership_cache.get(&(other, child, key)), Some(true));
     }
 
     #[test]

@@ -178,7 +178,7 @@ pub async fn verify_channel_roster_fence_behavior(pool: &sqlx::PgPool) -> Result
 /// Take the per-channel membership lock. MUST be the first statement in the
 /// transaction that then reads roles/owner counts and writes membership, so the
 /// whole check-then-write sequence is atomic against a concurrent one.
-async fn acquire_channel_membership_lock(
+pub(crate) async fn acquire_channel_membership_lock(
     tx: &mut Transaction<'_, Postgres>,
     community_id: CommunityId,
     channel_id: Uuid,
@@ -352,10 +352,24 @@ pub async fn lock_member_snapshot(
     )
     .await?;
     acquire_channel_membership_lock(&mut tx, community_id, channel_id).await?;
+    // A move also holds the child lock before its parent's lock, so the parent
+    // identity cannot change between this read and publication.
+    let parent: Option<Uuid> = sqlx::query_scalar(
+        "SELECT parent_channel_id FROM channels WHERE community_id=$1 AND id=$2",
+    )
+    .bind(community_id.as_uuid())
+    .bind(channel_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten();
+    if let Some(parent) = parent {
+        acquire_channel_membership_lock(&mut tx, community_id, parent).await?;
+    }
+
     let rows = sqlx::query(
         r#"
         SELECT cm.channel_id, cm.pubkey, cm.role::text AS role, cm.joined_at, cm.invited_by, cm.removed_at
-        FROM channel_members cm
+        FROM effective_channel_members cm
         JOIN channels c ON cm.community_id = c.community_id AND cm.channel_id = c.id AND c.deleted_at IS NULL
         WHERE cm.community_id = $1 AND cm.channel_id = $2 AND cm.removed_at IS NULL
         ORDER BY cm.joined_at ASC
@@ -416,6 +430,7 @@ pub async fn add_member(
     // First statement: serialize the whole role-check / owner-count / upsert
     // sequence against concurrent membership writes on this channel.
     acquire_channel_membership_lock(&mut tx, community_id, channel_id).await?;
+    crate::sessions::require_independent_membership(&mut tx, community_id, channel_id).await?;
 
     let channel = get_channel_tx(&mut tx, community_id, channel_id).await?;
 
@@ -504,7 +519,7 @@ pub async fn add_member(
         // to moderate, edit metadata, or re-grant ownership.
         if current_role == "owner" && effective_role != MemberRole::Owner {
             let row = sqlx::query(
-                "SELECT COUNT(*) as cnt FROM channel_members \
+                "SELECT COUNT(*) as cnt FROM effective_channel_members \
                  WHERE community_id = $1 AND channel_id = $2 AND role = 'owner' AND removed_at IS NULL",
             )
             .bind(community_id.as_uuid())
@@ -541,7 +556,7 @@ pub async fn add_member(
     let row = sqlx::query(
         r#"
         SELECT channel_id, pubkey, role::text AS role, joined_at, invited_by, removed_at
-        FROM channel_members WHERE community_id = $1 AND channel_id = $2 AND pubkey = $3
+        FROM effective_channel_members WHERE community_id = $1 AND channel_id = $2 AND pubkey = $3
         "#,
     )
     .bind(community_id.as_uuid())
@@ -603,6 +618,7 @@ pub async fn remove_member(
     // the UPDATE against concurrent membership writes on this channel (same key
     // as `add_member`).
     acquire_channel_membership_lock(&mut tx, community_id, channel_id).await?;
+    crate::sessions::require_independent_membership(&mut tx, community_id, channel_id).await?;
 
     if !is_self_remove {
         let actor_role_str = get_active_role_tx(&mut tx, community_id, channel_id, actor_pubkey)
@@ -624,7 +640,7 @@ pub async fn remove_member(
     let target_role = get_active_role_tx(&mut tx, community_id, channel_id, pubkey).await?;
     if target_role.as_deref() == Some("owner") {
         let row = sqlx::query(
-            "SELECT COUNT(*) as cnt FROM channel_members \
+            "SELECT COUNT(*) as cnt FROM effective_channel_members \
              WHERE community_id = $1 AND channel_id = $2 AND role = 'owner' AND removed_at IS NULL",
         )
         .bind(community_id.as_uuid())
@@ -674,7 +690,7 @@ pub async fn is_member(
     )
     .await?;
     let row = sqlx::query(
-        "SELECT COUNT(*) as cnt FROM channel_members cm \
+        "SELECT COUNT(*) as cnt FROM effective_channel_members cm \
          JOIN channels c ON cm.community_id = c.community_id AND cm.channel_id = c.id AND c.deleted_at IS NULL \
          WHERE cm.community_id = $1 AND cm.channel_id = $2 AND cm.pubkey = $3 AND cm.removed_at IS NULL",
     )
@@ -705,7 +721,7 @@ pub async fn membership_pairs(
     )
     .await?;
     let rows = sqlx::query(
-        "SELECT cm.channel_id, cm.pubkey FROM channel_members cm \
+        "SELECT cm.channel_id, cm.pubkey FROM effective_channel_members cm \
          JOIN channels c ON cm.community_id = c.community_id AND cm.channel_id = c.id AND c.deleted_at IS NULL \
          WHERE cm.community_id = $1 AND cm.channel_id = ANY($2) AND cm.pubkey = ANY($3) AND cm.removed_at IS NULL",
     )
@@ -751,7 +767,7 @@ async fn get_members_with_operation(
     let rows = sqlx::query(
         r#"
         SELECT cm.channel_id, cm.pubkey, cm.role::text AS role, cm.joined_at, cm.invited_by, cm.removed_at
-        FROM channel_members cm
+        FROM effective_channel_members cm
         JOIN channels c ON cm.community_id = c.community_id AND cm.channel_id = c.id AND c.deleted_at IS NULL
         WHERE cm.community_id = $1 AND cm.channel_id = $2 AND cm.removed_at IS NULL
         ORDER BY cm.joined_at ASC
@@ -787,7 +803,7 @@ pub async fn get_members_bulk(
     let rows = sqlx::query(
         r#"
         SELECT cm.channel_id, cm.pubkey, cm.role::text AS role, cm.joined_at, cm.invited_by, cm.removed_at
-        FROM channel_members cm
+        FROM effective_channel_members cm
         JOIN channels c ON cm.community_id = c.community_id AND cm.channel_id = c.id AND c.deleted_at IS NULL
         WHERE cm.community_id = $1 AND cm.channel_id = ANY($2) AND cm.removed_at IS NULL
         ORDER BY cm.joined_at ASC
@@ -817,7 +833,7 @@ pub async fn get_accessible_channel_ids(
     let rows = sqlx::query(
         r#"
         SELECT cm.channel_id
-        FROM channel_members cm
+        FROM effective_channel_members cm
         JOIN channels c ON cm.community_id = c.community_id AND cm.channel_id = c.id AND c.deleted_at IS NULL
         WHERE cm.community_id = $1 AND cm.pubkey = $2 AND cm.removed_at IS NULL
         UNION
@@ -871,7 +887,7 @@ pub async fn list_large_channel_rosters_needing_reconciliation(
         r#"
         WITH large_rosters AS (
             SELECT cm.community_id, cm.channel_id, COUNT(*) AS member_count
-            FROM channel_members cm
+            FROM effective_channel_members cm
             JOIN channels ch
               ON ch.community_id = cm.community_id
              AND ch.id = cm.channel_id
@@ -927,7 +943,7 @@ async fn get_active_role_tx(
     pubkey: &[u8],
 ) -> Result<Option<String>> {
     let row = sqlx::query(
-        "SELECT role::text AS role FROM channel_members \
+        "SELECT role::text AS role FROM effective_channel_members \
          WHERE community_id = $1 AND channel_id = $2 AND pubkey = $3 AND removed_at IS NULL",
     )
     .bind(community_id.as_uuid())
@@ -1051,7 +1067,7 @@ pub async fn get_accessible_channels(
                c.ttl_seconds, c.ttl_deadline,
                (cm.channel_id IS NOT NULL) AS is_member
         FROM channels c
-        LEFT JOIN channel_members cm
+        LEFT JOIN effective_channel_members cm
             ON c.community_id = cm.community_id AND c.id = cm.channel_id AND cm.pubkey = $2 AND cm.removed_at IS NULL
         WHERE c.community_id = $1 AND c.deleted_at IS NULL
           {membership_clause}
@@ -1102,7 +1118,7 @@ pub async fn get_bot_members(
         r#"
         SELECT cm.pubkey, u.display_name, u.agent_type, u.capabilities,
                COALESCE(json_agg(DISTINCT jsonb_build_object('name', c.name, 'id', c.id::text)), '[]') AS channels_json
-        FROM channel_members cm
+        FROM effective_channel_members cm
         LEFT JOIN users u ON cm.community_id = u.community_id AND cm.pubkey = u.pubkey
         JOIN channels c ON cm.community_id = c.community_id AND cm.channel_id = c.id AND c.deleted_at IS NULL
         WHERE cm.community_id = $1 AND cm.role = 'bot' AND cm.removed_at IS NULL
@@ -1217,7 +1233,7 @@ pub async fn get_member_count(
     )
     .await?;
     let row = sqlx::query(
-        "SELECT COUNT(*) as cnt FROM channel_members WHERE community_id = $1 AND channel_id = $2 AND removed_at IS NULL",
+        "SELECT COUNT(*) as cnt FROM effective_channel_members WHERE community_id = $1 AND channel_id = $2 AND removed_at IS NULL",
     )
     .bind(community_id.as_uuid())
     .bind(channel_id)
@@ -1245,7 +1261,7 @@ pub async fn get_member_counts_bulk(
     .await?;
 
     let mut qb: sqlx::QueryBuilder<sqlx::Postgres> = sqlx::QueryBuilder::new(
-        "SELECT channel_id, COUNT(*) as cnt FROM channel_members \
+        "SELECT channel_id, COUNT(*) as cnt FROM effective_channel_members \
          WHERE community_id = ",
     );
     qb.push_bind(community_id.as_uuid());
@@ -1282,7 +1298,7 @@ pub async fn get_member_role(
     )
     .await?;
     let row = sqlx::query(
-        "SELECT cm.role::text AS role FROM channel_members cm \
+        "SELECT cm.role::text AS role FROM effective_channel_members cm \
          JOIN channels c ON cm.community_id = c.community_id AND cm.channel_id = c.id AND c.deleted_at IS NULL \
          WHERE cm.community_id = $1 AND cm.channel_id = $2 AND cm.pubkey = $3 AND cm.removed_at IS NULL",
     )
@@ -2803,7 +2819,7 @@ mod postgres_tests {
             .expect("an owner may remove another owner");
 
         let stored: String = sqlx::query_scalar(
-            "SELECT role::text FROM channel_members \
+            "SELECT role::text FROM effective_channel_members \
              WHERE community_id = $1 AND channel_id = $2 AND pubkey = $3",
         )
         .bind(community.as_uuid())

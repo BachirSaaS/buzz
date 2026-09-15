@@ -116,6 +116,9 @@ pub const MAX_DRAIN_JITTER_MS: u64 = 20_000;
 /// Relay runtime configuration, loaded from environment variables.
 #[derive(Debug, Clone)]
 pub struct Config {
+    /// Enable session creation/moves only after every serving pod supports inherited access.
+    /// BUZZ_ENABLE_SESSIONS defaults off for a two-phase fleet rollout.
+    pub sessions_enabled: bool,
     /// Address the relay HTTP/WebSocket server binds to.
     pub bind_addr: SocketAddr,
     /// Postgres database connection URL.
@@ -1201,6 +1204,9 @@ impl Config {
         }
 
         Ok(Self {
+            sessions_enabled: std::env::var("BUZZ_ENABLE_SESSIONS")
+                .map(|value| value == "true" || value == "1")
+                .unwrap_or(false),
             bind_addr,
             database_url,
             read_database_url,

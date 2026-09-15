@@ -235,6 +235,44 @@ async fn deliver_system_message(state: &Arc<AppState>, row: &OutboxRecord) -> Re
     let community_id = buzz_core::CommunityId::from_uuid(community_uuid);
     let tenant = resolve_tenant(state, community_id, "system_message").await?;
 
+    let target = hex::decode(target_hex).map_err(|_| "system_message: invalid target")?;
+    if target.len() != 32 {
+        return Err("system_message: invalid target length".into());
+    }
+    // This outbox row is durable: discovery or notification failures keep the
+    // row retryable instead of leaving parent/child access snapshots stale.
+    state.invalidate_membership(&tenant, channel_id, &target);
+    if !state
+        .db
+        .is_member(community_id, channel_id, &target)
+        .await
+        .map_err(|e| format!("system_message: membership lookup failed: {e}"))?
+    {
+        let action = state
+            .db
+            .get_admin_action(row.action_id)
+            .await
+            .map_err(|e| format!("system_message: action lookup failed: {e}"))?
+            .ok_or("system_message: action not found")?;
+        super::side_effects::evict_live_channel_subscriptions(&tenant, state, channel_id, &target)
+            .await;
+        super::side_effects::disable_departed_member_workflows(&tenant, state, channel_id, &target)
+            .await;
+        super::side_effects::emit_membership_notification(
+            &tenant,
+            state,
+            channel_id,
+            &target,
+            &action.actor_pubkey,
+            buzz_core::kind::KIND_MEMBER_REMOVED_NOTIFICATION,
+        )
+        .await
+        .map_err(|e| format!("system_message: membership notification failed: {e}"))?;
+    }
+    super::side_effects::emit_group_discovery_events(&tenant, state, channel_id)
+        .await
+        .map_err(|e| format!("system_message: discovery failed: {e}"))?;
+
     crate::handlers::side_effects::emit_system_message(
         &tenant,
         state,

@@ -29,12 +29,12 @@ use buzz_core::kind::{
     KIND_NIP29_PUT_USER, KIND_NIP29_REMOVE_USER, KIND_NIP43_LEAVE_REQUEST,
     KIND_NIP65_RELAY_LIST_METADATA, KIND_PERSONA, KIND_PIN_LIST, KIND_PRESENCE_UPDATE,
     KIND_PRIVATE_MANAGED_AGENT, KIND_PRODUCT_FEEDBACK, KIND_PROFILE, KIND_PROJECT, KIND_REACTION,
-    KIND_READ_STATE, KIND_REPORT, KIND_STREAM_MESSAGE, KIND_STREAM_MESSAGE_BOOKMARKED,
-    KIND_STREAM_MESSAGE_DIFF, KIND_STREAM_MESSAGE_EDIT, KIND_STREAM_MESSAGE_PINNED,
-    KIND_STREAM_MESSAGE_SCHEDULED, KIND_STREAM_MESSAGE_V2, KIND_STREAM_REMINDER, KIND_TEAM,
-    KIND_TEAM_CATALOG, KIND_TEXT_NOTE, KIND_USER_STATUS, KIND_WORKFLOW_DEF, KIND_WORKFLOW_TRIGGER,
-    RELAY_ADMIN_ADD_MEMBER, RELAY_ADMIN_CHANGE_ROLE, RELAY_ADMIN_REMOVE_MEMBER,
-    RELAY_ADMIN_SET_WORKSPACE_PROFILE,
+    KIND_READ_STATE, KIND_REPORT, KIND_SESSION_COMMAND, KIND_STREAM_MESSAGE,
+    KIND_STREAM_MESSAGE_BOOKMARKED, KIND_STREAM_MESSAGE_DIFF, KIND_STREAM_MESSAGE_EDIT,
+    KIND_STREAM_MESSAGE_PINNED, KIND_STREAM_MESSAGE_SCHEDULED, KIND_STREAM_MESSAGE_V2,
+    KIND_STREAM_REMINDER, KIND_TEAM, KIND_TEAM_CATALOG, KIND_TEXT_NOTE, KIND_USER_STATUS,
+    KIND_WORKFLOW_DEF, KIND_WORKFLOW_TRIGGER, RELAY_ADMIN_ADD_MEMBER, RELAY_ADMIN_CHANGE_ROLE,
+    RELAY_ADMIN_REMOVE_MEMBER, RELAY_ADMIN_SET_WORKSPACE_PROFILE,
 };
 use buzz_core::tenant::TenantContext;
 use buzz_core::verification::verify_event;
@@ -515,7 +515,7 @@ fn required_scope_for_kind(kind: u32, event: &Event) -> Result<Scope, &'static s
                 Ok(Scope::ChannelsWrite)
             }
         }
-        KIND_NIP29_CREATE_GROUP | KIND_CANVAS => Ok(Scope::ChannelsWrite),
+        KIND_SESSION_COMMAND | KIND_NIP29_CREATE_GROUP | KIND_CANVAS => Ok(Scope::ChannelsWrite),
         KIND_NIP29_JOIN_REQUEST | KIND_NIP29_LEAVE_REQUEST | KIND_NIP43_LEAVE_REQUEST => {
             Ok(Scope::ChannelsRead)
         }
@@ -2529,6 +2529,7 @@ async fn ingest_event_inner(
         // without being a member (OQ1 decision; see validate_edit_ownership /
         // validate_admin_event for per-kind enforcement).
         let skip_membership = kind_u32 == KIND_NIP29_JOIN_REQUEST
+            || kind_u32 == KIND_SESSION_COMMAND
             || kind_u32 == KIND_NIP29_CREATE_GROUP
             || kind_u32 == KIND_STREAM_MESSAGE_EDIT
             || kind_u32 == KIND_NIP29_EDIT_METADATA
@@ -2927,6 +2928,31 @@ async fn ingest_event_inner(
                 _ => {} // open — OK
             }
         }
+    }
+
+    if kind_u32 == KIND_SESSION_COMMAND {
+        if auth.channel_ids().is_some() {
+            return Err(IngestError::AuthFailed(
+                "restricted: session commands require an unrestricted account token".into(),
+            ));
+        }
+        let result = super::sessions::accept(tenant, state, &event).await?;
+        let (id, _) = super::sessions::parse(&event).map_err(IngestError::Rejected)?;
+        let action = if result.message.starts_with("duplicate:") {
+            TraceAction::WriteDuplicate {
+                msg_id: msg_id_label(event.id.as_bytes()),
+                channel: channel_label(id),
+                claimed_community: claimed_community_from_event(&event),
+            }
+        } else {
+            TraceAction::WriteInsert {
+                msg_id: msg_id_label(event.id.as_bytes()),
+                channel: channel_label(id),
+                claimed_community: claimed_community_from_event(&event),
+            }
+        };
+        emit(tracer, action, state_for_request(tenant, auth.pubkey()));
+        return Ok(result);
     }
 
     if kind_u32 == super::push_lease::KIND_PUSH_LEASE {

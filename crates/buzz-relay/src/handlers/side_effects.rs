@@ -37,7 +37,7 @@ pub fn is_side_effect_kind(kind: u32) -> bool {
     matches!(kind, 0 | 5 | 9000..=9022 | KIND_GIT_REPO_ANNOUNCEMENT | KIND_AGENT_PROFILE | 41001..=41003 | 40099)
 }
 
-async fn evict_live_channel_subscriptions(
+pub(crate) async fn evict_live_channel_subscriptions(
     tenant: &TenantContext,
     state: &Arc<AppState>,
     channel_id: Uuid,
@@ -64,7 +64,7 @@ async fn evict_live_channel_subscriptions(
 /// Failures are logged, not propagated: membership removal has already been
 /// committed, and the per-fire gate still denies a removed owner even if this
 /// disable write is lost.
-async fn disable_departed_member_workflows(
+pub(crate) async fn disable_departed_member_workflows(
     tenant: &TenantContext,
     state: &Arc<AppState>,
     channel_id: Uuid,
@@ -324,6 +324,25 @@ pub async fn validate_admin_event(
     // Extract channel from h tag
     let channel_id =
         extract_h_tag_channel(event).ok_or_else(|| anyhow::anyhow!("missing or invalid h tag"))?;
+
+    if let Some(session) = state
+        .db
+        .session_info(tenant.community(), channel_id)
+        .await?
+    {
+        if session.parent_id.is_some() && matches!(kind, 9000 | 9001 | 9021 | 9022) {
+            return Err(anyhow::anyhow!("manage members in the parent channel"));
+        }
+        if kind == 9002
+            && event.tags.iter().any(|tag| {
+                let parts = tag.as_slice();
+                parts.first().is_some_and(|part| part == "visibility")
+                    && parts.get(1).is_none_or(|value| value != "private")
+            })
+        {
+            return Err(anyhow::anyhow!("sessions must remain private"));
+        }
+    }
 
     let actor_bytes = event.pubkey.to_bytes().to_vec();
 
@@ -842,6 +861,45 @@ pub async fn emit_membership_notification(
     actor_pubkey: &[u8],
     notification_kind: u32,
 ) -> anyhow::Result<()> {
+    emit_one_membership_notification(
+        tenant,
+        state,
+        channel_id,
+        target_pubkey,
+        actor_pubkey,
+        notification_kind,
+    )
+    .await?;
+    for child in state
+        .db
+        .child_sessions(tenant.community(), channel_id)
+        .await?
+    {
+        if notification_kind == KIND_MEMBER_REMOVED_NOTIFICATION {
+            evict_live_channel_subscriptions(tenant, state, child, target_pubkey).await;
+            disable_departed_member_workflows(tenant, state, child, target_pubkey).await;
+        }
+        emit_one_membership_notification(
+            tenant,
+            state,
+            child,
+            target_pubkey,
+            actor_pubkey,
+            notification_kind,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+async fn emit_one_membership_notification(
+    tenant: &TenantContext,
+    state: &Arc<AppState>,
+    channel_id: Uuid,
+    target_pubkey: &[u8],
+    actor_pubkey: &[u8],
+    notification_kind: u32,
+) -> anyhow::Result<()> {
     let target_hex = hex::encode(target_pubkey);
     let actor_hex = hex::encode(actor_pubkey);
     let channel_id_str = channel_id.to_string();
@@ -1053,6 +1111,22 @@ pub async fn emit_group_discovery_events(
     state: &Arc<AppState>,
     channel_id: Uuid,
 ) -> anyhow::Result<()> {
+    emit_one_group_discovery_events(tenant, state, channel_id).await?;
+    for child in state
+        .db
+        .child_sessions(tenant.community(), channel_id)
+        .await?
+    {
+        emit_one_group_discovery_events(tenant, state, child).await?;
+    }
+    Ok(())
+}
+
+async fn emit_one_group_discovery_events(
+    tenant: &TenantContext,
+    state: &Arc<AppState>,
+    channel_id: Uuid,
+) -> anyhow::Result<()> {
     let channel = state
         .db
         .get_channel_for_event_write(tenant.community(), channel_id)
@@ -1094,7 +1168,21 @@ pub async fn emit_group_discovery_events(
         // Buzz channels always require explicit membership
         tags.push(Tag::parse(["closed"])?);
         // Channel type tag so clients can distinguish stream/forum/dm without inference
-        tags.push(Tag::parse(["t", &channel.channel_type])?);
+        let session = state
+            .db
+            .session_info(tenant.community(), channel_id)
+            .await?;
+        tags.push(Tag::parse([
+            "t",
+            if session.is_some() {
+                "session"
+            } else {
+                &channel.channel_type
+            },
+        ])?);
+        if let Some(parent) = session.and_then(|session| session.parent_id) {
+            tags.push(Tag::parse(["parent", &parent.to_string()])?);
+        }
         // Optional topic / purpose for richer client UX
         if let Some(ref topic) = channel.topic {
             if !topic.is_empty() {

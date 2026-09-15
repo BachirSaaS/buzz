@@ -341,6 +341,8 @@ pub const KIND_NIP29_EDIT_METADATA: u32 = 9002;
 pub const KIND_NIP29_DELETE_EVENT: u32 = 9005;
 /// NIP-29: Create a new group.
 pub const KIND_NIP29_CREATE_GROUP: u32 = 9007;
+/// Durable session creation and parent assignment.
+pub const KIND_SESSION_COMMAND: u32 = 9050;
 /// NIP-29: Delete a group.
 pub const KIND_NIP29_DELETE_GROUP: u32 = 9008;
 /// NIP-29: Create an invite to a group.
@@ -666,6 +668,7 @@ pub const ALL_KINDS: &[u32] = &[
     KIND_NIP29_EDIT_METADATA,
     KIND_NIP29_DELETE_EVENT,
     KIND_NIP29_CREATE_GROUP,
+    KIND_SESSION_COMMAND,
     KIND_NIP29_DELETE_GROUP,
     KIND_NIP29_CREATE_INVITE,
     KIND_NIP29_JOIN_REQUEST,
