@@ -4669,7 +4669,7 @@ fn handle_prompt_result(
             result
                 .agent
                 .state
-                .mark_scope_delivery_success(scope, false, event_ids);
+                .mark_scope_delivery_success(scope, false, event_ids, []);
         }
     }
 
