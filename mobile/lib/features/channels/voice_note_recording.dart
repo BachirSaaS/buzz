@@ -881,7 +881,26 @@ class DeviceVoiceNotePlayerController extends VoiceNotePlayerController {
   Future<void> seek(Duration position) => _player.seek(position);
 
   @override
-  Future<void> setSpeed(double speed) => _player.setSpeed(speed);
+  Future<void> setSpeed(double speed) async {
+    final preservedPosition = _state.position;
+    final wasPlaying = _state.isPlaying || _player.playing;
+    final sourceGeneration = _sourceGeneration;
+    await _player.setSpeed(speed);
+    if (_disposed || sourceGeneration != _sourceGeneration) return;
+
+    // Some platform decoders rebuild the MP4 playback item when its rate
+    // changes and briefly report position zero. Restore the user's position
+    // instead of making a speed change behave like replay-from-start.
+    if (preservedPosition > Duration.zero &&
+        _state.position < preservedPosition) {
+      await _player.seek(preservedPosition);
+      if (_disposed || sourceGeneration != _sourceGeneration) return;
+      _update(_state.copyWith(position: preservedPosition));
+    }
+    if (wasPlaying && !_player.playing) {
+      unawaited(_play(sourceGeneration));
+    }
+  }
 
   void _update(VoiceNotePlaybackState next) {
     if (_disposed) return;

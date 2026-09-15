@@ -91,6 +91,9 @@ class _FakeAudioPlayerBackend implements VoiceNoteAudioPlayerBackend {
   int playCount = 0;
   int pauseCount = 0;
   int cancelPendingLoadCount = 0;
+  bool resetPositionOnSpeedChange = false;
+  Duration? lastSeekPosition;
+  double speed = 1;
   final loadedPaths = <String>[];
   final loadedUrls = <String>[];
   final loadedUrlHeaders = <Map<String, String>?>[];
@@ -158,10 +161,16 @@ class _FakeAudioPlayerBackend implements VoiceNoteAudioPlayerBackend {
   }
 
   @override
-  Future<void> seek(Duration position) async {}
+  Future<void> seek(Duration position) async {
+    lastSeekPosition = position;
+    positions.add(position);
+  }
 
   @override
-  Future<void> setSpeed(double speed) async {}
+  Future<void> setSpeed(double value) async {
+    speed = value;
+    if (resetPositionOnSpeedChange) positions.add(Duration.zero);
+  }
 
   @override
   Future<void> dispose() async {
@@ -926,6 +935,31 @@ void main() {
     expect(audioPlayer.pauseCount, 1);
     expect(audioPlayer.cancelPendingLoadCount, 0);
     expect(audioPlayer.playing, isFalse);
+  });
+
+  test('speed changes preserve the current playback position', () async {
+    final audioPlayer = _FakeAudioPlayerBackend()
+      ..resetPositionOnSpeedChange = true;
+    final player = DeviceVoiceNotePlayerController(
+      coordinator: VoiceNotePlaybackCoordinator(),
+      client: _SequencedHttpClient(),
+      requiresAuthenticatedLocalFile: false,
+      player: audioPlayer,
+    );
+    addTearDown(player.dispose);
+    await player.loadLocal(
+      '/tmp/voice-note.m4a',
+      fallbackDuration: const Duration(seconds: 7),
+    );
+    audioPlayer.positions.add(const Duration(milliseconds: 3250));
+    await Future<void>.delayed(Duration.zero);
+
+    await player.setSpeed(1.5);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(audioPlayer.speed, 1.5);
+    expect(audioPlayer.lastSeekPosition, const Duration(milliseconds: 3250));
+    expect(player.state.position, const Duration(milliseconds: 3250));
   });
 
   test(

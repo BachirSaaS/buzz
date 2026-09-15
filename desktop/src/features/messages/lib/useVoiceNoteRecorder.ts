@@ -1,5 +1,6 @@
 import * as React from "react";
 
+import { summarizeWaveform, waveformPeaks } from "./audioAttachment";
 import { encodeVoiceNoteWav } from "./voiceNoteWav";
 
 const MIME_CANDIDATES = [
@@ -17,6 +18,7 @@ function supportedMimeType(): string | undefined {
 export type VoiceNoteRecording = {
   duration: number;
   file: File;
+  waveform: number[];
 };
 
 type RecordingSession = {
@@ -148,6 +150,10 @@ export function useVoiceNoteRecorder() {
                   file: new File([wavBuffer], `voice-note-${Date.now()}.wav`, {
                     type: "audio/wav",
                   }),
+                  waveform: waveformPeaks(
+                    summarizeWaveform(channels[0] ?? new Float32Array(), 48),
+                    48,
+                  ),
                 };
               }
             } catch {
