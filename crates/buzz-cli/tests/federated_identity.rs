@@ -17,6 +17,18 @@ use std::sync::{
     Arc,
 };
 
+// Use the test executable as a process launcher for the real CLI entrypoint.
+// Tauri stages sidecar stubs over target/debug/buzz when sharing a target dir;
+// this hashed executable is not a sidecar destination and cannot be clobbered.
+#[tokio::test]
+async fn cli_process_entry() {
+    let Ok(args) = std::env::var("BUZZ_TEST_CLI_ARGS") else {
+        return;
+    };
+    let args: Vec<String> = serde_json::from_str(&args).unwrap();
+    std::process::exit(buzz_cli::run_from_args(args).await);
+}
+
 #[derive(Clone)]
 struct Fixture {
     key: String,
@@ -139,9 +151,18 @@ async fn cli_acquires_its_own_assertion_and_stops_before_query_after_revocation(
         axum::serve(listener, app).await.unwrap();
     });
     let run = |args: &[&str]| {
-        let mut command = tokio::process::Command::new(env!("CARGO_BIN_EXE_buzz"));
+        let mut command = tokio::process::Command::new(std::env::current_exe().unwrap());
         command
-            .args(args)
+            .args(["--exact", "cli_process_entry", "--nocapture"])
+            .env(
+                "BUZZ_TEST_CLI_ARGS",
+                serde_json::to_string(
+                    &std::iter::once("buzz")
+                        .chain(args.iter().copied())
+                        .collect::<Vec<_>>(),
+                )
+                .unwrap(),
+            )
             .env("BUZZ_PRIVATE_KEY", keys.secret_key().to_secret_hex())
             .env("BUZZ_RELAY_URL", &base)
             .env("BUZZ_NIP_FI_ORIGINS", &base)
