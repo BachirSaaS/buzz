@@ -32,7 +32,7 @@ or document editor, but the conversation always happens in the corresponding roo
 |------------|-------------------------------------------------------------------|
 | Project    | One exclusive channel for the outcome it organizes                |
 | Repository | One exclusive channel for ongoing code and maintenance discussion |
-| Task       | One exclusive thread in its project's channel                     |
+| Task       | One exclusive thread in its project's or repository's channel     |
 | Branch     | One home thread discussing the code                               |
 | Document   | One exclusive thread commenting on the content                    |
 
@@ -45,16 +45,17 @@ Objects typically have their own room. Branches are a pragmatic exception: compl
 one task often involves multiple branches and resulting PRs. The goal of exclusive homes
 for the other objects is to make organization and authorization as unambiguous as possible.
 
-Every task, including a subtask, must belong to a project. Its thread must be
-rooted in a message in that project's channel. When there is no natural originating
-message, Buzz can create a hidden message to provide the thread root.
+Tasks, including subtasks, can belong to a project or a repository; a parent
+project is not required. Each task's thread must be rooted in a message in that
+parent's channel. When there is no natural originating message, Buzz can create
+a hidden message to provide the thread root.
 
 ## Authorization
 
 Channels hold authorization in Buzz. A repo's channel defines who can see the
 code, including the code on any branches. A project's channel defines who can see
-the project and its tasks: every task's thread lives in that project's channel.
-A document's thread likewise inherits access from the channel containing it.
+the project. Tasks and documents inherit access from the channel containing their
+thread.
 
 A branch belongs to a repository, but its conversation may live with the task it
 implements. Access to code follows the repository's channel; access to the
