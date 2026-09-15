@@ -198,7 +198,7 @@ export function InviteLinkSection({
             {isWorking ? (
               <Spinner aria-hidden="true" className="h-4 w-4 border-2" />
             ) : copyStatus === "copied" ? (
-              <Check aria-hidden="true" className="h-4 w-4" />
+              <Check aria-hidden="true" className="size-4" />
             ) : null}
             {copyLabel}
           </Button>
@@ -220,7 +220,7 @@ export function InviteLinkSection({
                 variant="ghost"
               >
                 {ttlLabel}
-                <ChevronDown aria-hidden="true" className="h-3.5 w-3.5" />
+                <ChevronDown aria-hidden="true" className="size-3.5" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-40">
@@ -255,7 +255,7 @@ export function InviteLinkSection({
                 variant="ghost"
               >
                 {maxUsesLabel}
-                <ChevronDown aria-hidden="true" className="h-3.5 w-3.5" />
+                <ChevronDown aria-hidden="true" className="size-3.5" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-40">

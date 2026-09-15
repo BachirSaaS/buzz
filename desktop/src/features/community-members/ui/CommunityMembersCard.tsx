@@ -43,7 +43,7 @@ function RoleBadge({ role }: { role: RelayMemberRole }) {
       className={cn(
         "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
         role === "owner" && "bg-primary/10 text-primary",
-        role === "admin" && "bg-blue-500/10 text-blue-500",
+        role === "admin" && "bg-info text-info-foreground",
         role === "member" && "bg-muted text-muted-foreground",
       )}
     >
@@ -55,11 +55,11 @@ function RoleBadge({ role }: { role: RelayMemberRole }) {
 function RoleIcon({ role }: { role: RelayMemberRole }) {
   switch (role) {
     case "owner":
-      return <ShieldCheck className="h-4 w-4 shrink-0 text-primary" />;
+      return <ShieldCheck className="size-4 shrink-0 text-primary" />;
     case "admin":
-      return <Shield className="h-4 w-4 shrink-0 text-blue-500" />;
+      return <Shield className="size-4 shrink-0 text-info-foreground" />;
     default:
-      return <User className="h-4 w-4 shrink-0 text-muted-foreground" />;
+      return <User className="size-4 shrink-0 text-muted-foreground" />;
   }
 }
 
@@ -123,7 +123,7 @@ function MemberRow({
               size="sm"
               variant="ghost"
             >
-              <MoreHorizontal className="h-4 w-4" />
+              <MoreHorizontal className="size-4" />
               <span className="sr-only">Actions</span>
             </Button>
           </DropdownMenuTrigger>
@@ -217,7 +217,7 @@ export function CommunityMembersCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <Shield className="h-4 w-4 text-muted-foreground" />
+            <Shield className="size-4 text-muted-foreground" />
             <h2 className="text-sm font-semibold tracking-tight">
               Community Members
             </h2>
@@ -233,7 +233,7 @@ export function CommunityMembersCard({
             onClick={() => setAddDialogOpen(true)}
             size="sm"
           >
-            <Plus className="h-4 w-4" />
+            <Plus className="size-4" />
             Add Member
           </Button>
         ) : null}

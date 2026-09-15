@@ -51,7 +51,10 @@ export function ActivityRow({
   if (contentChildren.length === 0) {
     return (
       <div
-        className={cn("not-prose flex min-h-6 items-center gap-1.5", className)}
+        className={cn(
+          "activity-signal not-prose flex min-h-8 items-center gap-2",
+          className,
+        )}
         data-testid={testId}
         title={title}
       >
@@ -64,7 +67,7 @@ export function ActivityRow({
     <details
       className={cn(
         openToneScope === "summary" ? "group/summary" : "group",
-        "not-prose w-full",
+        "activity-widget not-prose w-full rounded-blockui-lg border border-border bg-card p-6",
         className,
       )}
       data-testid={testId}
@@ -72,7 +75,7 @@ export function ActivityRow({
     >
       <summary
         className={cn(
-          "group/row flex min-h-6 w-full max-w-full cursor-pointer list-none items-center gap-1.5 text-muted-foreground",
+          "group/row flex min-h-8 w-full max-w-full cursor-pointer list-none items-center gap-2 text-muted-foreground",
           openToneScope === "summary"
             ? "group-open/summary:text-foreground"
             : "group-open:text-foreground",
@@ -80,8 +83,9 @@ export function ActivityRow({
       >
         {summaryChildren}
         <ChevronDown
+          aria-hidden="true"
           className={cn(
-            "h-3.5 w-3.5 shrink-0 text-muted-foreground/60 transition-transform group-hover/row:text-foreground",
+            "ml-auto size-4 shrink-0 text-muted-foreground transition-transform group-hover/row:text-foreground",
             openToneScope === "summary"
               ? "group-open/summary:rotate-180 group-open/summary:text-foreground"
               : "group-open:rotate-180 group-open:text-foreground",
@@ -90,7 +94,10 @@ export function ActivityRow({
       </summary>
       {contentChildren.map((child, index) => (
         <div
-          className={child.props.className}
+          className={cn(
+            "mt-4 border-t border-border pt-4",
+            child.props.className,
+          )}
           // biome-ignore lint/suspicious/noArrayIndexKey: content regions are static children
           key={index}
         >
@@ -119,12 +126,15 @@ export function ActivityRowLabel({
 
   return (
     <span
-      className={cn("inline-flex min-w-0 items-center gap-1.5", className)}
+      className={cn(
+        "inline-flex min-w-0 flex-1 flex-wrap items-center gap-2",
+        className,
+      )}
       title={title}
     >
       <span
         className={cn(
-          "shrink-0 font-semibold text-muted-foreground/50",
+          "shrink-0 font-medium text-foreground",
           isCompactPreview ? "text-xs" : "text-sm",
           openToneScope === "none"
             ? null
@@ -138,7 +148,7 @@ export function ActivityRowLabel({
       {object ? (
         <span
           className={cn(
-            "min-w-0 truncate font-normal text-muted-foreground/60",
+            "min-w-0 truncate font-normal text-muted-foreground",
             isCompactPreview ? "text-xs" : "text-sm",
             openToneScope === "none"
               ? null
@@ -162,7 +172,7 @@ ActivityRowContent.marker = ACTIVITY_ROW_CONTENT_MARKER;
 
 function ActivityRowStatsView({ stats }: { stats: ActivityRowStats }) {
   return (
-    <span className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold leading-5 tabular-nums">
+    <span className="inline-flex shrink-0 items-center gap-2 text-xs font-medium leading-5 tabular-nums">
       <span className="text-status-added">+{stats.additions}</span>
       <span className="text-status-deleted">-{stats.deletions}</span>
     </span>

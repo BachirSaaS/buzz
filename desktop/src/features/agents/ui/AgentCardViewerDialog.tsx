@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { Download, Lock, RefreshCw, Send, Sparkles } from "lucide-react";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -158,7 +159,7 @@ function AgentCardViewerContent({
       >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4" />
+            <Sparkles className="size-4" />
             {`${agentName}'s card`}
           </DialogTitle>
           <DialogDescription>
@@ -220,7 +221,7 @@ function AgentCardViewerContent({
                 }}
                 variant="outline"
               >
-                <RefreshCw className="mr-2 h-4 w-4" />
+                <RefreshCw className="mr-2 size-4" />
                 Reroll
               </Button>
             ) : null}
@@ -230,7 +231,7 @@ function AgentCardViewerContent({
               data-testid="agent-card-save"
               variant={recipients.length > 0 ? "outline" : "default"}
             >
-              <Download className="mr-2 h-4 w-4" />
+              <Download className="mr-2 size-4" />
               Save card
             </Button>
             {recipients.length > 0 ? (
@@ -239,7 +240,7 @@ function AgentCardViewerContent({
                 onClick={() => void sendToRecipients()}
                 data-testid="agent-card-send"
               >
-                <Send className="mr-2 h-4 w-4" />
+                <Send className="mr-2 size-4" />
                 {isSending ? "Sending…" : "Send"}
               </Button>
             ) : null}
@@ -301,7 +302,7 @@ function AgentCardGalleryContent() {
       >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4" />
+            <Sparkles className="size-4" />
             Minted cards
           </DialogTitle>
           <DialogDescription>
@@ -328,7 +329,7 @@ function AgentCardGalleryContent() {
               size="sm"
               variant="outline"
             >
-              <RefreshCw className="mr-2 h-4 w-4" />
+              <RefreshCw className="mr-2 size-4" />
               {cardsQuery.isFetching ? "Retrying…" : "Retry"}
             </Button>
           </div>
@@ -339,7 +340,7 @@ function AgentCardGalleryContent() {
         ) : (
           <div className="grid max-h-[60vh] grid-cols-3 gap-3 overflow-y-auto pr-1">
             {cards.map((entry) => (
-              <button
+              <Action
                 className="group flex flex-col gap-1.5 text-left"
                 data-testid="agent-card-gallery-item"
                 disabled={openMutation.isPending}
@@ -355,14 +356,14 @@ function AgentCardGalleryContent() {
                   />
                 ) : (
                   <div className="flex aspect-2/3 w-full items-center justify-center rounded-lg border bg-muted/40">
-                    <Sparkles className="h-6 w-6 text-muted-foreground" />
+                    <Sparkles className="size-6 text-muted-foreground" />
                   </div>
                 )}
                 <span className="flex items-center gap-1 truncate text-xs text-muted-foreground">
-                  {entry.locked ? <Lock className="h-3 w-3 shrink-0" /> : null}
+                  {entry.locked ? <Lock className="size-3 shrink-0" /> : null}
                   <span className="truncate">{entry.agentName}</span>
                 </span>
-              </button>
+              </Action>
             ))}
           </div>
         )}

@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
 import { UserProfilePopover } from "@/features/profile/ui/UserProfilePopover";
 import { normalizePubkey } from "@/shared/lib/pubkey";
@@ -30,7 +31,7 @@ export function ProjectAuthorIdentity({
       >
         <Tooltip>
           <TooltipTrigger asChild>
-            <button
+            <Action
               aria-label={label}
               className="relative z-10 inline-flex items-center gap-1 rounded-sm hover:underline focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
               data-testid={testId}
@@ -51,7 +52,7 @@ export function ProjectAuthorIdentity({
               >
                 {label}
               </span>
-            </button>
+            </Action>
           </TooltipTrigger>
           <TooltipContent
             className="flex items-center gap-2 px-2.5 py-2"
@@ -68,9 +69,7 @@ export function ProjectAuthorIdentity({
             />
             <span className="min-w-0">
               <span className="block truncate font-medium">{label}</span>
-              <span className="block text-secondary-foreground/70">
-                {roleLabel}
-              </span>
+              <span className="block text-background/70">{roleLabel}</span>
             </span>
           </TooltipContent>
         </Tooltip>

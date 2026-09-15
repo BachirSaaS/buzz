@@ -101,7 +101,7 @@ function RepositoryPanelSection({
       data-testid={testId}
     >
       {title ? (
-        <h3 className="flex h-7 min-w-0 items-center truncate text-sm font-normal text-muted-foreground/70">
+        <h3 className="flex h-7 min-w-0 items-center truncate text-sm font-normal text-muted-foreground">
           {title}
         </h3>
       ) : null}
@@ -238,7 +238,7 @@ export function ProjectRepositoryActionsPanel({
               />
             ) : (
               <>
-                <h2 className="min-w-0 truncate text-sm font-normal text-muted-foreground/70">
+                <h2 className="min-w-0 truncate text-sm font-normal text-muted-foreground">
                   {selectedIssue?.title ??
                     selectedPullRequest?.title ??
                     repository.name}
@@ -316,9 +316,9 @@ export function ProjectRepositoryActionsPanel({
                           onClick={cloneAction}
                         >
                           {sourceControls.clonePending ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            <Loader2 className="size-3.5 animate-spin" />
                           ) : (
-                            <DownloadCloud className="h-3.5 w-3.5" />
+                            <DownloadCloud className="size-3.5" />
                           )}
                           {sourceControls.clonePending ? "Cloning…" : "Clone"}
                         </RepositoryActionButton>
@@ -329,7 +329,7 @@ export function ProjectRepositoryActionsPanel({
                           onClick={sourceControls.onAskForAccess}
                           title="Open project chat to ask for repository access"
                         >
-                          <MessageCircle className="h-3.5 w-3.5" />
+                          <MessageCircle className="size-3.5" />
                           Ask for access
                         </RepositoryActionButton>
                       ) : null}
@@ -340,9 +340,9 @@ export function ProjectRepositoryActionsPanel({
                           title={sourceControls.fetchTitle}
                         >
                           {sourceControls.fetchPending ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            <Loader2 className="size-3.5 animate-spin" />
                           ) : (
-                            <RefreshCw className="h-3.5 w-3.5" />
+                            <RefreshCw className="size-3.5" />
                           )}
                           Fetch
                         </RepositoryActionButton>
@@ -354,9 +354,9 @@ export function ProjectRepositoryActionsPanel({
                           title={sourceControls.pullTitle}
                         >
                           {sourceControls.pullPending ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            <Loader2 className="size-3.5 animate-spin" />
                           ) : (
-                            <DownloadCloud className="h-3.5 w-3.5" />
+                            <DownloadCloud className="size-3.5" />
                           )}
                           Pull
                           {sourceControls.behindCount
@@ -371,9 +371,9 @@ export function ProjectRepositoryActionsPanel({
                           title={sourceControls.pushTitle}
                         >
                           {sourceControls.pushPending ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            <Loader2 className="size-3.5 animate-spin" />
                           ) : (
-                            <UploadCloud className="h-3.5 w-3.5" />
+                            <UploadCloud className="size-3.5" />
                           )}
                           Push
                           {sourceControls.aheadCount
@@ -385,7 +385,7 @@ export function ProjectRepositoryActionsPanel({
                         onClick={onOpenTerminal}
                         title={terminalTitle ?? "Open terminal"}
                       >
-                        <SquareTerminal className="h-3.5 w-3.5" />
+                        <SquareTerminal className="size-3.5" />
                         Terminal
                       </RepositoryActionButton>
                       {sourceControls.source === "local" ? (
@@ -393,7 +393,7 @@ export function ProjectRepositoryActionsPanel({
                           onClick={onOpenLocalRepository}
                           title="Open local repository folder"
                         >
-                          <FolderOpen className="h-3.5 w-3.5" />
+                          <FolderOpen className="size-3.5" />
                           Open
                         </RepositoryActionButton>
                       ) : externalOpenUrl ? (
@@ -408,7 +408,7 @@ export function ProjectRepositoryActionsPanel({
                             rel="noreferrer"
                             target="_blank"
                           >
-                            <ExternalLink className="h-3.5 w-3.5" />
+                            <ExternalLink className="size-3.5" />
                             Open
                           </a>
                         </Button>
@@ -421,7 +421,7 @@ export function ProjectRepositoryActionsPanel({
                     disabled={createIssuePending}
                     onClick={onCreateTask}
                   >
-                    <Plus className="h-3.5 w-3.5" />
+                    <Plus className="size-3.5" />
                     Create task
                   </RepositoryActionButton>
                 ) : null}
@@ -430,7 +430,7 @@ export function ProjectRepositoryActionsPanel({
                     onClick={onCreatePullRequest}
                     title="Create review — choose a repository and branches to compare"
                   >
-                    <Plus className="h-3.5 w-3.5" />
+                    <Plus className="size-3.5" />
                     Create review
                   </RepositoryActionButton>
                 ) : null}
@@ -446,7 +446,7 @@ export function ProjectRepositoryActionsPanel({
                 <dl className="text-sm [&>div]:h-7 [&_dd]:ml-auto [&_dd]:tabular-nums [&_dt]:gap-3 [&_dt]:text-foreground [&_dt_svg]:h-4 [&_dt_svg]:w-4 [&_dt_svg]:shrink-0 [&_dt_svg]:text-muted-foreground">
                   <div className="flex items-center justify-between gap-3">
                     <dt className="flex items-center gap-3 text-muted-foreground">
-                      <GitCommitHorizontal className="h-3.5 w-3.5" />
+                      <GitCommitHorizontal className="size-3.5" />
                       Latest
                     </dt>
                     <dd className="font-mono text-xs text-foreground">
@@ -455,7 +455,7 @@ export function ProjectRepositoryActionsPanel({
                   </div>
                   <div className="flex items-center justify-between gap-3">
                     <dt className="flex items-center gap-3 text-muted-foreground">
-                      <FileCode2 className="h-3.5 w-3.5" />
+                      <FileCode2 className="size-3.5" />
                       Files
                     </dt>
                     <dd
@@ -467,7 +467,7 @@ export function ProjectRepositoryActionsPanel({
                   </div>
                   <div className="flex items-center justify-between gap-3">
                     <dt className="flex items-center gap-3 text-muted-foreground">
-                      <Users className="h-3.5 w-3.5" />
+                      <Users className="size-3.5" />
                       Contributors
                     </dt>
                     <dd className="font-medium text-foreground">
@@ -488,7 +488,7 @@ export function ProjectRepositoryActionsPanel({
                     <>
                       <div className="flex items-center justify-between gap-3">
                         <dt className="flex items-center gap-3 text-muted-foreground">
-                          <CircleDot className="h-3.5 w-3.5" />
+                          <CircleDot className="size-3.5" />
                           {activeTab === "issues" ? "Tasks" : "Active tasks"}
                         </dt>
                         <dd className="font-medium text-foreground">
@@ -501,7 +501,7 @@ export function ProjectRepositoryActionsPanel({
                         <>
                           <div className="flex items-center justify-between gap-3">
                             <dt className="flex items-center gap-3 text-muted-foreground">
-                              <CircleDot className="h-3.5 w-3.5" />
+                              <CircleDot className="size-3.5" />
                               Active
                             </dt>
                             <dd className="font-medium text-foreground">
@@ -510,7 +510,7 @@ export function ProjectRepositoryActionsPanel({
                           </div>
                           <div className="flex items-center justify-between gap-3">
                             <dt className="flex items-center gap-3 text-muted-foreground">
-                              <CheckCircle2 className="h-3.5 w-3.5" />
+                              <CheckCircle2 className="size-3.5" />
                               Completed
                             </dt>
                             <dd className="font-medium text-foreground">
@@ -527,7 +527,7 @@ export function ProjectRepositoryActionsPanel({
                     <>
                       <div className="flex items-center justify-between gap-3">
                         <dt className="flex items-center gap-3 text-muted-foreground">
-                          <GitPullRequest className="h-3.5 w-3.5" />
+                          <GitPullRequest className="size-3.5" />
                           {activeTab === "prs" ? "Reviews" : "Open reviews"}
                         </dt>
                         <dd className="font-medium text-foreground">
@@ -540,7 +540,7 @@ export function ProjectRepositoryActionsPanel({
                         <>
                           <div className="flex items-center justify-between gap-3">
                             <dt className="flex items-center gap-3 text-muted-foreground">
-                              <GitPullRequest className="h-3.5 w-3.5" />
+                              <GitPullRequest className="size-3.5" />
                               Open
                             </dt>
                             <dd className="font-medium text-foreground">
@@ -549,7 +549,7 @@ export function ProjectRepositoryActionsPanel({
                           </div>
                           <div className="flex items-center justify-between gap-3">
                             <dt className="flex items-center gap-3 text-muted-foreground">
-                              <GitMerge className="h-3.5 w-3.5" />
+                              <GitMerge className="size-3.5" />
                               Merged
                             </dt>
                             <dd className="font-medium text-foreground">

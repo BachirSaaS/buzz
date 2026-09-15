@@ -1,3 +1,4 @@
+import { Input as BlockInput } from "@/shared/ui/input";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { ChevronDown } from "lucide-react";
@@ -696,7 +697,7 @@ export function NostrBindConsentDialog() {
                     >
                       <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-4 py-3 text-sm font-medium transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
                         <span>Pairing didn’t finish automatically?</span>
-                        <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-150 group-open:rotate-180" />
+                        <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform duration-150 group-open:rotate-180" />
                       </summary>
                       <div className="space-y-4 border-t border-border/55 p-4">
                         <p className="text-sm leading-6 text-muted-foreground">
@@ -768,7 +769,7 @@ export function NostrBindConsentDialog() {
                             className="relative h-16 w-14 shrink-0 overflow-hidden rounded-xl"
                             key={VERIFICATION_CODE_DIGIT_KEYS[index]}
                           >
-                            <input
+                            <BlockInput
                               aria-label={`Verification code digit ${index + 1} of ${VERIFICATION_CODE_LENGTH}`}
                               autoComplete={
                                 index === 0 ? "one-time-code" : "off"
@@ -776,7 +777,7 @@ export function NostrBindConsentDialog() {
                               className={cn(
                                 "absolute inset-0 h-full w-full rounded-xl border text-center text-transparent shadow-xs caret-transparent selection:bg-transparent selection:text-transparent transition-[border-color,box-shadow] focus-visible:outline-hidden disabled:cursor-not-allowed disabled:opacity-50",
                                 systemColorScheme === "light"
-                                  ? "bg-[#fafafa]"
+                                  ? "bg-muted"
                                   : "bg-muted",
                                 hasCodeMismatch
                                   ? "border-destructive focus-visible:border-destructive focus-visible:ring-2 focus-visible:ring-destructive/25"

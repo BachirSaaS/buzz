@@ -1,3 +1,5 @@
+import { Input as BlockInput } from "@/shared/ui/input";
+import { Action } from "@/shared/ui/action";
 import { Search } from "lucide-react";
 import * as React from "react";
 
@@ -152,7 +154,7 @@ export function PersonaShareRecipients({
               data-testid={`${testIdPrefix}-recipient-input-region`}
             >
               {selectedUsers.length === 0 ? (
-                <Search className="h-4 w-4 shrink-0 text-muted-foreground/55" />
+                <Search className="size-4 shrink-0 text-muted-foreground" />
               ) : null}
               {selectedUsers.map((user) => (
                 <SelectedRecipientChip
@@ -168,7 +170,7 @@ export function PersonaShareRecipients({
                   user={user}
                 />
               ))}
-              <input
+              <BlockInput
                 aria-autocomplete="list"
                 aria-controls={`${testIdPrefix}-recipient-results`}
                 aria-expanded={isPickerOpen && !disabled}
@@ -176,7 +178,7 @@ export function PersonaShareRecipients({
                 autoCapitalize="none"
                 autoComplete="off"
                 autoCorrect="off"
-                className="h-7 min-w-16 flex-1 border-0 bg-transparent p-0 text-sm outline-hidden placeholder:text-muted-foreground/55"
+                className="h-7 min-w-16 flex-1 border-0 bg-transparent p-0 text-sm outline-hidden placeholder:text-muted-foreground"
                 data-testid={`${testIdPrefix}-recipient-search`}
                 disabled={disabled || selectedUsers.length >= RECIPIENT_LIMIT}
                 onChange={(event) => {
@@ -269,7 +271,7 @@ export function PersonaShareRecipients({
               </div>
             ) : visibleSearchResults.length > 0 ? (
               visibleSearchResults.map((user) => (
-                <button
+                <Action
                   aria-label={`Add ${formatShareRecipientName(user)}`}
                   className="flex min-h-11 w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-hidden"
                   data-testid={`${testIdPrefix}-recipient-option-${user.pubkey}`}
@@ -287,7 +289,7 @@ export function PersonaShareRecipients({
                   <span className="min-w-0 flex-1 truncate text-sm font-medium">
                     {formatShareRecipientName(user)}
                   </span>
-                </button>
+                </Action>
               ))
             ) : (
               <p className="px-3 py-3 text-sm text-muted-foreground">

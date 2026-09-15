@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 
 import { copyTextToClipboard } from "@/shared/lib/clipboard";
@@ -208,7 +209,7 @@ export function BuzzInlineLink({
 
   return (
     <>
-      <button
+      <Action
         {...props}
         type="button"
         className="cursor-pointer font-medium text-primary underline underline-offset-4 transition-colors hover:text-primary/80"
@@ -216,7 +217,7 @@ export function BuzzInlineLink({
         onContextMenuCapture={onContextMenuCapture}
       >
         {children}
-      </button>
+      </Action>
       {contextMenu}
     </>
   );

@@ -18,8 +18,8 @@ export function AgentDefinitionDialogFooter({
   submitLabel,
 }: AgentDefinitionDialogFooterProps) {
   return (
-    <div className="flex w-full flex-wrap items-center justify-between gap-3">
-      <div className="flex min-h-9 min-w-0 flex-wrap items-center gap-3">
+    <div className="flex w-full flex-wrap items-center justify-between gap-4">
+      <div className="flex min-h-9 min-w-0 flex-wrap items-center gap-4">
         {publishesCatalogUpdates ? (
           <p
             className="max-w-sm text-xs text-muted-foreground"

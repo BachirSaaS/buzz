@@ -45,18 +45,19 @@ export const PROJECT_EVENT_VISUALS: Record<
   },
   "pull-request": {
     icon: GitPullRequest,
-    iconClassName: "text-green-600 dark:text-green-500",
+    iconClassName: "text-success-foreground dark:text-success-foreground",
     badgeClassName:
-      "bg-green-600/10 text-green-700 dark:bg-green-500/10 dark:text-green-400",
+      "bg-success text-success-foreground dark:bg-success dark:text-success-foreground",
     detailClassName:
-      "border-green-600/30 text-green-700 dark:border-green-500/30 dark:text-green-400",
+      "border-success-foreground/30 text-success-foreground dark:border-success-foreground/30 dark:text-success-foreground",
   },
   issue: {
     icon: CircleDot,
-    iconClassName: "text-orange-500",
-    badgeClassName: "bg-orange-500/10 text-orange-700 dark:text-orange-300",
+    iconClassName: "text-warning-foreground",
+    badgeClassName:
+      "bg-warning text-warning-foreground dark:text-warning-foreground",
     detailClassName:
-      "border-orange-500/30 text-orange-700 dark:border-orange-500/30 dark:text-orange-300",
+      "border-warning-foreground/30 text-warning-foreground dark:border-warning-foreground/30 dark:text-warning-foreground",
   },
   comment: {
     icon: MessageSquare,
@@ -66,26 +67,27 @@ export const PROJECT_EVENT_VISUALS: Record<
   },
   approval: {
     icon: Check,
-    iconClassName: "text-green-600 dark:text-green-500",
+    iconClassName: "text-success-foreground dark:text-success-foreground",
     badgeClassName:
-      "bg-green-600/10 text-green-700 dark:bg-green-500/10 dark:text-green-400",
+      "bg-success text-success-foreground dark:bg-success dark:text-success-foreground",
     detailClassName:
-      "border-green-600/30 text-green-700 dark:border-green-500/30 dark:text-green-400",
+      "border-success-foreground/30 text-success-foreground dark:border-success-foreground/30 dark:text-success-foreground",
   },
   "changes-requested": {
     icon: TriangleAlert,
-    iconClassName: "text-amber-600 dark:text-amber-400",
+    iconClassName: "text-warning-foreground dark:text-warning-foreground",
     badgeClassName:
-      "bg-amber-500/10 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300",
-    detailClassName: "border-amber-500/40 text-amber-700 dark:text-amber-400",
+      "bg-warning text-warning-foreground dark:bg-warning dark:text-warning-foreground",
+    detailClassName:
+      "border-warning-foreground/30 text-warning-foreground dark:text-warning-foreground",
   },
   "review-request": {
     icon: UserPlus,
-    iconClassName: "text-blue-600 dark:text-blue-400",
+    iconClassName: "text-info-foreground dark:text-info-foreground",
     badgeClassName:
-      "bg-blue-600/10 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300",
+      "bg-info text-info-foreground dark:bg-info dark:text-info-foreground",
     detailClassName:
-      "border-blue-600/30 text-blue-700 dark:border-blue-500/30 dark:text-blue-300",
+      "border-info-foreground/30 text-info-foreground dark:border-info-foreground/30 dark:text-info-foreground",
   },
 };
 

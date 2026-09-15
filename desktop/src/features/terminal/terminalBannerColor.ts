@@ -9,7 +9,7 @@
  * Why the palette and not the CSS vars: `--primary` is a user preference that
  * collapses to `--foreground` on the Buzz themes (ThemeProvider.tsx), and
  * `--secondary` / `--accent` are assigned the same 6% hover tint
- * (adaptive-theme.ts:241-243). A literal primary/secondary/accent fade is two
+ * (the Block UI primary role). A literal primary/secondary/accent fade is two
  * stops, one of which is the background. The TerminalPalette carries the
  * theme's real hues, so the three stops come from there.
  *

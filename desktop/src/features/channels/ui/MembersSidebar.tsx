@@ -1,3 +1,5 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { Input as BlockInput } from "@/shared/ui/input";
 import * as React from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { UserRoundPlus, X } from "lucide-react";
@@ -707,16 +709,16 @@ export function MembersSidebar({
             <div className="flex items-center justify-between gap-4">
               <DialogTitle>Channel members</DialogTitle>
               <DialogClose className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 ease-out hover:bg-accent hover:text-accent-foreground focus:outline-hidden focus:ring-1 focus:ring-ring">
-                <X className="h-4 w-4" />
+                <X className="size-4" />
                 <span className="sr-only">Close</span>
               </DialogClose>
             </div>
-            <label
+            <BlockLabel
               className={MODAL_SEARCH_SHELL_CLASS}
               htmlFor="channel-management-search-users"
             >
-              <UserRoundPlus className="h-4 w-4 shrink-0 text-muted-foreground/55 transition-colors duration-150 ease-out group-hover/search:text-muted-foreground group-focus-within/search:text-foreground" />
-              <input
+              <UserRoundPlus className="size-4 shrink-0 text-muted-foreground transition-colors duration-150 ease-out group-hover/search:text-muted-foreground group-focus-within/search:text-foreground" />
+              <BlockInput
                 autoCapitalize="none"
                 autoCorrect="off"
                 className={MODAL_SEARCH_INPUT_CLASS}
@@ -744,7 +746,7 @@ export function MembersSidebar({
                 type="text"
                 value={searchQuery}
               />
-            </label>
+            </BlockLabel>
             {showPrivateAddDeniedNotice ? (
               <p
                 className="pt-2 text-sm text-muted-foreground"
@@ -917,7 +919,7 @@ function SearchResultSectionTitle({
   children: React.ReactNode;
 }) {
   return (
-    <div className="sticky top-0 z-10 mr-3 flex min-h-9 items-center gap-2 bg-background/95 px-4 pb-1.5 pt-3 text-xs font-medium text-muted-foreground/75 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+    <div className="sticky top-0 z-10 mr-3 flex min-h-9 items-center gap-2 bg-background/95 px-4 pb-1.5 pt-3 text-xs font-medium text-muted-foreground backdrop-blur supports-[backdrop-filter]:bg-background/80">
       <span>{children}</span>
       {action ? <span>{action}</span> : null}
     </div>

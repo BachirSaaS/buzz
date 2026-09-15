@@ -1,3 +1,4 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
 import * as React from "react";
 import { AlertCircle, ExternalLink, LoaderCircle } from "lucide-react";
 
@@ -296,7 +297,7 @@ export function HostedCommunityCreateFlow({
       className="flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/10 p-4"
       role="alert"
     >
-      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+      <AlertCircle className="mt-0.5 size-4 shrink-0 text-destructive" />
       <p className="text-sm leading-5 text-destructive">{error}</p>
     </div>
   ) : null;
@@ -304,7 +305,7 @@ export function HostedCommunityCreateFlow({
   if (loading) {
     return (
       <div className="flex min-h-40 items-center justify-center" role="status">
-        <LoaderCircle className="h-5 w-5 animate-spin text-muted-foreground" />
+        <LoaderCircle className="size-5 animate-spin text-muted-foreground" />
         <span className="sr-only">Checking sign-in</span>
       </div>
     );
@@ -321,10 +322,10 @@ export function HostedCommunityCreateFlow({
         <div className="flex justify-end pt-1">
           <Button disabled={Boolean(action)} onClick={signIn} type="button">
             {action === "Signing in…" ? (
-              <LoaderCircle className="h-4 w-4 animate-spin" />
+              <LoaderCircle className="size-4 animate-spin" />
             ) : null}
             {action ?? "Continue to Builderlab"}
-            {action ? null : <ExternalLink className="h-4 w-4" />}
+            {action ? null : <ExternalLink className="size-4" />}
           </Button>
         </div>
       </div>
@@ -353,7 +354,7 @@ export function HostedCommunityCreateFlow({
             onClick={() => void connectIdentity()}
             type="button"
           >
-            {action ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
+            {action ? <LoaderCircle className="size-4 animate-spin" /> : null}
             {action ?? "Connect and continue"}
           </Button>
         </div>
@@ -391,7 +392,7 @@ export function HostedCommunityCreateFlow({
             onClick={() => void switchToDeviceIdentity()}
             type="button"
           >
-            {action ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
+            {action ? <LoaderCircle className="size-4 animate-spin" /> : null}
             {action ?? "Use this device"}
           </Button>
         </div>
@@ -414,12 +415,12 @@ export function HostedCommunityCreateFlow({
   return (
     <form className="space-y-5" onSubmit={create}>
       <div className="space-y-1.5">
-        <label
+        <BlockLabel
           className="text-sm font-medium text-foreground"
           htmlFor="hosted-community-create-name"
         >
           Community address
-        </label>
+        </BlockLabel>
         <div
           className={cn(
             "flex min-h-11 items-center px-3",
@@ -448,7 +449,7 @@ export function HostedCommunityCreateFlow({
             spellCheck={false}
             value={name}
           />
-          <span className="shrink-0 text-sm text-muted-foreground/70">
+          <span className="shrink-0 text-sm text-muted-foreground">
             .{HOSTED_COMMUNITY_SUFFIX}
           </span>
         </div>
@@ -476,7 +477,7 @@ export function HostedCommunityCreateFlow({
           }
           type="submit"
         >
-          {action ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
+          {action ? <LoaderCircle className="size-4 animate-spin" /> : null}
           {action ?? "Create community"}
         </Button>
       </div>

@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { ChevronDown, ChevronRight, Pencil, Play, X } from "lucide-react";
 import * as React from "react";
 
@@ -114,7 +115,7 @@ export function WorkflowDetailPanel({
                 size="sm"
                 variant="outline"
               >
-                <Pencil className="mr-1 h-4 w-4" />
+                <Pencil className="mr-1 size-4" />
                 Edit
               </Button>
             ) : null}
@@ -124,7 +125,7 @@ export function WorkflowDetailPanel({
               size="sm"
               variant="outline"
             >
-              <Play className="mr-1 h-4 w-4" />
+              <Play className="mr-1 size-4" />
               {triggerMutation.isPending ? "Triggering..." : "Trigger"}
             </Button>
             {onClose ? (
@@ -134,7 +135,7 @@ export function WorkflowDetailPanel({
                 size="icon"
                 variant="ghost"
               >
-                <X className="h-4 w-4" />
+                <X className="size-4" />
               </Button>
             ) : null}
           </div>
@@ -234,7 +235,7 @@ export function WorkflowDetailPanel({
                         }`}
                         key={run.id}
                       >
-                        <button
+                        <Action
                           aria-expanded={isSelected}
                           className="w-full px-4 py-3 text-left"
                           data-testid={
@@ -249,9 +250,9 @@ export function WorkflowDetailPanel({
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-2">
                                 {isSelected ? (
-                                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                                  <ChevronDown className="size-4 text-muted-foreground" />
                                 ) : (
-                                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                                  <ChevronRight className="size-4 text-muted-foreground" />
                                 )}
                                 <span className="truncate font-mono text-xs font-medium">
                                   {run.id.slice(0, 8)}
@@ -284,14 +285,14 @@ export function WorkflowDetailPanel({
                               ) : null}
                             </div>
                           </div>
-                        </button>
+                        </Action>
 
                         {isSelected ? (
                           <div className="border-t border-border/60 bg-background/60 px-4 py-4">
                             <div className="mb-3 flex items-center gap-2 text-2xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
                               <span>Execution Trace</span>
                               {approvalsQuery.isFetching ? (
-                                <span className="text-2xs tracking-[0.12em] text-muted-foreground/80">
+                                <span className="text-2xs tracking-[0.12em] text-muted-foreground">
                                   Refreshing approvals...
                                 </span>
                               ) : null}
@@ -316,7 +317,9 @@ export function WorkflowDetailPanel({
           </div>
         ) : workflowQuery.isError ? (
           <div className="flex h-32 flex-col items-center justify-center gap-2">
-            <p className="text-sm text-red-400">Failed to load workflow</p>
+            <p className="text-sm text-danger-foreground">
+              Failed to load workflow
+            </p>
           </div>
         ) : (
           <div

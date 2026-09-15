@@ -86,7 +86,7 @@
 .buzz-spoiler:hover,
 .buzz-spoiler:focus-visible {
   animation: none;
-  background: hsl(var(--muted) / 0.5);
+  background: color-mix(in srgb, var(--muted) 50.0%, transparent);
   color: inherit;
   text-decoration-color: currentColor;
 }

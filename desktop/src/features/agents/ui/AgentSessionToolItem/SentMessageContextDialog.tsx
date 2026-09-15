@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { CheckCheck, ChevronDown } from "lucide-react";
 
@@ -53,7 +54,7 @@ export function SentMessageContextDialog({
           <DialogHeader className="px-6 pb-3 pt-5 pr-14">
             <DialogTitle>Sent message context</DialogTitle>
             <DialogDescription className="flex items-center gap-1.5">
-              <CheckCheck className="h-3.5 w-3.5 shrink-0" />
+              <CheckCheck className="size-3.5 shrink-0" />
               <span>{label}</span>
               {duration ? <span className="shrink-0">{duration}</span> : null}
             </DialogDescription>
@@ -144,7 +145,7 @@ function SentMessageContextSectionAccordion({
 
   return (
     <article className="overflow-hidden rounded-2xl bg-muted/40">
-      <button
+      <Action
         aria-expanded={open}
         className="w-full px-4 py-3 text-left transition-colors hover:bg-muted/50"
         onClick={() => setOpen((value) => !value)}
@@ -162,14 +163,14 @@ function SentMessageContextSectionAccordion({
             </div>
             <div
               className={cn(
-                "mt-1 whitespace-pre-wrap break-all text-xs leading-5 text-foreground/70",
+                "mt-1 whitespace-pre-wrap break-all text-xs leading-5 text-foreground",
                 !open && "line-clamp-2",
               )}
             >
               {body.length > 0 ? (
                 body
               ) : (
-                <span className="italic text-foreground/50">No metadata.</span>
+                <span className="italic text-foreground">No metadata.</span>
               )}
             </div>
           </div>
@@ -180,7 +181,7 @@ function SentMessageContextSectionAccordion({
             )}
           />
         </div>
-      </button>
+      </Action>
     </article>
   );
 }

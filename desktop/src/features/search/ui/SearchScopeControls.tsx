@@ -1,3 +1,6 @@
+import { Kbd as BlockKbd } from "@/shared/blockui/components/kbd";
+import { Input as BlockInput } from "@/shared/ui/input";
+import { Action } from "@/shared/ui/action";
 import { Search, X } from "lucide-react";
 import type * as React from "react";
 
@@ -47,9 +50,9 @@ export function SearchDialogInputRow({
       className="flex h-12 items-center gap-3 border-b border-border/70 px-4"
       data-testid="search-dialog-input-row"
     >
-      <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+      <Search className="size-4 shrink-0 text-muted-foreground" />
       {scopeLabel ? (
-        <button
+        <Action
           aria-label={`Remove ${scopeLabel} search scope`}
           className="flex h-7 max-w-48 shrink-0 items-center gap-1 rounded-md border border-primary/20 bg-primary/10 px-2 text-sm font-medium text-foreground transition-colors hover:bg-primary/15 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
           data-testid="search-channel-scope-chip"
@@ -58,8 +61,8 @@ export function SearchDialogInputRow({
           type="button"
         >
           <span className="truncate">{scopeLabel}</span>
-          <X className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        </button>
+          <X className="size-4 shrink-0 text-muted-foreground" />
+        </Action>
       ) : null}
       <div className="relative min-w-0 flex-1">
         {query.length === 0 ? (
@@ -71,7 +74,7 @@ export function SearchDialogInputRow({
             )}
           </span>
         ) : null}
-        <input
+        <BlockInput
           aria-label={
             scopeLabel ? `Search in ${scopeLabel}` : "Search everything"
           }
@@ -86,9 +89,9 @@ export function SearchDialogInputRow({
           value={query}
         />
       </div>
-      <kbd className="shrink-0 rounded border border-border/70 bg-muted/70 px-1.5 py-0.5 text-2xs text-muted-foreground">
+      <BlockKbd className="shrink-0 rounded border border-border/70 bg-muted/70 px-1.5 py-0.5 text-2xs text-muted-foreground">
         ESC
-      </kbd>
+      </BlockKbd>
     </div>
   );
 }
@@ -112,7 +115,7 @@ export function CurrentChannelSearchAction({
 
   return (
     <div className="px-3 py-3.5">
-      <button
+      <Action
         aria-selected={isSelected}
         className={`flex w-full items-center gap-4 rounded-lg border border-border/75 px-3 py-3 text-left transition-colors focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring ${
           isSelected ? "bg-muted/55" : "bg-muted/30 hover:bg-muted/55"
@@ -125,7 +128,7 @@ export function CurrentChannelSearchAction({
         type="button"
       >
         <span className="flex min-w-0 items-center gap-2">
-          <Search className="h-3.5 w-3.5 shrink-0" />
+          <Search className="size-4 shrink-0" />
           <span
             className="min-w-0 truncate text-sm text-muted-foreground"
             data-testid="search-current-scope-label"
@@ -134,12 +137,12 @@ export function CurrentChannelSearchAction({
             <span className="font-medium text-foreground">{channelLabel}</span>
           </span>
         </span>
-        <span className="ml-auto shrink-0 text-xs text-muted-foreground/70">
+        <span className="ml-auto shrink-0 text-xs text-muted-foreground">
           {isDirectMessage
             ? "Search messages in this conversation."
             : "Search messages in this channel"}
         </span>
-      </button>
+      </Action>
     </div>
   );
 }

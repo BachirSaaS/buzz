@@ -1,3 +1,5 @@
+import { RangeInput } from "@/shared/ui/native-controls";
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { Loader2, Redo2, Undo2 } from "lucide-react";
 
@@ -379,7 +381,7 @@ export function ComposerImageEditor({
           className="flex items-center gap-3 animate-in fade-in slide-in-from-right-12 duration-300"
           data-testid="composer-image-editor-toolbar"
         >
-          <input
+          <RangeInput
             aria-label="Stroke width"
             className="h-1 w-12 cursor-pointer appearance-none rounded-full bg-white/25 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
             max={PEN_WIDTH_MAX_CSS}
@@ -392,7 +394,7 @@ export function ComposerImageEditor({
 
           <div className="flex items-center gap-1.5">
             {PEN_COLORS.map((color) => (
-              <button
+              <Action
                 aria-label={`${color.label} pen`}
                 aria-pressed={activeColor === color.value}
                 className={cn(
@@ -414,35 +416,35 @@ export function ComposerImageEditor({
                     width: `${activeWidthCss}px`,
                   }}
                 />
-              </button>
+              </Action>
             ))}
           </div>
 
           <Tooltip disableHoverableContent>
             <TooltipTrigger asChild>
-              <button
+              <Action
                 aria-label="Undo last stroke"
                 className="flex h-7 w-7 items-center justify-center rounded-full text-white transition-colors hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-transparent"
                 disabled={!hasStrokes}
                 onClick={undo}
                 type="button"
               >
-                <Undo2 className="h-4 w-4" />
-              </button>
+                <Undo2 className="size-4" />
+              </Action>
             </TooltipTrigger>
             <TooltipContent>Undo (⌘Z)</TooltipContent>
           </Tooltip>
           <Tooltip disableHoverableContent>
             <TooltipTrigger asChild>
-              <button
+              <Action
                 aria-label="Redo stroke"
                 className="flex h-7 w-7 items-center justify-center rounded-full text-white transition-colors hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-transparent"
                 disabled={history.undone.length === 0}
                 onClick={redo}
                 type="button"
               >
-                <Redo2 className="h-4 w-4" />
-              </button>
+                <Redo2 className="size-4" />
+              </Action>
             </TooltipTrigger>
             <TooltipContent>Redo (⇧⌘Z)</TooltipContent>
           </Tooltip>
@@ -471,7 +473,7 @@ export function ComposerImageEditor({
       </div>
 
       {saveError ? (
-        <p className="text-xs text-red-300" role="alert">
+        <p className="text-xs text-danger-foreground" role="alert">
           {saveError}
         </p>
       ) : null}

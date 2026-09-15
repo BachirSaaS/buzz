@@ -29,7 +29,7 @@ export function ScrollFadeMonoPanel({
           maxHeightClassName,
         )}
       >
-        <div className="px-3 py-2">{children}</div>
+        <div className="p-4">{children}</div>
       </div>
       <div
         aria-hidden
@@ -63,14 +63,14 @@ export function FileContentBlock({
   const resolvedFooterText = footerText ?? path;
 
   return (
-    <div className="flex max-h-64 flex-col overflow-hidden rounded-md border border-border/50 bg-muted/35 text-xs leading-5 text-foreground">
+    <div className="flex max-h-64 flex-col overflow-hidden rounded-blockui-md border border-border bg-muted/35 text-xs leading-5 text-foreground">
       <div className="min-h-0 flex-1 overflow-auto">
         <pre className="py-2 font-mono">
           <FileContentLines lines={lines} />
         </pre>
       </div>
       <div
-        className="relative z-10 shrink-0 truncate border-t border-border/50 bg-muted/35 px-3 py-1.5 text-xs font-normal leading-5 text-muted-foreground/70"
+        className="relative z-10 shrink-0 truncate border-t border-border/50 bg-muted/35 px-4 py-2 text-xs font-normal leading-5 text-muted-foreground"
         title={footerTitle ?? resolvedFooterText}
       >
         {resolvedFooterText}
@@ -93,12 +93,12 @@ function FileContentLineView({ line }: { line: FileContentLine }) {
   return (
     <span
       className={cn(
-        "block min-w-full whitespace-pre-wrap wrap-break-word px-3",
+        "block min-w-full whitespace-pre-wrap wrap-break-word px-4",
         line.kind === "add" &&
-          "border-l-2 border-green-500/50 bg-green-500/12 text-foreground dark:bg-green-500/10",
+          "border-l-2 border-success-foreground/30 bg-success text-foreground dark:bg-success",
         line.kind === "remove" &&
-          "border-l-2 border-red-500/50 bg-red-500/12 text-foreground dark:bg-red-500/10",
-        line.kind === "meta" && "text-muted-foreground/70",
+          "border-l-2 border-danger-foreground/30 bg-danger text-foreground dark:bg-danger",
+        line.kind === "meta" && "text-muted-foreground",
       )}
     >
       {line.text || " "}

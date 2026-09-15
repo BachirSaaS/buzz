@@ -1,3 +1,4 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
 import { usePreventSleepContext } from "@/features/agents/usePreventSleep";
 import { Switch } from "@/shared/ui/switch";
 import { SettingsOptionGroup, SettingsOptionRow } from "./SettingsOptionGroup";
@@ -14,14 +15,14 @@ export function PreventSleepSettingsCard() {
       >
         <SettingsOptionRow>
           <div className="min-w-0">
-            <label
+            <BlockLabel
               className="text-sm font-medium"
               htmlFor="prevent-sleep-switch"
             >
               Keep awake while agents are active
-            </label>
+            </BlockLabel>
             <p
-              className="text-sm font-normal text-muted-foreground/70"
+              className="text-sm font-normal text-muted-foreground"
               data-settings-subcopy
             >
               Prevents your computer from sleeping while local agents are
@@ -50,7 +51,7 @@ export function PreventSleepSettingsCard() {
       )}
 
       {expired && (
-        <p className="mt-3 rounded-xl border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-sm text-yellow-700 dark:text-yellow-400">
+        <p className="mt-3 rounded-xl border border-warning-foreground/30 bg-warning px-3 py-2 text-sm text-warning-foreground dark:text-warning-foreground">
           Sleep prevention expired after 1 hour without agent activity. It will
           resume on the next agent activity, or toggle off and on to re-enable
           now.

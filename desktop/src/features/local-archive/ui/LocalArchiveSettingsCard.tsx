@@ -1,3 +1,6 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { Input as BlockInput } from "@/shared/ui/input";
+import { NativeSelect } from "@/shared/blockui/components/native-select";
 import { Archive, Trash2 } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
@@ -81,14 +84,14 @@ function ObserverArchiveSection({
       <SettingsOptionGroup title="Agent observer feed">
         <SettingsOptionRow>
           <div className="min-w-0 flex-1">
-            <label
+            <BlockLabel
               className="text-sm font-medium"
               htmlFor="local-archive-observer-toggle"
             >
               Archive my agents' observer frames
-            </label>
+            </BlockLabel>
             <p
-              className="text-sm font-normal text-muted-foreground/70"
+              className="text-sm font-normal text-muted-foreground"
               data-settings-subcopy
             >
               {`Saves kind ${KIND_AGENT_OBSERVER_FRAME} observer frames addressed to your pubkey. These are ephemeral — not stored by the relay — so local archiving is the only way to retain them.`}
@@ -125,14 +128,14 @@ function AgentMetricArchiveSection({
       <SettingsOptionGroup title="Agent turn metrics">
         <SettingsOptionRow>
           <div className="min-w-0 flex-1">
-            <label
+            <BlockLabel
               className="text-sm font-medium"
               htmlFor="local-archive-agent-metric-toggle"
             >
               Archive my agents' turn metrics
-            </label>
+            </BlockLabel>
             <p
-              className="text-sm font-normal text-muted-foreground/70"
+              className="text-sm font-normal text-muted-foreground"
               data-settings-subcopy
             >
               Saves kind {KIND_AGENT_TURN_METRIC} turn-metric events addressed
@@ -178,12 +181,12 @@ function KindChecklist({ checkedKinds, onChange }: KindChecklistProps) {
                   onChange(toggleGroup(group, checkedKinds))
                 }
               />
-              <label
+              <BlockLabel
                 className="cursor-pointer text-sm font-medium"
                 htmlFor={`local-archive-group-${group.label}`}
               >
                 {group.label}
-              </label>
+              </BlockLabel>
             </div>
             {/* Individual kind checkboxes */}
             <div className="ml-6 space-y-1.5">
@@ -197,12 +200,12 @@ function KindChecklist({ checkedKinds, onChange }: KindChecklistProps) {
                       onChange(toggleKind(kind, checkedKinds))
                     }
                   />
-                  <label
+                  <BlockLabel
                     className="cursor-pointer text-sm text-muted-foreground"
                     htmlFor={`local-archive-kind-${kind}`}
                   >
                     {label}
-                  </label>
+                  </BlockLabel>
                 </div>
               ))}
             </div>
@@ -225,13 +228,13 @@ function CustomKindsInput({ value, onChange }: CustomKindsInputProps) {
   const hasInvalid = invalid.length > 0;
   return (
     <div>
-      <label
+      <BlockLabel
         className="mb-1.5 block text-sm font-medium"
         htmlFor="local-archive-custom-kinds"
       >
         Advanced: custom kinds
-      </label>
-      <input
+      </BlockLabel>
+      <BlockInput
         className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         data-testid="local-archive-custom-kinds"
         id="local-archive-custom-kinds"
@@ -240,10 +243,7 @@ function CustomKindsInput({ value, onChange }: CustomKindsInputProps) {
         type="text"
         value={value}
       />
-      <p
-        className="mt-1 text-xs text-muted-foreground/70"
-        data-settings-subcopy
-      >
+      <p className="mt-1 text-xs text-muted-foreground" data-settings-subcopy>
         Space- or comma-separated non-negative integers. Kinds already in the
         checklist above are ignored.
       </p>
@@ -329,13 +329,13 @@ function AddSubscriptionForm({
       <div className="space-y-5 px-4 py-4">
         {/* Channel picker */}
         <div>
-          <label
+          <BlockLabel
             className="mb-1.5 block text-sm font-medium"
             htmlFor="local-archive-channel-select"
           >
             Channel
-          </label>
-          <select
+          </BlockLabel>
+          <NativeSelect
             className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             data-testid="local-archive-channel-select"
             id="local-archive-channel-select"
@@ -348,7 +348,7 @@ function AddSubscriptionForm({
                 {ch.name}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </div>
 
         {/* Event types (per-kind checklist) */}
@@ -569,13 +569,13 @@ export function LocalArchiveSettingsCard() {
                     className="flex items-center gap-3 px-4 py-3"
                     data-testid={`local-archive-sub-${key}`}
                   >
-                    <Archive className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <Archive className="size-4 shrink-0 text-muted-foreground" />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">
                         {scopeLabel(sub, channelNameById)}
                       </p>
                       <p
-                        className="text-xs text-muted-foreground/70"
+                        className="text-xs text-muted-foreground"
                         data-settings-subcopy
                       >
                         {sub.scopeType} · kinds: {kindSummary(sub.kinds)}
@@ -590,7 +590,7 @@ export function LocalArchiveSettingsCard() {
                       size="icon"
                       variant="ghost"
                     >
-                      <Trash2 className="h-4 w-4" />
+                      <Trash2 className="size-4" />
                     </Button>
                   </div>
                 );
@@ -617,7 +617,7 @@ export function LocalArchiveSettingsCard() {
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium">Subscribe to a channel</p>
                   <p
-                    className="text-xs text-muted-foreground/70"
+                    className="text-xs text-muted-foreground"
                     data-settings-subcopy
                   >
                     Choose a channel and select which event types to archive.

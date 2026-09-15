@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -108,7 +109,7 @@ export function ProfileIngressRow({
     );
   } else {
     row = (
-      <button
+      <Action
         className={cn(
           className,
           "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
@@ -119,7 +120,7 @@ export function ProfileIngressRow({
         type="button"
       >
         {content}
-      </button>
+      </Action>
     );
   }
 
@@ -185,7 +186,7 @@ export function ProfileTabBar({
             >
               <span className="truncate">{tab.label}</span>
               {tab.trailing ? (
-                <span className="inline-flex shrink-0 items-center leading-none text-2xs text-muted-foreground group-data-[state=active]:text-foreground/70">
+                <span className="inline-flex shrink-0 items-center leading-none text-2xs text-muted-foreground group-data-[state=active]:text-foreground">
                   {tab.trailing}
                 </span>
               ) : null}
@@ -444,7 +445,7 @@ function ProfileLiveActivityEmbed({
         className="relative flex h-56 cursor-pointer flex-col overflow-hidden rounded-2xl border bg-background text-left shadow-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         data-testid={`user-profile-live-activity-${activityAgent.pubkey}`}
       >
-        <button
+        <Action
           aria-label={`Open activity feed. Last live ${formatLastLiveLabel(lastLiveAt, Date.now())}.`}
           className="absolute inset-0 z-10 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           onClick={openSelectedActivity}
@@ -489,7 +490,7 @@ function ProfileLiveActivityEmbed({
         className="relative flex h-56 cursor-pointer flex-col overflow-hidden rounded-2xl border bg-background text-left shadow-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         data-testid={`user-profile-live-activity-${activityAgent.pubkey}`}
       >
-        <button
+        <Action
           aria-label={`Open activity feed. Last live ${formatLastLiveLabel(lastLiveAt, Date.now())}.`}
           className="absolute inset-0 z-10 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           onClick={openSelectedActivity}
@@ -552,7 +553,7 @@ function ProfileLiveActivityEmbed({
               </span>
               {activeChannelName ? (
                 <span
-                  className="block truncate text-xs font-medium text-muted-foreground/75"
+                  className="block truncate text-xs font-medium text-muted-foreground"
                   data-testid="user-profile-activity-channel-label"
                   title={`#${activeChannelName}`}
                 >
@@ -599,7 +600,7 @@ function ActivityCarouselDots({
         const channelName = channelIdToName[channelId] ?? channelId;
 
         return (
-          <button
+          <Action
             aria-label={`Show #${channelName} activity`}
             aria-selected={isSelected}
             className="group relative flex items-center justify-center before:absolute before:-inset-2 before:content-['']"
@@ -621,7 +622,7 @@ function ActivityCarouselDots({
                   : "h-1 w-1 opacity-30 group-hover:opacity-60",
               )}
             />
-          </button>
+          </Action>
         );
       })}
     </div>
@@ -691,14 +692,14 @@ function ArchiveStatusTooltip() {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <button
+        <Action
           aria-label="What archived means"
           className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           data-testid="user-profile-archived-info"
           type="button"
         >
-          <Info className="h-4 w-4" />
-        </button>
+          <Info className="size-4" />
+        </Action>
       </TooltipTrigger>
       <TooltipContent align="end" className="max-w-72 text-left" side="top">
         <p className="text-sm">
@@ -788,12 +789,12 @@ export function ProfileRuntimeTabContent({
     <div className="space-y-4" data-testid="user-profile-runtime-sections">
       {needsRestart ? (
         <div
-          className="flex items-start gap-3 rounded-2xl bg-amber-500/10 px-4 py-3"
+          className="flex items-start gap-3 rounded-2xl bg-warning px-4 py-3"
           data-testid="needs-restart-banner"
         >
-          <RefreshCw className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+          <RefreshCw className="mt-0.5 size-4 shrink-0 text-warning-foreground dark:text-warning-foreground" />
           <div className="min-w-0 text-sm">
-            <p className="font-medium text-amber-600 dark:text-amber-400">
+            <p className="font-medium text-warning-foreground dark:text-warning-foreground">
               Restart required
             </p>
             <p className="mt-0.5 text-xs text-muted-foreground">

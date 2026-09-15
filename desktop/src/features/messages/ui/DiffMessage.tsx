@@ -5,7 +5,6 @@ import { getDiffTitleBadge } from "@/features/messages/lib/parseDiff";
 import { HighlightedSearchText } from "@/features/search/ui/HighlightedSearchText";
 import { isSafeUrl } from "@/shared/lib/url";
 import { Button } from "@/shared/ui/button";
-import { useSmoothCorners } from "@/shared/ui/smoothCorners";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import { DiffViewer } from "./DiffViewer";
 
@@ -39,7 +38,6 @@ export default function DiffMessage({
   onExpand,
 }: DiffMessageProps) {
   const diffCardRef = React.useRef<HTMLDivElement | null>(null);
-  useSmoothCorners(diffCardRef);
 
   const safeRepoUrl = isSafeUrl(repoUrl) ? repoUrl : undefined;
 
@@ -59,8 +57,8 @@ export default function DiffMessage({
       className="overflow-hidden rounded-2xl border border-border/70 bg-card/60 text-sm"
     >
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border/50 bg-muted/40">
-        <FileDiff className="h-4 w-4 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 truncate font-mono text-xs text-foreground/80">
+        <FileDiff className="size-4 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 truncate font-mono text-xs text-foreground">
           {filePath ?? "diff"}
         </span>
         {titleBadge && (
@@ -108,7 +106,7 @@ export default function DiffMessage({
                   type="button"
                   variant="ghost"
                 >
-                  <Maximize2 className="h-4 w-4" />
+                  <Maximize2 className="size-4" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>Expand diff</TooltipContent>
@@ -136,7 +134,7 @@ export default function DiffMessage({
 
       {/* Truncation warning */}
       {truncated && (
-        <div className="px-3 py-2 border-t border-border/50 bg-amber-500/10 text-xs text-warning">
+        <div className="px-3 py-2 border-t border-border/50 bg-warning text-xs text-warning">
           Diff truncated.{" "}
           {safeRepoUrl && commitUrl ? (
             <a

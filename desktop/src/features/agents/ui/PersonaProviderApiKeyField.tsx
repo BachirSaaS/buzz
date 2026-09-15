@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { Eye, EyeOff } from "lucide-react";
 
@@ -104,18 +105,18 @@ export function PersonaProviderApiKeyField({
           type={showValue ? "text" : "password"}
           value={value}
         />
-        <button
+        <Action
           aria-label={showValue ? "Hide API key" : "Show API key"}
           className="shrink-0 text-muted-foreground hover:text-foreground"
           onClick={() => setShowValue((v) => !v)}
           type="button"
         >
           {showValue ? (
-            <EyeOff className="h-4 w-4" />
+            <EyeOff className="size-4" />
           ) : (
-            <Eye className="h-4 w-4" />
+            <Eye className="size-4" />
           )}
-        </button>
+        </Action>
       </div>
       {isValidating ? (
         <p className="text-xs text-muted-foreground" id={validationId}>

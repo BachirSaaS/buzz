@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { CheckCheck } from "lucide-react";
 
@@ -102,7 +103,7 @@ export function CompactMessageSummary({
     <>
       <div className="flex max-w-full flex-row items-start justify-start">
         {openProfilePanel && !isCompactPreview ? (
-          <button
+          <Action
             aria-label={`Open ${displayName} profile`}
             className={cn(
               avatarClassName,
@@ -123,7 +124,7 @@ export function CompactMessageSummary({
               size="sm"
               testId="transcript-agent-sent-avatar"
             />
-          </button>
+          </Action>
         ) : (
           <UserAvatar
             avatarUrl={avatarUrl}
@@ -137,10 +138,10 @@ export function CompactMessageSummary({
             testId="transcript-agent-sent-avatar"
           />
         )}
-        <div className="flex min-w-0 flex-1 flex-col items-start gap-1">
+        <div className="flex min-w-0 flex-1 flex-col items-start gap-2">
           <div
             className={cn(
-              "w-full min-w-0 rounded-2xl border px-3 py-2 shadow-sm",
+              "w-full min-w-0 rounded-blockui-lg border p-6",
               isCompactPreview
                 ? "text-xs leading-4"
                 : "text-sm leading-relaxed",
@@ -168,7 +169,7 @@ export function CompactMessageSummary({
             {hasBubbleOverflow ? (
               <span
                 className={cn(
-                  "pointer-events-none absolute inset-x-0 bottom-0 h-8 rounded-b-2xl bg-linear-to-b from-transparent",
+                  "pointer-events-none absolute inset-x-0 bottom-0 h-8 rounded-b-blockui-lg bg-linear-to-b from-transparent",
                   isError
                     ? "to-destructive/10"
                     : isCompactPreview
@@ -179,12 +180,12 @@ export function CompactMessageSummary({
             ) : null}
             {canOpenMessage ? <MessageLinkHoverCue /> : null}
           </div>
-          <div className="inline-flex max-w-full items-center gap-1.5 px-1">
+          <div className="inline-flex max-w-full items-center gap-2">
             <TranscriptTimestamp
               messageLink={messageLink}
               timestamp={timestamp}
             />
-            <button
+            <Action
               aria-label="Show sent message context"
               className={cn(
                 "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-sm transition-colors hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
@@ -195,8 +196,8 @@ export function CompactMessageSummary({
               title="Show sent message context"
               type="button"
             >
-              <CheckCheck className="h-3.5 w-3.5" />
-            </button>
+              <CheckCheck className="size-3.5" />
+            </Action>
           </div>
         </div>
       </div>

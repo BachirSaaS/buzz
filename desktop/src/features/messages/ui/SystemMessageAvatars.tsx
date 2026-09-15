@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import {
   resolveUserLabel,
   type UserProfileLookup,
@@ -83,7 +84,7 @@ export function SystemMessageAvatar({
           pubkey={singlePubkey}
           role={isSingleAgent ? "bot" : undefined}
         >
-          <button
+          <Action
             className={cn(
               "shrink-0 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
               isSingleAgent ? "rounded-[30%]" : "rounded-full",
@@ -92,7 +93,7 @@ export function SystemMessageAvatar({
             type="button"
           >
             {avatar}
-          </button>
+          </Action>
         </UserProfilePopover>
       );
     }
@@ -144,7 +145,7 @@ export function SystemMessageAvatar({
       pubkey={actorPubkey}
       role={isActorAgent ? "bot" : undefined}
     >
-      <button
+      <Action
         className={cn(
           "shrink-0 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
           isActorAgent ? "rounded-[30%]" : "rounded-full",
@@ -152,7 +153,7 @@ export function SystemMessageAvatar({
         type="button"
       >
         {dualAvatar}
-      </button>
+      </Action>
     </UserProfilePopover>
   );
 }

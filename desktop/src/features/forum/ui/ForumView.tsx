@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { MessageSquareText } from "lucide-react";
 import * as React from "react";
 
@@ -193,7 +194,7 @@ export function ForumView({
             profiles={profiles}
           />
         ) : (
-          <button
+          <Action
             className="w-full rounded-xl border border-dashed border-border/80 px-4 py-3 text-left text-sm text-muted-foreground transition-colors hover:border-border hover:bg-accent/30 hover:text-foreground"
             disabled={!channel.isMember || channel.archivedAt !== null}
             onClick={() => setIsComposerOpen(true)}
@@ -204,7 +205,7 @@ export function ForumView({
               : !channel.isMember
                 ? "Join this forum to create posts."
                 : "Start a new post..."}
-          </button>
+          </Action>
         )}
       </div>
 
@@ -222,9 +223,9 @@ export function ForumView({
           </div>
         ) : posts.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 px-4 py-16 text-center">
-            <MessageSquareText className="h-10 w-10 text-muted-foreground/40" />
+            <MessageSquareText className="size-10 text-muted-foreground" />
             <div>
-              <p className="text-sm font-medium text-foreground/70">
+              <p className="text-sm font-medium text-foreground">
                 No posts yet
               </p>
               <p className="mt-1 text-xs text-muted-foreground">

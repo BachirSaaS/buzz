@@ -137,7 +137,7 @@ test("creation requires a sufficiently long password and exposes a temporary hea
   const download = keyRow.getByTestId("encrypted-backup-download");
   await expect(download).toBeVisible();
   await expect(download).toHaveText("Download backup");
-  await expect(download).toHaveClass(/bg-primary/);
+  await expect(download).toHaveClass(/bg-blockui-button-prominent-fill/);
   await expect(
     download.getByTestId("encrypted-backup-availability-fill"),
   ).toBeVisible();
@@ -162,8 +162,8 @@ test("encryption and native save continue after closing the dialog and settings"
   await expect(dialog.getByTestId("encrypted-backup-progress")).toBeVisible();
 
   await dialog.getByRole("button", { name: "Close" }).click();
-  await page.getByTestId("settings-back-to-app").click();
-  await expect(page.getByTestId("settings-back-to-app")).toHaveCount(0);
+  await page.getByTestId("global-back").click();
+  await expect(page.getByTestId("settings-view")).toHaveCount(0);
   await expect(
     page.getByText("Preparing backup…", { exact: true }),
   ).toBeVisible();
@@ -180,7 +180,7 @@ test("encryption and native save continue after closing the dialog and settings"
   ).toBeVisible();
 
   await page.getByRole("button", { name: "Open settings" }).click();
-  await expect(page.getByTestId("settings-back-to-app")).toBeVisible();
+  await expect(page.getByTestId("settings-view")).toBeVisible();
   await openIdentity(page);
   await expect(page.getByTestId("encrypted-backup-download")).toBeVisible();
 });

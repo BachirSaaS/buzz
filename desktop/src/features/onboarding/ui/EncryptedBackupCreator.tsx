@@ -1,3 +1,6 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { RangeInput } from "@/shared/ui/native-controls";
+import { NativeSelect } from "@/shared/blockui/components/native-select";
 import { AlertTriangle, Eye, EyeOff, RefreshCw } from "lucide-react";
 import * as React from "react";
 import { createPortal } from "react-dom";
@@ -268,7 +271,7 @@ function PassphraseGeneratorPopover({
           type="button"
           variant="ghost"
         >
-          <RefreshCw className="h-4 w-4" aria-hidden="true" />
+          <RefreshCw className="size-4" aria-hidden="true" />
         </Button>
       </PopoverAnchor>
       <PopoverContent
@@ -287,14 +290,14 @@ function PassphraseGeneratorPopover({
         onOpenAutoFocus={(event) => event.preventDefault()}
       >
         <div className="flex items-center justify-between gap-4">
-          <label
+          <BlockLabel
             className="text-sm text-muted-foreground"
             htmlFor="backup-passphrase-words"
           >
             Words
-          </label>
+          </BlockLabel>
           <div className="flex flex-1 items-center justify-end gap-3">
-            <input
+            <RangeInput
               className="h-1.5 w-full max-w-30 cursor-pointer appearance-none rounded-full bg-foreground/15 accent-primary"
               id="backup-passphrase-words"
               data-testid="backup-passphrase-words"
@@ -311,13 +314,13 @@ function PassphraseGeneratorPopover({
         </div>
 
         <div className="flex items-center justify-between gap-4">
-          <label
+          <BlockLabel
             className="text-sm text-muted-foreground"
             htmlFor="backup-passphrase-separator"
           >
             Separator
-          </label>
-          <select
+          </BlockLabel>
+          <NativeSelect
             className="h-8 rounded-lg border border-border bg-background px-2 text-sm text-foreground outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
             id="backup-passphrase-separator"
             data-testid="backup-passphrase-separator"
@@ -329,7 +332,7 @@ function PassphraseGeneratorPopover({
                 {option.label}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </div>
 
         {error ? (
@@ -337,7 +340,7 @@ function PassphraseGeneratorPopover({
             className="flex items-start gap-1.5 text-xs text-destructive"
             data-testid="backup-passphrase-generate-error"
           >
-            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
             {error}
           </p>
         ) : null}
@@ -550,12 +553,12 @@ export function EncryptedBackupCreator({
         {showBackupTimeline ? <BackupPasswordTimeline /> : null}
         <div className="relative z-10">
           {cardLayout ? (
-            <label
+            <BlockLabel
               className="mb-2 block text-sm font-medium text-foreground"
               htmlFor="backup-passphrase-input"
             >
               Password
-            </label>
+            </BlockLabel>
           ) : null}
           <div className="relative">
             <PasswordInput
@@ -656,9 +659,9 @@ export function EncryptedBackupCreator({
               variant="ghost"
             >
               {isRevealed ? (
-                <EyeOff className="h-4 w-4" aria-hidden="true" />
+                <EyeOff className="size-4" aria-hidden="true" />
               ) : (
-                <Eye className="h-4 w-4" aria-hidden="true" />
+                <Eye className="size-4" aria-hidden="true" />
               )}
             </Button>
             <PassphraseGeneratorPopover
@@ -778,9 +781,6 @@ export function EncryptedBackupCreator({
             variant === "spotlight" && "buzz-onboarding-security-theme",
           )}
           data-testid="backup-change-password-dialog"
-          surface={variant === "spotlight" ? "textured" : "default"}
-          textureSize="compact"
-          textureTone={variant === "spotlight" ? "dark" : "light"}
         >
           <AlertDialogHeader>
             <AlertDialogTitle>Create a new backup password?</AlertDialogTitle>

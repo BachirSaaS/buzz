@@ -1,6 +1,8 @@
+import { Action } from "@/shared/ui/action";
+import { WorkspaceSidebarButton } from "@/shared/ui/workspace-sidebar-button";
 import * as React from "react";
 import { getVersion } from "@tauri-apps/api/app";
-import { AlertCircle, ArrowLeft, LoaderCircle, RefreshCw } from "lucide-react";
+import { AlertCircle, LoaderCircle, RefreshCw } from "lucide-react";
 
 import { useMyRelayMembershipLookupQuery } from "@/features/community-members/hooks";
 import {
@@ -12,7 +14,6 @@ import {
   resolveEnabled,
   useFeatureSnapshot,
 } from "@/shared/features";
-import { topChromeBackdrop } from "@/shared/layout/chromeLayout";
 import { cn } from "@/shared/lib/cn";
 import {
   Sidebar,
@@ -21,14 +22,10 @@ import {
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
-  SidebarHeader,
   SidebarInset,
   SidebarMenu,
-  SidebarMenuButton,
   SidebarMenuItem,
-  useSidebar,
 } from "@/shared/ui/sidebar";
-import { SidebarMenuLabel } from "@/shared/ui/sidebar-menu-label";
 import {
   renderSettingsSection,
   settingsSections,
@@ -88,24 +85,15 @@ function SettingsSectionButton({
 
   return (
     <SidebarMenuItem>
-      <SidebarMenuButton
+      <WorkspaceSidebarButton
+        active={active}
         aria-pressed={active}
         data-testid={`settings-nav-${section.value}`}
-        isActive={active}
         onClick={() => onSelect(section.value)}
-        tooltip={section.label}
-        type="button"
       >
-        <Icon
-          className={cn(
-            "h-4 w-4 shrink-0 transition-colors",
-            active
-              ? "text-sidebar-active-foreground"
-              : "text-sidebar-foreground/70",
-          )}
-        />
-        <SidebarMenuLabel>{section.label}</SidebarMenuLabel>
-      </SidebarMenuButton>
+        <Icon aria-hidden="true" className="size-4" />
+        <span className="min-w-0 truncate">{section.label}</span>
+      </WorkspaceSidebarButton>
     </SidebarMenuItem>
   );
 }
@@ -127,7 +115,6 @@ export function SettingsView({
   onSetSoundForSlot,
   section,
 }: SettingsViewProps) {
-  const { isMobile, open: sidebarOpen, setOpen: setSidebarOpen } = useSidebar();
   const myMembershipQuery = useMyRelayMembershipLookupQuery();
   const featureState = useFeatureSnapshot();
   const visibleSections = React.useMemo(() => {
@@ -172,12 +159,6 @@ export function SettingsView({
   }, [onSectionChange, section, visibleSections]);
 
   React.useEffect(() => {
-    if (!isMobile && !sidebarOpen) {
-      setSidebarOpen(true);
-    }
-  }, [isMobile, setSidebarOpen, sidebarOpen]);
-
-  React.useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape" && !event.defaultPrevented) {
         event.preventDefault();
@@ -211,46 +192,19 @@ export function SettingsView({
   return (
     <>
       <Sidebar
-        className="!border-r-0"
-        collapsible="offcanvas"
+        className="w-[220px] shrink-0 border-r border-border bg-muted/30"
+        collapsible="none"
         data-testid="settings-sidebar"
         variant="sidebar"
       >
-        <div
-          aria-hidden="true"
-          className={cn(
-            "shrink-0 cursor-default select-none",
-            topChromeBackdrop.height,
-          )}
-          data-tauri-drag-region
-          data-testid="settings-sidebar-top-chrome"
-        />
-        <SidebarHeader
-          className="cursor-default select-none pb-0 pt-3"
-          data-tauri-drag-region
-        >
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                data-testid="settings-back-to-app"
-                onClick={onClose}
-                tooltip="Back to app"
-                type="button"
-              >
-                <ArrowLeft className="h-4 w-4" />
-                <span>Back to app</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          </SidebarMenu>
-        </SidebarHeader>
-
-        <SidebarContent>
+        <h1 className="px-8 pb-3 pt-5 text-base font-semibold">Settings</h1>
+        <SidebarContent className="gap-0">
           {myMembershipQuery.isPending ? (
             <div
               className="mx-3 flex items-center gap-2 rounded-md border border-sidebar-border px-3 py-2 text-xs text-sidebar-foreground/70"
               data-testid="community-access-loading"
             >
-              <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+              <LoaderCircle className="size-3.5 animate-spin" />
               Checking invite permissions…
             </div>
           ) : null}
@@ -260,45 +214,53 @@ export function SettingsView({
               data-testid="community-access-error"
             >
               <div className="flex items-center gap-2">
-                <AlertCircle className="h-3.5 w-3.5 text-destructive" />
+                <AlertCircle className="size-3.5 text-destructive" />
                 Invite settings could not be checked.
               </div>
-              <button
+              <Action
                 className="flex items-center gap-1.5 font-medium text-sidebar-foreground underline-offset-2 hover:underline"
                 onClick={() => void myMembershipQuery.refetch()}
                 type="button"
               >
-                <RefreshCw className="h-3.5 w-3.5" />
+                <RefreshCw className="size-3.5" />
                 Try again
-              </button>
+              </Action>
             </div>
           ) : null}
           {shouldWarnMissingMembershipSnapshot(myMembershipQuery.data) ? (
             <div
-              className="mx-3 flex items-start gap-2 rounded-md border border-amber-500/40 px-3 py-2 text-xs text-sidebar-foreground"
+              className="mx-3 flex items-start gap-2 rounded-md border border-warning-foreground/30 px-3 py-2 text-xs text-sidebar-foreground"
               data-testid="community-access-snapshot-missing"
             >
-              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
+              <AlertCircle className="mt-0.5 size-3.5 shrink-0 text-warning-foreground" />
               Invite settings are unavailable. Relay recovery may still be in
               progress.
             </div>
           ) : null}
-          {visibleNavGroups.map((group) => (
-            <SidebarGroup key={group.label}>
-              <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
-              <SidebarGroupContent>
-                <SidebarMenu aria-label={`${group.label} settings sections`}>
-                  {group.sections.map((entry) => (
-                    <SettingsSectionButton
-                      active={entry.value === section}
-                      key={entry.value}
-                      onSelect={onSectionChange}
-                      section={entry}
-                    />
-                  ))}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
+          {visibleNavGroups.map((group, index) => (
+            <React.Fragment key={group.label}>
+              {index > 0 ? <hr className="mx-4 my-2 border-border" /> : null}
+              <SidebarGroup className="px-4 py-2">
+                <SidebarGroupLabel className="px-4">
+                  {group.label}
+                </SidebarGroupLabel>
+                <SidebarGroupContent>
+                  <SidebarMenu
+                    className="gap-2"
+                    aria-label={`${group.label} settings sections`}
+                  >
+                    {group.sections.map((entry) => (
+                      <SettingsSectionButton
+                        active={entry.value === section}
+                        key={entry.value}
+                        onSelect={onSectionChange}
+                        section={entry}
+                      />
+                    ))}
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </SidebarGroup>
+            </React.Fragment>
           ))}
         </SidebarContent>
 
@@ -317,23 +279,14 @@ export function SettingsView({
 
       <SidebarInset
         className={cn(
-          "isolate relative min-h-0 min-w-0 overflow-hidden bg-sidebar motion-safe:transition-opacity motion-safe:duration-200",
+          "isolate relative min-h-0 min-w-0 overflow-hidden bg-background motion-safe:transition-opacity motion-safe:duration-200",
           isLoaded ? "opacity-100" : "opacity-0",
         )}
         data-buzz-shadow-viewport
         data-testid="settings-view"
       >
         <div
-          aria-hidden="true"
-          className={cn(
-            "relative z-10 shrink-0 cursor-default select-none",
-            topChromeBackdrop.height,
-          )}
-          data-tauri-drag-region
-          data-testid="settings-top-chrome"
-        />
-        <div
-          className="relative z-10 mb-2 ml-px mr-2 mt-px flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl bg-background shadow-content-edge"
+          className="relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
           data-buzz-content-surface
           data-testid="settings-content-surface"
         >

@@ -1,3 +1,4 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
 import type { ManagedAgent, RuntimeConfigSurface } from "@/shared/api/types";
 import { PERSONA_LABEL_OPTIONAL_CLASS } from "./agentConfigOptions";
 import {
@@ -50,13 +51,13 @@ export function EffortPickerField({
 
   return (
     <div className="space-y-1.5">
-      <label
+      <BlockLabel
         className="text-sm font-medium text-foreground"
         htmlFor="edit-agent-effort"
       >
         Thinking effort
         <span className={PERSONA_LABEL_OPTIONAL_CLASS}>Optional</span>
-      </label>
+      </BlockLabel>
       <PersonaDropdownField
         disabled={disabled}
         id="edit-agent-effort"

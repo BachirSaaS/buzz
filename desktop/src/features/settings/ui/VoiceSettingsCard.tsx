@@ -1,3 +1,4 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
 import * as React from "react";
 import { ChevronDown, Play, Trash2, Upload, Volume2 } from "lucide-react";
 
@@ -195,14 +196,14 @@ export function VoiceSettingsCard() {
         <SettingsOptionGroup title="Playback">
           <SettingsOptionRow>
             <div className="min-w-0">
-              <label
+              <BlockLabel
                 className="text-sm font-medium"
                 htmlFor="agent-text-to-speech-switch"
               >
                 Agent text to speech
-              </label>
+              </BlockLabel>
               <p
-                className="text-sm text-muted-foreground/70"
+                className="text-sm text-muted-foreground"
                 data-settings-subcopy
               >
                 Read new agent messages aloud in the order they arrive.
@@ -233,7 +234,7 @@ export function VoiceSettingsCard() {
               <div className="min-w-0">
                 <p className="text-sm font-medium">Pocket TTS voice</p>
                 <p
-                  className="text-sm text-muted-foreground/70"
+                  className="text-sm text-muted-foreground"
                   data-settings-subcopy
                 >
                   Voice files stay private on this device.
@@ -253,7 +254,7 @@ export function VoiceSettingsCard() {
                       {selectedVoice
                         ? voiceOptionLabel(selectedVoice, voices)
                         : "Mary"}
-                      <ChevronDown className="h-4 w-4" />
+                      <ChevronDown className="size-4" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent
@@ -301,9 +302,9 @@ export function VoiceSettingsCard() {
                   variant="outline"
                 >
                   {previewing ? (
-                    <Volume2 className="h-4 w-4 animate-pulse" />
+                    <Volume2 className="size-4 animate-pulse" />
                   ) : (
-                    <Play className="h-4 w-4" />
+                    <Play className="size-4" />
                   )}
                   Preview
                 </Button>
@@ -314,7 +315,7 @@ export function VoiceSettingsCard() {
                   size="sm"
                   variant="outline"
                 >
-                  <Upload className="h-4 w-4" />
+                  <Upload className="size-4" />
                   Add voice
                 </Button>
                 {selectedVoice?.key.startsWith("pocket:imported:") && (
@@ -326,7 +327,7 @@ export function VoiceSettingsCard() {
                     size="icon"
                     variant="ghost"
                   >
-                    <Trash2 className="h-4 w-4" />
+                    <Trash2 className="size-4" />
                   </Button>
                 )}
               </div>

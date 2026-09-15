@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { MessageSquare } from "lucide-react";
 import { useMemo } from "react";
 
@@ -53,7 +54,7 @@ export function ForumPostCard({
   );
   // Memoize the imeta map: `parseImetaTags` builds a fresh object each render,
   // and the `Markdown` memo compares `imetaByUrl` by reference. Without this,
-  // the post's Markdown (and the FileCard <button> it renders) is rebuilt on
+  // the post's Markdown (and the FileCard <Action> it renders) is rebuilt on
   // every ForumPostCard render, swapping the live DOM node. A click that lands
   // across one of those swaps splits mousedown/mouseup onto different nodes, so
   // the browser never fires `click` and a file download is silently dropped.
@@ -65,7 +66,7 @@ export function ForumPostCard({
       : post.content;
 
   return (
-    // biome-ignore lint/a11y/useSemanticElements: Cannot use <button> because DeleteActionMenu renders a nested <button> via DropdownMenuTrigger, which is invalid HTML
+    // biome-ignore lint/a11y/useSemanticElements: Cannot use <Action> because DeleteActionMenu renders a nested <Action> via DropdownMenuTrigger, which is invalid HTML
     <div
       role="button"
       tabIndex={0}
@@ -89,7 +90,7 @@ export function ForumPostCard({
             pubkey={post.pubkey}
             role={authorIsAgent ? "bot" : undefined}
           >
-            <button
+            <Action
               className="flex items-center gap-2 rounded-lg focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
               type="button"
             >
@@ -103,7 +104,7 @@ export function ForumPostCard({
               <span className="truncate text-sm font-medium text-foreground hover:underline">
                 {authorLabel}
               </span>
-            </button>
+            </Action>
           </UserProfilePopover>
         </div>
         <span className="text-xs text-muted-foreground">
@@ -140,14 +141,14 @@ export function ForumPostCard({
 
       {summary && summary.replyCount > 0 ? (
         <div className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
-          <MessageSquare className="h-4 w-4" />
+          <MessageSquare className="size-4" />
           <span>
             {summary.replyCount}{" "}
             {summary.replyCount === 1 ? "reply" : "replies"}
           </span>
           {summary.lastReplyAt ? (
             <>
-              <span className="text-muted-foreground/50">·</span>
+              <span className="text-muted-foreground">·</span>
               <span>last {formatRelativeTime(summary.lastReplyAt)}</span>
             </>
           ) : null}

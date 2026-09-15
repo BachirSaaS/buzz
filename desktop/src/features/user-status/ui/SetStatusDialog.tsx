@@ -1,3 +1,5 @@
+import { Input as BlockInput } from "@/shared/ui/input";
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import {
   CalendarClock,
@@ -383,7 +385,7 @@ export function SetStatusDialog({
           <Popover onOpenChange={setPickerOpen} open={pickerOpen}>
             <div className="shrink-0">
               <PopoverTrigger asChild>
-                <button
+                <Action
                   aria-label="Choose a status emoji"
                   className="flex h-12 w-12 items-center justify-center rounded-xl transition-colors hover:bg-accent"
                   type="button"
@@ -391,9 +393,9 @@ export function SetStatusDialog({
                   {effectiveEmoji ? (
                     <StatusEmoji className="h-5 w-5" value={effectiveEmoji} />
                   ) : (
-                    <SmilePlus className="h-5 w-5 text-muted-foreground" />
+                    <SmilePlus className="size-5 text-muted-foreground" />
                   )}
-                </button>
+                </Action>
               </PopoverTrigger>
             </div>
             <PopoverContent
@@ -404,7 +406,7 @@ export function SetStatusDialog({
               <EmojiPicker autoFocus onSelect={handleEmojiSelect} />
             </PopoverContent>
           </Popover>
-          <input
+          <BlockInput
             className="min-w-0 flex-1 bg-transparent px-1 pr-3 text-base outline-none placeholder:text-muted-foreground"
             data-testid="set-status-input"
             onChange={(event) => setText(event.target.value)}
@@ -417,16 +419,16 @@ export function SetStatusDialog({
         <StatusSection label="Duration">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button
+              <Action
                 className={ROW_CLASS}
                 data-testid="set-status-duration"
                 type="button"
               >
-                <Clock3 className="h-5 w-5 text-muted-foreground" />
+                <Clock3 className="size-5 text-muted-foreground" />
                 <span className="flex-1">Duration</span>
                 <span className="text-muted-foreground">{duration}</span>
-                <ChevronDown className="h-4 w-4 text-muted-foreground" />
-              </button>
+                <ChevronDown className="size-4 text-muted-foreground" />
+              </Action>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-52">
               {DURATIONS.map((option) => (
@@ -440,18 +442,18 @@ export function SetStatusDialog({
                   }}
                 >
                   {option}
-                  {duration === option ? <Check className="h-4 w-4" /> : null}
+                  {duration === option ? <Check className="size-4" /> : null}
                 </DropdownMenuItem>
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
           {duration === "Custom" ? (
             <div className={ROW_CLASS}>
-              <CalendarClock className="h-5 w-5 text-muted-foreground" />
+              <CalendarClock className="size-5 text-muted-foreground" />
               <span>Until</span>
               <Popover onOpenChange={setCalendarOpen} open={calendarOpen}>
                 <PopoverTrigger asChild>
-                  <button
+                  <Action
                     aria-label="Status expiration date"
                     className="flex h-9 min-w-0 flex-1 items-center rounded-md border border-input bg-background px-2 text-sm outline-none focus:ring-1 focus:ring-ring"
                     type="button"
@@ -459,8 +461,8 @@ export function SetStatusDialog({
                     <span className="truncate">
                       {formattedDate(customUntil)}
                     </span>
-                    <ChevronDown className="ml-auto h-4 w-4 shrink-0 text-muted-foreground" />
-                  </button>
+                    <ChevronDown className="ml-auto size-4 shrink-0 text-muted-foreground" />
+                  </Action>
                 </PopoverTrigger>
                 <PopoverContent align="start" className="w-auto p-0">
                   <Calendar
@@ -481,7 +483,7 @@ export function SetStatusDialog({
               </Popover>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button
+                  <Action
                     aria-label="Status expiration time"
                     className="flex h-9 w-28 shrink-0 items-center rounded-md border border-input bg-background px-2 text-sm outline-none focus:ring-1 focus:ring-ring"
                     type="button"
@@ -491,8 +493,8 @@ export function SetStatusDialog({
                         (time) => time.value === toLocalTimeValue(customUntil),
                       )?.label ?? formattedTime(customUntil)}
                     </span>
-                    <ChevronDown className="ml-auto h-4 w-4 shrink-0 text-muted-foreground" />
-                  </button>
+                    <ChevronDown className="ml-auto size-4 shrink-0 text-muted-foreground" />
+                  </Action>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
                   align="end"
@@ -516,7 +518,7 @@ export function SetStatusDialog({
                     >
                       {time.label}
                       {time.value === toLocalTimeValue(customUntil) ? (
-                        <Check className="h-4 w-4" />
+                        <Check className="size-4" />
                       ) : null}
                     </DropdownMenuItem>
                   ))}
@@ -534,7 +536,7 @@ export function SetStatusDialog({
         {!baseline.hasExistingStatus ? (
           <StatusSection label="Quick statuses">
             {PRESETS.map((preset) => (
-              <button
+              <Action
                 className={ROW_CLASS}
                 data-testid={`set-status-preset-${preset.text.toLowerCase().replace(/\s+/g, "-")}`}
                 key={preset.text}
@@ -548,7 +550,7 @@ export function SetStatusDialog({
                   {preset.emoji}
                 </span>
                 <span>{preset.text}</span>
-              </button>
+              </Action>
             ))}
           </StatusSection>
         ) : null}

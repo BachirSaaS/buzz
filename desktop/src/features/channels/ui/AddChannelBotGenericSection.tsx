@@ -1,3 +1,4 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
 import { Input } from "@/shared/ui/input";
 import { Textarea } from "@/shared/ui/textarea";
 
@@ -26,9 +27,12 @@ export function AddChannelBotGenericSection({
       </div>
 
       <div className="space-y-1.5">
-        <label className="text-sm font-medium" htmlFor="channel-generic-name">
+        <BlockLabel
+          className="text-sm font-medium"
+          htmlFor="channel-generic-name"
+        >
           Name
-        </label>
+        </BlockLabel>
         <Input
           autoCapitalize="none"
           autoCorrect="off"
@@ -44,9 +48,12 @@ export function AddChannelBotGenericSection({
       </div>
 
       <div className="space-y-1.5">
-        <label className="text-sm font-medium" htmlFor="channel-generic-prompt">
+        <BlockLabel
+          className="text-sm font-medium"
+          htmlFor="channel-generic-prompt"
+        >
           Prompt
-        </label>
+        </BlockLabel>
         <Textarea
           className="min-h-24"
           disabled={disabled}

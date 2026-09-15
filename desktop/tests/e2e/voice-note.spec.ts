@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test";
 
 import { waitForAnimations } from "../helpers/animations";
 import { installMockBridge } from "../helpers/bridge";
-import { expectSmoothCorners } from "../helpers/css";
+import { expectBlockUICorners } from "../helpers/css";
 
 const AUDIO_URL = "http://127.0.0.1:4173/sounds/ping.mp3";
 
@@ -748,8 +748,8 @@ test("records from the composer and renders an inline waveform card", async ({
   const playbackControl = card.getByTestId("voice-note-playback-control");
   await expect(card).toHaveClass(/\brounded-2xl\b/);
   await expect(playbackControl).toHaveClass(/\brounded-lg\b/);
-  await expectSmoothCorners(card);
-  await expectSmoothCorners(playbackControl);
+  await expectBlockUICorners(card);
+  await expectBlockUICorners(playbackControl);
   await expect(
     card.getByRole("button", { name: "Play voice note" }),
   ).toBeVisible();
@@ -796,7 +796,7 @@ test("records from the composer and renders an inline waveform card", async ({
   await waitForAnimations(page);
   await card.hover();
   await expect(playbackRate).toHaveCSS("opacity", "1");
-  await expectSmoothCorners(playbackRate);
+  await expectBlockUICorners(playbackRate);
   await expect(playbackRate).toHaveCSS("padding-left", "10px");
   await expect(playbackRate).toHaveCSS("padding-top", "2px");
   const [rateBackground, playButtonBackground] = await Promise.all([

@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test";
 
 import { waitForAnimations } from "../helpers/animations";
 import { installMockBridge } from "../helpers/bridge";
-import { expectCornerRadiusPx, expectSmoothCorners } from "../helpers/css";
+import { expectCornerRadiusPx, expectBlockUICorners } from "../helpers/css";
 
 async function openMoreActionsMenu(page: Page, messageId: string) {
   const row = page.locator(`[data-message-id="${messageId}"]`);
@@ -221,8 +221,8 @@ test("upload a file and see a FileCard in the timeline", async ({ page }) => {
   // escapes the webview to the OS browser and hits a corporate CDN page.
   const card = page.getByTestId("file-card").last();
   await expect(card).toBeVisible();
-  await expectCornerRadiusPx(card, 16);
-  await expectSmoothCorners(card);
+  await expectCornerRadiusPx(card, 24);
+  await expectBlockUICorners(card);
   await expect(card).toContainText("quarterly-report.pdf");
 
   await card.click();

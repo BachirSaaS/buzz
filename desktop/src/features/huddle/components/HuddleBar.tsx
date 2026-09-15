@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -589,14 +590,14 @@ export function HuddleBar({
             className="flex min-w-0 items-center gap-1.5 rounded bg-destructive/10 px-2 py-1 text-xs text-destructive"
           >
             <span className="max-w-[220px] truncate">{huddleError}</span>
-            <button
+            <Action
               aria-label="Dismiss error"
               className="ml-1 opacity-60 hover:opacity-100"
               onClick={clearHuddleError}
               type="button"
             >
               ✕
-            </button>
+            </Action>
           </div>
         )}
 
@@ -764,7 +765,7 @@ export function HuddleBar({
                     type="button"
                     variant="secondary"
                   >
-                    <SmilePlus className="h-4 w-4" />
+                    <SmilePlus className="size-4" />
                   </Button>
                 </PopoverTrigger>
               </TooltipTrigger>
@@ -795,7 +796,7 @@ export function HuddleBar({
                 type="button"
                 variant="ghost"
               >
-                <Captions className="h-4 w-4" />
+                <Captions className="size-4" />
               </Button>
             </TooltipTrigger>
             <TooltipContent className="buzz-huddle-tooltip" side="top">
@@ -813,7 +814,7 @@ export function HuddleBar({
                 type="button"
                 variant="secondary"
               >
-                <Bot className="h-4 w-4" />
+                <Bot className="size-4" />
               </Button>
             </TooltipTrigger>
             <TooltipContent className="buzz-huddle-tooltip" side="top">
@@ -835,7 +836,7 @@ export function HuddleBar({
                 type="button"
                 variant="secondary"
               >
-                <PictureInPicture2 className="h-4 w-4" />
+                <PictureInPicture2 className="size-4" />
               </Button>
             </TooltipTrigger>
             <TooltipContent className="buzz-huddle-tooltip" side="top">
@@ -853,7 +854,7 @@ export function HuddleBar({
                 type="button"
                 variant="secondary"
               >
-                <PictureInPicture className="h-4 w-4" />
+                <PictureInPicture className="size-4" />
               </Button>
             </TooltipTrigger>
             <TooltipContent className="buzz-huddle-tooltip" side="top">
@@ -871,7 +872,7 @@ export function HuddleBar({
           size="sm"
           variant="destructive"
         >
-          <PhoneOff className="h-4 w-4" />
+          <PhoneOff className="size-4" />
           Leave
         </Button>
       </div>

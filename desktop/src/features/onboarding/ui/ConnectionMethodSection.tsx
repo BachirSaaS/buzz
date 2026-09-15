@@ -35,7 +35,7 @@ export function ConnectionMethodSection({
         <h1 className="text-title font-normal text-foreground">
           Connect your AI provider
         </h1>
-        <p className="mt-2 text-base leading-6 text-foreground/80">
+        <p className="mt-2 text-base leading-6 text-foreground">
           Choose how your agents will access AI. You can change this later.
         </p>
       </div>

@@ -449,20 +449,20 @@ export function HostedCommunitiesSettingsCard() {
 
       {error ? (
         <div className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <AlertCircle className="mt-0.5 size-4 shrink-0" />
           <span>{error}</span>
         </div>
       ) : null}
 
       {loading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <LoaderCircle className="h-4 w-4 animate-spin" /> Checking sign-in…
+          <LoaderCircle className="size-4 animate-spin" /> Checking sign-in…
         </div>
       ) : !auth ? (
         <div className="rounded-xl border border-border/70 p-5">
           <h3 className="font-medium">Sign in to manage hosted communities</h3>
           <p
-            className="mt-2 max-w-2xl text-sm text-muted-foreground/70"
+            className="mt-2 max-w-2xl text-sm text-muted-foreground"
             data-settings-subcopy
           >
             Authentication opens in your browser and returns securely to Buzz.
@@ -474,9 +474,9 @@ export function HostedCommunitiesSettingsCard() {
             onClick={() => void signIn()}
           >
             {action ? (
-              <LoaderCircle className="h-4 w-4 animate-spin" />
+              <LoaderCircle className="size-4 animate-spin" />
             ) : (
-              <ExternalLink className="h-4 w-4" />
+              <ExternalLink className="size-4" />
             )}
             {action ?? "Sign in with Builderlab"}
           </Button>
@@ -498,17 +498,17 @@ export function HostedCommunitiesSettingsCard() {
               disabled={busy}
               onClick={() => void signOut()}
             >
-              <LogOut className="h-4 w-4" /> Sign out
+              <LogOut className="size-4" /> Sign out
             </Button>
           </div>
 
           {!identity ? (
-            <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-5">
+            <div className="rounded-xl border border-warning-foreground/30 bg-warning p-5">
               <h3 className="font-medium">
                 Link this account to your Buzz identity
               </h3>
               <p
-                className="mt-2 text-sm text-muted-foreground/70"
+                className="mt-2 text-sm text-muted-foreground"
                 data-settings-subcopy
               >
                 This Builderlab account isn&apos;t linked to a Buzz identity
@@ -522,21 +522,21 @@ export function HostedCommunitiesSettingsCard() {
                 onClick={() => void connectIdentity()}
               >
                 {action ? (
-                  <LoaderCircle className="h-4 w-4 animate-spin" />
+                  <LoaderCircle className="size-4 animate-spin" />
                 ) : null}
                 {action ?? "Connect Buzz identity"}
               </Button>
             </div>
           ) : identityMismatch ? (
-            <div className="rounded-xl border border-amber-500/50 bg-amber-500/5 p-5">
+            <div className="rounded-xl border border-warning-foreground/30 bg-warning p-5">
               <div className="flex items-start gap-2">
-                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                <AlertCircle className="mt-0.5 size-4 shrink-0 text-warning-foreground" />
                 <div>
                   <h3 className="font-medium">
                     This account is connected to a different Buzz identity
                   </h3>
                   <p
-                    className="mt-2 text-sm text-muted-foreground/70"
+                    className="mt-2 text-sm text-muted-foreground"
                     data-settings-subcopy
                   >
                     Your Builderlab account owns communities under another Buzz
@@ -566,7 +566,7 @@ export function HostedCommunitiesSettingsCard() {
                 onClick={() => void switchToDeviceIdentity()}
               >
                 {action ? (
-                  <LoaderCircle className="h-4 w-4 animate-spin" />
+                  <LoaderCircle className="size-4 animate-spin" />
                 ) : null}
                 {action ?? "Switch to this device's identity"}
               </Button>
@@ -574,7 +574,7 @@ export function HostedCommunitiesSettingsCard() {
           ) : (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/70 p-4">
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <CheckCircle2 className="h-4 w-4 text-emerald-500" /> Buzz
+                <CheckCircle2 className="size-4 text-success-foreground" /> Buzz
                 identity connected
                 {boundNpub ? (
                   <span className="font-mono text-xs">{boundNpub}</span>
@@ -601,7 +601,7 @@ export function HostedCommunitiesSettingsCard() {
                 disabled={busy}
                 onClick={() => void run("Refreshing…", loadAccount)}
               >
-                <RefreshCw className="h-4 w-4" /> Refresh
+                <RefreshCw className="size-4" /> Refresh
               </Button>
             </div>
             {communities.length === 0 ? (
@@ -659,7 +659,7 @@ export function HostedCommunitiesSettingsCard() {
             <div>
               <h3 className="font-medium">Create a community</h3>
               <p
-                className="mt-1 text-sm text-muted-foreground/70"
+                className="mt-1 text-sm text-muted-foreground"
                 data-settings-subcopy
               >
                 Choose the address your team will use to connect.
@@ -708,7 +708,7 @@ export function HostedCommunitiesSettingsCard() {
                 That address is already taken.
               </p>
             ) : availability === true ? (
-              <p className="text-sm text-emerald-600">
+              <p className="text-sm text-success-foreground">
                 That address is available.
               </p>
             ) : null}
@@ -724,9 +724,7 @@ export function HostedCommunitiesSettingsCard() {
               }
               type="submit"
             >
-              {action ? (
-                <LoaderCircle className="h-4 w-4 animate-spin" />
-              ) : null}
+              {action ? <LoaderCircle className="size-4 animate-spin" /> : null}
               {action ?? "Create and connect"}
             </Button>
           </form>
@@ -753,7 +751,7 @@ function UnpairIdentityButton({
         disabled={busy}
         onClick={() => setOpen(true)}
       >
-        <Unlink className="h-4 w-4" /> Unpair identity
+        <Unlink className="size-4" /> Unpair identity
       </Button>
       <AlertDialogContent>
         <AlertDialogHeader>
@@ -816,7 +814,7 @@ function CommunityRow({
         <div className="min-w-0">
           <p className="truncate text-sm font-medium">{displayName}</p>
           <p
-            className="truncate text-xs text-muted-foreground/70"
+            className="truncate text-xs text-muted-foreground"
             data-settings-subcopy
           >
             {community.normalized_host}
@@ -833,7 +831,7 @@ function CommunityRow({
             disabled={busy || !community.id}
             onClick={() => setConfirmUnarchive(true)}
           >
-            <ArchiveRestore className="h-4 w-4" /> Unarchive
+            <ArchiveRestore className="size-4" /> Unarchive
           </Button>
           <AlertDialog
             open={confirmUnarchive}
@@ -874,7 +872,7 @@ function CommunityRow({
             disabled={busy || !community.id}
             onClick={() => setTransferOpen(true)}
           >
-            <ArrowLeftRight className="h-4 w-4" /> Transfer
+            <ArrowLeftRight className="size-4" /> Transfer
           </Button>
           <Button
             variant="ghost"
@@ -883,7 +881,7 @@ function CommunityRow({
             disabled={busy || !community.id}
             onClick={() => setConfirmArchive(true)}
           >
-            <Archive className="h-4 w-4" /> Archive
+            <Archive className="size-4" /> Archive
           </Button>
 
           <AlertDialog open={confirmArchive} onOpenChange={setConfirmArchive}>
@@ -984,7 +982,7 @@ function TransferOwnershipDialog({
             disabled={!npubIsValid || busy}
             onClick={() => void submit()}
           >
-            {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
+            {busy ? <LoaderCircle className="size-4 animate-spin" /> : null}
             Transfer ownership
           </Button>
         </DialogFooter>

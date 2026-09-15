@@ -107,7 +107,7 @@ function AvatarPreview({
           data-testid="onboarding-avatar-preview"
           role="img"
         >
-          <Plus className="h-14 w-14" aria-hidden="true" />
+          <Plus className="size-14" aria-hidden="true" />
         </div>
       ) : (
         <ProfileAvatar

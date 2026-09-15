@@ -1,3 +1,4 @@
+import { Input as BlockInput } from "@/shared/ui/input";
 import { Search, X } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import * as React from "react";
@@ -85,7 +86,7 @@ export function ProjectsSectionSearch({
             }
           />
           {open ? (
-            <X className="absolute h-3 w-3 scale-75 opacity-0 transition-[opacity,scale] duration-75 group-hover/projects-search:scale-100 group-hover/projects-search:opacity-100" />
+            <X className="absolute size-3 scale-75 opacity-0 transition-[opacity,scale] duration-75 group-hover/projects-search:scale-100 group-hover/projects-search:opacity-100" />
           ) : null}
         </span>
       </Button>
@@ -101,9 +102,9 @@ export function ProjectsSectionSearch({
               key="search"
               transition={transition}
             >
-              <input
+              <BlockInput
                 aria-label={`Search ${projectsSectionTitle(filter)}`}
-                className="min-w-0 flex-1 bg-transparent px-2 pr-36 text-sm text-foreground outline-none placeholder:text-muted-foreground/55"
+                className="min-w-0 flex-1 bg-transparent px-2 pr-36 text-sm text-foreground outline-none placeholder:text-muted-foreground"
                 data-testid="projects-section-search-input"
                 onChange={(event) => setQuery(event.target.value)}
                 onKeyDown={(event) => {

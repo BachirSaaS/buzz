@@ -1,3 +1,4 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
 import { Input } from "@/shared/ui/input";
 
 /// Coerce string config values to their schema-declared types (number, boolean).
@@ -54,7 +55,7 @@ export function ProviderConfigFields({
     <div className="space-y-3">
       {entries.map(([key, prop]) => (
         <div key={key} className="space-y-1.5">
-          <label
+          <BlockLabel
             className="text-sm font-medium"
             htmlFor={`provider-cfg-${key}`}
           >
@@ -62,7 +63,7 @@ export function ProviderConfigFields({
             {required.has(key) ? (
               <span className="ml-1 text-destructive">*</span>
             ) : null}
-          </label>
+          </BlockLabel>
           <Input
             id={`provider-cfg-${key}`}
             onChange={(e) => onChange({ ...config, [key]: e.target.value })}

@@ -26,7 +26,7 @@ export function CreateNewButton({
       type="button"
       variant={variant}
     >
-      <Plus className="h-4 w-4" />
+      <Plus className="size-4" />
       {label}
     </Button>
   );

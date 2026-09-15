@@ -1,3 +1,5 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { Action } from "@/shared/ui/action";
 import { ChevronRight, Trash2 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 
@@ -39,7 +41,7 @@ function StepSettingAccordion({
 }) {
   return (
     <div>
-      <button
+      <Action
         aria-expanded={expanded}
         className="flex min-h-12 w-full items-center gap-3 py-3 text-left transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
         disabled={disabled}
@@ -54,11 +56,11 @@ function StepSettingAccordion({
         </span>
         <ChevronRight
           className={cn(
-            "h-4 w-4 shrink-0 text-muted-foreground/70 transition-transform duration-150 motion-reduce:transition-none",
+            "h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-150 motion-reduce:transition-none",
             expanded && "rotate-90",
           )}
         />
-      </button>
+      </Action>
 
       {expanded ? (
         <div className="animate-in pb-4 pt-1 fade-in slide-in-from-top-1 duration-150 motion-reduce:animate-none">
@@ -82,21 +84,21 @@ function BackendSupportHint({ action }: { action: StepFormState["action"] }) {
   switch (action) {
     case "send_dm":
       return (
-        <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-xs text-amber-700">
+        <p className="rounded-md border border-warning-foreground/30 bg-warning px-2 py-1 text-xs text-warning-foreground">
           Backend note: `send_dm` is not executed yet, so runs fail at this
           step.
         </p>
       );
     case "set_channel_topic":
       return (
-        <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-xs text-amber-700">
+        <p className="rounded-md border border-warning-foreground/30 bg-warning px-2 py-1 text-xs text-warning-foreground">
           Backend note: `set_channel_topic` is not executed yet, so runs fail at
           this step.
         </p>
       );
     case "request_approval":
       return (
-        <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-xs text-amber-700">
+        <p className="rounded-md border border-warning-foreground/30 bg-warning px-2 py-1 text-xs text-warning-foreground">
           Backend note: approval gates still stop runs with WF-08; approval
           records are not persisted yet.
         </p>
@@ -181,7 +183,7 @@ function StepConfigFields({
                 manual triggers require a channel.
               </p>
               {triggerType === "webhook" && !(step.channel ?? "").trim() ? (
-                <p className="text-xs text-amber-700">
+                <p className="text-xs text-warning-foreground">
                   This step will fail for webhook-triggered runs until a channel
                   override is set.
                 </p>
@@ -198,9 +200,12 @@ function StepConfigFields({
                   onUpdate({ ...step, replyInThread: checked === true })
                 }
               />
-              <label className="text-xs" htmlFor={`${prefix}-reply-in-thread`}>
+              <BlockLabel
+                className="text-xs"
+                htmlFor={`${prefix}-reply-in-thread`}
+              >
                 Reply to triggering message in thread
-              </label>
+              </BlockLabel>
             </div>
           ) : null}
         </div>
@@ -438,7 +443,7 @@ export function WorkflowStepCard({
             type="button"
             variant="ghost"
           >
-            <Trash2 className="h-4 w-4 text-muted-foreground" />
+            <Trash2 className="size-4 text-muted-foreground" />
           </Button>
         </div>
       ) : null}

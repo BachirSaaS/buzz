@@ -1,3 +1,4 @@
+// Block UI presentation; Buzz interaction adapter preserves existing focus and event contracts.
 "use client";
 
 import * as React from "react";
@@ -25,8 +26,9 @@ const SheetOverlay = React.forwardRef<
 
   return (
     <SheetPrimitive.Overlay
+      data-slot="sheet-overlay"
       className={cn(
-        "fixed inset-0 z-50 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+        "fixed inset-0 z-50 bg-black/10 transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0 supports-backdrop-filter:backdrop-blur-xs",
         MODAL_BACKDROP_BLUR_CLASS,
         isDark ? "bg-black/80" : "bg-black/10",
         className,
@@ -68,12 +70,13 @@ const SheetContent = React.forwardRef<
   <SheetPortal>
     <SheetOverlay />
     <SheetPrimitive.Content
+      data-slot="sheet-content"
       ref={ref}
       className={cn(sheetVariants({ side }), className)}
       {...props}
     >
       <SheetPrimitive.Close className="absolute right-4 top-4 rounded-xs opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-hidden focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-secondary">
-        <X className="h-4 w-4" />
+        <X className="size-4" />
         <span className="sr-only">Close</span>
       </SheetPrimitive.Close>
       {children}
@@ -86,13 +89,7 @@ const SheetHeader = ({
   className,
   ...props
 }: React.HTMLAttributes<HTMLDivElement>) => (
-  <div
-    className={cn(
-      "flex flex-col space-y-2 text-center sm:text-left",
-      className,
-    )}
-    {...props}
-  />
+  <div className={cn("flex flex-col gap-0.5 p-4", className)} {...props} />
 );
 SheetHeader.displayName = "SheetHeader";
 
@@ -101,10 +98,7 @@ const SheetFooter = ({
   ...props
 }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
-    className={cn(
-      "flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2",
-      className,
-    )}
+    className={cn("mt-auto flex flex-col gap-2 p-4", className)}
     {...props}
   />
 );
@@ -115,8 +109,12 @@ const SheetTitle = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof SheetPrimitive.Title>
 >(({ className, ...props }, ref) => (
   <SheetPrimitive.Title
+    data-slot="sheet-title"
     ref={ref}
-    className={cn("text-lg font-semibold text-foreground", className)}
+    className={cn(
+      "font-heading text-base font-medium text-foreground",
+      className,
+    )}
     {...props}
   />
 ));
@@ -127,6 +125,7 @@ const SheetDescription = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof SheetPrimitive.Description>
 >(({ className, ...props }, ref) => (
   <SheetPrimitive.Description
+    data-slot="sheet-description"
     ref={ref}
     className={cn("text-sm text-muted-foreground", className)}
     {...props}

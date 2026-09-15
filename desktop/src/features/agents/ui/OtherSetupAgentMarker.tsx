@@ -21,7 +21,7 @@ export function OtherSetupAgentMarker({
       role="img"
       title={OTHER_SETUP_LABEL}
     >
-      <Cloud aria-hidden="true" className="h-3 w-3" />
+      <Cloud aria-hidden="true" className="size-3" />
     </span>
   );
 }

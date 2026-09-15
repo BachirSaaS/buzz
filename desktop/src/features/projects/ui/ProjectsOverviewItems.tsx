@@ -64,7 +64,7 @@ function CollectionGroup({
       icon={icon}
       items={items}
       label={title}
-      labelClassName="text-sm font-normal text-foreground/80"
+      labelClassName="text-sm font-normal text-foreground"
       labelTestId="projects-collection-group-label"
       testId="projects-collection-group"
     >
@@ -212,7 +212,7 @@ export function ProjectsOverviewProjectItems({
       <div className="space-y-0">
         {groups.map((group) => (
           <CollectionGroup
-            icon={<Folders className="h-4 w-4" />}
+            icon={<Folders className="size-4" />}
             items={projectSelectionItems(group.items)}
             key={group.title}
             title={group.title}
@@ -259,7 +259,7 @@ export function ProjectsOverviewProjectItems({
     <div className="space-y-0" data-testid="projects-list-container">
       {groups.map((group) => (
         <CollectionGroup
-          icon={<Folders className="h-4 w-4" />}
+          icon={<Folders className="size-4" />}
           items={projectSelectionItems(group.items)}
           key={group.title}
           title={group.title}
@@ -377,7 +377,7 @@ export function ProjectsOverviewRepositoryItems({
       <div className="space-y-0">
         {groups.map((group) => (
           <CollectionGroup
-            icon={<FolderGit2 className="h-4 w-4" />}
+            icon={<FolderGit2 className="size-4" />}
             items={repositorySelectionItems(group.items)}
             key={group.title}
             title={group.title}
@@ -416,7 +416,7 @@ export function ProjectsOverviewRepositoryItems({
     <div className="space-y-0" data-testid="projects-list-container">
       {groups.map((group) => (
         <CollectionGroup
-          icon={<FolderGit2 className="h-4 w-4" />}
+          icon={<FolderGit2 className="size-4" />}
           items={repositorySelectionItems(group.items)}
           key={group.title}
           title={group.title}

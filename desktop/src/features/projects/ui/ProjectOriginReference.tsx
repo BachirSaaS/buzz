@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import {
   isChannelReferenceOpenable,
@@ -35,14 +36,14 @@ export function ProjectOriginReference({
           started from
         </span>
         {isOpenable ? (
-          <button
+          <Action
             aria-label={`Open author-claimed origin channel #${channel.name}`}
             className="min-w-0 truncate font-medium text-foreground underline-offset-2 hover:underline"
             onClick={() => void goChannel(channel.id)}
             type="button"
           >
             #{channel.name}
-          </button>
+          </Action>
         ) : (
           <span className="shrink-0 whitespace-nowrap">a private channel</span>
         )}

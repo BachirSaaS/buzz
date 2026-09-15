@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import type { LucideIcon } from "lucide-react";
 import {
   Activity,
@@ -525,7 +526,7 @@ function ProfileFieldRow({
         </span>
         {!isTrailingDisplay ? (
           <span
-            className="mt-0.5 block truncate text-sm text-muted-foreground/70"
+            className="mt-0.5 block truncate text-sm text-muted-foreground"
             title={field.displayValue}
           >
             {field.displayNode ?? field.displayValue}
@@ -536,7 +537,7 @@ function ProfileFieldRow({
       {field.trailingNode}
       {isActionable ? (
         <ArrowUpRight
-          className="h-4 w-4 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+          className="size-4 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
           data-testid={
             field.testId ? `${field.testId}-action-indicator` : undefined
           }
@@ -552,7 +553,7 @@ function ProfileFieldRow({
 
   if (isActionable) {
     return (
-      <button
+      <Action
         aria-label={`Open ${field.label}`}
         className="group flex min-h-16 w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         data-testid={field.testId}
@@ -561,13 +562,13 @@ function ProfileFieldRow({
         type="button"
       >
         {content}
-      </button>
+      </Action>
     );
   }
 
   if (isCopyable && field.copyValue) {
     return (
-      <button
+      <Action
         aria-label={`Copy ${field.label}`}
         className="group flex min-h-16 w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         data-testid={field.testId}
@@ -576,7 +577,7 @@ function ProfileFieldRow({
         type="button"
       >
         {content}
-      </button>
+      </Action>
     );
   }
 

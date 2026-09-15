@@ -15,24 +15,6 @@ const sizeClasses: Record<UserAvatarSize, string> = {
   md: "h-9 w-9 text-xs",
 };
 
-const fallbackColorClasses = [
-  "bg-blue-500 text-white",
-  "bg-emerald-500 text-white",
-  "bg-amber-400 text-amber-950",
-  "bg-rose-500 text-white",
-  "bg-cyan-400 text-cyan-950",
-  "bg-violet-500 text-white",
-  "bg-orange-500 text-white",
-] as const;
-
-function fallbackColorClass(displayName: string) {
-  const hash = Array.from(displayName.trim().toLowerCase()).reduce(
-    (value, character) => (value * 31 + (character.codePointAt(0) ?? 0)) >>> 0,
-    0,
-  );
-  return fallbackColorClasses[hash % fallbackColorClasses.length];
-}
-
 type UserAvatarProps = {
   avatarUrl: string | null;
   displayName: string;
@@ -43,8 +25,7 @@ type UserAvatarProps = {
    * ("Agent npub1abcd…wxyz") pass the unprefixed compact key here:
    * word-initials would collapse every unnamed identity onto "AN"/"PN",
    * while the compact key keeps distinct key-tail initials. Authored
-   * display names keep their name initials. The fallback color keeps
-   * hashing `displayName`, which still contains the key.
+   * display names keep their name initials.
    */
   initialsLabel?: string;
   size?: UserAvatarSize;
@@ -111,9 +92,7 @@ export function UserAvatar({
       <AvatarFallback
         className={cn(
           "font-semibold",
-          accent
-            ? "bg-primary text-primary-foreground"
-            : fallbackColorClass(displayName),
+          accent && "bg-primary text-primary-foreground",
         )}
         data-testid={testId ? `${testId}-fallback` : undefined}
         delayMs={fallbackDelayMs}

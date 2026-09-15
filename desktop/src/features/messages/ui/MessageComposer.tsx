@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { EditorContent } from "@tiptap/react";
 import {
@@ -900,13 +901,13 @@ function MessageComposerImpl({
             {media.uploadState.status === "error" ? (
               <div className="mb-2 rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
                 Upload failed: {media.uploadState.message}
-                <button
+                <Action
                   className="ml-2 underline"
                   onClick={() => media.setUploadState({ status: "idle" })}
                   type="button"
                 >
                   Dismiss
-                </button>
+                </Action>
               </div>
             ) : null}
             {composerLinkPreviews}

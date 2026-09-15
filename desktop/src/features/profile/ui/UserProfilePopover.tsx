@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { Activity, Headphones, MessageSquare } from "lucide-react";
 
@@ -459,13 +460,13 @@ function UserProfilePopoverBody({
     >
       <div className="flex flex-col gap-3">
         {canOpenProfilePanel ? (
-          <button
+          <Action
             className="flex w-full min-w-0 cursor-pointer items-center gap-3 rounded-lg text-left text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring [&_*]:cursor-pointer"
             onClick={onTriggerClick}
             type="button"
           >
             {profileHeaderContent}
-          </button>
+          </Action>
         ) : (
           <div className="flex w-full min-w-0 items-center gap-3 text-left text-foreground">
             {profileHeaderContent}
@@ -507,7 +508,7 @@ function UserProfilePopoverBody({
         ) : null}
 
         {canViewActivity ? (
-          <button
+          <Action
             className="flex w-full items-center gap-2 rounded-lg border border-border/60 px-3 py-2 text-left text-xs font-medium text-foreground transition-colors hover:bg-muted/50"
             data-testid={`user-profile-view-activity-${pubkey}`}
             onClick={() => {
@@ -516,9 +517,9 @@ function UserProfilePopoverBody({
             }}
             type="button"
           >
-            <Activity className="h-4 w-4 text-muted-foreground" />
+            <Activity className="size-4 text-muted-foreground" />
             View activity log
-          </button>
+          </Action>
         ) : null}
 
         {hasUserStatus || showAnyProfileActions ? (

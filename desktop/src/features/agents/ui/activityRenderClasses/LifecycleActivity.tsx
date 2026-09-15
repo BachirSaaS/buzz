@@ -57,13 +57,16 @@ export function LifecycleActivity(props: ActivityRenderClassItemProps) {
     const tone = outcome ? permissionOutcomeTone(outcome) : null;
     return (
       <div
-        className="rounded-md border border-amber-500/20 bg-amber-500/5 px-2 py-1.5 text-left text-xs text-amber-700 dark:text-amber-400"
+        className="activity-widget rounded-blockui-lg border border-warning-foreground/30 bg-warning p-6 text-left text-sm text-warning-foreground dark:text-warning-foreground"
         data-testid="transcript-permission-item"
         title={timestampTitle}
       >
         {/* Row 1: request */}
         <div>
-          <ShieldCheck className="mr-1.5 inline h-3.5 w-3.5 align-text-bottom" />
+          <ShieldCheck
+            aria-hidden="true"
+            className="mr-2 inline size-4 align-text-bottom"
+          />
           <span className="font-medium">{props.item.title}</span>
           {requestLines ? (
             <span className="opacity-80"> · {requestLines}</span>
@@ -71,28 +74,33 @@ export function LifecycleActivity(props: ActivityRenderClassItemProps) {
         </div>
         {/* Row 2: options (muted sub-line) */}
         {optionsLine ? (
-          <div className="mt-0.5 pl-5 opacity-60">{optionsLine}</div>
+          <div className="mt-4 text-xs text-muted-foreground">
+            {optionsLine}
+          </div>
         ) : null}
         {/* Row 3: decision — only when outcome is resolved */}
         {outcome && tone ? (
           <>
-            <div className="my-1 border-t border-amber-500/20" />
+            <div className="my-4 border-t border-warning-foreground/30" />
             <div
               className={
                 tone === "approve"
-                  ? "flex items-center gap-1 font-medium text-green-600 dark:text-green-400"
+                  ? "flex items-center gap-2 text-sm font-medium text-success-foreground dark:text-success-foreground"
                   : tone === "deny"
-                    ? "flex items-center gap-1 font-medium text-destructive"
-                    : "flex items-center gap-1 font-medium text-muted-foreground"
+                    ? "flex items-center gap-2 text-sm font-medium text-destructive"
+                    : "flex items-center gap-2 text-sm font-medium text-muted-foreground"
               }
               data-testid="transcript-permission-outcome"
             >
               {tone === "approve" ? (
-                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                <CheckCircle2 aria-hidden="true" className="size-4 shrink-0" />
               ) : tone === "deny" ? (
-                <XCircle className="h-3.5 w-3.5 shrink-0" />
+                <XCircle aria-hidden="true" className="size-4 shrink-0" />
               ) : (
-                <XCircle className="h-3.5 w-3.5 shrink-0 opacity-50" />
+                <XCircle
+                  aria-hidden="true"
+                  className="size-4 shrink-0 opacity-50"
+                />
               )}
               {outcome}
             </div>
@@ -105,11 +113,14 @@ export function LifecycleActivity(props: ActivityRenderClassItemProps) {
   if (isError) {
     return (
       <div
-        className="rounded-md border border-destructive/20 bg-destructive/5 px-2 py-1.5 text-left text-xs text-destructive"
+        className="activity-widget rounded-blockui-lg border border-destructive/20 bg-destructive/5 p-6 text-left text-sm text-destructive"
         data-testid="transcript-lifecycle-item"
         title={timestampTitle}
       >
-        <AlertCircle className="mr-1.5 inline h-3.5 w-3.5 align-text-bottom" />
+        <AlertCircle
+          aria-hidden="true"
+          className="mr-2 inline size-4 align-text-bottom"
+        />
         <span className="font-medium">{props.item.title}</span>
         {props.item.text ? (
           <span className="opacity-80"> · {props.item.text}</span>

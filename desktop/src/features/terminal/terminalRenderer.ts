@@ -52,8 +52,8 @@ export const TERMINAL_CELL_METRICS = {
   width: 8.4,
   height: 17,
   baseline: 13,
-  font: '14px "JetBrains Mono", monospace',
-  boldFont: '700 14px "JetBrains Mono", monospace',
+  font: '14px "Cash Sans Mono Local", monospace',
+  boldFont: '700 14px "Cash Sans Mono Local", monospace',
 } as const satisfies CellMetrics;
 
 export type TerminalSelectionRow = {

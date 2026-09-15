@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 
 import { useNow } from "@/shared/lib/useNow";
@@ -366,7 +367,7 @@ function ActivityCard({
       )}
       data-testid="projects-activity-card"
     >
-      <button
+      <Action
         aria-label={`Open ${item.title} in ${item.target.project.name}`}
         className="absolute inset-0 rounded-xl focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         onClick={onOpen}
@@ -403,7 +404,7 @@ function ActivityCard({
           )}
           {item.actorPubkey ? (
             <UserProfilePopover pubkey={item.actorPubkey} triggerElement="span">
-              <button
+              <Action
                 aria-label={`View ${actorLabel}'s profile`}
                 className={cn(
                   "pointer-events-auto relative z-10 shrink-0 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
@@ -418,7 +419,7 @@ function ActivityCard({
                   shape={profile?.isAgent ? "squircle" : "circle"}
                   size={compact ? "xs" : "md"}
                 />
-              </button>
+              </Action>
             </UserProfilePopover>
           ) : (
             <UserAvatar
@@ -434,7 +435,7 @@ function ActivityCard({
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-start gap-2">
             <div
-              className="min-w-0 flex-1 text-xs text-muted-foreground/70"
+              className="min-w-0 flex-1 text-xs text-muted-foreground"
               data-projects-text-priority="secondary"
             >
               <span>
@@ -443,34 +444,34 @@ function ActivityCard({
                     pubkey={item.actorPubkey}
                     triggerElement="span"
                   >
-                    <button
-                      className="pointer-events-auto relative z-10 rounded-sm font-semibold text-muted-foreground/75 hover:underline focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+                    <Action
+                      className="pointer-events-auto relative z-10 rounded-sm font-semibold text-muted-foreground hover:underline focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
                       type="button"
                     >
                       {actorLabel}
-                    </button>
+                    </Action>
                   </UserProfilePopover>
                 ) : (
                   actorLabel
                 )}{" "}
                 {item.action}{" "}
-                <button
-                  className="pointer-events-auto relative z-10 inline-block max-w-48 truncate rounded-sm align-bottom font-semibold text-muted-foreground/75 hover:underline focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring sm:max-w-64 2xl:max-w-none"
+                <Action
+                  className="pointer-events-auto relative z-10 inline-block max-w-48 truncate rounded-sm align-bottom font-semibold text-muted-foreground hover:underline focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring sm:max-w-64 2xl:max-w-none"
                   onClick={onOpenProject}
                   type="button"
                 >
                   {item.target.project.name}
-                </button>
+                </Action>
               </span>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <button
+                  <Action
                     className="pointer-events-auto relative z-10 mt-0.5 block w-fit rounded-sm hover:underline focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
                     onClick={onOpen}
                     type="button"
                   >
                     {relativeTime(item.createdAt)}
-                  </button>
+                  </Action>
                 </TooltipTrigger>
                 <TooltipContent>
                   {formatExactTimestamp(item.createdAt)}
@@ -505,7 +506,7 @@ function ActivityCard({
             {item.body ? (
               <p
                 className={cn(
-                  "mt-0.5 text-sm leading-6 text-muted-foreground/65",
+                  "mt-0.5 text-sm leading-6 text-muted-foreground",
                   compact ? "line-clamp-1" : "line-clamp-2",
                 )}
                 data-projects-text-priority="secondary"

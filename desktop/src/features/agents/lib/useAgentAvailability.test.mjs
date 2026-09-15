@@ -41,7 +41,10 @@ for (const presence of ["online", "away", "offline", undefined]) {
         `Agent: ${availability[0].toUpperCase()}${availability.slice(1)}`,
       ),
     );
-    assert.equal(html.includes("bg-emerald-500"), availability === "online");
+    assert.equal(
+      html.includes("bg-success-foreground"),
+      availability === "online",
+    );
     assert.doesNotMatch(html, /data-testid="start"/);
   });
 }
@@ -66,7 +69,7 @@ for (const [loaded, connected] of [
       }),
     );
     assert.match(html, /Availability unknown/);
-    assert.doesNotMatch(html, /bg-emerald-500|is running/);
+    assert.doesNotMatch(html, /bg-success-foreground|is running/);
   });
 }
 

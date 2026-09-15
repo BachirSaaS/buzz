@@ -1,3 +1,6 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { Input as BlockInput } from "@/shared/ui/input";
+import { Action } from "@/shared/ui/action";
 import {
   Braces,
   CodeXml,
@@ -187,22 +190,22 @@ function changedFileIconVisual(path: string): ChangedFileIconVisual {
   ) {
     return {
       Icon: Package,
-      className: "fill-orange-500/20 text-orange-500",
-      containerClassName: "bg-orange-500/15",
+      className: "fill-warning text-warning-foreground",
+      containerClassName: "bg-warning",
     };
   }
   if (name.includes("lock") || extension === "pem" || extension === "key") {
     return {
       Icon: FileLock2,
-      className: "fill-amber-500/20 text-amber-500",
-      containerClassName: "bg-amber-500/15",
+      className: "fill-warning text-warning-foreground",
+      containerClassName: "bg-warning",
     };
   }
   if (extension === "json") {
     return {
       Icon: FileJson,
-      className: "fill-yellow-500/20 text-yellow-500",
-      containerClassName: "bg-yellow-500/15",
+      className: "fill-warning text-warning-foreground",
+      containerClassName: "bg-warning",
     };
   }
   if (
@@ -210,92 +213,92 @@ function changedFileIconVisual(path: string): ChangedFileIconVisual {
   ) {
     return {
       Icon: Settings,
-      className: "fill-zinc-500/20 text-zinc-500",
-      containerClassName: "bg-zinc-500/15",
+      className: "fill-muted-foreground text-muted-foreground",
+      containerClassName: "bg-muted",
     };
   }
   if (["html", "xml"].includes(extension)) {
     return {
       Icon: CodeXml,
-      className: "fill-rose-500/20 text-rose-500",
-      containerClassName: "bg-rose-500/15",
+      className: "fill-danger text-danger-foreground",
+      containerClassName: "bg-danger",
     };
   }
   if (extension === "css") {
     return {
       Icon: Braces,
-      className: "fill-violet-500/20 text-violet-500",
-      containerClassName: "bg-violet-500/15",
+      className: "fill-info text-info-foreground",
+      containerClassName: "bg-info",
     };
   }
   if (CODE_EXTENSIONS.has(extension)) {
     return {
       Icon: FileCode2,
-      className: "fill-blue-500/20 text-blue-500",
-      containerClassName: "bg-blue-500/15",
+      className: "fill-info text-info-foreground",
+      containerClassName: "bg-info",
     };
   }
   if (IMAGE_EXTENSIONS.has(extension)) {
     return {
       Icon: FileImage,
-      className: "fill-pink-500/20 text-pink-500",
-      containerClassName: "bg-pink-500/15",
+      className: "fill-info text-info-foreground",
+      containerClassName: "bg-info",
     };
   }
   if (ARCHIVE_EXTENSIONS.has(extension)) {
     return {
       Icon: FileArchive,
-      className: "fill-orange-500/20 text-orange-500",
-      containerClassName: "bg-orange-500/15",
+      className: "fill-warning text-warning-foreground",
+      containerClassName: "bg-warning",
     };
   }
   if (AUDIO_EXTENSIONS.has(extension)) {
     return {
       Icon: FileAudio,
-      className: "fill-purple-500/20 text-purple-500",
-      containerClassName: "bg-purple-500/15",
+      className: "fill-info text-info-foreground",
+      containerClassName: "bg-info",
     };
   }
   if (VIDEO_EXTENSIONS.has(extension)) {
     return {
       Icon: FileVideo,
-      className: "fill-red-500/20 text-red-500",
-      containerClassName: "bg-red-500/15",
+      className: "fill-danger text-danger-foreground",
+      containerClassName: "bg-danger",
     };
   }
   if (SPREADSHEET_EXTENSIONS.has(extension)) {
     return {
       Icon: FileSpreadsheet,
-      className: "fill-emerald-500/20 text-emerald-500",
-      containerClassName: "bg-emerald-500/15",
+      className: "fill-success text-success-foreground",
+      containerClassName: "bg-success",
     };
   }
   if (extension === "sql" || extension === "db" || extension === "sqlite") {
     return {
       Icon: Database,
-      className: "fill-cyan-500/20 text-cyan-500",
-      containerClassName: "bg-cyan-500/15",
+      className: "fill-info text-info-foreground",
+      containerClassName: "bg-info",
     };
   }
   if (["bash", "fish", "sh", "zsh"].includes(extension)) {
     return {
       Icon: Terminal,
-      className: "fill-lime-500/20 text-lime-500",
-      containerClassName: "bg-lime-500/15",
+      className: "fill-success text-success-foreground",
+      containerClassName: "bg-success",
     };
   }
   if (TEXT_EXTENSIONS.has(extension)) {
     return {
       Icon: FileText,
-      className: "fill-slate-500/20 text-slate-500",
-      containerClassName: "bg-slate-500/15",
+      className: "fill-muted-foreground text-muted-foreground",
+      containerClassName: "bg-muted",
     };
   }
   if (extension === "pdf") {
     return {
       Icon: FileType,
-      className: "fill-red-500/20 text-red-500",
-      containerClassName: "bg-red-500/15",
+      className: "fill-danger text-danger-foreground",
+      containerClassName: "bg-danger",
     };
   }
   return {
@@ -323,8 +326,8 @@ function ChangedFileTreeIcon({ path }: { path: string }) {
 
 function ChangedFolderTreeIcon() {
   return (
-    <span className="flex h-6 w-6 shrink-0 items-center justify-center bg-sky-500/15">
-      <FolderGit2 className="h-4 w-4 fill-sky-500/25 text-sky-500" />
+    <span className="flex h-6 w-6 shrink-0 items-center justify-center bg-info">
+      <FolderGit2 className="size-4 fill-info text-info-foreground" />
     </span>
   );
 }
@@ -384,10 +387,11 @@ function diffRows(file: ProjectRepoDiffFile): DiffRow[] {
 }
 
 function diffLineClassName(type: DiffRow["type"]) {
-  if (type === "add") return "border-green-500/10 border-l-2 bg-green-500/10";
+  if (type === "add")
+    return "border-success-foreground/30 border-l-2 bg-success";
   if (type === "delete")
     return "border-destructive/10 border-l-2 bg-destructive/10";
-  if (type === "hunk") return "bg-sky-500/10 text-sky-500";
+  if (type === "hunk") return "bg-info text-info-foreground";
   return "border-transparent border-l-2";
 }
 
@@ -501,7 +505,7 @@ function DiffPreview({
   return (
     <div className="overflow-x-auto bg-background/70 font-mono text-xs leading-5">
       {file.truncated ? (
-        <div className="border-border/40 border-b bg-amber-500/10 px-4 py-2 text-amber-600 dark:text-amber-400">
+        <div className="border-border/40 border-b bg-warning px-4 py-2 text-warning-foreground dark:text-warning-foreground">
           Large diff truncated — showing the first {rows.length} lines. Use a
           local checkout to review the full change.
         </div>
@@ -541,15 +545,15 @@ function DiffPreview({
               ref={isFocused ? focusedRowRef : undefined}
               tabIndex={isFocused ? -1 : undefined}
             >
-              <span className="select-none border-border/40 border-r px-2 text-right text-muted-foreground/70">
+              <span className="select-none border-border/40 border-r px-2 text-right text-muted-foreground">
                 {row.oldLine ?? " "}
               </span>
-              <span className="select-none border-border/40 border-r px-2 text-right text-muted-foreground/70">
+              <span className="select-none border-border/40 border-r px-2 text-right text-muted-foreground">
                 {row.newLine ?? " "}
               </span>
               <span className="flex select-none items-center justify-center">
                 {anchor && inlineComments ? (
-                  <button
+                  <Action
                     aria-label={`Comment on ${anchor.path} ${anchor.side} line ${anchor.line}`}
                     className={cn(
                       "flex h-5 w-5 items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-primary hover:text-primary-foreground focus-visible:opacity-100 focus-visible:outline-hidden group-hover:opacity-100",
@@ -560,14 +564,14 @@ function DiffPreview({
                     title="Add line comment"
                     type="button"
                   >
-                    <MessageSquarePlus className="h-3.5 w-3.5" />
-                  </button>
+                    <MessageSquarePlus className="size-3.5" />
+                  </Action>
                 ) : null}
               </span>
               <span
                 className={cn(
                   "select-none px-2",
-                  row.type === "add" && "text-green-500",
+                  row.type === "add" && "text-success-foreground",
                   row.type === "delete" && "text-destructive",
                 )}
               >
@@ -617,7 +621,7 @@ function FileTreeItems({
   return sortedFileTreeChildren(node).map((child) => {
     if (child.file) {
       return (
-        <button
+        <Action
           className={cn(
             "flex w-full min-w-0 items-center gap-2 py-1.5 pr-3 text-left text-xs text-muted-foreground hover:bg-muted/35 hover:text-foreground focus-visible:bg-muted/35 focus-visible:outline-hidden",
             selectedPath === child.file.path && "bg-muted/45 text-foreground",
@@ -629,7 +633,7 @@ function FileTreeItems({
         >
           <ChangedFileTreeIcon path={child.file.path} />
           <span className="min-w-0 flex-1 truncate">{child.name}</span>
-        </button>
+        </Action>
       );
     }
 
@@ -836,9 +840,7 @@ export function ProjectDiffFilesPanel({
       >
         <p>Could not load changed files for this {subjectLabel}.</p>
         {message ? (
-          <p className="font-mono text-xs text-muted-foreground/80">
-            {message}
-          </p>
+          <p className="font-mono text-xs text-muted-foreground">{message}</p>
         ) : null}
       </div>
     );
@@ -870,18 +872,18 @@ export function ProjectDiffFilesPanel({
       <aside className="border-border/50 border-b bg-background/30 lg:border-r lg:border-b-0">
         <div className="space-y-3 p-3">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Files className="h-3.5 w-3.5" />
+            <Files className="size-3.5" />
             <span>{files.length} changed files</span>
           </div>
-          <label className="flex h-8 items-center gap-2 border border-border/60 bg-background/70 px-2 text-xs text-muted-foreground">
-            <Search className="h-3.5 w-3.5" />
-            <input
+          <BlockLabel className="flex h-8 items-center gap-2 border border-border/60 bg-background/70 px-2 text-xs text-muted-foreground">
+            <Search className="size-3.5" />
+            <BlockInput
               className="min-w-0 flex-1 bg-transparent text-foreground outline-hidden placeholder:text-muted-foreground"
               onChange={(event) => setQuery(event.currentTarget.value)}
               placeholder="Filter files…"
               value={query}
             />
-          </label>
+          </BlockLabel>
         </div>
         <nav
           className={cn(
@@ -900,12 +902,12 @@ export function ProjectDiffFilesPanel({
       <section className="min-w-0">
         <div className="flex min-h-12 flex-wrap items-center justify-between gap-3 border-border/50 border-b bg-background/30 px-4 py-2 text-xs text-muted-foreground">
           <div className="flex min-w-0 items-center gap-2">
-            <GitCommitHorizontal className="h-3.5 w-3.5" />
+            <GitCommitHorizontal className="size-3.5" />
             <span className="truncate">{headerLabel}</span>
           </div>
           <div className="flex items-center gap-3">
             <span>{files.length} files changed</span>
-            <span className="text-green-500">+{stats.additions}</span>
+            <span className="text-success-foreground">+{stats.additions}</span>
             <span className="text-destructive">-{stats.deletions}</span>
           </div>
         </div>
@@ -915,7 +917,7 @@ export function ProjectDiffFilesPanel({
             <article className="overflow-hidden border border-border/60 bg-background/45">
               <header className="flex min-h-10 items-center justify-between gap-3 border-border/50 border-b bg-muted/20 px-3 text-xs">
                 <div className="flex min-w-0 items-center gap-2">
-                  <FileDiff className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <FileDiff className="size-3.5 shrink-0 text-muted-foreground" />
                   <span className="truncate font-medium text-foreground">
                     {fileName(selectedFile.path)}
                   </span>
@@ -928,7 +930,8 @@ export function ProjectDiffFilesPanel({
                 <div className="flex shrink-0 items-center gap-2 text-muted-foreground">
                   <span
                     className={cn(
-                      fileAdditions(selectedFile) > 0 && "text-green-500",
+                      fileAdditions(selectedFile) > 0 &&
+                        "text-success-foreground",
                     )}
                   >
                     +{fileAdditions(selectedFile)}

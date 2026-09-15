@@ -1,3 +1,5 @@
+import { RangeInput } from "@/shared/ui/native-controls";
+import { Action } from "@/shared/ui/action";
 import type { CSSProperties } from "react";
 import { ZoomIn, ZoomOut } from "lucide-react";
 
@@ -33,7 +35,7 @@ export function ImageLightboxZoomControls({
 
   return (
     <>
-      <button
+      <Action
         aria-label="Zoom out"
         className={ZOOM_BUTTON_CLASS_NAME}
         disabled={zoom <= IMAGE_LIGHTBOX_MIN_ZOOM}
@@ -44,9 +46,9 @@ export function ImageLightboxZoomControls({
           updateZoom((currentZoom) => currentZoom - IMAGE_LIGHTBOX_ZOOM_STEP);
         }}
       >
-        <ZoomOut aria-hidden="true" className="h-4 w-4 opacity-80" />
-      </button>
-      <input
+        <ZoomOut aria-hidden="true" className="size-4 opacity-80" />
+      </Action>
+      <RangeInput
         aria-label="Image zoom"
         className="image-zoom-slider h-3 w-32 cursor-pointer sm:w-44"
         max={IMAGE_LIGHTBOX_MAX_ZOOM}
@@ -70,7 +72,7 @@ export function ImageLightboxZoomControls({
           setIsAdjustingZoom(false);
         }}
       />
-      <button
+      <Action
         aria-label="Zoom in"
         className={ZOOM_BUTTON_CLASS_NAME}
         disabled={zoom >= IMAGE_LIGHTBOX_MAX_ZOOM}
@@ -81,8 +83,8 @@ export function ImageLightboxZoomControls({
           updateZoom((currentZoom) => currentZoom + IMAGE_LIGHTBOX_ZOOM_STEP);
         }}
       >
-        <ZoomIn aria-hidden="true" className="h-4 w-4 opacity-80" />
-      </button>
+        <ZoomIn aria-hidden="true" className="size-4 opacity-80" />
+      </Action>
       <span className="min-w-10 text-right text-xs font-medium tabular-nums text-muted-foreground">
         {Math.round(zoom * 100)}%
       </span>

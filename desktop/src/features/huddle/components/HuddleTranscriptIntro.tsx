@@ -8,7 +8,7 @@ export function HuddleTranscriptIntro() {
       data-testid="huddle-transcript-intro"
     >
       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
-        <MessageCircle aria-hidden className="h-4 w-4" />
+        <MessageCircle aria-hidden className="size-4" />
       </span>
       <div className="min-w-0">
         <p className="text-base font-semibold text-foreground">Huddle chat</p>

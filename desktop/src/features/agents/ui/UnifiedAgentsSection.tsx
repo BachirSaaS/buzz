@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
 
@@ -15,7 +16,6 @@ import { useIsArchivedPredicate } from "@/features/identity-archive/hooks";
 import { useUserProfileQuery } from "@/features/profile/hooks";
 import type { AgentPersona, ManagedAgent } from "@/shared/api/types";
 import type { ProfilePanelOpenOptions } from "@/shared/context/ProfilePanelContext";
-import { useFeedbackToasts } from "@/shared/hooks/useToastEffect";
 import { Badge } from "@/shared/ui/badge";
 import {
   ProtectedBestieCardBadge,
@@ -31,8 +31,6 @@ import { buildUnifiedGroups } from "./unifiedAgentGroups";
 type UnifiedAgentsSectionProps = {
   defaultModel: string;
   getAvailability: AgentAvailabilityReader;
-  actionErrorMessage: string | null;
-  actionNoticeMessage: string | null;
   agents: ManagedAgent[];
   agentsError: Error | null;
   isActionPending: boolean;
@@ -50,8 +48,6 @@ type UnifiedAgentsSectionProps = {
   onStartPersona: (persona: AgentPersona) => void;
   personas: AgentPersona[];
   personasError: Error | null;
-  personaFeedbackErrorMessage: string | null;
-  personaFeedbackNoticeMessage: string | null;
   isPersonasLoading: boolean;
   isPersonasPending: boolean;
   onOpenCatalog: () => void;
@@ -69,12 +65,10 @@ type UnifiedAgentsSectionProps = {
 const AGENT_CARD_COLUMN_CLASS = "w-full";
 export const AGENT_CARD_GRID_COLUMNS_CLASS =
   "grid-cols-1 [@container(min-width:21rem)]:grid-cols-2 [@container(min-width:32rem)]:grid-cols-3 [@container(min-width:43rem)]:grid-cols-4 [@container(min-width:54rem)]:grid-cols-5";
-export const IDENTITY_CARD_GRID_CLASS = `${AGENT_CARD_COLUMN_CLASS} ${AGENT_CARD_GRID_COLUMNS_CLASS} grid gap-3`;
+export const IDENTITY_CARD_GRID_CLASS = `${AGENT_CARD_COLUMN_CLASS} ${AGENT_CARD_GRID_COLUMNS_CLASS} grid gap-4`;
 
 export function UnifiedAgentsSection(props: UnifiedAgentsSectionProps) {
   const {
-    actionErrorMessage,
-    actionNoticeMessage,
     defaultModel,
     getAvailability,
     agents,
@@ -91,8 +85,6 @@ export function UnifiedAgentsSection(props: UnifiedAgentsSectionProps) {
     onStartPersona,
     personas,
     personasError,
-    personaFeedbackErrorMessage,
-    personaFeedbackNoticeMessage,
     isPersonasLoading,
     isPersonasPending,
     onOpenCatalog,
@@ -119,8 +111,6 @@ export function UnifiedAgentsSection(props: UnifiedAgentsSectionProps) {
     });
   }
 
-  useFeedbackToasts(actionNoticeMessage, actionErrorMessage);
-  useFeedbackToasts(personaFeedbackNoticeMessage, personaFeedbackErrorMessage);
   const isLoading = isAgentsLoading || isPersonasLoading;
 
   return (
@@ -358,7 +348,7 @@ function AgentPersonaCard({
       statusBadge={
         agent?.personaOrphaned ? (
           <Badge className="gap-1" variant="warning">
-            <AlertTriangle className="h-3 w-3" />
+            <AlertTriangle className="size-3" />
             Configuration missing
           </Badge>
         ) : null
@@ -452,7 +442,7 @@ function StandaloneAgentCard({
       statusBadge={
         agent.personaOrphaned ? (
           <Badge className="gap-1" variant="warning">
-            <AlertTriangle className="h-3 w-3" />
+            <AlertTriangle className="size-3" />
             Configuration missing
           </Badge>
         ) : null
@@ -515,19 +505,19 @@ function CollapsibleAgentGroup({
   const isCollapsed = collapsed.has(groupKey);
   return (
     <div className={`${AGENT_CARD_COLUMN_CLASS} space-y-2`}>
-      <button
+      <Action
         className="group flex items-center gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-muted/50"
         onClick={() => onToggle(groupKey)}
         type="button"
       >
         {isCollapsed ? (
-          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+          <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
         ) : (
-          <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
         )}
         <span className="text-sm font-medium">{label}</span>
         <span className="text-xs text-muted-foreground">({agents.length})</span>
-      </button>
+      </Action>
       {!isCollapsed ? (
         <div className={IDENTITY_CARD_GRID_CLASS}>
           {agents.map((agent) => (

@@ -11,10 +11,7 @@ export function ProjectChannelIcon({ className }: { className?: string }) {
       data-testid="project-channel-icon"
     >
       <Folders className="!size-full" />
-      <Hash
-        className="pointer-events-none absolute -bottom-px -right-px !size-[62.5%]"
-        strokeWidth={2.5}
-      />
+      <Hash className="pointer-events-none absolute -bottom-px -right-px !size-[62.5%]" />
     </span>
   );
 }

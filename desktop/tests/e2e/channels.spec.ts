@@ -1711,7 +1711,7 @@ test("create ephemeral stream shows sidebar and header affordances", async ({
 
   await expect(page.getByTestId(`channel-${channelName}`)).toHaveCSS(
     "font-weight",
-    "700",
+    "500",
   );
   await expect(page.getByTestId(`channel-unread-${channelName}`)).toHaveCount(
     0,
@@ -2539,7 +2539,7 @@ test("sidebar shows unread indicator for newly active channels", async ({
 
   await expect(page.getByTestId("channel-random")).toHaveCSS(
     "font-weight",
-    "700",
+    "500",
   );
   await expect(page.getByTestId("channel-unread-random")).toHaveCount(0);
 
@@ -2572,7 +2572,7 @@ test("sidebar shows unread indicator for new forum posts", async ({ page }) => {
 
   await expect(page.getByTestId("channel-watercooler")).toHaveCSS(
     "font-weight",
-    "700",
+    "500",
   );
   await expect(page.getByTestId("channel-unread-watercooler")).toHaveCount(0);
 
@@ -2802,7 +2802,7 @@ test("manage channel shows member avatars and owner-only row controls", async ({
     name: "Details",
   });
   await expect(detailsTitle).toHaveClass(/text-xs/);
-  await expect(detailsTitle).toHaveClass(/text-muted-foreground\/70/);
+  await expect(detailsTitle).toHaveClass(/text-muted-foreground/);
   await expect(
     detailsSection.locator('[data-slot="panel-section-header"]'),
   ).toHaveClass(/px-4/);

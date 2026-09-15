@@ -1,3 +1,4 @@
+import { Input as BlockInput } from "@/shared/ui/input";
 import { Crown, MoreHorizontal, Search, Shield } from "lucide-react";
 import { nip19 } from "nostr-tools";
 import * as React from "react";
@@ -154,14 +155,14 @@ function RelayMemberRow({
             pubkey={member.pubkey}
           />
           {member.role === "owner" ? (
-            <Crown className="h-4 w-4 text-amber-500" />
+            <Crown className="size-4 text-warning-foreground" />
           ) : null}
           {member.role === "admin" ? (
-            <Shield className="h-4 w-4 text-blue-500" />
+            <Shield className="size-4 text-info-foreground" />
           ) : null}
         </div>
         <div
-          className="flex items-center gap-1.5 text-xs text-muted-foreground/70"
+          className="flex items-center gap-1.5 text-xs text-muted-foreground"
           data-settings-subcopy
         >
           <span className="shrink-0 capitalize">{member.role}</span>
@@ -190,7 +191,7 @@ function RelayMemberRow({
               size="icon"
               variant="ghost"
             >
-              <MoreHorizontal className="h-4 w-4" />
+              <MoreHorizontal className="size-4" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
@@ -332,8 +333,8 @@ export function CommunityMembersSettingsCard({
       >
         <div className="space-y-3 p-4 sm:p-5">
           <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <input
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <BlockInput
               autoCapitalize="none"
               autoCorrect="off"
               className="w-full rounded-lg border border-border/70 bg-background py-2 pl-9 pr-3 text-sm placeholder:text-muted-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"

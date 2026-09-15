@@ -1,3 +1,6 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { Input as BlockInput } from "@/shared/ui/input";
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import {
   ArrowLeft,
@@ -440,17 +443,17 @@ export function ChannelBrowserDialog({
               <div className="flex items-center justify-between gap-4">
                 <DialogTitle>{browseTitle}</DialogTitle>
                 <DialogClose className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 ease-out hover:bg-accent hover:text-accent-foreground focus:outline-hidden focus:ring-1 focus:ring-ring">
-                  <X className="h-4 w-4" />
+                  <X className="size-4" />
                   <span className="sr-only">Close</span>
                 </DialogClose>
               </div>
               <div className={MODAL_SEARCH_SHELL_CLASS}>
-                <label
+                <BlockLabel
                   className="flex min-w-0 flex-1 cursor-text items-center gap-3"
                   htmlFor="channel-browser-search"
                 >
-                  <Search className="h-4 w-4 shrink-0 text-muted-foreground/55 transition-colors duration-150 ease-out group-hover/search:text-muted-foreground group-focus-within/search:text-foreground" />
-                  <input
+                  <Search className="size-4 shrink-0 text-muted-foreground transition-colors duration-150 ease-out group-hover/search:text-muted-foreground group-focus-within/search:text-foreground" />
+                  <BlockInput
                     autoCapitalize="none"
                     autoCorrect="off"
                     className={MODAL_SEARCH_INPUT_CLASS}
@@ -513,7 +516,7 @@ export function ChannelBrowserDialog({
                     type="text"
                     value={query}
                   />
-                </label>
+                </BlockLabel>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
@@ -666,7 +669,7 @@ function CreateChannelRow({
 }) {
   const hasQuery = query.length > 0;
   return (
-    <button
+    <Action
       className={
         isSelected
           ? "flex w-full items-center gap-3 rounded-xl border border-border/70 bg-muted/60 px-4 py-3 text-left transition-colors duration-150 ease-out focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
@@ -678,7 +681,7 @@ function CreateChannelRow({
       type="button"
     >
       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-        <Plus className="h-4 w-4" />
+        <Plus className="size-4" />
       </span>
       {hasQuery ? (
         <span className="min-w-0 text-sm">
@@ -692,7 +695,7 @@ function CreateChannelRow({
           Create a new {entityLabel}
         </span>
       )}
-    </button>
+    </Action>
   );
 }
 
@@ -712,28 +715,28 @@ function ChannelCreateView({
       <DialogHeader className="space-y-0 pb-4">
         <div className="flex items-center justify-between gap-4">
           <div className="flex min-w-0 items-center gap-2">
-            <button
+            <Action
               aria-label="Back to search"
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 ease-out hover:bg-accent hover:text-accent-foreground focus:outline-hidden focus:ring-1 focus:ring-ring"
               data-testid="channel-browser-create-back"
               onClick={onBack}
               type="button"
             >
-              <ArrowLeft className="h-4 w-4" />
-            </button>
+              <ArrowLeft className="size-4" />
+            </Action>
             <DialogTitle className="truncate">
               {`New ${entityLabel}`}
             </DialogTitle>
           </div>
-          <button
+          <Action
             aria-label="Close"
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 ease-out hover:bg-accent hover:text-accent-foreground focus:outline-hidden focus:ring-1 focus:ring-ring"
             onClick={onClose}
             type="button"
           >
-            <X className="h-4 w-4" />
+            <X className="size-4" />
             <span className="sr-only">Close</span>
-          </button>
+          </Action>
         </div>
       </DialogHeader>
 
@@ -780,7 +783,7 @@ function ChannelCard({
       }
       data-testid={`browse-channel-${channel.name}`}
     >
-      <button
+      <Action
         className="min-w-0 flex-1 border-0 bg-transparent p-0 text-left text-foreground outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
         onClick={(event) => {
           event.stopPropagation();
@@ -812,7 +815,7 @@ function ChannelCard({
             ) : null}
           </p>
         </div>
-      </button>
+      </Action>
 
       {!channel.isMember && onJoin ? (
         <Button

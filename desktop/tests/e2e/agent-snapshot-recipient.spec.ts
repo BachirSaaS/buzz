@@ -142,6 +142,8 @@ test("recipient_timeline_renders_agent_snapshot_card_not_file_card", async ({
   const card = page.getByTestId("agent-snapshot-card").last();
   await expect(card).toBeVisible({ timeout: 5000 });
   await expect(card).toHaveAttribute("data-slot", "attachment");
+  await expect(card).toHaveCSS("border-radius", "24px");
+  await expect(card).toHaveCSS("padding", "24px");
 
   // Show the agent name without the snapshot file extension.
   const title = card.locator('[data-slot="attachment-title"]');
@@ -197,7 +199,7 @@ test("recipient_timeline_renders_agent_snapshot_card_not_file_card", async ({
   ]);
   expect(
     (downloadBox?.x ?? 0) - ((contentBox?.x ?? 0) + (contentBox?.width ?? 0)),
-  ).toBeGreaterThanOrEqual(28);
+  ).toBeGreaterThanOrEqual(16);
   expect(
     (addAgentBox?.x ?? 0) - ((downloadBox?.x ?? 0) + (downloadBox?.width ?? 0)),
   ).toBeGreaterThanOrEqual(8);

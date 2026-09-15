@@ -1,0 +1,186 @@
+/* Adapted from squareup/blockui-web; see SOURCE.json and README.md. */
+:root {
+  --background: var(--blockui-surface-app);
+  --foreground: var(--blockui-text-standard);
+  --muted-foreground: var(--blockui-text-tertiary);
+  --card-foreground: var(--blockui-card-foreground);
+  --secondary: var(--blockui-fill-secondary);
+  --secondary-foreground: var(--blockui-fill-secondary-foreground);
+  --accent-foreground: var(--blockui-text-standard);
+  --popover-foreground: var(--blockui-text-standard);
+}
+
+:root:not(
+  [data-substrate="managerbot"],
+  [data-substrate="moneybot"],
+  [data-substrate="arcade"]
+) {
+  --background: var(--blockui-surface-app);
+  --foreground: var(--blockui-text-standard);
+  --muted-foreground: var(--blockui-text-subtle);
+  --card-foreground: var(--blockui-card-foreground);
+  --secondary: var(--blockui-fill-secondary);
+  --secondary-foreground: var(--blockui-fill-secondary-foreground);
+  --accent-foreground: var(--blockui-text-standard);
+  --popover-foreground: var(--blockui-text-standard);
+  --muted: var(--blockui-surface-standard);
+  --accent: var(--blockui-surface-standard);
+  --card: var(--blockui-surface-card);
+  --popover: var(--blockui-surface-popover);
+  --border: var(--blockui-border-subtle);
+  --input: var(--blockui-border-standard);
+  --ring: var(--blockui-focus-ring);
+  --primary: var(--blockui-fill-primary);
+  --primary-foreground: var(--blockui-fill-primary-foreground);
+  --destructive: var(--blockui-status-error-text);
+  --danger: var(--blockui-status-error-surface);
+  --danger-foreground: var(--blockui-status-error-foreground);
+  --success: var(--blockui-status-success-surface);
+  --success-foreground: var(--blockui-status-success-foreground);
+  --warning: var(--blockui-status-warning-surface);
+  --warning-foreground: var(--blockui-status-warning-foreground);
+  --trend-up: var(--blockui-trend-up);
+  --trend-down: var(--blockui-trend-down);
+  --trend-neutral: var(--blockui-trend-flat);
+  --subtle-foreground: var(--blockui-text-subtle);
+}
+
+:root[data-substrate="managerbot"] {
+  --muted: var(--blockui-surface-subtle);
+  --accent: var(--blockui-surface-standard);
+  --card: var(--blockui-surface-card);
+  --popover: var(--blockui-surface-popover);
+  --border: var(--blockui-border-subtle);
+  --input: var(--blockui-border-standard);
+  --ring: var(--blockui-focus-ring);
+  --primary: var(--blockui-fill-accent);
+  --primary-foreground: var(--blockui-fill-accent-foreground);
+  --destructive: var(--blockui-status-error-text);
+
+  --danger: var(--blockui-status-error-surface);
+  --danger-foreground: var(--blockui-status-error-foreground);
+  --success: var(--blockui-status-success-text);
+  --success-foreground: var(--blockui-status-success-foreground);
+  --warning: var(--blockui-status-warning-icon);
+  --warning-foreground: var(--blockui-status-warning-foreground);
+  --trend-up: var(--blockui-trend-up);
+  --trend-down: var(--blockui-trend-down);
+  --trend-neutral: var(--blockui-trend-flat);
+  --subtle-foreground: var(--blockui-text-subtle);
+}
+
+:root[data-substrate="managerbot"].dark {
+  --muted: var(--blockui-surface-subtle);
+  --accent: var(--blockui-surface-standard);
+  --card: var(--blockui-surface-card);
+  --popover: var(--blockui-surface-popover);
+  --border: var(--blockui-border-subtle);
+  --input: var(--blockui-border-standard);
+  --ring: var(--blockui-focus-ring);
+  --primary: var(--blockui-fill-accent);
+  --primary-foreground: var(--blockui-fill-accent-foreground);
+  --destructive: var(--blockui-status-error-text);
+
+  --danger: var(--blockui-status-error-surface);
+  --danger-foreground: var(--blockui-status-error-foreground);
+  --success: var(--blockui-status-success-text);
+  --success-foreground: var(--blockui-status-success-foreground);
+  --warning: var(--blockui-status-warning-icon);
+  --warning-foreground: var(--blockui-status-warning-foreground);
+  --trend-up: var(--blockui-trend-up);
+  --trend-down: var(--blockui-trend-down);
+  --trend-neutral: var(--blockui-trend-flat);
+  --subtle-foreground: var(--blockui-text-subtle);
+}
+
+:root[data-substrate="moneybot"],
+:root[data-substrate="arcade"] {
+  --muted: var(--blockui-surface-subtle);
+  --accent: var(--blockui-surface-standard);
+  --card: var(--blockui-surface-card);
+  --popover: var(--blockui-surface-popover);
+  --border: var(--blockui-border-subtle);
+  --input: var(--blockui-border-standard);
+  --ring: var(--blockui-focus-ring);
+  --primary: var(--blockui-fill-accent);
+  --primary-foreground: var(--blockui-fill-accent-foreground);
+  --destructive: var(--blockui-status-error-text);
+
+  --danger: var(--blockui-status-error-surface);
+  --danger-foreground: var(--blockui-status-error-foreground);
+  --success: var(--blockui-status-success-text);
+  --success-foreground: var(--blockui-status-success-foreground);
+  --warning: var(--blockui-status-warning-text);
+  --warning-foreground: var(--blockui-status-warning-foreground);
+  --trend-up: var(--blockui-trend-up);
+  --trend-down: var(--blockui-trend-down);
+  --trend-neutral: var(--blockui-trend-flat);
+  --subtle-foreground: var(--blockui-text-subtle);
+}
+
+:root[data-substrate="moneybot"].dark,
+:root[data-substrate="arcade"].dark {
+  --muted: var(--blockui-surface-subtle);
+  --accent: var(--blockui-surface-standard);
+  --card: var(--blockui-surface-card);
+  --popover: var(--blockui-surface-popover);
+  --border: var(--blockui-border-subtle);
+  --input: var(--blockui-border-standard);
+  --ring: var(--blockui-focus-ring);
+  --primary: var(--blockui-fill-accent);
+  --primary-foreground: var(--blockui-fill-accent-foreground);
+  --destructive: var(--blockui-status-error-text);
+
+  --danger: var(--blockui-status-error-surface);
+  --danger-foreground: var(--blockui-status-error-foreground);
+  --success: var(--blockui-status-success-text);
+  --success-foreground: var(--blockui-status-success-foreground);
+  --warning: var(--blockui-status-warning-text);
+  --warning-foreground: var(--blockui-status-warning-foreground);
+  --trend-up: var(--blockui-trend-up);
+  --trend-down: var(--blockui-trend-down);
+  --trend-neutral: var(--blockui-trend-flat);
+  --subtle-foreground: var(--blockui-text-subtle);
+}
+
+[data-slot="toggle"],
+[data-slot="input"],
+[data-slot="textarea"] {
+  border-radius: var(--blockui-radius-sm);
+}
+
+[data-slot="alert"] {
+  border-radius: var(--blockui-radius-12);
+}
+
+[data-slot="hover-card-content"],
+[data-slot="popover-content"] {
+  border-radius: var(--blockui-radius-md);
+}
+
+[data-slot="button"],
+[data-slot="switch"],
+[data-slot="switch-thumb"],
+[data-slot="slider-track"],
+[data-slot="slider-thumb"],
+[data-slot="progress-track"],
+[data-slot="tooltip-content"] {
+  border-radius: var(--blockui-radius-pill);
+}
+
+[data-slot="radio-group-item"] {
+  border-radius: var(--blockui-radius-pill);
+}
+
+@theme inline {
+  --color-danger: var(--danger);
+  --color-danger-foreground: var(--danger-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-trend-up: var(--trend-up);
+  --color-trend-down: var(--trend-down);
+  --color-trend-neutral: var(--trend-neutral);
+  --color-subtle-foreground: var(--subtle-foreground);
+}

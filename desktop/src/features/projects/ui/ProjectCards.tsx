@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import {
   CircleAlert,
   CircleDot,
@@ -83,7 +84,7 @@ export function ProjectPeopleStack({
             style={{ zIndex: visible.length - index }}
           >
             <UserProfilePopover pubkey={pubkey} triggerElement="span">
-              <button
+              <Action
                 aria-label={`View ${label}'s profile`}
                 className={cn(
                   "inline-flex focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
@@ -101,7 +102,7 @@ export function ProjectPeopleStack({
                   shape={profile?.isAgent ? "squircle" : "circle"}
                   size="xs"
                 />
-              </button>
+              </Action>
             </UserProfilePopover>
           </span>
         );
@@ -135,8 +136,8 @@ const PROJECT_STAT_ITEMS = [
   {
     key: "issueCount",
     icon: CircleDot,
-    iconClass: "text-orange-500",
-    barClass: "bg-orange-500",
+    iconClass: "text-warning-foreground",
+    barClass: "bg-warning-foreground",
     columnClass: "w-20",
     label: (count: number) => (count === 1 ? "task" : "tasks"),
   },
@@ -295,15 +296,15 @@ function RepositoryUnavailableIndicator({
       <TooltipTrigger asChild>
         <span
           aria-label={`Repository ${label.toLowerCase()}`}
-          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-amber-600 hover:bg-amber-500/10 dark:text-amber-300"
+          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-warning-foreground hover:bg-warning dark:text-warning-foreground"
           role="img"
         >
-          <CircleAlert className="h-3.5 w-3.5" />
+          <CircleAlert className="size-3.5" />
         </span>
       </TooltipTrigger>
       <TooltipContent className="max-w-64">
         <p className="font-medium">{label}</p>
-        <p className="text-secondary-foreground">{description}</p>
+        <p className="text-background">{description}</p>
       </TooltipContent>
     </Tooltip>
   );
@@ -316,7 +317,7 @@ export function EmptyState({
 }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-3 px-4 py-16 text-center">
-      <Folders className="h-10 w-10 text-muted-foreground/40" />
+      <Folders className="size-10 text-muted-foreground" />
       <div className="space-y-1">
         <p className="text-sm font-medium text-foreground">No projects yet</p>
         <p className="text-sm text-muted-foreground">
@@ -324,7 +325,7 @@ export function EmptyState({
         </p>
       </div>
       <Button onClick={onCreateProject} size="sm" type="button">
-        <Plus className="h-4 w-4" />
+        <Plus className="size-4" />
         Create project
       </Button>
     </div>
@@ -334,7 +335,7 @@ export function EmptyState({
 export function EmptyFilteredState() {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-3 border border-dashed border-border/60 px-4 py-12 text-center">
-      <Folders className="h-9 w-9 text-muted-foreground/40" />
+      <Folders className="size-9 text-muted-foreground" />
       <div className="space-y-1">
         <p className="text-sm font-medium text-foreground">
           No matching projects
@@ -355,13 +356,13 @@ function ProjectCardButton({
   onOpen: (project: Project) => void;
 }) {
   return (
-    <button
+    <Action
       className="absolute inset-0 z-0 cursor-pointer"
       onClick={() => onOpen(project)}
       type="button"
     >
       <span className="sr-only">View {project.name}</span>
-    </button>
+    </Action>
   );
 }
 
@@ -396,7 +397,7 @@ function ProjectActionsMenu({
             void onOpenTerminal(project);
           }}
         >
-          <TerminalSquare className="h-4 w-4" />
+          <TerminalSquare className="size-4" />
           {projectTerminalLabel(hasLocal)}
         </DropdownMenuItem>
         <DropdownMenuItem
@@ -410,7 +411,7 @@ function ProjectActionsMenu({
             }
           }}
         >
-          <Trash2 className="h-4 w-4" />
+          <Trash2 className="size-4" />
           Delete project
         </DropdownMenuItem>
       </ProjectListRowMenu>
@@ -493,7 +494,7 @@ export const ProjectGridCard = React.memo(function ProjectGridCard({
         <div className="flex min-w-0 items-start justify-between gap-3 px-4 pt-3">
           <div className="flex min-w-0 flex-1 items-start gap-2">
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-muted/40">
-              <Folders className="h-4.5 w-4.5 text-muted-foreground" />
+              <Folders className="size-4.5 text-muted-foreground" />
             </span>
             <div className="min-w-0 flex-1">
               <span
@@ -584,7 +585,7 @@ export const ProjectListRow = React.memo(function ProjectListRow({
     <ProjectEntityListRow
       affiliation={
         <span className="flex items-center justify-end gap-1">
-          <FolderGit2 className="h-3.5 w-3.5" />
+          <FolderGit2 className="size-3.5" />
           <span>{repositoryCount}</span>
         </span>
       }
@@ -595,7 +596,7 @@ export const ProjectListRow = React.memo(function ProjectListRow({
       }`}
       dateSeconds={getProjectUpdatedAt(project, summary)}
       dateTestId="projects-row-date"
-      icon={<Folders className="h-3.5 w-3.5 text-muted-foreground/70" />}
+      icon={<Folders className="size-3.5 text-muted-foreground" />}
       onClick={() => onOpen(project)}
       people={people}
       peopleTestId="projects-row-people"
@@ -648,7 +649,7 @@ export function ProjectRailRow({
       <ProjectCardButton onOpen={onOpen} project={project} />
       <div className="flex min-w-0 items-start gap-2">
         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted/50">
-          <Folders className="h-3.5 w-3.5 text-muted-foreground" />
+          <Folders className="size-3.5 text-muted-foreground" />
         </span>
         <div className="min-w-0 flex-1">
           <span className="block min-w-0 truncate text-xs font-semibold text-foreground">

@@ -2,7 +2,6 @@ import * as React from "react";
 
 import { cn } from "@/shared/lib/cn";
 import { Input } from "@/shared/ui/input";
-import { useSmoothCorners } from "@/shared/ui/smoothCorners";
 
 import { ONBOARDING_CARD_INPUT_CLASS } from "./onboardingCardStyles";
 
@@ -20,7 +19,6 @@ export const OnboardingInput = React.forwardRef<
 >(({ className, onBlur, onFocus, smooth = true, ...props }, forwardedRef) => {
   const inputRef = React.useRef<HTMLInputElement | null>(null);
   const [isFocused, setIsFocused] = React.useState(false);
-  useSmoothCorners(inputRef, { enabled: smooth });
 
   const setInputRef = React.useCallback(
     (node: HTMLInputElement | null) => {

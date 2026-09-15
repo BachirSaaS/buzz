@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 
 import {
@@ -99,7 +100,7 @@ export function UserMessageBubble({
       data-testid="transcript-user-message"
     >
       {isCompactPreview ? null : item.authorPubkey && openProfilePanel ? (
-        <button
+        <Action
           aria-label={`Open ${authorLabel} profile`}
           className={cn(
             "pointer-events-auto order-last ml-2 mt-1 size-7 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -121,7 +122,7 @@ export function UserMessageBubble({
             shape={authorProfile?.isAgent ? "squircle" : "circle"}
             size="sm"
           />
-        </button>
+        </Action>
       ) : (
         <UserAvatar
           avatarUrl={authorProfile?.avatarUrl ?? null}
@@ -140,11 +141,11 @@ export function UserMessageBubble({
       >
         <div
           className={cn(
-            "w-full min-w-0 rounded-2xl border border-border/70 bg-transparent p-3 text-sm leading-relaxed text-foreground",
+            "w-full min-w-0 rounded-blockui-lg border border-border bg-muted/40 p-6 text-sm leading-relaxed text-foreground",
             shouldClampBubble && "relative max-h-36 overflow-hidden",
             messageLink &&
               "group/bubble cursor-pointer transition-colors hover:border-border hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            isCompactPreview && "p-2 text-xs leading-4",
+            isCompactPreview && "text-xs leading-4",
             bubbleClassName,
           )}
           ref={bubbleRef}
@@ -157,7 +158,7 @@ export function UserMessageBubble({
           />
           {children}
           {hasBubbleOverflow ? (
-            <span className="pointer-events-none absolute inset-x-0 bottom-0 h-8 rounded-b-2xl bg-linear-to-b from-transparent to-background" />
+            <span className="pointer-events-none absolute inset-x-0 bottom-0 h-8 rounded-b-blockui-lg bg-linear-to-b from-transparent to-background" />
           ) : null}
           {messageLink ? <MessageLinkHoverCue /> : null}
         </div>

@@ -40,8 +40,8 @@ export function LinkPreviewList({
       <AttachmentGroup
         className={
           style === "compact"
-            ? "max-w-full flex-row flex-wrap items-start overflow-visible pb-0"
-            : "max-w-full flex-col items-start overflow-visible pb-0"
+            ? "gap-4 max-w-full flex-row flex-wrap items-start overflow-visible pb-0"
+            : "gap-4 max-w-full flex-col items-start overflow-visible pb-0"
         }
         data-link-preview-list=""
       >

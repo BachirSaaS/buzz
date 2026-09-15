@@ -25,7 +25,7 @@ export function PageHeader({
 }: HeaderProps) {
   const copy = (
     <>
-      <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+      <h1 className="text-blockui-page-title">{title}</h1>
       {description ? (
         <p className="text-base font-normal text-muted-foreground">
           {description}
@@ -64,7 +64,7 @@ export function SectionHeader({
 }: HeaderProps) {
   const copy = (
     <>
-      <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+      <h2 className="text-blockui-section-title">{title}</h2>
       {description ? (
         <p className="text-sm font-normal text-muted-foreground">
           {description}
@@ -105,7 +105,7 @@ export function SubsectionLabel({
   return (
     <p
       className={cn(
-        "text-2xs font-semibold uppercase tracking-wide text-muted-foreground",
+        "text-blockui-label-small text-muted-foreground",
         className,
       )}
     >

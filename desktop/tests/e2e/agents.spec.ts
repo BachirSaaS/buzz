@@ -85,7 +85,7 @@ async function gotoApp(page: import("@playwright/test").Page) {
 }
 
 async function openPersonaCatalog(page: import("@playwright/test").Page) {
-  await page.getByTestId("new-agent-card").click();
+  await page.getByTestId("agents-section-browse").click();
 }
 
 async function getCatalogOrder(page: import("@playwright/test").Page) {
@@ -100,6 +100,9 @@ async function selectCatalogPersona(
   page: import("@playwright/test").Page,
   personaId: string,
 ) {
+  const review = page.getByTestId("community-catalog-dialog");
+  if (await review.isVisible())
+    await review.getByRole("button", { name: "Close", exact: true }).click();
   await page.getByTestId(`community-catalog-agent-${personaId}`).click();
 }
 
@@ -248,29 +251,19 @@ test("catalog hides built-ins and shows the shared-agent empty state", async ({
   }
 
   await openPersonaCatalog(page);
+  const browse = page.getByTestId("agents-browse-grid");
+  await expect(browse).toBeVisible();
   for (const personaName of ["Fizz", "Honey", "Pollen"]) {
-    await expect(
-      page.getByTestId("community-catalog-dialog"),
-    ).not.toContainText(personaName);
+    await expect(browse).not.toContainText(personaName);
   }
-  await expect(
-    page.getByTestId("community-catalog-dialog-header"),
-  ).toBeVisible();
-  await expect(page.getByTestId("community-catalog-dialog-body")).toBeVisible();
-  const emptyState = page.getByTestId("community-catalog-empty-state");
-  await expect(emptyState).toContainText("Nothing shared yet");
-  await expect(
-    emptyState.getByTestId("community-catalog-empty-artwork"),
-  ).toBeVisible();
+  await expect(page.getByTestId("community-catalog-empty-state")).toContainText(
+    "Nothing shared yet",
+  );
   await expect(
     page.locator('[data-testid^="community-catalog-agent-"]'),
   ).toHaveCount(0);
-  await expect(page.getByTestId("community-catalog-use-agent")).toHaveCount(0);
-
-  await page
-    .getByTestId("community-catalog-dialog")
-    .getByRole("button", { name: "Close" })
-    .click();
+  await expect(page.getByTestId("community-catalog-dialog")).toHaveCount(0);
+  await page.getByTestId("agents-section-your").click();
   await page.getByLabel("Open actions for Fizz").click();
   await page.getByRole("menuitem", { name: "Share" }).click();
   await expect(page.getByTestId("persona-share-catalog")).toHaveCount(0);
@@ -285,11 +278,8 @@ test("catalog empty state remains available after reopening", async ({
   await openPersonaCatalog(page);
   await expect(page.getByTestId("community-catalog-empty-state")).toBeVisible();
 
-  await page
-    .getByTestId("community-catalog-dialog")
-    .getByRole("button", { name: "Close" })
-    .click();
-  await expect(page.getByTestId("community-catalog-dialog")).not.toBeVisible();
+  await page.getByTestId("agents-section-your").click();
+  await expect(page.getByTestId("agents-browse-grid")).toHaveCount(0);
   await openPersonaCatalog(page);
   await expect(page.getByTestId("community-catalog-empty-state")).toContainText(
     "Nothing shared yet",
@@ -457,9 +447,7 @@ test("agent avatar emoji picker scrolls inside its popover", async ({
     .toBeGreaterThan(before);
 });
 
-test("the new agent card opens unified create, catalog, and import flows", async ({
-  page,
-}) => {
+test("the new agent card opens create and import flows", async ({ page }) => {
   await installMockBridge(page, {
     activePersonaIds: ["builtin:fizz", "builtin:honey", "builtin:bumble"],
     personas: [
@@ -487,7 +475,7 @@ test("the new agent card opens unified create, catalog, and import flows", async
   );
   await expect(agentCards.first()).toBeVisible();
   const headerBox = await page
-    .getByRole("heading", { level: 1, name: "Agents" })
+    .getByRole("heading", { level: 1, name: "Your agents" })
     .locator("../..")
     .boundingBox();
   const cardBoxes = await agentCards.evaluateAll((cards) =>
@@ -499,7 +487,7 @@ test("the new agent card opens unified create, catalog, and import flows", async
   const firstRowTop = Math.min(...cardBoxes.map(({ top }) => top));
   expect(
     cardBoxes.filter(({ top }) => Math.abs(top - firstRowTop) < 1),
-  ).toHaveLength(5);
+  ).toHaveLength(4);
   const rightmostFirstRowCard = Math.max(
     ...cardBoxes
       .filter(({ top }) => Math.abs(top - firstRowTop) < 1)
@@ -521,7 +509,7 @@ test("the new agent card opens unified create, catalog, and import flows", async
   await expect(catalogDialog).toBeVisible();
   await expect(page.getByTestId("agent-catalog-create")).toHaveAttribute(
     "aria-current",
-    "true",
+    "page",
   );
 
   const dialog = page.getByTestId("persona-dialog");
@@ -963,9 +951,7 @@ test("catalog detail pane shows the full persona details before Add agent", asyn
     `community-catalog-agent-${remoteCatalogId}`,
   );
   await expect(catalogRow).toContainText("Alice’s Researcher");
-  const rowDescription = page.getByTestId(
-    `community-catalog-agent-description-${remoteCatalogId}`,
-  );
+  const rowDescription = catalogRow.locator("[data-agent-card-subtitle]");
   await expect(rowDescription).toHaveText(description);
   await expect(rowDescription).toHaveCSS("overflow", "hidden");
   await catalogRow.click();
@@ -1002,10 +988,7 @@ test("catalog detail pane shows the full persona details before Add agent", asyn
   await expect(page.getByTestId("community-catalog-detail-pane")).toContainText(
     "Agent instruction",
   );
-  await expect(useAgentTarget).toHaveAttribute(
-    "aria-label",
-    "Add Alice’s Researcher from Community Catalog",
-  );
+  await expect(useAgentTarget).toHaveAccessibleName("Add agent");
   await expect(useAgentTarget).toHaveText("Add agent");
   await expect(useAgentTarget).toBeEnabled();
 });
@@ -1663,6 +1646,7 @@ This deliberately long fenced-code example must not establish the minimum width 
     page.getByTestId(`community-catalog-agent-${personaId}`),
   ).toHaveCount(0);
   await page.keyboard.press("Escape");
+  await page.getByTestId("agents-section-your").click();
 
   await page.getByLabel("Open actions for Catalog Analyst").click();
   await page.getByRole("menuitem", { name: "Share" }).click();
@@ -1742,6 +1726,7 @@ This deliberately long fenced-code example must not establish the minimum width 
     ),
   ).toBeLessThanOrEqual(1);
   await page.keyboard.press("Escape");
+  await page.getByTestId("agents-section-your").click();
 
   await page.getByLabel("Open actions for Catalog Analyst").click();
   await page.getByRole("menuitem", { name: "Edit" }).click();
@@ -1785,6 +1770,7 @@ This deliberately long fenced-code example must not establish the minimum width 
     "Review the latest catalog changes.",
   );
   await page.keyboard.press("Escape");
+  await page.getByTestId("agents-section-your").click();
 
   await page.getByLabel("Open actions for Catalog Analyst").click();
   await page.getByRole("menuitem", { name: "Share" }).click();
@@ -2013,7 +1999,8 @@ test("a community member can discover and add another member's catalog agent", a
 
   await page
     .getByRole("button", {
-      name: "Add Alice’s Reviewer from Community Catalog",
+      name: "Add agent",
+      exact: true,
     })
     .click();
   await expect
@@ -2056,10 +2043,11 @@ test("a community member can discover and add another member's catalog agent", a
     .filter({ hasText: "Alice’s Reviewer" })
     .click();
   const addedTarget = page.getByRole("button", {
-    name: "Alice’s Reviewer is already in My Agents",
+    name: "Added",
+    exact: true,
   });
   await expect(addedTarget).toBeDisabled();
-  await expect(addedTarget).toHaveText("Added to My Agents");
+  await expect(addedTarget).toHaveText("Added");
   expect(await countCommandInvocations(page, "create_persona")).toBe(1);
 });
 
@@ -2089,7 +2077,8 @@ test("catalog defaults an unknown session policy without dropping the agent", as
     .click();
   await page
     .getByRole("button", {
-      name: "Add Future Policy Reviewer from Community Catalog",
+      name: "Add agent",
+      exact: true,
     })
     .click();
 

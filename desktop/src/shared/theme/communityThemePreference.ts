@@ -1,5 +1,4 @@
 import { normalizeRelayUrl } from "@/features/profile/lib/selfProfileStorage";
-import { ACCENT_COLORS } from "./ThemeProvider";
 import { SYNTAX_THEMES, type SyntaxThemeName } from "./theme-loader";
 
 const STORAGE_KEY_PREFIX = "buzz-community-theme.v1";
@@ -21,7 +20,20 @@ export const DEFAULT_COMMUNITY_THEME: CommunityThemePreference = Object.freeze({
 });
 
 const THEME_NAMES = new Set<string>(SYNTAX_THEMES);
-const ACCENTS = new Set<string>(ACCENT_COLORS.map(({ value }) => value));
+// Legacy relay preference parser retained for compatibility, not used to theme
+// the private Block UI prototype.
+const ACCENTS = new Set<string>([
+  "neutral",
+  "#3b82f6",
+  "#06b6d4",
+  "#22c55e",
+  "#f97316",
+  "#ef4444",
+  "#ec4899",
+  "#c0a2f1",
+  "#a855f7",
+  "#6366f1",
+]);
 
 export function communityThemeStorageKey(
   pubkey: string,

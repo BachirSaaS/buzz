@@ -51,7 +51,7 @@ export function ForumComposerCompactLayout({
             className="h-4 w-4 border-2 text-primary-foreground"
           />
         ) : (
-          <Plus aria-hidden className="h-4 w-4" />
+          <Plus aria-hidden className="size-4" />
         )}
       </Button>
     </div>

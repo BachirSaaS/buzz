@@ -70,7 +70,7 @@ export function AttachProjectRepositoryDialog({
                 type="button"
                 variant="outline"
               >
-                <FolderGit2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <FolderGit2 className="size-4 shrink-0 text-muted-foreground" />
                 <span className="min-w-0">
                   <span className="block truncate font-medium">
                     {repository.name}

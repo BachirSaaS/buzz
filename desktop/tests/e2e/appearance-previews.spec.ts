@@ -4,7 +4,7 @@ import { waitForAnimations } from "../helpers/animations";
 import { installMockBridge } from "../helpers/bridge";
 
 const SHOTS = "test-results/appearance-previews";
-const THEME_STORAGE_KEY = "buzz-theme";
+const THEME_STORAGE_KEY = "buzz-blockui-appearance.v1";
 const LINK_PREVIEW_STYLE_STORAGE_KEY = "buzz.appearance.linkPreviewStyle";
 const THREAD_VIEW_MODE_STORAGE_KEY = "buzz.channels.threadViewMode";
 
@@ -22,7 +22,10 @@ async function openAppearance(
 ) {
   await page.addInitScript(
     ({ linkKey, linkStyle, theme, themeKey, threadKey, threadMode }) => {
-      window.localStorage.setItem(themeKey, theme);
+      window.localStorage.setItem(
+        themeKey,
+        theme === "buzz-dark" ? "dark" : "light",
+      );
       window.localStorage.setItem(linkKey, linkStyle);
       window.localStorage.setItem(threadKey, threadMode);
     },
@@ -92,9 +95,7 @@ test("appearance samples preview locally and commit only on selection", async ({
   await scrubTo(linkControl, richOption);
   await expect(linkSample.locator("[data-link-preview-inline]")).toBeVisible();
   await expect(linkSample.getByText("Show less")).toHaveCount(0);
-  await expect(
-    page.getByText("Large previews with images and descriptions"),
-  ).toBeVisible();
+  await expect(page.getByText("Link cards with images")).toBeVisible();
   await expect
     .poll(() =>
       page.evaluate(

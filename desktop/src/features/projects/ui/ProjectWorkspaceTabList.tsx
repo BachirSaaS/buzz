@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { ArrowLeft } from "lucide-react";
 
 import { cn } from "@/shared/lib/cn";
@@ -23,7 +24,7 @@ export function ProjectTabsList({
 }) {
   return (
     <div className="flex h-full min-w-0 max-w-full flex-none items-center gap-1.5 overflow-x-auto scrollbar-none">
-      <button
+      <Action
         aria-label="Back"
         className={PROJECT_TAB_ICON_BUTTON_CLASS}
         data-testid="project-workspace-back"
@@ -32,7 +33,7 @@ export function ProjectTabsList({
         type="button"
       >
         <ArrowLeft className="h-full w-full" strokeWidth={2} />
-      </button>
+      </Action>
       <TabsList className="h-full min-w-0 max-w-full flex-none justify-start gap-1.5 overflow-x-auto bg-transparent p-0 scrollbar-none">
         <TabsTrigger className={PROJECT_TAB_TRIGGER_CLASS} value="overview">
           <ProjectTabLabel>Overview</ProjectTabLabel>

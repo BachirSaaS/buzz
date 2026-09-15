@@ -1,3 +1,5 @@
+import { RangeInput } from "@/shared/ui/native-controls";
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { AlertCircle, Download, Loader2, X } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
@@ -26,7 +28,6 @@ import {
   AttachmentMedia,
   AttachmentTitle,
 } from "@/shared/ui/attachment";
-import { useSmoothCorners } from "@/shared/ui/smoothCorners";
 import { MorphingPlayPauseIcon } from "./MorphingPlayPauseIcon";
 
 const PLAY_EVENT = "buzz-voice-note-play";
@@ -158,8 +159,6 @@ export function AudioMessageAttachment({
   >();
   const [peaks, setPeaks] = React.useState(() => dotPeaks(INITIAL_BAR_COUNT));
   const [waveformReady, setWaveformReady] = React.useState(false);
-  useSmoothCorners(mediaRef);
-  useSmoothCorners(playbackRateRef);
 
   React.useEffect(() => {
     const localHref =
@@ -419,7 +418,7 @@ export function AudioMessageAttachment({
         className="rounded-lg bg-primary text-primary-foreground"
         data-testid="voice-note-playback-control"
       >
-        <button
+        <Action
           aria-label={
             playbackError
               ? "Retry voice note"
@@ -440,7 +439,7 @@ export function AudioMessageAttachment({
           ) : (
             <MorphingPlayPauseIcon isPlaying={isPlaying} />
           )}
-        </button>
+        </Action>
       </AttachmentMedia>
       <AttachmentContent className="min-w-0">
         <AttachmentTitle className="sr-only">{filename}</AttachmentTitle>
@@ -474,7 +473,7 @@ export function AudioMessageAttachment({
             >
               {waveformBars(true)}
             </div>
-            <input
+            <RangeInput
               aria-label="Voice note playback position"
               className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
               max={Math.max(duration, 0.01)}
@@ -506,7 +505,7 @@ export function AudioMessageAttachment({
           {timeLabel}
         </span>
         {!composer ? (
-          <button
+          <Action
             ref={playbackRateRef}
             aria-label={`Playback speed ${playbackRateLabel(playbackRate)}; next ${playbackRateLabel(nextPlaybackRate)}`}
             className="col-start-1 row-start-1 grid rounded-full bg-primary px-2.5 py-0.5 text-2xs font-semibold tabular-nums text-primary-foreground opacity-0 transition-[opacity,transform] duration-150 ease-out active:scale-95 group-hover/attachment:opacity-100 group-focus-within/attachment:opacity-100 focus-visible:opacity-100 motion-reduce:transition-none motion-reduce:active:scale-100"
@@ -533,7 +532,7 @@ export function AudioMessageAttachment({
             >
               {playbackRateLabel(playbackRate)}
             </span>
-          </button>
+          </Action>
         ) : null}
       </AttachmentActions>
       {!composer && downloadUrl ? (

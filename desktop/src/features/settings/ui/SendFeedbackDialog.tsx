@@ -1,3 +1,5 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { Action } from "@/shared/ui/action";
 import { Bug, ImageIcon, ThumbsUp, Wrench, X } from "lucide-react";
 import * as React from "react";
 
@@ -159,7 +161,7 @@ export function SendFeedbackDialog({
           <div className="flex items-center justify-between gap-4">
             <DialogTitle>Send feedback</DialogTitle>
             <DialogClose className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 ease-out hover:bg-accent hover:text-accent-foreground focus:outline-hidden focus:ring-1 focus:ring-ring">
-              <X className="h-4 w-4" />
+              <X className="size-4" />
               <span className="sr-only">Close</span>
             </DialogClose>
           </div>
@@ -191,7 +193,7 @@ export function SendFeedbackDialog({
               const Icon = entry.icon;
               const selected = category === entry.id;
               return (
-                <button
+                <Action
                   aria-label={entry.label}
                   aria-pressed={selected}
                   className={cn(
@@ -219,12 +221,12 @@ export function SendFeedbackDialog({
                     </span>
                     {selected ? (
                       <span className="absolute inset-0 flex items-center justify-center rounded-full bg-primary text-primary-foreground opacity-0 transition-opacity duration-150 ease-out group-hover/feedback-pill:opacity-100 group-focus-visible/feedback-pill:opacity-100">
-                        <X aria-hidden="true" className="h-4 w-4" />
+                        <X aria-hidden="true" className="size-4" />
                       </span>
                     ) : null}
                   </span>
                   <span className="font-medium">{entry.label}</span>
-                </button>
+                </Action>
               );
             })}
           </div>
@@ -245,7 +247,7 @@ export function SendFeedbackDialog({
 
             {resolvedAttachedImageUrl ? (
               <div className="group/attachment relative flex w-32 shrink-0 flex-col overflow-hidden rounded-lg border border-border/70 bg-muted/40">
-                <button
+                <Action
                   aria-label="View attached image"
                   className="flex flex-1 flex-col text-left focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
                   data-testid="feedback-attachment-thumb"
@@ -258,14 +260,11 @@ export function SendFeedbackDialog({
                     src={resolvedAttachedImageUrl}
                   />
                   <span className="flex items-center gap-1 px-2 py-1.5 text-2xs font-medium text-muted-foreground">
-                    <ImageIcon
-                      aria-hidden="true"
-                      className="h-3 w-3 shrink-0"
-                    />
+                    <ImageIcon aria-hidden="true" className="size-3 shrink-0" />
                     <span className="truncate">Attached image</span>
                   </span>
-                </button>
-                <button
+                </Action>
+                <Action
                   aria-label="Remove attachment"
                   className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-background/90 text-muted-foreground opacity-0 shadow transition-opacity duration-150 ease-out hover:text-foreground focus-visible:opacity-100 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring group-hover/attachment:opacity-100"
                   data-testid="feedback-attachment-remove"
@@ -273,11 +272,11 @@ export function SendFeedbackDialog({
                   onClick={onRemoveImage}
                   type="button"
                 >
-                  <X className="h-3 w-3" />
-                </button>
+                  <X className="size-3" />
+                </Action>
               </div>
             ) : (
-              <button
+              <Action
                 aria-label="Attach image"
                 className="flex w-32 shrink-0 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border/70 bg-muted/20 p-3 text-center text-2xs font-medium text-muted-foreground transition-colors duration-150 ease-out hover:border-muted-foreground/50 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
                 data-testid="feedback-attach-image"
@@ -285,15 +284,15 @@ export function SendFeedbackDialog({
                 onClick={() => void attachImage()}
                 type="button"
               >
-                <ImageIcon aria-hidden="true" className="h-5 w-5" />
+                <ImageIcon aria-hidden="true" className="size-5" />
                 {isAttaching ? "Attaching…" : "Attach image"}
-              </button>
+              </Action>
             )}
           </div>
 
           {/* Optional environment diagnostics attachment. */}
           <div className="mt-4 space-y-1.5">
-            <label
+            <BlockLabel
               className="flex w-fit cursor-pointer items-center gap-2 text-sm text-muted-foreground"
               htmlFor="feedback-include-logs"
             >
@@ -305,7 +304,7 @@ export function SendFeedbackDialog({
                 onCheckedChange={(checked) => setIncludeLogs(checked === true)}
               />
               Attach diagnostics
-            </label>
+            </BlockLabel>
             <p className="pl-6 text-xs text-muted-foreground">
               Includes capture time, app version, platform, user agent, and
               language. No application log lines are collected.

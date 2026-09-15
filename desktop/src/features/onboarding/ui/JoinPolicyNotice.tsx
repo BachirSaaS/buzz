@@ -1,3 +1,4 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
 import * as React from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
@@ -48,12 +49,12 @@ export function JoinPolicyNotice({
               onAgeConfirmedChange(checked === true)
             }
           />
-          <label
+          <BlockLabel
             className="cursor-pointer text-xs leading-5 text-muted-foreground"
             htmlFor={ageConfirmationId}
           >
             I am 18 years of age or older.
-          </label>
+          </BlockLabel>
         </div>
       ) : null}
 
@@ -67,7 +68,7 @@ export function JoinPolicyNotice({
               onAgreementConfirmedChange(checked === true)
             }
           />
-          <label
+          <BlockLabel
             className="cursor-pointer text-xs leading-5 text-muted-foreground"
             htmlFor={agreementConfirmationId}
           >
@@ -100,7 +101,7 @@ export function JoinPolicyNotice({
               </Button>
             ) : null}
             .
-          </label>
+          </BlockLabel>
         </div>
       ) : null}
     </div>

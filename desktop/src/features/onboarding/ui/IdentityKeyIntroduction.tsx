@@ -36,7 +36,7 @@ export function IdentityKeyIntroduction({
         <h1 className="text-title font-normal text-foreground">
           Create a private identity key
         </h1>
-        <p className="mt-2 text-base leading-6 text-foreground/75">
+        <p className="mt-2 text-base leading-6 text-foreground">
           This key will be how you log into Buzz. You can use it across Buzz
           communities and other platforms.
         </p>

@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { Activity, Bot } from "lucide-react";
 
 import type { UserNote } from "@/shared/api/socialTypes";
@@ -35,18 +36,18 @@ export function RecentNotesSection({
     <div>
       <div className="mb-2 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Activity className="h-4 w-4 text-muted-foreground" />
+          <Activity className="size-4 text-muted-foreground" />
           <h3 className="text-sm font-semibold text-foreground">
             Recent Notes
           </h3>
         </div>
-        <button
+        <Action
           className="text-xs text-primary hover:underline"
           onClick={onOpenPulse}
           type="button"
         >
           View all in Pulse
-        </button>
+        </Action>
       </div>
 
       <div className="space-y-0 overflow-hidden rounded-md border border-border/60">
@@ -68,7 +69,7 @@ export function RecentNotesSection({
                   size="sm"
                 />
                 {isAgent ? (
-                  <Bot className="absolute -bottom-0.5 -right-0.5 h-4 w-4 rounded-full bg-background p-0.5 text-muted-foreground" />
+                  <Bot className="absolute -bottom-0.5 -right-0.5 size-4 rounded-full bg-background p-0.5 text-muted-foreground" />
                 ) : null}
               </div>
               <div className="min-w-0 flex-1">

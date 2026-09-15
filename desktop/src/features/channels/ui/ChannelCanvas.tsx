@@ -93,7 +93,7 @@ export function ChannelCanvas({
             size="sm"
             type="button"
           >
-            <Save className="h-4 w-4" />
+            <Save className="size-4" />
             {setCanvasMutation.isPending ? "Saving..." : "Save canvas"}
           </Button>
           <Button
@@ -104,7 +104,7 @@ export function ChannelCanvas({
             type="button"
             variant="outline"
           >
-            <X className="h-4 w-4" />
+            <X className="size-4" />
             Cancel
           </Button>
         </div>
@@ -142,7 +142,7 @@ export function ChannelCanvas({
           type="button"
           variant="outline"
         >
-          <Pencil className="h-4 w-4" />
+          <Pencil className="size-4" />
           {canvasContent ? "Edit canvas" : "Create canvas"}
         </Button>
       ) : null}

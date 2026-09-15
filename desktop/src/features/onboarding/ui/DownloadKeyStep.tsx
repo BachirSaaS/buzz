@@ -95,7 +95,7 @@ export function DownloadKeyStep({
         </h1>
         <p
           className={cn(
-            "leading-6 text-foreground/80",
+            "leading-6 text-foreground",
             cardLayout ? "mt-2 text-base" : "mt-5 text-sm",
           )}
         >

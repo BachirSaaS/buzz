@@ -52,7 +52,7 @@ export function BackupFileUnlockPreview() {
   return (
     <div
       aria-hidden
-      className="mx-auto flex w-[min(28rem,calc(100vw-5rem))] flex-col items-center text-foreground/75"
+      className="mx-auto flex w-[min(28rem,calc(100vw-5rem))] flex-col items-center text-foreground"
       data-testid="backup-file-unlock-preview"
     >
       <TimelineDots
@@ -131,7 +131,7 @@ export function BackupPasswordTimeline({
     >
       {mode === "restore" ? (
         <div
-          className="absolute left-1/2 top-0 -translate-x-1/2 text-foreground/85"
+          className="absolute left-1/2 top-0 -translate-x-1/2 text-foreground"
           data-testid="restore-ncryptsec-affordance"
         >
           <FileKey2 className="size-10" />
@@ -179,11 +179,11 @@ export function BackupPasswordTimeline({
       </div>
       {mode === "restore" ? (
         <LockOpen
-          className="absolute bottom-0 left-1/2 size-10 -translate-x-1/2 text-foreground/85"
+          className="absolute bottom-0 left-1/2 size-10 -translate-x-1/2 text-foreground"
           data-testid="restore-unlock-icon"
         />
       ) : (
-        <LockKeyhole className="absolute bottom-0 left-1/2 size-10 -translate-x-1/2 text-foreground/85" />
+        <LockKeyhole className="absolute bottom-0 left-1/2 size-10 -translate-x-1/2 text-foreground" />
       )}
     </div>
   );

@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { Hash } from "lucide-react";
 import * as React from "react";
 
@@ -226,7 +227,7 @@ export function DiscussedInChannels({
               data-testid="discussion-mention-row"
               key={channel.id}
             >
-              <button
+              <Action
                 aria-label={
                   latestHit
                     ? `Open conversation in #${name}`
@@ -260,14 +261,14 @@ export function DiscussedInChannels({
                       ? `discussed ${entityLabel} in`
                       : `created ${entityLabel} from`}{" "}
                   </span>
-                  <button
+                  <Action
                     className="pointer-events-auto font-medium text-foreground hover:underline"
                     onClick={() => void goChannel(channel.id)}
                     title={`Open #${name}`}
                     type="button"
                   >
                     #{name}
-                  </button>
+                  </Action>
                   <span className="text-xs text-muted-foreground">
                     {" "}
                     · {relativeTime(channel.lastActivityAt)}
@@ -284,14 +285,14 @@ export function DiscussedInChannels({
         })}
       </div>
       {hiddenCount > 0 ? (
-        <button
+        <Action
           className="w-full border-t border-border/40 px-3 py-1.5 text-left text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
           onClick={() => setExpanded(true)}
           type="button"
         >
           Show {hiddenCount} more{" "}
           {hiddenCount === 1 ? "conversation" : "conversations"}
-        </button>
+        </Action>
       ) : null}
       {isTruncated ? (
         <p className="border-t border-border/40 px-3 py-1.5 text-xs text-muted-foreground">
@@ -345,12 +346,12 @@ function DiscussionNameList({
               <span className="text-muted-foreground">{separator}</span>
             ) : null}
             <UserProfilePopover pubkey={pubkey} triggerElement="span">
-              <button
+              <Action
                 className="pointer-events-auto font-medium text-foreground hover:underline"
                 type="button"
               >
                 {resolveUserLabel({ profiles, pubkey })}
-              </button>
+              </Action>
             </UserProfilePopover>
           </React.Fragment>
         );
@@ -437,7 +438,7 @@ export function DiscussionChannelsPanel({
                 }`}
                 dateSeconds={channel.lastActivityAt}
                 dateTestId="project-channel-row-date"
-                icon={<Hash className="h-3.5 w-3.5 text-muted-foreground/70" />}
+                icon={<Hash className="size-3.5 text-muted-foreground" />}
                 onClick={() =>
                   openDiscussionHit({
                     channelId: channel.id,

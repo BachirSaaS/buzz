@@ -138,7 +138,7 @@ function DiffList({
  * The restart-required badge. When `restartDiff` is non-empty, shows a hover
  * tooltip with the itemised before→after diff (capped at {@link TOOLTIP_CAP}
  * entries) plus the auto-restart blurb. Renders as a non-interactive `<span>`
- * so it can safely be placed adjacent to (not inside) a `<button>` — it must
+ * so it can safely be placed adjacent to (not inside) a `<Action>` — it must
  * never be a descendant of an interactive element.
  */
 export function RestartDiffBadge({
@@ -152,7 +152,7 @@ export function RestartDiffBadge({
 }) {
   const badge = (
     <Badge className={cn("cursor-default gap-1", className)} variant="warning">
-      <RefreshCw className="h-3 w-3" />
+      <RefreshCw className="size-3" />
       Restart required
     </Badge>
   );
@@ -173,7 +173,7 @@ export function RestartDiffBadge({
           tabIndex={0}
           data-testid="restart-diff-badge"
         >
-          <RefreshCw className="h-3 w-3" />
+          <RefreshCw className="size-3" />
           Restart required
         </Badge>
       </TooltipTrigger>

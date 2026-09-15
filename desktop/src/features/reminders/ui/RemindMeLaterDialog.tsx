@@ -1,3 +1,4 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
 import { CalendarClock, Clock, Loader2 } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
@@ -58,7 +59,7 @@ export function RemindMeLaterDialog({
       <DialogContent className="sm:max-w-[400px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Clock className="h-4 w-4" />
+            <Clock className="size-4" />
             Remind me later
           </DialogTitle>
           <DialogDescription>
@@ -82,7 +83,7 @@ export function RemindMeLaterDialog({
 
         <div className="space-y-3 border-t pt-3">
           <p className="flex items-center gap-2 text-sm font-medium">
-            <CalendarClock className="h-4 w-4" />
+            <CalendarClock className="size-4" />
             Custom date & time
           </p>
           <div className="flex gap-2">
@@ -105,12 +106,12 @@ export function RemindMeLaterDialog({
         </div>
 
         <div className="space-y-2">
-          <label
+          <BlockLabel
             htmlFor="reminder-note"
             className="text-sm font-medium text-muted-foreground"
           >
             Note (optional)
-          </label>
+          </BlockLabel>
           <Textarea
             id="reminder-note"
             placeholder="Add a note..."

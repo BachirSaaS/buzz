@@ -197,7 +197,7 @@ export function AgentCardMintDialog({
       <DialogContent className="max-w-md" data-testid="agent-card-mint-dialog">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4" />
+            <Sparkles className="size-4" />
             {`Create ${agentName}'s card`}
           </DialogTitle>
           <DialogDescription>
@@ -213,7 +213,7 @@ export function AgentCardMintDialog({
           >
             <div className="flex flex-col gap-2 rounded-md border border-border p-3">
               <span className="flex items-center gap-1.5 text-sm font-medium">
-                <KeyRound className="h-3.5 w-3.5" />
+                <KeyRound className="size-3.5" />
                 {keyPanelTitle(keyLayer, editingKey)}
               </span>
               {keyIsReadOnly ? (
@@ -251,7 +251,7 @@ export function AgentCardMintDialog({
                     size="sm"
                     variant="link"
                   >
-                    <ExternalLink className="mr-1 h-3 w-3" />
+                    <ExternalLink className="mr-1 size-3" />
                     Get a key at platform.openai.com
                   </Button>
                   <Input
@@ -292,7 +292,7 @@ export function AgentCardMintDialog({
                   }
                   onClick={() => saveKeyMutation.mutate(keyDraft.trim())}
                 >
-                  <KeyRound className="mr-2 h-4 w-4" />
+                  <KeyRound className="mr-2 size-4" />
                   {saveKeyMutation.isPending
                     ? "Saving…"
                     : "Save key & continue"}
@@ -318,7 +318,7 @@ export function AgentCardMintDialog({
             <div className="flex items-center justify-between gap-3 rounded-md border border-border p-3">
               <div className="flex flex-col gap-0.5">
                 <span className="flex items-center gap-1.5 text-sm font-medium">
-                  <Brain className="h-3.5 w-3.5" />
+                  <Brain className="size-3.5" />
                   Memories
                 </span>
                 <span className="text-xs text-muted-foreground">
@@ -349,10 +349,10 @@ export function AgentCardMintDialog({
             </div>
             {showMemoryWarning ? (
               <div
-                className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400"
+                className="flex items-start gap-2 rounded-md border border-warning-foreground/30 bg-warning px-3 py-2 text-sm text-warning-foreground dark:text-warning-foreground"
                 data-testid="agent-card-memory-warning"
               >
-                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <AlertCircle className="mt-0.5 size-4 shrink-0" />
                 <p>
                   Memory is stored as <strong>plaintext</strong> in the card,
                   readable by anyone who has the PNG — and cards are made for
@@ -363,7 +363,7 @@ export function AgentCardMintDialog({
             <div className="flex items-start justify-between gap-3 rounded-md border border-border p-3">
               <div className="flex flex-col gap-0.5">
                 <span className="flex items-center gap-1.5 text-sm font-medium">
-                  <Lock className="h-3.5 w-3.5" />
+                  <Lock className="size-3.5" />
                   Lock card
                 </span>
                 <span className="text-xs text-muted-foreground">
@@ -384,7 +384,7 @@ export function AgentCardMintDialog({
                 className="flex items-center gap-1 text-xs text-muted-foreground"
                 data-testid="agent-card-key-status"
               >
-                <KeyRound className="h-3 w-3 shrink-0" />
+                <KeyRound className="size-3 shrink-0" />
                 <span>Using your saved OpenAI key</span>
                 <span aria-hidden>·</span>
                 <Button
@@ -403,7 +403,7 @@ export function AgentCardMintDialog({
                 className="flex items-center gap-1 text-xs text-muted-foreground"
                 data-testid="agent-card-key-readonly-row"
               >
-                <KeyRound className="h-3 w-3 shrink-0" />
+                <KeyRound className="size-3 shrink-0" />
                 <span>
                   {keyLayer === "agent"
                     ? "OpenAI key from agent settings"
@@ -447,11 +447,11 @@ export function AgentCardMintDialog({
                 size="sm"
                 variant="link"
               >
-                <GalleryVerticalEnd className="mr-1 h-3 w-3" />
+                <GalleryVerticalEnd className="mr-1 size-3" />
                 View minted cards
               </Button>
               <Button onClick={beginMint} data-testid="agent-card-mint">
-                <Sparkles className="mr-2 h-4 w-4" />
+                <Sparkles className="mr-2 size-4" />
                 Mint card
               </Button>
             </div>

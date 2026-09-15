@@ -1,3 +1,4 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
 import { ChevronDown, ClockFading, Hash } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
@@ -173,7 +174,7 @@ export function ChannelTypeSettings({
               className="relative flex items-center justify-between gap-3 px-3 py-3 before:absolute before:inset-x-3 before:top-0 before:border-t before:border-border/70"
               data-testid={`${testIdPrefix}-ephemeral-settings`}
             >
-              <label
+              <BlockLabel
                 className={cn(
                   "text-sm font-medium",
                   disabled && variant === "segmented" && "opacity-50",
@@ -181,7 +182,7 @@ export function ChannelTypeSettings({
                 htmlFor={`${testIdPrefix}-ttl`}
               >
                 Expires after
-              </label>
+              </BlockLabel>
               <DropdownMenu modal={false}>
                 <DropdownMenuTrigger asChild>
                   <Button
@@ -197,7 +198,7 @@ export function ChannelTypeSettings({
                       {selectedTimeoutOption?.label ??
                         `Current (${formatTtlDuration(ttlSeconds)})`}
                     </span>
-                    <ChevronDown className="size-4 shrink-0 text-muted-foreground/70" />
+                    <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent

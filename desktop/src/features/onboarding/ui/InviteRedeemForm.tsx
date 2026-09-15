@@ -1,3 +1,5 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { Input as BlockInput } from "@/shared/ui/input";
 import * as React from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
@@ -360,16 +362,15 @@ export function InviteRedeemForm({
         <Card
           className="w-[min(calc(100%+12rem),calc(100vw-2rem))] max-w-[1120px] translate-y-8 px-8 py-6"
           data-testid="invite-redeem-input-frame"
-          variant="textured"
         >
           <div
             className={SPOTLIGHT_TEXTURE_CONTENT_CLASS}
             style={SPOTLIGHT_OVERFLOW_FADE}
           >
-            <label className="block w-full" htmlFor="invite-input">
+            <BlockLabel className="block w-full" htmlFor="invite-input">
               <span className="sr-only">Invite link or code</span>
               <span className={ONBOARDING_KEY_ROW_CLASS}>
-                <input
+                <BlockInput
                   autoCapitalize="none"
                   autoComplete="off"
                   autoCorrect="off"
@@ -389,19 +390,19 @@ export function InviteRedeemForm({
                   value={inviteInput}
                 />
               </span>
-            </label>
+            </BlockLabel>
           </div>
         </Card>
       ) : (
         <div className="space-y-1.5 text-left">
-          <label
+          <BlockLabel
             className="text-sm font-medium text-foreground"
             htmlFor="invite-input"
           >
             {isAddCommunity
               ? "Community URL or invite link"
               : "Invite link or code"}
-          </label>
+          </BlockLabel>
           <Input
             autoComplete="off"
             autoCorrect="off"
@@ -432,7 +433,7 @@ export function InviteRedeemForm({
           aria-hidden={!showInvalidInviteTip}
           aria-live="polite"
           className={cn(
-            "absolute top-[calc(100%+2rem)] mt-4 min-h-5 w-full max-w-4xl text-center text-sm text-[#717106] transition-opacity duration-150 ease-out",
+            "absolute top-[calc(100%+2rem)] mt-4 min-h-5 w-full max-w-4xl text-center text-sm text-foreground transition-opacity duration-150 ease-out",
             showInvalidInviteTip ? "opacity-100" : "opacity-0",
           )}
           data-testid="invalid-invite-tip"
@@ -448,12 +449,12 @@ export function InviteRedeemForm({
             isOnboardingSpotlight && "w-full max-w-[500px]",
           )}
         >
-          <label
+          <BlockLabel
             className="text-sm font-medium text-foreground"
             htmlFor="invite-relay-url"
           >
             Relay URL
-          </label>
+          </BlockLabel>
           <Input
             className="h-10 bg-background"
             disabled={isRedeeming}

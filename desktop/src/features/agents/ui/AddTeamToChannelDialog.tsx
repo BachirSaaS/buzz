@@ -1,3 +1,5 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { NativeSelect } from "@/shared/blockui/components/native-select";
 import { AlertTriangle } from "lucide-react";
 import * as React from "react";
 
@@ -203,10 +205,13 @@ export function AddTeamToChannelDialog({
             ) : null}
 
             <div className="space-y-1.5">
-              <label className="text-sm font-medium" htmlFor="team-channel-id">
+              <BlockLabel
+                className="text-sm font-medium"
+                htmlFor="team-channel-id"
+              >
                 Channel
-              </label>
-              <select
+              </BlockLabel>
+              <NativeSelect
                 className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs"
                 disabled={channels.length === 0 || deployMutation.isPending}
                 id="team-channel-id"
@@ -221,17 +226,17 @@ export function AddTeamToChannelDialog({
                     {channel.name} · {channel.visibility}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
             </div>
 
             <div className="space-y-1.5">
-              <label
+              <BlockLabel
                 className="text-sm font-medium"
                 htmlFor="team-channel-role"
               >
                 Role
-              </label>
-              <select
+              </BlockLabel>
+              <NativeSelect
                 className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs"
                 disabled={deployMutation.isPending}
                 id="team-channel-role"
@@ -244,7 +249,7 @@ export function AddTeamToChannelDialog({
                 <option value="member">member</option>
                 <option value="guest">guest</option>
                 <option value="admin">admin</option>
-              </select>
+              </NativeSelect>
             </div>
 
             {missingPersonaCount > 0 ? (
@@ -269,7 +274,7 @@ export function AddTeamToChannelDialog({
                     className="flex gap-3 rounded-2xl border border-warning/30 bg-warning-bg px-4 py-3"
                     key={warning}
                   >
-                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+                    <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
                     <p className="text-sm text-warning">{warning}</p>
                   </div>
                 ))

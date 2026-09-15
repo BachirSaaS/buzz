@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import type { ReactNode } from "react";
 import { X } from "lucide-react";
@@ -150,10 +151,10 @@ function SidebarActionDismissButton({
   }, []);
 
   return (
-    <button
+    <Action
       aria-label={label}
       className={cn(
-        "group/dismiss pointer-events-none absolute -right-1 -top-2 z-10 h-6 w-6 rounded-full text-muted-foreground/45 transition-colors duration-150 ease-out hover:text-foreground/80 focus-visible:pointer-events-auto focus-visible:text-foreground/80 focus-visible:outline-hidden group-hover/sidebar-action-card:pointer-events-auto group-hover/sidebar-compact-action-card:pointer-events-auto",
+        "group/dismiss pointer-events-none absolute -right-1 -top-2 z-10 h-6 w-6 rounded-full text-muted-foreground transition-colors duration-150 ease-out hover:text-foreground focus-visible:pointer-events-auto focus-visible:text-foreground focus-visible:outline-hidden group-hover/sidebar-action-card:pointer-events-auto group-hover/sidebar-compact-action-card:pointer-events-auto",
         POOF_TRIGGER_CLASS,
         className,
       )}
@@ -173,9 +174,9 @@ function SidebarActionDismissButton({
       type="button"
     >
       <span className="flex h-full w-full scale-95 items-center justify-center rounded-full bg-background opacity-0 shadow-sm ring-1 ring-border/70 transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:scale-100 group-focus-visible/dismiss:scale-100 group-focus-visible/dismiss:opacity-100 group-focus-visible/dismiss:ring-2 group-focus-visible/dismiss:ring-muted-foreground/40 group-hover/sidebar-action-card:scale-100 group-hover/sidebar-action-card:opacity-100 group-hover/sidebar-compact-action-card:scale-100 group-hover/sidebar-compact-action-card:opacity-100">
-        <X aria-hidden="true" className="h-4 w-4" />
+        <X aria-hidden="true" className="size-4" />
       </span>
-    </button>
+    </Action>
   );
 }
 
@@ -248,7 +249,7 @@ export function SidebarCompactActionCard({
       role={role}
       transition={cardTransition}
     >
-      <button
+      <Action
         aria-label={actionAriaLabel}
         className={cn(
           "flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left shadow-xs transition-[background-color,border-color,color,box-shadow] duration-150 ease-out focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-muted-foreground/40 disabled:cursor-default disabled:opacity-100",
@@ -324,7 +325,7 @@ export function SidebarCompactActionCard({
             </motion.span>
           </AnimatePresence>
         </motion.span>
-      </button>
+      </Action>
       {onDismiss ? (
         <SidebarActionDismissButton
           className={dismissClassName}

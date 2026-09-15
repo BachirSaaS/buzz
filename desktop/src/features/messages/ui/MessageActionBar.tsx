@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import {
   BellOff,
   BellRing,
@@ -54,7 +55,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import { ProtectedMessageAction } from "@protected-feature-components";
 
-const ACTION_BUTTON_CLASS = "h-8 w-8 rounded-full p-0";
+const ACTION_BUTTON_CLASS = "size-8 rounded-full p-0";
 const ACTION_ICON_CLASS = "!h-4 !w-4";
 
 /** Copying a message link is offered from both the hover action bar and the
@@ -182,7 +183,7 @@ function MoreActionsMenu({
                 pendingEditRef.current = () => onEdit(message);
               }}
             >
-              <Pencil className="h-4 w-4" />
+              <Pencil className="size-4" />
               Edit message
             </DropdownMenuItem>
           ) : null}
@@ -199,9 +200,9 @@ function MoreActionsMenu({
               }}
             >
               {isUnread ? (
-                <MailCheck className="h-4 w-4" />
+                <MailCheck className="size-4" />
               ) : (
-                <MailOpen className="h-4 w-4" />
+                <MailOpen className="size-4" />
               )}
               {isUnread ? "Mark read" : "Mark unread"}
             </DropdownMenuItem>
@@ -218,9 +219,9 @@ function MoreActionsMenu({
               }}
             >
               {isFollowingThread ? (
-                <BellOff className="h-4 w-4" />
+                <BellOff className="size-4" />
               ) : (
-                <BellRing className="h-4 w-4" />
+                <BellRing className="size-4" />
               )}
               {isFollowingThread ? "Unfollow thread" : "Follow thread"}
             </DropdownMenuItem>
@@ -239,7 +240,7 @@ function MoreActionsMenu({
                 );
               }}
             >
-              <Copy className="h-4 w-4" />
+              <Copy className="size-4" />
               Copy message
             </DropdownMenuItem>
           ) : null}
@@ -250,7 +251,7 @@ function MoreActionsMenu({
                 onRemindLater(message);
               }}
             >
-              <Clock className="h-4 w-4" />
+              <Clock className="size-4" />
               Remind me later
             </DropdownMenuItem>
           ) : null}
@@ -273,7 +274,7 @@ function MoreActionsMenu({
             >
               <HashArrowIn
                 aria-hidden="true"
-                className="h-4 w-4"
+                className="size-4"
                 data-testid="send-to-channel-icon"
               />
               Send to channel
@@ -287,7 +288,7 @@ function MoreActionsMenu({
                 copyMessageLink(channelId, message);
               }}
             >
-              <Link2 className="h-4 w-4" />
+              <Link2 className="size-4" />
               Copy link
             </DropdownMenuItem>
           ) : null}
@@ -301,7 +302,7 @@ function MoreActionsMenu({
                 setIsReportDialogOpen(true);
               }}
             >
-              <Flag className="h-4 w-4" />
+              <Flag className="size-4" />
               Report message
             </DropdownMenuItem>
           ) : null}
@@ -314,7 +315,7 @@ function MoreActionsMenu({
                 setIsDeleteDialogOpen(true);
               }}
             >
-              <Trash2 className="h-4 w-4" />
+              <Trash2 className="size-4" />
               Delete message
             </DropdownMenuItem>
           ) : null}
@@ -363,9 +364,9 @@ function QuickReactionButton({
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <button
+        <Action
           aria-label={`React with ${displayName}`}
-          className="flex h-8 w-8 items-center justify-center rounded-full text-base leading-none text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+          className="flex size-8 items-center justify-center rounded-full text-base leading-none text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
           onClick={() => onSelect(emoji)}
           title={displayName}
           type="button"
@@ -373,7 +374,7 @@ function QuickReactionButton({
           {mediaUrl ? (
             <img
               alt={emoji}
-              className="h-5 w-5 object-contain"
+              className="size-5 object-contain"
               draggable={false}
               src={mediaUrl}
             />
@@ -382,7 +383,7 @@ function QuickReactionButton({
               {emoji}
             </span>
           )}
-        </button>
+        </Action>
       </TooltipTrigger>
       <TooltipContent>{displayName}</TooltipContent>
     </Tooltip>
@@ -510,7 +511,7 @@ export const MessageActionBar = React.memo(function MessageActionBar({
     <div
       className={cn(
         "-m-1 p-1 transition-opacity duration-150 ease-out",
-        "opacity-100 sm:pointer-events-none sm:opacity-0",
+        "pointer-events-auto opacity-100 sm:pointer-events-none sm:opacity-0",
         "sm:group-hover/message:pointer-events-auto sm:group-hover/message:opacity-100",
         "sm:group-focus-within/message:pointer-events-auto sm:group-focus-within/message:opacity-100",
         isReactionPickerOpen || isDropdownOpen

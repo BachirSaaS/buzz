@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { MessageCircle, SlidersHorizontal } from "lucide-react";
 
 import { Button } from "@/shared/ui/button";
@@ -39,7 +40,7 @@ export function WelcomeAgentCreateDialog({
         </DialogHeader>
 
         <div className="space-y-2">
-          <button
+          <Action
             className="flex w-full items-start gap-3 rounded-lg border border-primary bg-transparent p-4 text-left transition-colors hover:bg-primary/5 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
             data-testid="welcome-create-agent-in-chat"
             disabled={isSending}
@@ -47,7 +48,7 @@ export function WelcomeAgentCreateDialog({
             type="button"
           >
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-              <MessageCircle className="h-5 w-5" />
+              <MessageCircle className="size-5" />
             </span>
             <span className="min-w-0">
               <span className="block text-sm font-medium text-foreground">
@@ -58,16 +59,16 @@ export function WelcomeAgentCreateDialog({
                 can review and edit.
               </span>
             </span>
-          </button>
+          </Action>
 
-          <button
+          <Action
             className="flex w-full items-start gap-3 rounded-lg p-4 text-left transition-colors hover:bg-accent focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
             data-testid="welcome-create-agent-manually"
             onClick={onCreateManually}
             type="button"
           >
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">
-              <SlidersHorizontal className="h-5 w-5" />
+              <SlidersHorizontal className="size-5" />
             </span>
             <span className="min-w-0">
               <span className="block text-sm font-medium text-foreground">
@@ -77,7 +78,7 @@ export function WelcomeAgentCreateDialog({
                 Fill in the agent’s name, instructions, and settings yourself.
               </span>
             </span>
-          </button>
+          </Action>
         </div>
 
         {sendError ? (

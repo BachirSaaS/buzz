@@ -1,3 +1,6 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { Kbd as BlockKbd } from "@/shared/blockui/components/kbd";
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { Bot, Pin, Users } from "lucide-react";
 import { OtherSetupAgentMarker } from "@/features/agents/ui/OtherSetupAgentMarker";
@@ -197,7 +200,7 @@ export const MentionAutocomplete = React.memo(function MentionAutocomplete({
             >
               <div className="flex min-h-14 items-center justify-between gap-4 px-3.5 py-2.5">
                 {/* biome-ignore lint/a11y/useKeyWithClickEvents: pointer-only label affordance; the associated switch remains the keyboard path. */}
-                <label
+                <BlockLabel
                   className="flex min-w-0 flex-col"
                   htmlFor={keepPinnedSwitchId}
                   onClick={(event) => {
@@ -213,7 +216,7 @@ export const MentionAutocomplete = React.memo(function MentionAutocomplete({
                   <span className="text-2xs text-muted-foreground">
                     Address selected agents in thread replies
                   </span>
-                </label>
+                </BlockLabel>
                 <Switch
                   aria-label="Automatically mention agents"
                   checked={keepMentionedAgentsPinned}
@@ -292,7 +295,7 @@ export const MentionAutocomplete = React.memo(function MentionAutocomplete({
                 data-mention-suggestion-index={index}
                 key={suggestionKey}
               >
-                <button
+                <Action
                   aria-label={`Mention ${suggestion.displayName}`}
                   className={cn(
                     "flex min-w-0 flex-1 items-center gap-2 rounded-lg px-3 py-1.5 text-left",
@@ -307,7 +310,7 @@ export const MentionAutocomplete = React.memo(function MentionAutocomplete({
                 >
                   {suggestion.kind === "team" ? (
                     <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                      <Users aria-hidden="true" className="h-4 w-4" />
+                      <Users aria-hidden="true" className="size-4" />
                     </span>
                   ) : (
                     <UserAvatar
@@ -340,14 +343,14 @@ export const MentionAutocomplete = React.memo(function MentionAutocomplete({
                       >
                         {suggestion.kind === "team" ? (
                           <span className="inline-flex shrink-0 items-center gap-1">
-                            <Users aria-hidden="true" className="h-3.5 w-3.5" />
+                            <Users aria-hidden="true" className="size-3.5" />
                             team · {suggestion.teamMembers?.length ?? 0} agents
                           </span>
                         ) : suggestion.isAgent ? (
                           <span className="inline-flex shrink-0 items-center gap-1">
                             <Bot
                               aria-hidden="true"
-                              className="h-3.5 w-3.5"
+                              className="size-3.5"
                               data-testid="mention-agent-icon"
                             />
                             agent
@@ -393,7 +396,7 @@ export const MentionAutocomplete = React.memo(function MentionAutocomplete({
                       </span>
                     ) : null}
                   </span>
-                </button>
+                </Action>
                 {canAlwaysAddress ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -417,7 +420,7 @@ export const MentionAutocomplete = React.memo(function MentionAutocomplete({
                         >
                           <Pin
                             aria-hidden="true"
-                            className="h-3.5 w-3.5"
+                            className="size-3.5"
                             data-testid="mention-auto-pin-icon"
                             fill={isAlwaysAddressed ? "currentColor" : "none"}
                           />
@@ -434,14 +437,14 @@ export const MentionAutocomplete = React.memo(function MentionAutocomplete({
                           : "Automatically mention"}
                       </span>
                       {alwaysAddressShortcut ? (
-                        <kbd className="flex items-center gap-0.5 rounded border border-secondary-foreground/20 bg-secondary-foreground/10 px-1 py-0 font-mono text-sm text-secondary-foreground">
+                        <BlockKbd className="flex items-center gap-0.5 rounded border border-secondary-foreground/20 bg-secondary-foreground/10 px-1 py-0 font-mono text-sm text-secondary-foreground">
                           {(alwaysAddressShortcut.includes("+")
                             ? alwaysAddressShortcut.split("+")
                             : Array.from(alwaysAddressShortcut)
                           ).map((key) => (
                             <span key={key}>{key}</span>
                           ))}
-                        </kbd>
+                        </BlockKbd>
                       ) : null}
                     </TooltipContent>
                   </Tooltip>

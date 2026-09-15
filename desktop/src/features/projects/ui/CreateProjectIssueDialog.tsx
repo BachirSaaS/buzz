@@ -1,3 +1,5 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { NativeSelect } from "@/shared/blockui/components/native-select";
 import * as React from "react";
 import { toast } from "sonner";
 
@@ -78,9 +80,9 @@ export function CreateProjectIssueDialog({
       title="Create a task"
       titlePlaceholder="Describe the task"
     >
-      <label className="block space-y-1.5 text-sm font-medium">
+      <BlockLabel className="block space-y-1.5 text-sm font-medium">
         <span>Repository</span>
-        <select
+        <NativeSelect
           className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm font-normal outline-hidden focus:ring-1 focus:ring-ring"
           data-testid="create-issue-repository"
           disabled={createMutation.isPending}
@@ -97,8 +99,8 @@ export function CreateProjectIssueDialog({
                 : candidate.project.name}
             </option>
           ))}
-        </select>
-      </label>
+        </NativeSelect>
+      </BlockLabel>
     </CreateProjectWorkItemDialog>
   );
 }

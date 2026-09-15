@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { Eye, FolderKanban } from "lucide-react";
 import * as React from "react";
 
@@ -81,13 +82,13 @@ const IssueGridCard = React.memo(function IssueGridCard({
       className="group relative flex min-h-32 flex-col overflow-hidden border-border/60 bg-transparent p-4 shadow-none transition-colors duration-150 hover:bg-muted/20"
       data-projects-grid-card
     >
-      <button
+      <Action
         className="absolute inset-0"
         onClick={() => onOpen(project, repository, issue)}
         type="button"
       >
         <span className="sr-only">View task {issue.title}</span>
-      </button>
+      </Action>
       <div className="flex min-h-0 flex-1 flex-col gap-2">
         <h3
           className="truncate text-sm font-semibold leading-5 text-foreground"
@@ -179,7 +180,7 @@ const IssueListRow = React.memo(function IssueListRow({
       trailing={
         <ProjectListRowMenu label={`More options for ${issue.title}`}>
           <DropdownMenuItem onSelect={() => onOpen(project, repository, issue)}>
-            <Eye className="h-4 w-4" />
+            <Eye className="size-4" />
             {nextStepLabel(issue.status)}
           </DropdownMenuItem>
           <CopyShareLinkMenuItem
@@ -323,7 +324,7 @@ export function ProjectsIssuesList({
               groupKey={group.project.id}
               headerClassName="mx-0 gap-3 px-4"
               headerTestId="projects-issue-project-group-header"
-              icon={<FolderKanban className="h-4 w-4" />}
+              icon={<FolderKanban className="size-4" />}
               items={groupSelectionItems}
               key={group.project.id}
               label={group.project.name}

@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import {
   Check,
   ChevronRight,
@@ -35,13 +36,13 @@ export function ChannelHero({
     >
       <div className="flex h-20 w-20 items-center justify-center rounded-full bg-primary text-primary-foreground">
         {channel.channelType === "dm" ? (
-          <MessageSquare className="h-8 w-8" />
+          <MessageSquare className="size-8" />
         ) : (
           <ChannelGlyph channel={channel} className="h-8 w-8" />
         )}
       </div>
       {channel.channelType !== "dm" && onEdit ? (
-        <button
+        <Action
           aria-label="Edit channel"
           className="group flex max-w-full flex-col items-center rounded-lg px-8 py-1 text-center focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
           data-testid="channel-management-edit"
@@ -60,16 +61,16 @@ export function ChannelHero({
               className="pointer-events-none absolute top-1/2 left-full ml-1 -translate-y-1/2 text-muted-foreground opacity-0 transition-[color,opacity] duration-150 ease-out group-hover:text-foreground group-hover:opacity-100 group-focus-visible:opacity-100"
               data-testid="channel-management-edit-icon"
             >
-              <Pencil className="h-4 w-4" />
+              <Pencil className="size-4" />
             </span>
           </span>
           <span
-            className="mt-1 line-clamp-6 max-w-full whitespace-pre-line text-sm leading-5 text-muted-foreground/70"
+            className="mt-1 line-clamp-6 max-w-full whitespace-pre-line text-sm leading-5 text-muted-foreground"
             data-testid="channel-management-description"
           >
             {description}
           </span>
-        </button>
+        </Action>
       ) : channel.channelType !== "dm" ? (
         <div className="flex max-w-full flex-col items-center">
           <h3
@@ -80,7 +81,7 @@ export function ChannelHero({
           </h3>
           {description ? (
             <p
-              className="mt-1 line-clamp-6 max-w-full whitespace-pre-line text-sm leading-5 text-muted-foreground/70"
+              className="mt-1 line-clamp-6 max-w-full whitespace-pre-line text-sm leading-5 text-muted-foreground"
               data-testid="channel-management-description"
             >
               {description}
@@ -175,7 +176,7 @@ export function CopyFieldRow({
   }
 
   return (
-    <button
+    <Action
       aria-label={copied ? `${label} copied` : `Copy ${label}`}
       className="group flex min-h-16 w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40"
       data-testid={testId}
@@ -196,7 +197,7 @@ export function CopyFieldRow({
           {label}
         </span>
         <span
-          className="mt-0.5 block truncate font-mono text-sm text-muted-foreground/70"
+          className="mt-0.5 block truncate font-mono text-sm text-muted-foreground"
           title={value}
         >
           {truncateIdentifier(value)}
@@ -224,7 +225,7 @@ export function CopyFieldRow({
           )}
         />
       </span>
-    </button>
+    </Action>
   );
 }
 
@@ -259,7 +260,7 @@ export function InfoFieldRow({
         </span>
         <span
           className={cn(
-            "mt-0.5 block text-sm font-normal text-muted-foreground/70",
+            "mt-0.5 block text-sm font-normal text-muted-foreground",
             multiline ? "line-clamp-2 whitespace-normal leading-5" : "truncate",
           )}
         >
@@ -272,14 +273,14 @@ export function InfoFieldRow({
 
   if (onClick) {
     return (
-      <button
+      <Action
         className="flex min-h-16 w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         data-testid={testId}
         onClick={onClick}
         type="button"
       >
         {content}
-      </button>
+      </Action>
     );
   }
 
@@ -324,7 +325,7 @@ export function EditableInfoFieldRow({
         </span>
         <span
           className={cn(
-            "mt-0.5 block text-sm font-normal text-muted-foreground/70",
+            "mt-0.5 block text-sm font-normal text-muted-foreground",
             multiline ? "line-clamp-2 whitespace-normal leading-5" : "truncate",
           )}
         >
@@ -337,7 +338,7 @@ export function EditableInfoFieldRow({
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
           data-testid={editTestId}
         >
-          <Pencil className="h-4 w-4" />
+          <Pencil className="size-4" />
         </span>
       ) : null}
     </>
@@ -345,7 +346,7 @@ export function EditableInfoFieldRow({
 
   if (onEdit) {
     return (
-      <button
+      <Action
         aria-label={`Edit ${label.toLowerCase()}`}
         className="group flex min-h-16 w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         data-testid={testId}
@@ -353,7 +354,7 @@ export function EditableInfoFieldRow({
         type="button"
       >
         {content}
-      </button>
+      </Action>
     );
   }
 
@@ -394,7 +395,7 @@ export const ActionFieldRow = React.forwardRef<
   ref,
 ) {
   return (
-    <button
+    <Action
       className={cn(
         "flex min-h-16 w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40 disabled:cursor-not-allowed disabled:opacity-50",
         destructive && "text-destructive",
@@ -416,12 +417,12 @@ export const ActionFieldRow = React.forwardRef<
       <span className="min-w-0 flex-1">
         <span className="block text-sm font-medium">{label}</span>
         {description ? (
-          <span className="mt-0.5 block truncate text-sm font-normal text-muted-foreground/70">
+          <span className="mt-0.5 block truncate text-sm font-normal text-muted-foreground">
             {description}
           </span>
         ) : null}
       </span>
-    </button>
+    </Action>
   );
 });
 
@@ -445,7 +446,7 @@ export function IngressRow({
   return (
     <PanelSectionGroup testId={`${testId}-section`}>
       <div className="relative flex min-h-16 w-full items-center gap-3 px-4 py-3 text-left">
-        <button
+        <Action
           aria-label={`Open ${label.toLowerCase()}`}
           className="absolute inset-0 z-10 transition-colors hover:bg-muted/40 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
           data-testid={testId}
@@ -459,15 +460,15 @@ export function IngressRow({
             {helpText ? (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <button
+                  <Action
                     aria-label={`About ${label.toLowerCase()}`}
                     className="pointer-events-auto flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
                     data-testid={`${testId}-info`}
                     onClick={(event) => event.stopPropagation()}
                     type="button"
                   >
-                    <Info className="h-3.5 w-3.5" />
-                  </button>
+                    <Info className="size-3.5" />
+                  </Action>
                 </TooltipTrigger>
                 <TooltipContent className="max-w-64 text-left" side="top">
                   {helpText}
@@ -476,17 +477,17 @@ export function IngressRow({
             ) : null}
           </span>
           {description ? (
-            <span className="mt-0.5 block truncate text-sm font-normal text-muted-foreground/70">
+            <span className="mt-0.5 block truncate text-sm font-normal text-muted-foreground">
               {description}
             </span>
           ) : null}
         </span>
         {trailing ? (
-          <span className="pointer-events-none relative z-20 text-sm text-muted-foreground/70">
+          <span className="pointer-events-none relative z-20 text-sm text-muted-foreground">
             {trailing}
           </span>
         ) : null}
-        <ChevronRight className="pointer-events-none relative z-20 h-4 w-4 shrink-0 text-muted-foreground" />
+        <ChevronRight className="pointer-events-none relative z-20 size-4 shrink-0 text-muted-foreground" />
       </div>
     </PanelSectionGroup>
   );

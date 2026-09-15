@@ -38,7 +38,7 @@ function ProjectInboxStatus({
             type="button"
             variant="ghost"
           >
-            <ArrowLeft className="h-4 w-4" />
+            <ArrowLeft className="size-4" />
           </Button>
         </div>
       ) : null}

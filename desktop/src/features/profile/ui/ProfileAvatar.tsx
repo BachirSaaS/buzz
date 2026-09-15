@@ -113,7 +113,7 @@ export function ProfileAvatar({
         shape === "squircle" && "rounded-squircle",
         // Animated avatars carry their own backdrop disc and transparent
         // surroundings — any container fill would flatten the pop-out.
-        plain || animated ? "bg-transparent shadow-none" : "bg-primary/20",
+        plain || animated ? "bg-transparent shadow-none" : "bg-muted",
         className,
       )}
       data-testid={testId}
@@ -141,10 +141,7 @@ export function ProfileAvatar({
       ) : null}
       {shouldShowFallback ? (
         <AvatarFallback
-          className={cn(
-            "font-semibold text-primary",
-            plain || animated ? "bg-transparent" : "bg-primary/20",
-          )}
+          className="bg-transparent font-semibold text-primary"
           data-testid={testId ? `${testId}-fallback` : undefined}
           delayMs={src === undefined ? undefined : 200}
         >

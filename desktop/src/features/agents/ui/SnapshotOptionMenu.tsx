@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { ChevronDown } from "lucide-react";
 
 import { cn } from "@/shared/lib/cn";
@@ -39,7 +40,7 @@ export function SnapshotOptionMenu({
   return (
     <DropdownMenu modal={false} onOpenChange={onOpenChange}>
       <DropdownMenuTrigger asChild>
-        <button
+        <Action
           aria-label={ariaLabel}
           className={cn(
             "inline-flex h-8 w-auto shrink-0 items-center justify-end gap-1.5 rounded-md bg-transparent px-2 text-right text-sm text-muted-foreground outline-hidden transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:bg-muted/50 focus-visible:text-foreground disabled:cursor-not-allowed disabled:opacity-60",
@@ -51,8 +52,8 @@ export function SnapshotOptionMenu({
           type="button"
         >
           <span className="min-w-0 truncate">{selectedLabel}</span>
-          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        </button>
+          <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+        </Action>
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="end"

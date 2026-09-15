@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import {
   ArrowRight,
   CalendarClock,
@@ -65,21 +66,30 @@ const ACTION_ICONS: Record<string, LucideIcon> = {
 };
 
 const TRIGGER_ACCENTS: Record<string, string> = {
-  diff_posted: "border-violet-400/30 bg-violet-600 text-white",
-  message_posted: "border-blue-400/30 bg-blue-600 text-white",
-  reaction_added: "border-pink-400/30 bg-pink-600 text-white",
-  schedule: "border-emerald-400/30 bg-emerald-600 text-white",
-  webhook: "border-orange-300/30 bg-orange-500 text-white",
+  diff_posted:
+    "border-info-foreground/30 bg-info-foreground text-primary-foreground",
+  message_posted:
+    "border-info-foreground/30 bg-info-foreground text-primary-foreground",
+  reaction_added:
+    "border-info-foreground/30 bg-info-foreground text-primary-foreground",
+  schedule: "border-success-foreground/30 bg-success text-success-foreground",
+  webhook: "border-warning-foreground/30 bg-warning text-warning-foreground",
 };
 
 const ACTION_ACCENTS: Record<string, string> = {
-  add_reaction: "border-pink-400/30 bg-pink-600 text-white",
-  call_webhook: "border-orange-300/30 bg-orange-500 text-white",
-  delay: "border-sky-300/30 bg-sky-500 text-white",
-  request_approval: "border-emerald-300/30 bg-emerald-600 text-white",
-  send_dm: "border-indigo-300/30 bg-indigo-600 text-white",
-  send_message: "border-blue-300/30 bg-blue-600 text-white",
-  set_channel_topic: "border-violet-300/30 bg-violet-600 text-white",
+  add_reaction:
+    "border-info-foreground/30 bg-info-foreground text-primary-foreground",
+  call_webhook:
+    "border-warning-foreground/30 bg-warning text-warning-foreground",
+  delay: "border-info-foreground/30 bg-info-foreground text-primary-foreground",
+  request_approval:
+    "border-success-foreground/30 bg-success text-success-foreground",
+  send_dm:
+    "border-info-foreground/30 bg-info-foreground text-primary-foreground",
+  send_message:
+    "border-info-foreground/30 bg-info-foreground text-primary-foreground",
+  set_channel_topic:
+    "border-info-foreground/30 bg-info-foreground text-primary-foreground",
 };
 
 function StatusToggle({
@@ -147,7 +157,7 @@ function ActionTile({
         ) : ActionIcon ? (
           <ActionIcon className="h-5 w-5" />
         ) : (
-          <Zap className="h-5 w-5" />
+          <Zap className="size-5" />
         )}
       </motion.span>
     </span>
@@ -233,13 +243,13 @@ export function WorkflowCard({
       )}
       data-testid={`workflow-card-${workflow.id}`}
     >
-      <button
+      <Action
         className="absolute inset-0 z-0 rounded-2xl focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         onClick={() => onView(workflow)}
         type="button"
       >
         <span className="sr-only">View {workflow.name}</span>
-      </button>
+      </Action>
 
       <div className="pointer-events-none relative z-10 flex min-h-48 flex-1 flex-col">
         <div className="flex items-start justify-between gap-3">
@@ -247,7 +257,7 @@ export function WorkflowCard({
             <span
               className={cn(
                 "flex h-9 w-9 items-center justify-center rounded-xl border shadow-xs",
-                triggerAccent ?? "border-slate-400/30 bg-slate-600 text-white",
+                triggerAccent ?? "border-border bg-muted text-white",
               )}
             >
               {triggerEmoji ? (
@@ -255,12 +265,12 @@ export function WorkflowCard({
               ) : TriggerIcon ? (
                 <TriggerIcon className="h-5 w-5" />
               ) : (
-                <Zap className="h-5 w-5" />
+                <Zap className="size-5" />
               )}
             </span>
             {actionTiles.length > 0 ? (
               <>
-                <ArrowRight className="h-4 w-4 text-muted-foreground/60" />
+                <ArrowRight className="size-4 text-muted-foreground" />
                 <ActionTileStack
                   actions={actionTiles}
                   animationSequence={triggerAnimationSequence}

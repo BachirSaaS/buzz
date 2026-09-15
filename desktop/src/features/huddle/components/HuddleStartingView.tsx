@@ -1,5 +1,5 @@
-import { ThemeGrainientBackground } from "@/app/ThemeGrainientBackground";
-import { FlappingBee } from "@/shared/ui/buzz-logo/FlappingBee";
+import { BlockUIBackground } from "@/app/BlockUIBackground";
+import { Spinner } from "@/shared/ui/spinner";
 
 /** Immediate feedback shown while the native huddle session is being prepared. */
 export function HuddleStartingView() {
@@ -10,9 +10,13 @@ export function HuddleStartingView() {
       data-testid="huddle-starting-view"
       role="status"
     >
-      <ThemeGrainientBackground />
+      <BlockUIBackground />
       <span className="sr-only">Starting huddle</span>
-      <FlappingBee className="relative z-10 h-auto w-28" />
+      <Spinner
+        aria-hidden="true"
+        role="presentation"
+        className="relative z-10 size-8"
+      />
     </div>
   );
 }

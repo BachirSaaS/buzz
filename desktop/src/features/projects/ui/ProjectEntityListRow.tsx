@@ -1,3 +1,6 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { ChoiceInput } from "@/shared/ui/native-controls";
+import { Action } from "@/shared/ui/action";
 import { Check, MessageSquare, Minus } from "lucide-react";
 import type * as React from "react";
 
@@ -77,7 +80,7 @@ export function ProjectEntityFacepile({
         );
       })}
       {overflow > 0 ? (
-        <span className="-ml-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-muted text-3xs text-muted-foreground/65 ring-2 ring-background">
+        <span className="-ml-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-muted text-3xs text-muted-foreground ring-2 ring-background">
           +{overflow}
         </span>
       ) : null}
@@ -99,7 +102,7 @@ export function ProjectEntitySelectControl({
   testId?: string;
 }) {
   return (
-    <label
+    <BlockLabel
       className={cn(
         "pointer-events-auto relative flex h-3.5 w-3.5 shrink-0 cursor-pointer items-center justify-center rounded-xs border focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-1",
         checked || indeterminate
@@ -107,7 +110,7 @@ export function ProjectEntitySelectControl({
           : "border-muted-foreground/55 bg-background",
       )}
     >
-      <input
+      <ChoiceInput
         aria-label={label}
         checked={checked}
         className="absolute inset-0 z-10 cursor-pointer opacity-0"
@@ -126,11 +129,11 @@ export function ProjectEntitySelectControl({
         type="checkbox"
       />
       {checked ? (
-        <Check className="h-2.5 w-2.5" strokeWidth={3} />
+        <Check className="size-2.5" />
       ) : indeterminate ? (
-        <Minus className="h-2.5 w-2.5" strokeWidth={3} />
+        <Minus className="size-2.5" />
       ) : null}
-    </label>
+    </BlockLabel>
   );
 }
 
@@ -265,7 +268,7 @@ export function ProjectEntityListRow({
               {title}
             </span>
             <span
-              className="min-w-0 flex-1 truncate text-left font-normal text-muted-foreground/65"
+              className="min-w-0 flex-1 truncate text-left font-normal text-muted-foreground"
               data-projects-text-priority="secondary"
               data-testid={titleSecondaryTestId}
               title={titleSecondary}
@@ -289,7 +292,7 @@ export function ProjectEntityListRow({
       ) : null}
       {description ? (
         <span
-          className="hidden min-w-0 flex-1 truncate text-xs text-muted-foreground/65 lg:block"
+          className="hidden min-w-0 flex-1 truncate text-xs text-muted-foreground lg:block"
           data-projects-text-priority="secondary"
           data-testid={descriptionTestId ?? "project-entity-description"}
           title={description}
@@ -300,7 +303,7 @@ export function ProjectEntityListRow({
       {affiliation ? (
         <span
           className={cn(
-            "hidden w-36 shrink-0 truncate text-left text-xs text-muted-foreground/65 md:block",
+            "hidden w-36 shrink-0 truncate text-left text-xs text-muted-foreground md:block",
             affiliationClassName,
           )}
           data-projects-text-priority="secondary"
@@ -321,14 +324,14 @@ export function ProjectEntityListRow({
       </span>
       {count != null || countTestId ? (
         <span
-          className="flex w-12 shrink-0 items-center gap-1 text-xs text-muted-foreground/65"
+          className="flex w-12 shrink-0 items-center gap-1 text-xs text-muted-foreground"
           data-projects-text-priority="secondary"
           data-testid={countTestId}
           title={countTitle}
         >
           {count != null ? (
             <>
-              <MessageSquare className="h-3.5 w-3.5" />
+              <MessageSquare className="size-3.5" />
               <span className="tabular-nums">
                 {count}
                 {countSuffix}
@@ -347,7 +350,7 @@ export function ProjectEntityListRow({
       ) : null}
       {dateSeconds ? (
         <span
-          className="hidden w-24 shrink-0 whitespace-nowrap text-right text-xs text-muted-foreground/55 sm:block"
+          className="hidden w-24 shrink-0 whitespace-nowrap text-right text-xs text-muted-foreground sm:block"
           data-projects-text-priority="secondary"
           data-testid={dateTestId}
           title={new Date(dateSeconds * 1_000).toLocaleString()}
@@ -373,14 +376,14 @@ export function ProjectEntityListRow({
         data-testid={testId}
       >
         {onClick ? (
-          <button
+          <Action
             className="absolute inset-0"
             onClick={onClick}
             title={titleAttr}
             type="button"
           >
             <span className="sr-only">{titleAttr}</span>
-          </button>
+          </Action>
         ) : null}
         <div
           className={cn(
@@ -397,7 +400,7 @@ export function ProjectEntityListRow({
 
   if (onClick) {
     return (
-      <button
+      <Action
         className={PROJECT_ENTITY_LIST_ROW_CLASS}
         data-testid={testId}
         onClick={onClick}
@@ -405,7 +408,7 @@ export function ProjectEntityListRow({
         type="button"
       >
         {body}
-      </button>
+      </Action>
     );
   }
 

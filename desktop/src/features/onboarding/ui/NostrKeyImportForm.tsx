@@ -1,3 +1,5 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { Check, Eye, EyeOff, FileKey2, KeyRound } from "lucide-react";
 
@@ -280,7 +282,7 @@ export function NostrKeyImportForm({
     >
       {!isPasswordStage && mode === "key" ? (
         <div className={cn("text-left", !cardLayout && "space-y-1.5")}>
-          <label
+          <BlockLabel
             className={cn(
               "text-sm font-medium text-foreground",
               cardLayout && "mb-2 block",
@@ -289,7 +291,7 @@ export function NostrKeyImportForm({
             htmlFor="nostr-private-key"
           >
             Private key
-          </label>
+          </BlockLabel>
           {variant === "spotlight" ? (
             cardLayout ? (
               <div className="relative w-full">
@@ -328,9 +330,9 @@ export function NostrKeyImportForm({
                   variant="ghost"
                 >
                   {isRevealed ? (
-                    <EyeOff aria-hidden="true" className="h-4 w-4" />
+                    <EyeOff aria-hidden="true" className="size-4" />
                   ) : (
-                    <Eye aria-hidden="true" className="h-4 w-4" />
+                    <Eye aria-hidden="true" className="size-4" />
                   )}
                 </Button>
               </div>
@@ -338,7 +340,6 @@ export function NostrKeyImportForm({
               <Card
                 className="w-full px-8 py-12"
                 data-testid="nostr-import-card"
-                variant="textured"
               >
                 <div className="relative w-full">
                   <Input
@@ -347,7 +348,7 @@ export function NostrKeyImportForm({
                     // Symmetric px reserves the absolutely positioned toggle's
                     // footprint on BOTH sides, so the centered key text never
                     // runs under the eye control and stays optically centered.
-                    className="h-[3.6875rem] rounded-none border-0 bg-transparent px-10 text-center font-mono !text-4xl text-[color:var(--buzz-onboarding-backup-ink)] shadow-none placeholder:text-foreground/30 focus-visible:ring-0"
+                    className="h-[3.6875rem] rounded-none border-0 bg-transparent px-10 text-center font-mono !text-4xl text-[color:var(--buzz-onboarding-backup-ink)] shadow-none placeholder:text-foreground focus-visible:ring-0"
                     data-testid="nostr-import-nsec-input"
                     id="nostr-private-key"
                     onChange={(event) => {
@@ -379,9 +380,9 @@ export function NostrKeyImportForm({
                     variant="ghost"
                   >
                     {isRevealed ? (
-                      <EyeOff aria-hidden="true" className="h-6 w-6" />
+                      <EyeOff aria-hidden="true" className="size-6" />
                     ) : (
-                      <Eye aria-hidden="true" className="h-6 w-6" />
+                      <Eye aria-hidden="true" className="size-6" />
                     )}
                   </Button>
                 </div>
@@ -452,7 +453,7 @@ export function NostrKeyImportForm({
           </div>
           {isDragging ? (
             <fieldset
-              className="absolute inset-[var(--buzz-card-textured-safe-inset)] z-10 flex items-center justify-center rounded-2xl border-2 border-dashed border-primary/60 bg-background/80 backdrop-blur-sm min-[44rem]:-inset-x-6"
+              className="absolute inset-4 z-10 flex items-center justify-center rounded-2xl border-2 border-dashed border-primary/60 bg-background/80 backdrop-blur-sm min-[44rem]:-inset-x-6"
               data-dragging="true"
               data-testid="nostr-import-backup-drop"
             >
@@ -466,7 +467,7 @@ export function NostrKeyImportForm({
       ) : null}
 
       {!isPasswordStage && mode === "key" && variant !== "spotlight" ? (
-        <button
+        <Action
           className={cn(
             "relative flex h-[120px] flex-col items-center justify-center gap-3 overflow-hidden rounded-xl border border-transparent bg-muted text-foreground transition-[background-color,border-color,box-shadow,color] duration-[250ms] ease-out hover:bg-muted/80 disabled:opacity-60",
             isDragging &&
@@ -532,7 +533,7 @@ export function NostrKeyImportForm({
           >
             Drop a key here
           </span>
-        </button>
+        </Action>
       ) : null}
 
       {isPasswordStage ? (
@@ -544,9 +545,9 @@ export function NostrKeyImportForm({
           data-testid="nostr-import-passphrase-section"
         >
           <BackupPasswordTimeline mode="restore" />
-          <label className="sr-only" htmlFor="nostr-import-passphrase">
+          <BlockLabel className="sr-only" htmlFor="nostr-import-passphrase">
             Backup password
-          </label>
+          </BlockLabel>
           <div className="relative z-10">
             <Input
               autoComplete="current-password"
@@ -575,9 +576,9 @@ export function NostrKeyImportForm({
               variant="ghost"
             >
               {isRevealed ? (
-                <EyeOff aria-hidden="true" className="h-4 w-4" />
+                <EyeOff aria-hidden="true" className="size-4" />
               ) : (
-                <Eye aria-hidden="true" className="h-4 w-4" />
+                <Eye aria-hidden="true" className="size-4" />
               )}
             </Button>
           </div>
@@ -607,7 +608,7 @@ export function NostrKeyImportForm({
                     cardLayout ? "justify-start" : "justify-center",
                   )}
                 >
-                  <Check aria-hidden="true" className="h-4 w-4 shrink-0" />
+                  <Check aria-hidden="true" className="size-4 shrink-0" />
                   Nostr identity found
                 </p>
                 <p className="break-all font-mono text-[color:var(--buzz-onboarding-backup-ink)]">
@@ -619,7 +620,7 @@ export function NostrKeyImportForm({
                 className="flex items-start gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-xs"
                 data-testid="nostr-import-npub-preview"
               >
-                <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                <Check className="mt-0.5 size-4 shrink-0 text-primary" />
                 <div className="min-w-0 space-y-0.5">
                   <p className="font-medium text-foreground">
                     This will use this Nostr identity:

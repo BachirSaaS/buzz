@@ -1,3 +1,4 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
 import { AlertTriangle } from "lucide-react";
 import * as React from "react";
 
@@ -88,9 +89,9 @@ export function WhereToRunSection({
   return (
     <div className="space-y-4">
       <div className="space-y-1.5">
-        <label className="text-sm font-medium" htmlFor="agent-run-on">
+        <BlockLabel className="text-sm font-medium" htmlFor="agent-run-on">
           Run on
-        </label>
+        </BlockLabel>
         <PersonaDropdownField
           disabled={isPending}
           id="agent-run-on"
@@ -109,7 +110,7 @@ export function WhereToRunSection({
       {isProviderMode && selectedBackendProvider ? (
         <div className="space-y-4">
           <div className="flex gap-3 rounded-2xl border border-warning/30 bg-warning-bg px-4 py-3">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
             <p className="text-sm text-warning">
               This provider at{" "}
               <span className="font-mono font-medium">

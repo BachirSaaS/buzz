@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 
 import type { ChannelSuggestion } from "@/features/messages/lib/useChannelLinks";
@@ -63,7 +64,7 @@ export const ChannelAutocomplete = React.memo(function ChannelAutocomplete({
         style={POPOVER_SHADOW_STYLE}
       >
         {suggestions.map((suggestion, index) => (
-          <button
+          <Action
             className={cn(
               "flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-1.5 text-left text-sm",
               index === selectedIndex
@@ -80,7 +81,7 @@ export const ChannelAutocomplete = React.memo(function ChannelAutocomplete({
           >
             <span className="truncate font-medium">#{suggestion.name}</span>
             <Badge variant="secondary">{suggestion.channelType}</Badge>
-          </button>
+          </Action>
         ))}
       </div>
     </div>

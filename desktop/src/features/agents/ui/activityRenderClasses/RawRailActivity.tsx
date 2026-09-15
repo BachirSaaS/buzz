@@ -32,18 +32,18 @@ export function RawRailActivity(props: ActivityRenderClassItemProps) {
         openToneScope="tool"
         verb={props.item.title}
       />
-      <ActivityRowContent className="flex flex-col gap-3 py-2">
+      <ActivityRowContent className="flex flex-col gap-4">
         {isRawPayload ? (
           props.item.sections.map((section) => (
             <details
               className="group/section"
               key={`${section.title}:${section.body.slice(0, 48)}`}
             >
-              <summary className="inline-flex max-w-full cursor-pointer list-none items-center gap-1.5 text-xs font-medium text-muted-foreground/60 group-open/section:text-foreground">
+              <summary className="inline-flex max-w-full cursor-pointer list-none items-center gap-2 text-xs font-medium text-muted-foreground group-open/section:text-foreground">
                 <span className="truncate">{section.title}</span>
-                <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60 transition-transform group-open/section:rotate-180 group-open/section:text-foreground" />
+                <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-open/section:rotate-180 group-open/section:text-foreground" />
               </summary>
-              <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap wrap-break-word rounded-md bg-muted/50 px-3 py-2 font-mono text-xs leading-5 text-muted-foreground">
+              <pre className="mt-4 max-h-56 overflow-auto whitespace-pre-wrap wrap-break-word rounded-blockui-md bg-muted p-4 font-mono text-xs leading-5 text-muted-foreground">
                 {section.body.trim() || "No metadata."}
               </pre>
             </details>

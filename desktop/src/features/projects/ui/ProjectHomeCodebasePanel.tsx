@@ -98,9 +98,9 @@ export function ProjectHomeCodebasePanel({
                 type="button"
                 variant="ghost"
               >
-                <FolderGit2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <FolderGit2 className="size-4 shrink-0 text-muted-foreground" />
                 <span className="min-w-0 truncate">{repository.name}</span>
-                <ChevronDown className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <ChevronDown className="ml-auto size-3.5 shrink-0 text-muted-foreground" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start">

@@ -1,3 +1,4 @@
+import { Input as BlockInput } from "@/shared/ui/input";
 import { Check, Folders, Plus, Search } from "lucide-react";
 import * as React from "react";
 
@@ -100,8 +101,8 @@ export function ProjectBrowserDialog({
           title="Add a project"
         >
           <div className={MODAL_SEARCH_SHELL_CLASS}>
-            <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <input
+            <Search className="size-4 shrink-0 text-muted-foreground" />
+            <BlockInput
               aria-label="Search projects"
               className={MODAL_SEARCH_INPUT_CLASS}
               onChange={(event) => setQuery(event.target.value)}
@@ -121,7 +122,7 @@ export function ProjectBrowserDialog({
               variant="ghost"
             >
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <Plus className="h-4 w-4" />
+                <Plus className="size-4" />
               </span>
               <span className="min-w-0">
                 <span className="block text-sm font-medium text-foreground">
@@ -151,7 +152,7 @@ export function ProjectBrowserDialog({
                     type="button"
                     variant="ghost"
                   >
-                    <Folders className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <Folders className="size-4 shrink-0 text-muted-foreground" />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-medium text-foreground">
                         {project.name}
@@ -167,7 +168,7 @@ export function ProjectBrowserDialog({
                     </span>
                     {selectedProjectAddresses.has(project.projectAddress) ? (
                       <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-                        <Check className="h-3.5 w-3.5" />
+                        <Check className="size-3.5" />
                         Added
                       </span>
                     ) : null}

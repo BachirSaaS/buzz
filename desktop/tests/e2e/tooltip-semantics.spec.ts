@@ -3,11 +3,11 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { installMockBridge } from "../helpers/bridge";
 import { waitForAnimations } from "../helpers/animations";
 
-const THEMES = ["buzz", "catppuccin-mocha"] as const;
+const THEMES = ["light", "dark"] as const;
 
 async function seedTheme(page: Page, theme: (typeof THEMES)[number]) {
   await page.addInitScript((value) => {
-    window.localStorage.setItem("buzz-theme", value);
+    window.localStorage.setItem("buzz-blockui-appearance.v1", value);
   }, theme);
 }
 
@@ -15,7 +15,7 @@ async function expectPopoverSurface(tooltip: Locator) {
   const colors = await tooltip.evaluate((element) => {
     const sample = document.createElement("div");
     sample.style.cssText =
-      "position:fixed;visibility:hidden;background:hsl(var(--popover));color:hsl(var(--popover-foreground))";
+      "position:fixed;visibility:hidden;background:var(--foreground);color:var(--background)";
     document.body.append(sample);
     const tooltipStyle = getComputedStyle(element);
     const sampleStyle = getComputedStyle(sample);
@@ -43,12 +43,12 @@ async function expectMutedSupportingText(
     .getByRole("tooltip")
     .locator('[data-buzz-tooltip-metadata-type=""]');
   await expect(footer).toHaveText(expectedText);
-  await expect(footer).toHaveClass(/text-secondary-foreground\/80/);
+  await expect(footer).toHaveClass(/text-background\/80/);
   await expect(footer).not.toHaveClass(/text-primary-foreground/);
 }
 
 for (const theme of THEMES) {
-  test(`simple and rich tooltips use the popover surface — ${theme}`, async ({
+  test(`simple and rich tooltips use the Block UI inverse surface — ${theme}`, async ({
     page,
   }) => {
     await seedTheme(page, theme);
@@ -89,16 +89,16 @@ for (const theme of THEMES) {
     await expectPopoverSurface(richTooltip);
     await expect(
       richTooltip.getByText("Checks semantic surface contrast"),
-    ).toHaveClass(/text-secondary-foreground\/80/);
+    ).toHaveClass(/text-background\/80/);
     await expect(richTooltip.getByText("Tooltip Reviewer")).toHaveClass(
-      /text-secondary-foreground/,
+      /text-background/,
     );
     await expect(
       richTooltip.getByTestId("team-tooltip-persona-chip"),
-    ).toHaveClass(/bg-secondary-foreground\/10/);
+    ).toHaveClass(/bg-background\/10/);
     await expect(
       richTooltip.getByTestId("team-tooltip-persona-avatar"),
-    ).toHaveClass(/bg-secondary-foreground\/20.*text-secondary-foreground/);
+    ).toHaveClass(/bg-background\/20.*text-background/);
 
     await waitForAnimations(page);
     await dialog.screenshot({

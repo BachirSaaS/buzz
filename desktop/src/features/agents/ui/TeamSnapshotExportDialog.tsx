@@ -87,7 +87,7 @@ export function TeamSnapshotExportDialog({
           <div className="space-y-1">
             <div className="flex min-h-8 items-center justify-between gap-4">
               <span className="flex min-w-0 items-center gap-2 text-sm font-medium">
-                <Brain className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <Brain className="size-4 shrink-0 text-muted-foreground" />
                 Memories
               </span>
               <SnapshotOptionMenu
@@ -105,7 +105,7 @@ export function TeamSnapshotExportDialog({
 
             <div className="flex min-h-8 items-center justify-between gap-4">
               <span className="flex min-w-0 items-center gap-2 text-sm font-medium">
-                <FileType2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <FileType2 className="size-4 shrink-0 text-muted-foreground" />
                 File format
               </span>
               <SnapshotOptionMenu
@@ -132,10 +132,10 @@ export function TeamSnapshotExportDialog({
                 transition={modalResizeTransition}
               >
                 <div
-                  className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400"
+                  className="flex items-start gap-2 rounded-md border border-warning-foreground/30 bg-warning px-3 py-2 text-sm text-warning-foreground dark:text-warning-foreground"
                   data-testid="team-snapshot-memory-warning"
                 >
-                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <AlertCircle className="mt-0.5 size-4 shrink-0" />
                   <p>
                     Memory is stored as <strong>plaintext</strong> in the
                     snapshot. Only share it with people you trust.
@@ -166,7 +166,7 @@ export function TeamSnapshotExportDialog({
               size="sm"
               type="button"
             >
-              <Download className="h-4 w-4" />
+              <Download className="size-4" />
               Export
             </Button>
           </div>

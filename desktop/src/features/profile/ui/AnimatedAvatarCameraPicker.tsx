@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { Smartphone, Webcam } from "lucide-react";
 
 import type { CameraSource } from "@/features/profile/ui/AnimatedAvatarCapture.helpers";
@@ -47,7 +48,7 @@ export function AnimatedAvatarCameraPicker({
         const isSelected = activeCameraSource === option.source;
         const isDisabled = disabled || option.disabled;
         return (
-          <button
+          <Action
             aria-pressed={isSelected}
             className={cn(
               "relative flex flex-col items-center justify-center gap-3 overflow-hidden rounded-xl border border-transparent bg-muted text-foreground transition-[background-color,border-color,color,opacity] duration-[250ms] ease-out hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -77,7 +78,7 @@ export function AnimatedAvatarCameraPicker({
             >
               {option.label}
             </span>
-          </button>
+          </Action>
         );
       })}
     </div>

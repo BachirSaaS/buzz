@@ -34,7 +34,7 @@ export function ThreadRepliesErrorCard({ onRetry }: { onRetry?: () => void }) {
       data-testid="message-thread-replies-error"
       role="alert"
     >
-      <p className="text-sm font-medium text-foreground/80">
+      <p className="text-sm font-medium text-foreground">
         Couldn&apos;t load replies
       </p>
       <p className="mt-1 text-xs text-muted-foreground">
@@ -65,7 +65,7 @@ export function ThreadRepliesErrorCard({ onRetry }: { onRetry?: () => void }) {
 export function ThreadRepliesEmptyCard() {
   return (
     <div className="rounded-2xl border border-dashed border-border/70 bg-card/40 px-4 py-6 text-center">
-      <p className="text-sm font-medium text-foreground/80">
+      <p className="text-sm font-medium text-foreground">
         No replies in this branch yet
       </p>
       <p className="mt-1 text-xs text-muted-foreground">

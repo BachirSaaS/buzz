@@ -119,7 +119,7 @@ async function installFakeHuddleMicrophone(
 
 test("keeps the drawer open until the huddle is expanded", async ({ page }) => {
   await page.addInitScript(() => {
-    window.localStorage.setItem("buzz-theme", "buzz-dark");
+    window.localStorage.setItem("buzz-blockui-appearance.v1", "dark");
   });
   await installMockBridge(page, {
     huddle: {
@@ -135,11 +135,11 @@ test("keeps the drawer open until the huddle is expanded", async ({ page }) => {
 
   await page.goto("/");
 
-  const gradientUnderlay = page.locator(".buzz-theme-gradient-underlay");
-  const openGradient = await gradientUnderlay.evaluate(
-    (element) => getComputedStyle(element).backgroundImage,
+  const navigationSurface = page.locator(".blockui-navigation");
+  const openSurface = await navigationSurface.evaluate(
+    (element) => getComputedStyle(element).backgroundColor,
   );
-  expect(openGradient).not.toBe("none");
+  expect(openSurface).toBe("rgb(46, 46, 46)");
 
   const transcriptButton = page.getByRole("button", {
     name: "Stop transcript",
@@ -227,15 +227,11 @@ test("keeps the drawer open until the huddle is expanded", async ({ page }) => {
   await expect(
     huddleControl.getByRole("button", { name: "Audio settings" }),
   ).not.toHaveClass(/bg-destructive\/15/);
-  const [micContainerRadius, micHoverRadius] = await Promise.all([
-    compactMicButton
-      .locator("..")
-      .evaluate((element) => getComputedStyle(element).borderTopLeftRadius),
-    compactMicButton.evaluate(
-      (element) => getComputedStyle(element).borderTopLeftRadius,
-    ),
-  ]);
-  expect(micHoverRadius).toBe(micContainerRadius);
+  const micShape = await compactMicButton.evaluate((element) => ({
+    radius: Number.parseFloat(getComputedStyle(element).borderTopLeftRadius),
+    height: element.getBoundingClientRect().height,
+  }));
+  expect(micShape.radius).toBeGreaterThanOrEqual(micShape.height / 2);
   await expect(huddleControl).toContainText("Leave");
   await expect(
     huddleControl.getByRole("button", { name: /huddle speaker/i }),
@@ -269,17 +265,17 @@ test("keeps the drawer open until the huddle is expanded", async ({ page }) => {
     "data-huddle-open",
     "false",
   );
-  const closedGradient = await gradientUnderlay.evaluate(
-    (element) => getComputedStyle(element).backgroundImage,
+  const closedSurface = await navigationSurface.evaluate(
+    (element) => getComputedStyle(element).backgroundColor,
   );
-  expect(closedGradient).toBe(openGradient);
+  expect(closedSurface).toBe(openSurface);
 });
 
-test("floats the in-app huddle tray over the glass background", async ({
+test("keeps the in-app huddle dock on the Block UI surface", async ({
   page,
 }) => {
   await page.addInitScript(() => {
-    window.localStorage.setItem("buzz-theme", "buzz-dark");
+    window.localStorage.setItem("buzz-blockui-appearance.v1", "dark");
     window.localStorage.setItem("buzz-glass-background", "true");
     (window as typeof window & { isTauri?: boolean }).isTauri = true;
     Object.defineProperty(navigator, "platform", {
@@ -310,18 +306,19 @@ test("floats the in-app huddle tray over the glass background", async ({
     name: "Stop transcript",
   });
 
-  await expect(root).toHaveAttribute("data-glass-background", "");
+  await expect(root).toHaveAttribute("data-substrate", "blockui");
+  await expect(root).not.toHaveAttribute("data-glass-background");
   await expect(shell).toHaveAttribute("data-huddle-open", "true");
-  await expect(shell).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
-  await expect(backdrop).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
-  await expect(drawer).toHaveCSS("border-top-left-radius", "16px");
-  await expect(drawer).toHaveCSS("border-top-right-radius", "16px");
-  await expect(drawer).toHaveCSS("border-bottom-right-radius", "16px");
-  await expect(drawer).toHaveCSS("border-bottom-left-radius", "16px");
-  await expect(drawer).toHaveCSS("padding-top", "8px");
-  await expect(drawer).toHaveCSS("padding-right", "8px");
-  await expect(drawer).toHaveCSS("padding-bottom", "8px");
-  await expect(drawer).toHaveCSS("padding-left", "8px");
+  await expect(shell).toHaveCSS("background-color", "rgb(46, 46, 46)");
+  await expect(backdrop).toHaveCSS("background-color", "rgb(46, 46, 46)");
+  await expect(drawer).toHaveCSS("border-top-left-radius", "0px");
+  await expect(drawer).toHaveCSS("border-top-right-radius", "0px");
+  await expect(drawer).toHaveCSS("border-bottom-right-radius", "0px");
+  await expect(drawer).toHaveCSS("border-bottom-left-radius", "0px");
+  await expect(drawer).toHaveCSS("padding-top", "12px");
+  await expect(drawer).toHaveCSS("padding-right", "20px");
+  await expect(drawer).toHaveCSS("padding-bottom", "12px");
+  await expect(drawer).toHaveCSS("padding-left", "20px");
 
   const geometry = await Promise.all([
     slot.boundingBox(),
@@ -333,10 +330,10 @@ test("floats the in-app huddle tray over the glass background", async ({
   expect(drawerBox).not.toBeNull();
   expect(transcriptButtonBox).not.toBeNull();
   if (!slotBox || !drawerBox || !transcriptButtonBox) return;
-  expect(drawerBox.x - slotBox.x).toBe(8);
-  expect(drawerBox.y - slotBox.y).toBe(8);
-  expect(slotBox.x + slotBox.width - (drawerBox.x + drawerBox.width)).toBe(8);
-  expect(slotBox.y + slotBox.height - (drawerBox.y + drawerBox.height)).toBe(8);
+  expect(drawerBox.x - slotBox.x).toBe(0);
+  expect(drawerBox.y - slotBox.y).toBe(0);
+  expect(slotBox.x + slotBox.width - (drawerBox.x + drawerBox.width)).toBe(0);
+  expect(slotBox.y + slotBox.height - (drawerBox.y + drawerBox.height)).toBe(0);
   expect(
     Math.abs(
       transcriptButtonBox.y +
@@ -346,11 +343,11 @@ test("floats the in-app huddle tray over the glass background", async ({
   ).toBeLessThanOrEqual(1);
 });
 
-test("keeps the popped-out huddle dock full-width over glass", async ({
+test("keeps the popped-out Block UI huddle dock full-width", async ({
   page,
 }) => {
   await page.addInitScript(() => {
-    window.localStorage.setItem("buzz-theme", "buzz-dark");
+    window.localStorage.setItem("buzz-blockui-appearance.v1", "dark");
     window.localStorage.setItem("buzz-glass-background", "true");
     (window as typeof window & { isTauri?: boolean }).isTauri = true;
     Object.defineProperty(navigator, "platform", {
@@ -378,7 +375,8 @@ test("keeps the popped-out huddle dock full-width over glass", async ({
   const slot = shell.locator(".buzz-huddle-drawer-slot");
   const drawer = slot.locator(":scope > .buzz-huddle-drawer");
 
-  await expect(root).toHaveAttribute("data-glass-background", "");
+  await expect(root).toHaveAttribute("data-substrate", "blockui");
+  await expect(root).not.toHaveAttribute("data-glass-background");
   await expect(shell).toHaveAttribute("data-huddle-open", "true");
   await expect(shell).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   await expect(slot).toHaveCSS("padding-top", "0px");
@@ -850,6 +848,8 @@ test("assigns distinct agent voices and exposes compact per-agent controls", asy
   });
   expect(new Set(assignedVoices).size).toBe(2);
 
+  // The room focuses its composer after its initial history is ready.
+  await expect(page.getByTestId("message-input")).toBeFocused();
   await page.getByRole("button", { name: "Voice settings for alice" }).click();
   await waitForAnimations(page);
   const voiceMenu = page.locator(
@@ -979,7 +979,7 @@ test("does not enroll available agents when sending an ordinary message", async 
   ).toBe(0);
 });
 
-test("keeps the colored startup surface while huddle controls connect", async ({
+test("shows the Block UI loading surface while huddle controls connect", async ({
   page,
 }) => {
   await installMockBridge(page, {
@@ -998,9 +998,12 @@ test("keeps the colored startup surface while huddle controls connect", async ({
     page.getByRole("status", { name: "Starting huddle" }),
   ).toBeVisible();
   await expect(
-    page.getByTestId("huddle-starting-view").locator(".bee-sprite"),
+    page.getByTestId("huddle-starting-view").locator('[data-slot="spinner"]'),
   ).toBeVisible();
-  await expect(page.getByTestId("setup-grainient-background")).toBeVisible();
+  await expect(page.getByTestId("huddle-starting-view")).toHaveCSS(
+    "color",
+    "rgb(0, 0, 0)",
+  );
   await expect(
     page.getByRole("button", { name: "Leave huddle" }),
   ).toBeVisible();

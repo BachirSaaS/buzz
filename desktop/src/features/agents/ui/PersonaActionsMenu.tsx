@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import {
   CopyPlus,
   EllipsisVertical,
@@ -46,13 +47,13 @@ export function PersonaActionsMenu({
   return (
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
-        <button
+        <Action
           aria-label={`Open actions for ${persona.displayName}`}
           className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           type="button"
         >
-          <EllipsisVertical className="h-4 w-4" />
-        </button>
+          <EllipsisVertical className="size-4" />
+        </Action>
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="end"
@@ -60,7 +61,7 @@ export function PersonaActionsMenu({
       >
         {canEdit ? (
           <DropdownMenuItem disabled={disabled} onClick={() => onEdit(persona)}>
-            <Pencil className="h-4 w-4" />
+            <Pencil className="size-4" />
             Edit
           </DropdownMenuItem>
         ) : null}
@@ -68,20 +69,20 @@ export function PersonaActionsMenu({
           disabled={disabled}
           onClick={() => onDuplicate(persona)}
         >
-          <CopyPlus className="h-4 w-4" />
+          <CopyPlus className="size-4" />
           Duplicate
         </DropdownMenuItem>
         <DropdownMenuItem
           disabled={disabled}
           onClick={() => onShare(persona, linkedAgent)}
         >
-          <Share2 className="h-4 w-4" />
+          <Share2 className="size-4" />
           Share
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         {persona.sourceTeam ? (
           <DropdownMenuItem disabled>
-            <Trash2 className="h-4 w-4" />
+            <Trash2 className="size-4" />
             Managed by team
           </DropdownMenuItem>
         ) : (
@@ -97,7 +98,7 @@ export function PersonaActionsMenu({
               onDelete(persona);
             }}
           >
-            <Trash2 className="h-4 w-4" />
+            <Trash2 className="size-4" />
             Delete
           </DropdownMenuItem>
         )}

@@ -1,3 +1,5 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
@@ -974,12 +976,12 @@ export function AgentInstanceEditDialog({
           </div>
           <div className="space-y-5">
             <div className="space-y-1.5">
-              <label
+              <BlockLabel
                 className="text-sm font-medium text-foreground"
                 htmlFor="edit-agent-name"
               >
                 Agent name
-              </label>
+              </BlockLabel>
               <div
                 className={cn(
                   "flex min-h-11 items-center px-3",
@@ -1012,12 +1014,12 @@ export function AgentInstanceEditDialog({
 
             {/* Provider (runtime) */}
             <div className="space-y-1.5">
-              <label
+              <BlockLabel
                 className="text-sm font-medium text-foreground"
                 htmlFor="edit-agent-runtime"
               >
                 Provider
-              </label>
+              </BlockLabel>
               <PersonaDropdownField
                 disabled={isSaving}
                 id="edit-agent-runtime"
@@ -1044,12 +1046,12 @@ export function AgentInstanceEditDialog({
             </div>
             {selectedRuntimeId === "custom" && !inheritHarness ? (
               <div className="space-y-1.5">
-                <label
+                <BlockLabel
                   className="text-sm font-medium text-foreground"
                   htmlFor="edit-agent-command"
                 >
                   Agent command
-                </label>
+                </BlockLabel>
                 <div
                   className={cn(
                     "flex min-h-11 items-center px-3",
@@ -1142,9 +1144,9 @@ export function AgentInstanceEditDialog({
 
             {/* Advanced settings */}
             <div className="space-y-3">
-              <button
+              <Action
                 aria-expanded={showAdvancedFields}
-                className="inline-flex h-9 items-center gap-1.5 text-sm font-medium text-foreground transition-colors hover:text-foreground/80 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
+                className="inline-flex h-9 items-center gap-1.5 text-sm font-medium text-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
                 disabled={isSaving}
                 onClick={() => setShowAdvancedFields((current) => !current)}
                 type="button"
@@ -1161,7 +1163,7 @@ export function AgentInstanceEditDialog({
                     showAdvancedFields && "rotate-180",
                   )}
                 />
-              </button>
+              </Action>
               <AnimatePresence initial={false}>
                 {showAdvancedFields ? (
                   <motion.div

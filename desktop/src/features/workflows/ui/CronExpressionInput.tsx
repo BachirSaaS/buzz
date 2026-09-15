@@ -1,3 +1,5 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { Input as BlockInput } from "@/shared/ui/input";
 import * as React from "react";
 
 import { cn } from "@/shared/lib/cn";
@@ -60,7 +62,7 @@ export function CronExpressionInput({
       <div aria-describedby={messageId} className="space-y-1">
         <div className="grid grid-cols-5 gap-px px-px">
           {CRON_FIELD_DEFINITIONS.map((definition, index) => (
-            <label
+            <BlockLabel
               className={cn(
                 "min-w-0 truncate px-1 text-center text-2xs text-muted-foreground",
                 validationErrors[index] && "text-destructive",
@@ -69,7 +71,7 @@ export function CronExpressionInput({
               key={definition.label}
             >
               {definition.label}
-            </label>
+            </BlockLabel>
           ))}
         </div>
         <div
@@ -80,7 +82,7 @@ export function CronExpressionInput({
           )}
         >
           {CRON_FIELD_DEFINITIONS.map((definition, index) => (
-            <input
+            <BlockInput
               aria-describedby={messageId}
               aria-invalid={Boolean(validationErrors[index])}
               aria-label={definition.label}
@@ -88,7 +90,7 @@ export function CronExpressionInput({
               autoCorrect="off"
               className={cn(
                 "h-11 min-w-0 border-l border-input/50 bg-transparent px-1 text-center font-mono text-sm text-foreground outline-hidden first:border-l-0",
-                "placeholder:text-muted-foreground/60 focus:z-10 focus:bg-muted/35",
+                "placeholder:text-muted-foreground focus:z-10 focus:bg-muted/35",
                 "disabled:cursor-not-allowed",
                 validationErrors[index] &&
                   "bg-destructive/5 text-destructive focus:bg-destructive/10",

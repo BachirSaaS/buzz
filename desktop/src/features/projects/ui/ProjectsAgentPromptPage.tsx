@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { EditorContent } from "@tiptap/react";
 import {
   ALargeSmall,
@@ -378,7 +379,7 @@ export function ConversationThread({
       ) : null}
       {agentWorking.working ? (
         <div className="flex items-center gap-2 pl-11 text-sm text-muted-foreground">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          <Loader2 className="size-3.5 animate-spin" />
           {agent.name} is working…
         </div>
       ) : null}
@@ -650,7 +651,7 @@ export function ProjectsAgentPromptPage({
               type="button"
               variant={isFormattingOpen ? "default" : "ghost"}
             >
-              <ALargeSmall className="h-4 w-4" />
+              <ALargeSmall className="size-4" />
             </Button>
             {isFormattingOpen ? (
               <div className="min-w-0 overflow-x-auto">
@@ -685,7 +686,7 @@ export function ProjectsAgentPromptPage({
                       {selectedAgent?.name ?? "No agents available"}
                     </span>
                     {candidates.length > 0 && conversation === null ? (
-                      <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+                      <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
                     ) : null}
                   </Button>
                 </DropdownMenuTrigger>
@@ -715,7 +716,7 @@ export function ProjectsAgentPromptPage({
                             className={cn(
                               "ml-2 h-1.5 w-1.5 shrink-0 rounded-full",
                               candidate.isActive
-                                ? "bg-emerald-500"
+                                ? "bg-success-foreground"
                                 : "bg-muted-foreground/40",
                             )}
                           />
@@ -736,9 +737,9 @@ export function ProjectsAgentPromptPage({
             variant="default"
           >
             {isSending ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <Loader2 className="size-3.5 animate-spin" />
             ) : (
-              <SendHorizontal className="h-3.5 w-3.5" />
+              <SendHorizontal className="size-3.5" />
             )}
             Ask
           </Button>
@@ -770,7 +771,7 @@ export function ProjectsAgentPromptPage({
                 type="button"
                 variant="ghost"
               >
-                <Trash2 className="h-3.5 w-3.5" />
+                <Trash2 className="size-3.5" />
                 Clear conversation
               </Button>
             </div>
@@ -808,7 +809,7 @@ export function ProjectsAgentPromptPage({
         ) : (
           <div className="space-y-1.5">
             {suggestions.map((suggestion) => (
-              <button
+              <Action
                 className="flex w-full items-baseline gap-2 rounded-xl border border-border/50 bg-card/60 px-4 py-2 text-left transition-colors duration-150 hover:bg-muted/30"
                 key={suggestion.label}
                 onClick={() => {
@@ -824,7 +825,7 @@ export function ProjectsAgentPromptPage({
                 <span className="min-w-0 truncate text-xs text-muted-foreground">
                   {suggestion.prompt}
                 </span>
-              </button>
+              </Action>
             ))}
           </div>
         )}

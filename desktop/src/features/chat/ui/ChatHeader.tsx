@@ -39,8 +39,8 @@ type ChatHeaderProps = {
   transparentChrome?: boolean;
 };
 
-const HEADER_ICON_CLASS = "h-4 w-4 text-muted-foreground";
-const CHANNEL_HASH_ICON_CLASS = "h-4 w-4 translate-y-px";
+const HEADER_ICON_CLASS = "size-4 text-muted-foreground";
+const CHANNEL_HASH_ICON_CLASS = "size-4 translate-y-px";
 
 function ChannelIcon({
   channelType,
@@ -83,7 +83,7 @@ function ChannelIcon({
     return <FileText className={HEADER_ICON_CLASS} />;
   }
 
-  return <Hash className={CHANNEL_HASH_ICON_CLASS} color="gray" />;
+  return <Hash className={CHANNEL_HASH_ICON_CLASS} />;
 }
 
 export function ChatHeader({
@@ -156,7 +156,7 @@ export function ChatHeader({
               type="button"
               variant="ghost"
             >
-              <Copy className="h-3.5 w-3.5" />
+              <Copy className="size-3" />
             </Button>
             {statusBadge ? (
               <div className="flex shrink-0 flex-wrap items-center gap-1">

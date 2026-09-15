@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import type { QueryClient } from "@tanstack/react-query";
 import { motion, useReducedMotion } from "motion/react";
@@ -24,7 +25,6 @@ import {
 } from "./IdentityKeyHelpDialog";
 import { IdentityKeyIntroduction } from "./IdentityKeyIntroduction";
 import { IdentityRecoveryPairing } from "./IdentityRecoveryPairing";
-import { LandingBees } from "./LandingBees";
 import {
   NostrKeyImportForm,
   type NostrKeyImportStage,
@@ -332,7 +332,6 @@ export function MachineOnboardingFlow({
         data-testid="machine-onboarding-gate"
       >
         <StartupWindowDragRegion />
-        <LandingBees />
         <OnboardingFooterProvider>
           <div className="relative my-auto flex w-full max-w-[1040px] flex-col items-center text-center">
             <OnboardingSlideTransition
@@ -442,7 +441,7 @@ export function MachineOnboardingFlow({
               <h1 className="text-title font-normal text-foreground">
                 Restore from a backup file
               </h1>
-              <p className="mt-2 w-full text-base leading-6 text-foreground/80">
+              <p className="mt-2 w-full text-base leading-6 text-foreground">
                 Choose the encrypted backup file you saved from Buzz.
               </p>
               <NostrKeyImportForm
@@ -465,7 +464,7 @@ export function MachineOnboardingFlow({
               <h1 className="text-title font-normal text-foreground">
                 {identityLost ? "Recover from your phone" : "Scan to sign in"}
               </h1>
-              <p className="mt-2 w-full text-base leading-6 text-foreground/80">
+              <p className="mt-2 w-full text-base leading-6 text-foreground">
                 {phoneRecoveryStep === "loading" || phoneRecoveryStep === "qr"
                   ? "Scan this code with a device where you’re currently signed in to Buzz."
                   : "Confirm the code before sharing your identity."}
@@ -497,14 +496,14 @@ export function MachineOnboardingFlow({
                     ? "Unlock your account"
                     : "Enter your private key"}
                 </h1>
-                <div className="mt-2 w-full text-base leading-6 text-foreground/80">
+                <div className="mt-2 w-full text-base leading-6 text-foreground">
                   {keyImportStage === "backup-password" ? (
                     "Enter your backup password to restore your identity."
                   ) : (
                     <p>
                       Paste your private key to sign in to Buzz. You can also
                       use a{" "}
-                      <button
+                      <Action
                         className="rounded-sm font-medium underline decoration-foreground/40 underline-offset-4 transition-colors hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-60"
                         data-testid="nostr-import-file-button"
                         disabled={isPending || isKeyImporting}
@@ -515,9 +514,9 @@ export function MachineOnboardingFlow({
                         type="button"
                       >
                         backup file
-                      </button>
+                      </Action>
                       , or{" "}
-                      <button
+                      <Action
                         className="rounded-sm font-medium underline decoration-foreground/40 underline-offset-4 transition-colors hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-60"
                         data-testid="nostr-import-phone-link"
                         disabled={isPending || isKeyImporting}
@@ -528,7 +527,7 @@ export function MachineOnboardingFlow({
                         type="button"
                       >
                         recover from your phone
-                      </button>
+                      </Action>
                       .
                     </p>
                   )}

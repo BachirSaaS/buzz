@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { ArrowLeft, Bell, Check, Clock, ExternalLink, X } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
@@ -180,10 +181,10 @@ function ReminderRow({
     >
       {isInboxList ? (
         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
-          <Bell className="h-4 w-4" />
+          <Bell className="size-4" />
         </span>
       ) : null}
-      <button
+      <Action
         className="flex min-w-0 flex-1 flex-col items-start gap-1 text-left enabled:hover:opacity-80 disabled:cursor-default"
         disabled={!isInboxList && !isNavigable}
         onClick={() => {
@@ -224,11 +225,11 @@ function ReminderRow({
           <p
             className={`text-xs ${isOverdue ? "font-medium text-destructive" : "text-muted-foreground"}`}
           >
-            <Clock className="mr-1 inline h-3 w-3" />
+            <Clock className="mr-1 inline size-3" />
             {formatRelativeTime(reminder.notBefore)}
           </p>
         ) : null}
-      </button>
+      </Action>
       {isDone || isInboxList ? null : (
         <div className="flex shrink-0 items-center gap-1">
           <Button
@@ -240,7 +241,7 @@ function ReminderRow({
             type="button"
             variant="ghost"
           >
-            <Check className="h-4 w-4" />
+            <Check className="size-4" />
           </Button>
           <SnoozeMenu disabled={isActing} onSnooze={handleSnooze} />
           <Button
@@ -252,7 +253,7 @@ function ReminderRow({
             type="button"
             variant="ghost"
           >
-            <X className="h-4 w-4" />
+            <X className="size-4" />
           </Button>
         </div>
       )}
@@ -318,9 +319,9 @@ export function RemindersPanel({
   if (groups.length === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-8">
-        <Bell className="h-8 w-8 text-muted-foreground/50" />
+        <Bell className="size-8 text-muted-foreground" />
         <p className="text-sm text-muted-foreground">No reminders</p>
-        <p className="text-xs text-muted-foreground/70">
+        <p className="text-xs text-muted-foreground">
           Use "Remind me later" on any message to create one.
         </p>
       </div>
@@ -434,7 +435,7 @@ export function ReminderDetailPane({
               type="button"
               variant="ghost"
             >
-              <ArrowLeft className="h-4 w-4" />
+              <ArrowLeft className="size-4" />
             </Button>
           ) : null}
           <span className="text-sm font-semibold">Reminder</span>
@@ -476,7 +477,7 @@ export function ReminderDetailPane({
 
           {reminder.notBefore ? (
             <div className="mt-6 flex items-center gap-2 text-sm text-muted-foreground">
-              <Clock className="h-4 w-4" />
+              <Clock className="size-4" />
               <span>{formatRelativeTime(reminder.notBefore)}</span>
             </div>
           ) : null}
@@ -489,7 +490,7 @@ export function ReminderDetailPane({
               type="button"
               variant="outline"
             >
-              <ExternalLink className="h-4 w-4" />
+              <ExternalLink className="size-4" />
               Open message
             </Button>
             {isDone ? null : (
@@ -505,7 +506,7 @@ export function ReminderDetailPane({
                   size="sm"
                   type="button"
                 >
-                  <Check className="h-4 w-4" />
+                  <Check className="size-4" />
                   Complete
                 </Button>
                 <SnoozeMenu
@@ -532,7 +533,7 @@ export function ReminderDetailPane({
                   type="button"
                   variant="ghost"
                 >
-                  <X className="h-4 w-4" />
+                  <X className="size-4" />
                   Cancel
                 </Button>
               </>

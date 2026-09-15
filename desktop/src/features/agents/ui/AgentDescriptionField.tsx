@@ -1,3 +1,4 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
 import { cn } from "@/shared/lib/cn";
 import { Input } from "@/shared/ui/input";
 import {
@@ -43,16 +44,16 @@ export function AgentIdentityFields({
 
   return (
     <>
-      <div className="space-y-1.5">
-        <label
+      <div className="space-y-2">
+        <BlockLabel
           className="text-sm font-medium text-foreground"
           htmlFor="persona-display-name"
         >
           Agent name
-        </label>
+        </BlockLabel>
         <div
           className={cn(
-            "flex min-h-11 items-center px-3",
+            "flex min-h-12 items-center px-4",
             PERSONA_FIELD_SHELL_CLASS,
           )}
         >
@@ -71,17 +72,17 @@ export function AgentIdentityFields({
         </div>
       </div>
 
-      <div className="space-y-1.5">
-        <label
+      <div className="space-y-2">
+        <BlockLabel
           className="text-sm font-medium text-foreground"
           htmlFor="persona-description"
         >
           Description
           <span className={PERSONA_LABEL_OPTIONAL_CLASS}>Optional</span>
-        </label>
+        </BlockLabel>
         <div
           className={cn(
-            "flex min-h-11 items-center px-3",
+            "flex min-h-12 items-center px-4",
             PERSONA_FIELD_SHELL_CLASS,
           )}
         >
@@ -104,7 +105,7 @@ export function AgentIdentityFields({
             Shown publicly on the agent&apos;s card and profile.
           </p>
           {showCounter ? (
-            <span className="shrink-0 text-2xs tabular-nums text-muted-foreground">
+            <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
               {descriptionLength}/{MAX_AGENT_DESCRIPTION_CHARS}
             </span>
           ) : null}

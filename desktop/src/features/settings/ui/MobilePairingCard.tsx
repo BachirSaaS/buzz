@@ -76,7 +76,7 @@ function PairingStepIndicator({
       className={cn(
         "relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-base font-semibold transition-[background-color,color] duration-[250ms] ease-in-out motion-reduce:transition-none",
         complete
-          ? "bg-green-600 text-white"
+          ? "bg-success text-success-foreground"
           : "bg-secondary text-secondary-foreground",
       )}
       data-completed={complete ? "true" : "false"}
@@ -96,7 +96,7 @@ function PairingStepIndicator({
               : { duration: 0.25, ease: "easeInOut" }
           }
         >
-          {complete ? <Check className="h-6 w-6" /> : label}
+          {complete ? <Check className="size-6" /> : label}
         </motion.span>
       </AnimatePresence>
     </span>
@@ -123,7 +123,7 @@ function PairingSteps({ step }: { step: PairingStep }) {
         <div className="min-w-0 pt-0.5">
           <p className="text-base font-medium">Scan QR code</p>
           <p
-            className="mt-1 text-sm text-muted-foreground/70"
+            className="mt-1 text-sm text-muted-foreground"
             data-settings-subcopy
           >
             Open Buzz on your mobile device and scan the code shown here.
@@ -140,7 +140,7 @@ function PairingSteps({ step }: { step: PairingStep }) {
         <div className="min-w-0 pt-0.5">
           <p className="text-base font-medium">Confirm mobile code</p>
           <p
-            className="mt-1 text-sm text-muted-foreground/70"
+            className="mt-1 text-sm text-muted-foreground"
             data-settings-subcopy
           >
             Check that the six-digit code matches on both devices, then confirm
@@ -163,7 +163,7 @@ function PairingSteps({ step }: { step: PairingStep }) {
             {isPaired ? "Paired" : "Pair your mobile app"}
           </p>
           <p
-            className="mt-1 text-sm text-muted-foreground/70"
+            className="mt-1 text-sm text-muted-foreground"
             data-settings-subcopy
           >
             {isPaired
@@ -454,7 +454,7 @@ export function MobilePairingCard({
                 <div className="flex flex-col items-center justify-center gap-3 text-center">
                   <LoaderCircle
                     aria-hidden="true"
-                    className="h-6 w-6 animate-spin text-muted-foreground"
+                    className="size-6 animate-spin text-muted-foreground"
                     data-testid="pairing-transfer-spinner"
                   />
                   <p className="text-sm text-muted-foreground">
@@ -482,13 +482,13 @@ export function MobilePairingCard({
                     type="button"
                     variant="outline"
                   >
-                    <RefreshCw className="mr-1.5 h-4 w-4" />
+                    <RefreshCw className="mr-1.5 size-4" />
                     Generate new pairing code
                   </Button>
                 </div>
               ) : step === "error" ? (
                 <div className="flex max-w-52 flex-col items-center gap-3 text-center">
-                  <TriangleAlert className="h-6 w-6 text-destructive" />
+                  <TriangleAlert className="size-6 text-destructive" />
                   <p className="text-sm text-destructive">
                     {error ?? "Pairing session ended."}
                   </p>
@@ -517,8 +517,8 @@ export function MobilePairingCard({
                 )
               ) : step === "done" ? (
                 <div className="flex flex-col items-center gap-3 text-center">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30">
-                    <Check className="h-6 w-6 text-green-600 dark:text-green-400" />
+                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-success dark:bg-success">
+                    <Check className="size-6 text-success-foreground dark:text-success-foreground" />
                   </div>
                   <p className="text-base font-medium">Paired</p>
                 </div>
@@ -526,7 +526,7 @@ export function MobilePairingCard({
                 <div className="flex flex-col items-center justify-center gap-3">
                   <LoaderCircle
                     aria-hidden="true"
-                    className="h-6 w-6 animate-spin text-muted-foreground"
+                    className="size-6 animate-spin text-muted-foreground"
                     data-testid="pairing-loading-spinner"
                   />
                   <p className="text-sm text-muted-foreground">
@@ -546,7 +546,7 @@ export function MobilePairingCard({
                   type="button"
                   variant="outline"
                 >
-                  <Copy className="mr-1.5 h-4 w-4" />
+                  <Copy className="mr-1.5 size-4" />
                   Copy pairing code
                 </Button>
               ) : null}

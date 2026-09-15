@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import {
   CopyPlus,
   EllipsisVertical,
@@ -103,13 +104,13 @@ export function TeamsSection({
                 actions={
                   <DropdownMenu modal={false}>
                     <DropdownMenuTrigger asChild>
-                      <button
+                      <Action
                         aria-label={`${team.name} team actions`}
                         className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                         type="button"
                       >
-                        <EllipsisVertical className="h-4 w-4" />
-                      </button>
+                        <EllipsisVertical className="size-4" />
+                      </Action>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent
                       align="end"
@@ -119,7 +120,7 @@ export function TeamsSection({
                         disabled={isPending || hasMissingPersonas}
                         onClick={() => onAddToChannel(team)}
                       >
-                        <Rocket className="h-4 w-4" />
+                        <Rocket className="size-4" />
                         Deploy to channel
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
@@ -127,21 +128,21 @@ export function TeamsSection({
                         disabled={isPending}
                         onClick={() => onEdit(team)}
                       >
-                        <Pencil className="h-4 w-4" />
+                        <Pencil className="size-4" />
                         Edit
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         disabled={isPending || hasMissingPersonas}
                         onClick={() => onDuplicate(team)}
                       >
-                        <CopyPlus className="h-4 w-4" />
+                        <CopyPlus className="size-4" />
                         Duplicate
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         disabled={isPending || hasMissingPersonas}
                         onClick={() => onShare(team)}
                       >
-                        <Share2 className="h-4 w-4" />
+                        <Share2 className="size-4" />
                         Share
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
@@ -150,7 +151,7 @@ export function TeamsSection({
                         disabled={isPending}
                         onClick={() => onDelete(team)}
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 className="size-4" />
                         Delete
                       </DropdownMenuItem>
                     </DropdownMenuContent>

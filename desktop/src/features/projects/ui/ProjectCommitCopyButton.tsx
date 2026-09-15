@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { Check, Copy } from "lucide-react";
 import * as React from "react";
 
@@ -27,7 +28,7 @@ export function CopyTextButton({
   );
 
   return (
-    <button
+    <Action
       aria-label={ariaLabel}
       className={cn(
         "flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
@@ -38,11 +39,11 @@ export function CopyTextButton({
       type="button"
     >
       {copied ? (
-        <Check className="h-3.5 w-3.5 text-green-500" />
+        <Check className="size-3.5 text-success-foreground" />
       ) : (
-        <Copy className="h-3.5 w-3.5" />
+        <Copy className="size-3.5" />
       )}
-    </button>
+    </Action>
   );
 }
 

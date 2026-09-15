@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { Circle, CircleDashed } from "lucide-react";
 import * as React from "react";
 
@@ -258,7 +259,7 @@ export function AvatarFramingSlider({
         <div aria-hidden="true" className="buzz-avatar-framing-slider-fill" />
         <div aria-hidden="true" className="buzz-avatar-framing-slider-handle" />
       </div>
-      <button
+      <Action
         aria-label={resetLabel}
         className="buzz-avatar-framing-slider-hashmark"
         data-reset="true"
@@ -317,7 +318,7 @@ export function AvatarOutlineToggle({
 }: AvatarOutlineToggleProps) {
   const Icon = enabled ? Circle : CircleDashed;
   return (
-    <button
+    <Action
       aria-label={enabled ? "Turn outline off" : "Turn outline on"}
       aria-pressed={enabled}
       className={cn(
@@ -331,7 +332,7 @@ export function AvatarOutlineToggle({
       type="button"
     >
       <Icon aria-hidden="true" className="h-4 w-4" />
-    </button>
+    </Action>
   );
 }
 

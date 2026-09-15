@@ -1,0 +1,516 @@
+/* Buzz compositions of Block UI roles. Sidebar and media are product mappings,
+   because the upstream catalog has no complete navigation/media specification. */
+:root {
+  --blockui-font-sans: "Inter Local";
+  --buzz-window-surface: var(--blockui-surface-app);
+  --border-width-hairline: 0.03125rem;
+  --sidebar: var(--blockui-surface-subtle);
+  --sidebar-background: var(--sidebar);
+  --sidebar-foreground: var(--blockui-text-standard);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-active: var(--blockui-surface-prominent);
+  --sidebar-active-foreground: var(--primary-foreground);
+  --sidebar-accent: var(--blockui-surface-standard);
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--ring);
+  --sidebar-row-subtle-active-surface: var(--blockui-surface-prominent);
+  --sidebar-row-active-surface: var(--blockui-surface-prominent);
+  --destructive-foreground: var(--blockui-text-inverse);
+  --status-added: var(--blockui-status-success-text);
+  --status-deleted: var(--blockui-status-error-text);
+  --status-modified: var(--blockui-status-warning-text);
+  --ui-warning: var(--blockui-status-warning-text);
+  --ui-warning-bg: var(--blockui-status-warning-surface);
+  --buzz-selected-accent: var(--blockui-fill-primary);
+  --buzz-video-review-accent: var(--blockui-text-standard);
+  --buzz-video-review-accent-foreground: var(--blockui-text-standard);
+  --buzz-content-dark: var(--blockui-surface-app);
+  --buzz-muted-foreground: var(--blockui-text-subtle);
+  --buzz-search-surface: var(--blockui-surface-standard);
+  --buzz-chrome-foreground: var(--blockui-text-subtle);
+  --buzz-hover-surface: var(--blockui-surface-standard);
+  --buzz-channel-fg: var(--blockui-text-standard);
+  --buzz-dm-fg: var(--blockui-text-standard);
+  --buzz-nav-fg: var(--blockui-text-standard);
+  --huddle-drawer-surface: var(--blockui-surface-subtle);
+  --huddle-control-surface: var(--blockui-surface-standard);
+  --huddle-control-hover-surface: var(--blockui-button-ghost-fill-hover);
+  --huddle-control-chevron-surface: var(--blockui-surface-standard);
+  --huddle-control-chevron-hover-surface: var(
+    --blockui-button-ghost-fill-hover
+  );
+  --huddle-control-foreground: var(--blockui-text-standard);
+  --huddle-popover-surface: var(--blockui-surface-popover);
+  --huddle-popover-border: var(--blockui-border-subtle);
+  --huddle-tooltip-surface: var(--blockui-surface-inverse);
+  --huddle-tooltip-foreground: var(--blockui-text-inverse);
+  --buzz-hosted-community-surface-fg: var(--foreground);
+  --buzz-hosted-community-divider-border: var(--border);
+  --buzz-hosted-community-action-bg: var(--primary);
+  --buzz-hosted-community-action-bg-hover: var(
+    --blockui-button-prominent-fill-hover
+  );
+  --buzz-hosted-community-input-bg: var(--background);
+  --buzz-hosted-community-modal-action-fg: var(--primary-foreground);
+  --buzz-hosted-community-modal-overlay-bg: var(--blockui-surface-inverse);
+  --buzz-hosted-community-identity-bg: var(--card);
+  --blockui-shadow-menu:
+    0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --blockui-shadow-overlay:
+    0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+  --font-weight-semibold: var(--blockui-font-weight-medium);
+  --font-weight-bold: var(--blockui-font-weight-medium);
+}
+
+@theme inline {
+  /* Discrete shapes, bound by value rather than a single derived radius. */
+  --radius-xs: 0.25rem;
+  --radius-sm: var(--blockui-radius-xs);
+  --radius-md: var(--blockui-radius-sm);
+  --radius-lg: var(--blockui-radius-12);
+  --radius-xl: var(--blockui-radius-md);
+  --radius-2xl: var(--blockui-radius-lg);
+  --radius-3xl: var(--blockui-radius-32);
+  --radius-4xl: var(--blockui-radius-pill);
+  --color-info: var(--blockui-surface-standard);
+  --color-info-foreground: var(--blockui-text-standard);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-status-added: var(--status-added);
+  --color-status-deleted: var(--status-deleted);
+  --color-status-modified: var(--status-modified);
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+    min-height: 100%;
+    width: 100%;
+  }
+  html,
+  body {
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+  body {
+    @apply bg-background text-foreground antialiased font-sans;
+  }
+  mark {
+    background: transparent;
+    color: inherit;
+  }
+  button:not(:disabled),
+  a[href],
+  summary,
+  [role="button"]:not([aria-disabled="true"]),
+  [role="menuitem"]:not([aria-disabled="true"]),
+  [role="tab"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
+  button:disabled,
+  [aria-disabled="true"] {
+    cursor: default;
+  }
+}
+
+@layer components {
+  .blockui-navigation {
+    background: var(--sidebar);
+    color: var(--sidebar-foreground);
+  }
+  [data-sidebar="menu-button"][data-active="true"] {
+    background: var(--sidebar-active);
+    color: var(--sidebar-active-foreground);
+  }
+  [data-sidebar="menu-button"]:hover {
+    background: var(--sidebar-accent);
+  }
+  .blockui-action {
+    border-radius: var(--blockui-radius-sm);
+    transition:
+      background-color 100ms,
+      color 100ms;
+  }
+  .blockui-action:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  .blockui-action:disabled {
+    color: var(--blockui-text-disabled);
+    cursor: default;
+  }
+  .blockui-action:not(:disabled):hover {
+    background-color: var(--blockui-button-ghost-fill-hover);
+  }
+  .blockui-action:not(:disabled):active {
+    background-color: var(--blockui-button-ghost-fill-pressed);
+  }
+  .buzz-huddle-drawer,
+  .buzz-huddle-popover {
+    color-scheme: inherit;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .blockui-action,
+  [data-slot="button"],
+  [data-slot="switch-thumb"] {
+    transition: none;
+  }
+}
+@media (forced-colors: active) {
+  [data-slot="button"],
+  [data-slot="input"],
+  [data-slot="textarea"],
+  [data-slot="checkbox"],
+  [data-slot="switch"],
+  [data-sidebar="menu-button"][data-active="true"] {
+    border: 1px solid ButtonText;
+  }
+  [data-slot="checkbox"][data-checked],
+  [data-slot="switch"][data-checked] {
+    background: Highlight;
+    color: HighlightText;
+  }
+}
+
+@theme inline {
+  --text-blockui-body-large: var(--blockui-type-body-large-size);
+  --text-blockui-body-large--line-height: var(
+    --blockui-type-body-large-leading
+  );
+  --text-blockui-body-large--font-weight: var(--blockui-type-body-large-weight);
+  --text-blockui-body-large--letter-spacing: var(
+    --blockui-type-body-large-tracking
+  );
+  --text-blockui-body-medium: var(--blockui-type-body-medium-size);
+  --text-blockui-body-medium--line-height: var(
+    --blockui-type-body-medium-leading
+  );
+  --text-blockui-body-medium--font-weight: var(
+    --blockui-type-body-medium-weight
+  );
+  --text-blockui-body-medium--letter-spacing: var(
+    --blockui-type-body-medium-tracking
+  );
+  --text-blockui-body-small: var(--blockui-type-body-small-size);
+  --text-blockui-body-small--line-height: var(
+    --blockui-type-body-small-leading
+  );
+  --text-blockui-body-small--font-weight: var(--blockui-type-body-small-weight);
+  --text-blockui-body-small--letter-spacing: var(
+    --blockui-type-body-small-tracking
+  );
+  --text-blockui-body-xsmall: var(--blockui-type-body-xsmall-size);
+  --text-blockui-body-xsmall--line-height: var(
+    --blockui-type-body-xsmall-leading
+  );
+  --text-blockui-body-xsmall--font-weight: var(
+    --blockui-type-body-xsmall-weight
+  );
+  --text-blockui-body-xsmall--letter-spacing: var(
+    --blockui-type-body-xsmall-tracking
+  );
+  --text-blockui-caption: var(--blockui-type-caption-size);
+  --text-blockui-caption--line-height: var(--blockui-type-caption-leading);
+  --text-blockui-caption--font-weight: var(--blockui-type-caption-weight);
+  --text-blockui-caption--letter-spacing: var(--blockui-type-caption-tracking);
+  --text-blockui-headline-large: var(--blockui-type-headline-large-size);
+  --text-blockui-headline-large--line-height: var(
+    --blockui-type-headline-large-leading
+  );
+  --text-blockui-headline-large--font-weight: var(
+    --blockui-type-headline-large-weight
+  );
+  --text-blockui-headline-large--letter-spacing: var(
+    --blockui-type-headline-large-tracking
+  );
+  --text-blockui-headline-small: var(--blockui-type-headline-small-size);
+  --text-blockui-headline-small--line-height: var(
+    --blockui-type-headline-small-leading
+  );
+  --text-blockui-headline-small--font-weight: var(
+    --blockui-type-headline-small-weight
+  );
+  --text-blockui-headline-small--letter-spacing: var(
+    --blockui-type-headline-small-tracking
+  );
+  --text-blockui-hero: var(--blockui-type-hero-size);
+  --text-blockui-hero--line-height: var(--blockui-type-hero-leading);
+  --text-blockui-hero--font-weight: var(--blockui-type-hero-weight);
+  --text-blockui-hero--letter-spacing: var(--blockui-type-hero-tracking);
+  --text-blockui-label-large: var(--blockui-type-label-large-size);
+  --text-blockui-label-large--line-height: var(
+    --blockui-type-label-large-leading
+  );
+  --text-blockui-label-large--font-weight: var(
+    --blockui-type-label-large-weight
+  );
+  --text-blockui-label-large--letter-spacing: var(
+    --blockui-type-label-large-tracking
+  );
+  --text-blockui-label-medium: var(--blockui-type-label-medium-size);
+  --text-blockui-label-medium--line-height: var(
+    --blockui-type-label-medium-leading
+  );
+  --text-blockui-label-medium--font-weight: var(
+    --blockui-type-label-medium-weight
+  );
+  --text-blockui-label-medium--letter-spacing: var(
+    --blockui-type-label-medium-tracking
+  );
+  --text-blockui-label-small: var(--blockui-type-label-small-size);
+  --text-blockui-label-small--line-height: var(
+    --blockui-type-label-small-leading
+  );
+  --text-blockui-label-small--font-weight: var(
+    --blockui-type-label-small-weight
+  );
+  --text-blockui-label-small--letter-spacing: var(
+    --blockui-type-label-small-tracking
+  );
+  --text-blockui-label-xsmall: var(--blockui-type-label-xsmall-size);
+  --text-blockui-label-xsmall--line-height: var(
+    --blockui-type-label-xsmall-leading
+  );
+  --text-blockui-label-xsmall--font-weight: var(
+    --blockui-type-label-xsmall-weight
+  );
+  --text-blockui-label-xsmall--letter-spacing: var(
+    --blockui-type-label-xsmall-tracking
+  );
+  --text-blockui-link-medium: var(--blockui-type-link-medium-size);
+  --text-blockui-link-medium--line-height: var(
+    --blockui-type-link-medium-leading
+  );
+  --text-blockui-link-medium--font-weight: var(
+    --blockui-type-link-medium-weight
+  );
+  --text-blockui-link-medium--letter-spacing: var(
+    --blockui-type-link-medium-tracking
+  );
+  --text-blockui-link-small: var(--blockui-type-link-small-size);
+  --text-blockui-link-small--line-height: var(
+    --blockui-type-link-small-leading
+  );
+  --text-blockui-link-small--font-weight: var(--blockui-type-link-small-weight);
+  --text-blockui-link-small--letter-spacing: var(
+    --blockui-type-link-small-tracking
+  );
+  --text-blockui-link-xsmall: var(--blockui-type-link-xsmall-size);
+  --text-blockui-link-xsmall--line-height: var(
+    --blockui-type-link-xsmall-leading
+  );
+  --text-blockui-link-xsmall--font-weight: var(
+    --blockui-type-link-xsmall-weight
+  );
+  --text-blockui-link-xsmall--letter-spacing: var(
+    --blockui-type-link-xsmall-tracking
+  );
+  --text-blockui-numeral-large: var(--blockui-type-numeral-large-size);
+  --text-blockui-numeral-large--line-height: var(
+    --blockui-type-numeral-large-leading
+  );
+  --text-blockui-numeral-large--font-weight: var(
+    --blockui-type-numeral-large-weight
+  );
+  --text-blockui-numeral-large--letter-spacing: var(
+    --blockui-type-numeral-large-tracking
+  );
+  --text-blockui-numeral-small: var(--blockui-type-numeral-small-size);
+  --text-blockui-numeral-small--line-height: var(
+    --blockui-type-numeral-small-leading
+  );
+  --text-blockui-numeral-small--font-weight: var(
+    --blockui-type-numeral-small-weight
+  );
+  --text-blockui-numeral-small--letter-spacing: var(
+    --blockui-type-numeral-small-tracking
+  );
+  --text-blockui-page-title: var(--blockui-type-page-title-size);
+  --text-blockui-page-title--line-height: var(
+    --blockui-type-page-title-leading
+  );
+  --text-blockui-page-title--font-weight: var(--blockui-type-page-title-weight);
+  --text-blockui-page-title--letter-spacing: var(
+    --blockui-type-page-title-tracking
+  );
+  --text-blockui-section-title: var(--blockui-type-section-title-size);
+  --text-blockui-section-title--line-height: var(
+    --blockui-type-section-title-leading
+  );
+  --text-blockui-section-title--font-weight: var(
+    --blockui-type-section-title-weight
+  );
+  --text-blockui-section-title--letter-spacing: var(
+    --blockui-type-section-title-tracking
+  );
+}
+
+:root {
+  --blockui-font-sans: "Inter Local";
+  --buzz-window-surface: var(--blockui-surface-app);
+  --buzz-onboarding-shell-bottom: var(--blockui-surface-app);
+  --buzz-welcome-chartreuse: var(--blockui-surface-subtle);
+  --buzz-onboarding-cta-label: var(--primary-foreground);
+  --buzz-onboarding-backup-ink: var(--blockui-text-standard);
+  --buzz-onboarding-avatar-dialog-bg: var(--popover);
+  --buzz-onboarding-avatar-accent-bg: var(--secondary);
+  --buzz-onboarding-avatar-accent-fg: var(--secondary-foreground);
+  --buzz-onboarding-avatar-action-bg: var(--primary);
+  --buzz-onboarding-avatar-action-fg: var(--primary-foreground);
+  --buzz-onboarding-avatar-control-fg: var(--foreground);
+  --buzz-onboarding-avatar-dialog-shadow: 0 0 0;
+  --buzz-onboarding-emoji-picker-background: 245, 245, 245;
+  --buzz-onboarding-emoji-picker-color: 0, 0, 0;
+  --buzz-onboarding-emoji-picker-input: 255, 255, 255;
+}
+:root.dark {
+  --buzz-onboarding-emoji-picker-background: 23, 23, 23;
+  --buzz-onboarding-emoji-picker-color: 255, 255, 255;
+  --buzz-onboarding-emoji-picker-input: 0, 0, 0;
+}
+@layer components {
+  .buzz-startup-shell {
+    background: var(--blockui-surface-subtle);
+    color: var(--foreground);
+  }
+}
+
+@layer components {
+  .blockui-choice {
+    appearance: none;
+    display: inline-grid;
+    place-content: center;
+    width: 1rem;
+    height: 1rem;
+    flex-shrink: 0;
+    border: 1px solid var(--input);
+    border-radius: var(--blockui-radius-xs);
+    background: var(--background);
+    color: var(--primary-foreground);
+    vertical-align: middle;
+  }
+  .blockui-choice[type="radio"] {
+    border-radius: var(--blockui-radius-pill);
+  }
+  .blockui-choice::before {
+    content: "";
+    width: 0.625rem;
+    height: 0.625rem;
+    transform: scale(0);
+    background: currentColor;
+    clip-path: polygon(14% 44%, 0 59%, 39% 95%, 100% 20%, 85% 7%, 36% 68%);
+  }
+  .blockui-choice[type="radio"]::before {
+    clip-path: circle(40%);
+  }
+  .blockui-choice:checked {
+    background: var(--primary);
+    border-color: var(--primary);
+  }
+  .blockui-choice:checked::before {
+    transform: scale(1);
+  }
+  .blockui-choice:indeterminate {
+    background: var(--primary);
+    border-color: var(--primary);
+  }
+  .blockui-choice:indeterminate::before {
+    transform: scale(1);
+    clip-path: inset(42% 0);
+  }
+  .blockui-choice:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .blockui-choice:focus-visible,
+  .blockui-range:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  .blockui-range {
+    appearance: none;
+    height: 0.25rem;
+    border-radius: var(--blockui-radius-pill);
+    background: var(--muted);
+    accent-color: var(--primary);
+  }
+  .blockui-range::-webkit-slider-thumb {
+    appearance: none;
+    width: 1rem;
+    height: 1rem;
+    border-radius: var(--blockui-radius-pill);
+    border: 1px solid var(--input);
+    background: var(--card);
+    box-shadow: 0 1px 2px #0000001a;
+  }
+  .blockui-range::-moz-range-thumb {
+    width: 1rem;
+    height: 1rem;
+    border-radius: var(--blockui-radius-pill);
+    border: 1px solid var(--input);
+    background: var(--card);
+  }
+}
+
+/* The native NSVisualEffectView blurs the desktop; CSS supplies only its tint. */
+html[data-window-glass="true"],
+html[data-window-glass="true"] #root,
+html[data-window-glass="true"] .buzz-huddle-app-surface,
+html[data-window-glass="true"] [data-testid="app-top-chrome"],
+html[data-window-glass="true"] .blockui-navigation,
+html[data-window-glass="true"] .buzz-huddle-shell,
+html[data-window-glass="true"] [data-testid="app-sidebar-layer"],
+html[data-window-glass="true"]
+  [data-buzz-glass-inset]:not([data-buzz-content-surface]) {
+  background: transparent;
+}
+html[data-window-glass="true"] body {
+  background: color-mix(in srgb, var(--buzz-window-surface) 72%, transparent);
+}
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  html[data-window-glass="true"] body {
+    background: var(--buzz-window-surface);
+  }
+}
+
+/* Rich widgets follow the 8px grid and shared three-level type hierarchy.
+   Nested activity disclosures share their parent's inset instead of stacking cards. */
+.blockui-activity .activity-widget {
+  min-width: 0;
+  font-family: var(--font-sans);
+}
+.blockui-activity .activity-widget .activity-widget {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+}
+.blockui-activity .activity-widget[data-activity-tone="error"] {
+  border-color: var(--destructive);
+}
+.blockui-activity .activity-widget > summary:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 8px;
+  border-radius: var(--blockui-radius-sm);
+}
+.blockui-activity .activity-widget > summary::-webkit-details-marker {
+  display: none;
+}
+.blockui-activity .message-markdown :is(h1, h2, h3, h4, h5, h6) {
+  font-size: var(--text-base);
+  font-weight: 600;
+}
+
+.blockui-activity :is(strong, b) {
+  font-weight: 600;
+}
+
+/* Floating workspaces sit on the app canvas; children share the card base. */
+.pulse-workspace-surface {
+  --background: var(--blockui-surface-card);
+}

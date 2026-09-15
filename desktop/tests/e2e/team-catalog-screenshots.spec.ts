@@ -163,9 +163,8 @@ async function gotoAgentsView(page: import("@playwright/test").Page) {
 }
 
 async function openTeamCatalog(page: import("@playwright/test").Page) {
-  await page.getByTestId("new-team-card").click();
-  await page.getByTestId("team-catalog-open").click();
-  await expect(page.getByTestId("community-catalog-dialog")).toBeVisible();
+  await page.getByTestId("agents-section-browse").click();
+  await expect(page.getByTestId("agents-browse-grid")).toBeVisible();
   await waitForAnimations(page);
 }
 
@@ -214,7 +213,7 @@ test.describe("team catalog screenshots", () => {
     await openTeamCatalog(page);
     await page.getByTestId(releaseReview).click();
     await expect(page.getByTestId("community-catalog-add-team")).toHaveText(
-      "Added to my teams",
+      "Added",
     );
     await waitForAnimations(page);
     await page.getByTestId("community-catalog-dialog").screenshot({
@@ -227,7 +226,7 @@ test.describe("team catalog screenshots", () => {
     await gotoAgentsView(page);
     await openTeamCatalog(page);
 
-    await page.getByTestId("community-catalog-dialog").screenshot({
+    await page.getByTestId("agents-browse-grid").screenshot({
       path: `${SHOTS}/catalog-empty.png`,
     });
   });
@@ -295,7 +294,7 @@ test.describe("team catalog screenshots", () => {
       page.locator('[data-testid^="community-catalog-team-"]'),
     ).toHaveCount(2);
     await waitForAnimations(page);
-    await page.getByTestId("community-catalog-dialog").screenshot({
+    await page.getByTestId("agents-browse-grid").screenshot({
       path: `${SHOTS}/catalog-both-sections.png`,
     });
   });

@@ -3,7 +3,6 @@ import { Slot } from "@radix-ui/react-slot";
 
 import { cn } from "@/shared/lib/cn";
 import { Button, type ButtonProps } from "@/shared/ui/button";
-import { useSmoothCorners } from "@/shared/ui/smoothCorners";
 
 type AttachmentProps = React.ComponentProps<"div"> & {
   orientation?: "horizontal" | "vertical";
@@ -19,7 +18,6 @@ function Attachment({
   ...props
 }: AttachmentProps) {
   const attachmentRef = React.useRef<HTMLDivElement | null>(null);
-  useSmoothCorners(attachmentRef);
 
   return (
     <div

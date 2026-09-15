@@ -1,3 +1,6 @@
+import { RangeInput } from "@/shared/ui/native-controls";
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { createPortal } from "react-dom";
 import {
@@ -27,7 +30,6 @@ import { Button } from "@/shared/ui/button";
 import { Checkbox } from "@/shared/ui/checkbox";
 import { MODAL_BACKDROP_BLUR_CLASS } from "@/shared/ui/modalBackdrop";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
-import { useSmoothCorners } from "@/shared/ui/smoothCorners";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
 import { Spinner } from "./spinner";
@@ -554,7 +556,7 @@ function VolumeControl({
   const fillPercent = (muted ? 0 : volume) * 100;
   return (
     <div className="group/volume flex shrink-0 items-center">
-      <button
+      <Action
         aria-label={isSilent ? "Unmute" : "Mute"}
         className="flex h-7 w-7 items-center justify-center rounded-md text-white transition-colors hover:bg-white/15 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary"
         type="button"
@@ -564,12 +566,12 @@ function VolumeControl({
         }}
       >
         {isSilent ? (
-          <VolumeX className="pointer-events-none h-4 w-4" />
+          <VolumeX className="pointer-events-none size-4" />
         ) : (
-          <Volume2 className="pointer-events-none h-4 w-4" />
+          <Volume2 className="pointer-events-none size-4" />
         )}
-      </button>
-      <input
+      </Action>
+      <RangeInput
         aria-label="Volume"
         className={cn(
           "video-volume-slider h-3 cursor-pointer transition-all duration-200",
@@ -616,7 +618,7 @@ function PlaybackSpeedControl({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button
+        <Action
           aria-label={`Playback speed: ${label}`}
           className={cn(
             "flex shrink-0 items-center justify-center font-semibold tabular-nums text-white transition-colors hover:bg-white/15 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-white/60",
@@ -628,7 +630,7 @@ function PlaybackSpeedControl({
           onClick={(event) => event.stopPropagation()}
         >
           {label}
-        </button>
+        </Action>
       </PopoverTrigger>
       <PopoverContent
         align="end"
@@ -646,7 +648,7 @@ function PlaybackSpeedControl({
             const speedLabel = formatPlaybackSpeed(speed);
             const selected = speed === playbackSpeed;
             return (
-              <button
+              <Action
                 aria-pressed={selected}
                 className={cn(
                   "flex h-8 w-full items-center justify-between rounded-lg px-2 text-left text-xs font-medium tabular-nums text-white transition-colors hover:bg-white/15 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-white/60",
@@ -661,8 +663,8 @@ function PlaybackSpeedControl({
                 }}
               >
                 <span>{speedLabel}</span>
-                {selected ? <Check className="h-3.5 w-3.5" /> : null}
-              </button>
+                {selected ? <Check className="size-3.5" /> : null}
+              </Action>
             );
           })}
         </div>
@@ -685,7 +687,6 @@ export function VideoPlayer({
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const inlineSurfaceRef = React.useRef<HTMLDivElement | null>(null);
   const reviewVideoRef = React.useRef<HTMLVideoElement>(null);
-  useSmoothCorners(inlineSurfaceRef);
   const [started, setStarted] = React.useState(false);
   const [isPlaying, setIsPlaying] = React.useState(false);
   const [isBuffering, setIsBuffering] = React.useState(false);
@@ -1054,7 +1055,7 @@ export function VideoPlayer({
             onWaiting={() => setIsBuffering(true)}
           />
           {!hasError && !isBuffering ? (
-            <button
+            <Action
               aria-label={isPlaying ? "Pause video" : "Play video"}
               className={cn(
                 "absolute inset-0 flex cursor-pointer items-center justify-center opacity-100 outline-hidden transition-opacity duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] focus-visible:ring-2 focus-visible:ring-white/60 motion-reduce:transition-none",
@@ -1072,12 +1073,12 @@ export function VideoPlayer({
               >
                 <GlassSurface className="rounded-full" />
                 {isPlaying ? (
-                  <Pause className="h-6 w-6 fill-white text-white" />
+                  <Pause className="size-6 fill-white text-white" />
                 ) : (
-                  <Play className="h-6 w-6 fill-white text-white" />
+                  <Play className="size-6 fill-white text-white" />
                 )}
               </span>
-            </button>
+            </Action>
           ) : null}
           {isBuffering && !hasError ? (
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
@@ -1088,7 +1089,7 @@ export function VideoPlayer({
             </div>
           ) : null}
           {hasError ? (
-            <button
+            <Action
               type="button"
               aria-label="Retry loading video"
               className="group absolute inset-0 flex cursor-pointer flex-col items-center justify-center gap-2"
@@ -1096,17 +1097,17 @@ export function VideoPlayer({
             >
               <span className="relative isolate flex h-14 w-14 items-center justify-center rounded-full transition-transform duration-200 ease-out group-hover:scale-105">
                 <GlassSurface className="rounded-full" />
-                <AlertCircle className="h-6 w-6 text-white" />
+                <AlertCircle className="size-6 text-white" />
               </span>
               <span className="rounded-md bg-black/50 px-2 py-1 text-xs text-white backdrop-blur-sm">
                 Failed to load — tap to retry
               </span>
-            </button>
+            </Action>
           ) : null}
           {!hasError ? (
             <div
               className={cn(
-                "group/inline-controls absolute inset-x-1.5 bottom-1.5 z-10 isolate rounded-[10px]",
+                "group/inline-controls absolute inset-x-1.5 bottom-1.5 z-10 isolate rounded-lg",
                 hideInlineControls &&
                   "pointer-events-none focus-within:pointer-events-auto group-hover/video:pointer-events-auto",
               )}
@@ -1157,7 +1158,7 @@ export function VideoPlayer({
           ) : null}
         </div>
         {!hasError ? (
-          <button
+          <Action
             type="button"
             aria-label="Open video review"
             data-video-review-launcher=""
@@ -1167,9 +1168,9 @@ export function VideoPlayer({
           >
             <span className="relative isolate flex h-full w-full items-center justify-center rounded-full transition-transform duration-200 ease-out group-hover:scale-110">
               <GlassSurface className="rounded-full" />
-              <Maximize2 className="pointer-events-none h-4 w-4" />
+              <Maximize2 className="pointer-events-none size-4" />
             </span>
-          </button>
+          </Action>
         ) : null}
       </div>
       {videoContextMenu}
@@ -1621,11 +1622,11 @@ function VideoReviewDialog({
   return createPortal(
     <div
       className={cn(
-        "dark video-review-theme fixed inset-0 z-50 flex min-h-0 min-w-0 items-center justify-center bg-black/75 p-4 text-foreground sm:p-8 lg:p-10",
+        "video-review-theme fixed inset-0 z-50 flex min-h-0 min-w-0 items-center justify-center bg-black/75 p-4 text-foreground sm:p-8 lg:p-10",
         MODAL_BACKDROP_BLUR_CLASS,
       )}
     >
-      <button
+      <Action
         aria-label="Close video review"
         className="absolute inset-0 cursor-default"
         data-testid="video-review-backdrop"
@@ -1667,7 +1668,7 @@ function VideoReviewDialog({
               variant="ghost"
               onClick={() => setIsPanelOpen((open) => !open)}
             >
-              <PanelRight className="h-4 w-4" />
+              <PanelRight className="size-4" />
             </Button>
           ) : null}
           <Button
@@ -1678,7 +1679,7 @@ function VideoReviewDialog({
             variant="ghost"
             onClick={handleClose}
           >
-            <X className="h-4 w-4" />
+            <X className="size-4" />
           </Button>
         </header>
 
@@ -1759,7 +1760,7 @@ function VideoReviewDialog({
                 <div className="video-review-controls absolute inset-x-2 bottom-2 z-20 sm:inset-x-4 sm:bottom-3">
                   <div className="relative isolate flex items-center gap-2 rounded-xl px-2 py-1.5">
                     <GlassSurface />
-                    <button
+                    <Action
                       aria-label={
                         isPlaying ? "Pause review video" : "Play review video"
                       }
@@ -1768,11 +1769,11 @@ function VideoReviewDialog({
                       onClick={togglePlay}
                     >
                       {isPlaying ? (
-                        <Pause className="h-4 w-4 fill-white text-white" />
+                        <Pause className="size-4 fill-white text-white" />
                       ) : (
-                        <Play className="h-4 w-4 fill-white text-white" />
+                        <Play className="size-4 fill-white text-white" />
                       )}
-                    </button>
+                    </Action>
                     <span
                       className="shrink-0 text-xs font-medium tabular-nums text-white"
                       data-testid="video-review-time-current"
@@ -1793,7 +1794,7 @@ function VideoReviewDialog({
                         return (
                           <Tooltip key={item.comment.id}>
                             <TooltipTrigger asChild>
-                              <button
+                              <Action
                                 aria-label={`Seek to ${item.timecode}`}
                                 className="absolute top-1/2 z-20 flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-white/40 bg-black/60 shadow-md transition-transform hover:scale-110 outline-hidden focus-visible:ring-2 focus-visible:ring-white/60"
                                 data-video-review-marker=""
@@ -1810,7 +1811,7 @@ function VideoReviewDialog({
                                   }
                                   size="xs"
                                 />
-                              </button>
+                              </Action>
                             </TooltipTrigger>
                             <TooltipContent side="top">
                               {item.timecode} · {item.comment.author}
@@ -1851,7 +1852,7 @@ function VideoReviewDialog({
                 >
                   <GlassSurface />
                   {QUICK_REACTIONS.map((emoji, index) => (
-                    <button
+                    <Action
                       aria-label={`React ${emoji} at ${formatTimecode(currentTime)}`}
                       className="flex h-8 w-8 items-center justify-center rounded-full text-lg transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-35"
                       data-testid={`video-review-reaction-${index}`}
@@ -1862,13 +1863,13 @@ function VideoReviewDialog({
                       onClick={() => handleReactionPress(emoji)}
                     >
                       <span className="pointer-events-none">{emoji}</span>
-                    </button>
+                    </Action>
                   ))}
                   <span className="mx-1 h-6 w-px bg-white/15" />
                   <div className="relative">
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <button
+                        <Action
                           aria-label="More reactions"
                           aria-pressed={isEmojiPickerOpen}
                           className={cn(
@@ -1880,8 +1881,8 @@ function VideoReviewDialog({
                           type="button"
                           onClick={() => setIsEmojiPickerOpen((open) => !open)}
                         >
-                          <SmilePlus className="pointer-events-none h-4 w-4" />
-                        </button>
+                          <SmilePlus className="pointer-events-none size-4" />
+                        </Action>
                       </TooltipTrigger>
                       <TooltipContent>More reactions</TooltipContent>
                     </Tooltip>
@@ -1904,15 +1905,15 @@ function VideoReviewDialog({
 
           {showCommentsPanel ? (
             <aside
-              className="relative z-10 min-h-0 shrink-0 overflow-hidden bg-neutral-950 transition-[width] duration-200 ease-out"
+              className="relative z-10 min-h-0 shrink-0 overflow-hidden bg-muted transition-[width] duration-200 ease-out"
               data-testid="video-review-comments-panel"
               inert={!isPanelOpen || undefined}
               style={{ width: isPanelOpen ? 380 : 0 }}
             >
-              <div className="flex h-full w-[380px] min-h-0 flex-col border-l border-border bg-neutral-950">
+              <div className="flex h-full w-[380px] min-h-0 flex-col border-l border-border bg-muted">
                 <div className="flex h-12 shrink-0 items-center border-b border-border px-4">
                   <div className="flex min-w-0 items-center gap-2">
-                    <MessageCircle className="h-4 w-4 text-muted-foreground" />
+                    <MessageCircle className="size-4 text-muted-foreground" />
                     <h3 className="text-sm font-semibold text-foreground">
                       Comments
                     </h3>
@@ -1962,7 +1963,7 @@ function VideoReviewDialog({
                         "rounded-md px-2 py-1 font-mono text-xs font-semibold transition-colors",
                         !replyTarget && postAtCurrentFrame
                           ? VIDEO_REVIEW_TIMECODE_ACCENT_CLASS
-                          : "bg-muted text-muted-foreground/70",
+                          : "bg-muted text-muted-foreground",
                       )}
                       data-testid="video-review-composer-timecode"
                     >
@@ -1973,7 +1974,7 @@ function VideoReviewDialog({
                         Replying to {replyTarget.comment.author}
                       </span>
                     ) : (
-                      <label
+                      <BlockLabel
                         className="flex cursor-pointer select-none items-center gap-1.5 text-2xs text-muted-foreground"
                         htmlFor="video-review-frame-toggle"
                       >
@@ -1987,7 +1988,7 @@ function VideoReviewDialog({
                           }
                         />
                         Comment at current frame
-                      </label>
+                      </BlockLabel>
                     )}
                   </div>
                   {canComment && !isComposerMounted ? (
@@ -2148,10 +2149,7 @@ function VideoReviewCommentBody({
           {item.comment.time}
         </p>
         {reactions.some((reaction) => reaction.reactedByCurrentUser) ? (
-          <Check
-            className="ml-auto h-4 w-4 shrink-0 text-primary"
-            aria-hidden
-          />
+          <Check className="ml-auto size-4 shrink-0 text-primary" aria-hidden />
         ) : null}
       </div>
       <p className="mt-1.5 leading-5">
@@ -2161,7 +2159,7 @@ function VideoReviewCommentBody({
       {reactions.length > 0 ? (
         <div className="mt-2 flex flex-wrap gap-1.5">
           {reactions.map((reaction) => (
-            <button
+            <Action
               aria-label={`Toggle ${reaction.emoji} reaction`}
               aria-pressed={reaction.reactedByCurrentUser}
               className={cn(
@@ -2187,19 +2185,19 @@ function VideoReviewCommentBody({
                 <span>{reaction.emoji}</span>
               )}
               <span>{reaction.count}</span>
-            </button>
+            </Action>
           ))}
         </div>
       ) : null}
       {canReply ? (
-        <button
+        <Action
           className="mt-1.5 text-xs font-medium text-muted-foreground outline-hidden transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60"
           data-testid="video-review-comment-reply"
           type="button"
           onClick={() => onReply(item)}
         >
           Reply
-        </button>
+        </Action>
       ) : null}
     </div>
   );

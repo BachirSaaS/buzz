@@ -45,7 +45,7 @@ export function PulseTabBar({
                 type="button"
                 variant="ghost"
               >
-                <Search className="h-4 w-4" />
+                <Search className="size-4" />
               </Button>
               <Button
                 aria-controls={getPanelId("everyone")}

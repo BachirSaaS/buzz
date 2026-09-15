@@ -155,7 +155,7 @@ export function ProjectsChannelsList({
           groupKey={group.projectId}
           headerClassName="mx-0 gap-3 px-4"
           headerTestId="projects-channel-project-group-header"
-          icon={<FolderKanban className="h-4 w-4" />}
+          icon={<FolderKanban className="size-4" />}
           items={group.rows.flatMap((row) => {
             const item = selectionItemsByRowKey.get(
               projectRelatedChannelDisplayRowKey(row),
@@ -211,9 +211,9 @@ export function ProjectsChannelsList({
                     }
                     icon={
                       channel ? (
-                        <Hash className="h-3.5 w-3.5 text-muted-foreground/70" />
+                        <Hash className="size-3.5 text-muted-foreground" />
                       ) : (
-                        <LockKeyhole className="h-3.5 w-3.5 text-muted-foreground/55" />
+                        <LockKeyhole className="size-3.5 text-muted-foreground" />
                       )
                     }
                     onClick={() => void goChannel(row.channelId)}

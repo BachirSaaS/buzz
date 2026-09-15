@@ -53,12 +53,12 @@ function MessageItem({
       data-role="assistant-message"
       data-testid="transcript-assistant-message"
     >
-      <div className="group relative flex w-full min-w-0 flex-col items-start gap-1">
+      <div className="group relative flex w-full min-w-0 flex-col items-start gap-2">
         <div
           className={
             isCompactPreview
               ? "w-full min-w-0 text-xs leading-4"
-              : "w-full min-w-0 text-sm"
+              : "w-full min-w-0 text-sm leading-6"
           }
           title={formatTranscriptTimestampTitle(item.timestamp)}
         >

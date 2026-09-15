@@ -1,3 +1,4 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
 import { Loader2 } from "lucide-react";
 import * as React from "react";
 
@@ -85,7 +86,7 @@ export function CreateProjectBranchDialog({
               {sourceCommit ? ` at ${sourceCommit.slice(0, 7)}` : ""}.
             </DialogDescription>
           </DialogHeader>
-          <label
+          <BlockLabel
             className="block space-y-2 text-sm font-medium"
             htmlFor="project-create-branch-name"
           >
@@ -99,7 +100,7 @@ export function CreateProjectBranchDialog({
               placeholder="feature/my-change"
               value={branchName}
             />
-          </label>
+          </BlockLabel>
           {branchName && validationError ? (
             <p className="text-sm text-destructive">{validationError}</p>
           ) : null}
@@ -125,7 +126,7 @@ export function CreateProjectBranchDialog({
               disabled={pending || Boolean(validationError) || !sourceCommit}
               type="submit"
             >
-              {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              {pending ? <Loader2 className="size-4 animate-spin" /> : null}
               {pending ? "Creating…" : "Create branch"}
             </Button>
           </DialogFooter>
@@ -198,7 +199,7 @@ export function DeleteProjectBranchDialog({
             type="button"
             variant="destructive"
           >
-            {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            {pending ? <Loader2 className="size-4 animate-spin" /> : null}
             {pending ? "Deleting…" : "Delete branch"}
           </Button>
         </AlertDialogFooter>

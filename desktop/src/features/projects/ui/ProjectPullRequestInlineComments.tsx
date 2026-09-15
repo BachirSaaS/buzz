@@ -60,7 +60,7 @@ export function ProjectPullRequestInlineCommentThread({
               key={comment.id}
             >
               <div className="flex min-w-0 items-center gap-2 text-xs">
-                <MessageSquareText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <MessageSquareText className="size-3.5 shrink-0 text-muted-foreground" />
                 <span className="min-w-0 flex-1 truncate font-medium text-foreground">
                   {commentAuthor(comment.author, profiles)}
                 </span>
@@ -82,7 +82,7 @@ export function ProjectPullRequestInlineCommentThread({
           disabled={isSending}
           header={
             <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-              <FileCode2 className="h-3.5 w-3.5 shrink-0" />
+              <FileCode2 className="size-3.5 shrink-0" />
               <span className="truncate">{activeAnchor.path}</span>
               <span className="shrink-0">
                 {activeAnchor.side === "new" ? "+" : "-"}

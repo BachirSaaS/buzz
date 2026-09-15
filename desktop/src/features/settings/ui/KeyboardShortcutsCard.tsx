@@ -1,3 +1,4 @@
+import { Kbd as BlockKbd } from "@/shared/blockui/components/kbd";
 import {
   getShortcutsByCategory,
   getPlatformKeys,
@@ -21,12 +22,12 @@ function KeyCombo({ shortcut }: { shortcut: KeyboardShortcut }) {
   return (
     <span className="flex items-center gap-1">
       {parts.map((part) => (
-        <kbd
+        <BlockKbd
           className="inline-flex h-6 min-w-6 items-center justify-center rounded border border-border/70 bg-muted/60 px-1.5 font-mono text-xs text-muted-foreground"
           key={part}
         >
           {part}
-        </kbd>
+        </BlockKbd>
       ))}
     </span>
   );
@@ -55,7 +56,7 @@ export function KeyboardShortcutsCard() {
                     {shortcut.label}
                   </span>
                   <span
-                    className="ml-2 text-muted-foreground/70"
+                    className="ml-2 text-muted-foreground"
                     data-settings-subcopy
                   >
                     {shortcut.description}

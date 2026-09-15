@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import type * as React from "react";
 import type { ThreadPanelLayoutProps } from "@/features/channels/lib/threadPanelLayout";
 import {
@@ -38,7 +39,7 @@ export function MessageThreadPanelHeader({
   showBackButton?: boolean;
 }) {
   const title = onHeaderTitleClick ? (
-    <button
+    <Action
       aria-label={headerTitleAriaLabel ?? `Open ${headerTitle}`}
       className="min-w-0 max-w-full truncate text-left hover:underline"
       data-testid="message-thread-open-channel"
@@ -47,7 +48,7 @@ export function MessageThreadPanelHeader({
       type="button"
     >
       {headerTitle}
-    </button>
+    </Action>
   ) : (
     headerTitle
   );

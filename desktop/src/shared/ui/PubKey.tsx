@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { Check, Copy } from "lucide-react";
 import * as React from "react";
 
@@ -176,7 +177,7 @@ export function PubKey({
   return (
     <Popover onOpenChange={setOpen} open={open}>
       <PopoverTrigger asChild>
-        <button
+        <Action
           aria-label="Show full public key"
           className={cn(
             "cursor-pointer rounded font-mono hover:underline focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring",
@@ -188,7 +189,7 @@ export function PubKey({
           type="button"
         >
           {truncateNpub(pubkey)}
-        </button>
+        </Action>
       </PopoverTrigger>
       <PopoverContent
         align="start"

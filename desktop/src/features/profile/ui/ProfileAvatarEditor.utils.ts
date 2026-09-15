@@ -128,7 +128,7 @@ const EMOJI_MART_SHADOW_CSS = `
   }
 
   :host([data-buzz-onboarding-inline]) .category .sticky {
-    background-color: rgb(var(--em-rgb-background));
+    background-color: var(--em-rgb-background);
     display: block;
     z-index: 5;
   }
@@ -142,7 +142,7 @@ const EMOJI_MART_SHADOW_CSS = `
    * to find before either receives focus. */
   .search input[type="search"],
   .search + .flex {
-    background-color: rgb(var(--em-rgb-input));
+    background-color: var(--em-rgb-input);
     box-shadow: inset 0 0 0 1px rgba(var(--em-rgb-color), 0.16);
   }
 
@@ -154,7 +154,7 @@ const EMOJI_MART_SHADOW_CSS = `
   }
 
   .search input[type="search"]:focus {
-    box-shadow: inset 0 0 0 1px rgb(var(--em-rgb-accent));
+    box-shadow: inset 0 0 0 1px var(--em-rgb-accent);
   }
 
   .search + .flex {
@@ -175,7 +175,7 @@ const EMOJI_MART_SHADOW_CSS = `
   }
 
   :host([data-buzz-onboarding-inline]) #root > .padding-lr:not(.scroll) {
-    background-color: rgb(var(--em-rgb-background));
+    background-color: var(--em-rgb-background);
     padding-bottom: 8px;
     padding-top: 8px;
     position: relative;
@@ -195,7 +195,7 @@ const EMOJI_MART_SHADOW_CSS = `
   }
 
   :host([data-buzz-onboarding-inline]) .menu {
-    background-color: rgb(var(--em-rgb-background));
+    background-color: var(--em-rgb-background);
     z-index: 7;
   }
 
@@ -255,7 +255,7 @@ const EMOJI_MART_SHADOW_CSS = `
 
   #nav button:hover,
   #nav button[aria-selected] {
-    color: rgb(var(--em-rgb-color));
+    color: var(--em-rgb-color);
   }
 
   #nav button:hover {
@@ -442,54 +442,10 @@ export function normalizeHue(hue: number) {
   return ((hue % 360) + 360) % 360;
 }
 
-function hslToRgbString(hslValue: string) {
-  const [hue, saturation, lightness] = hslValue
-    .trim()
-    .split(/\s+/)
-    .map((part) => Number.parseFloat(part.replace("%", "")));
-
-  if (
-    !Number.isFinite(hue) ||
-    !Number.isFinite(saturation) ||
-    !Number.isFinite(lightness)
-  ) {
-    return null;
-  }
-
-  const normalizedHue = ((hue % 360) + 360) % 360;
-  const saturationRatio = saturation / 100;
-  const lightnessRatio = lightness / 100;
-  const chroma = (1 - Math.abs(2 * lightnessRatio - 1)) * saturationRatio;
-  const huePrime = normalizedHue / 60;
-  const secondary = chroma * (1 - Math.abs((huePrime % 2) - 1));
-  const match = lightnessRatio - chroma / 2;
-  let red = 0;
-  let green = 0;
-  let blue = 0;
-
-  if (huePrime >= 0 && huePrime < 1) {
-    red = chroma;
-    green = secondary;
-  } else if (huePrime < 2) {
-    red = secondary;
-    green = chroma;
-  } else if (huePrime < 3) {
-    green = chroma;
-    blue = secondary;
-  } else if (huePrime < 4) {
-    green = secondary;
-    blue = chroma;
-  } else if (huePrime < 5) {
-    red = secondary;
-    blue = chroma;
-  } else {
-    red = chroma;
-    blue = secondary;
-  }
-
-  return [red, green, blue]
-    .map((channel) => Math.round((channel + match) * 255))
-    .join(", ");
+/** Emoji Mart needs RGB tuples; Block UI roles contain complete hex colors. */
+function blockuiColorToRgbString(value: string) {
+  const rgb = hexToRgb(value.trim());
+  return rgb ? `${rgb.red}, ${rgb.green}, ${rgb.blue}` : null;
 }
 
 function hexToRgb(hexColor: string) {
@@ -687,16 +643,16 @@ export function useEmojiMartThemeVars() {
   React.useEffect(() => {
     const updateThemeVars = () => {
       const styles = window.getComputedStyle(document.documentElement);
-      const muted = hslToRgbString(styles.getPropertyValue("--muted"));
-      const foreground = hslToRgbString(
+      const muted = blockuiColorToRgbString(styles.getPropertyValue("--muted"));
+      const foreground = blockuiColorToRgbString(
         styles.getPropertyValue("--foreground"),
       );
-      const input = hslToRgbString(styles.getPropertyValue("--input"));
+      const input = blockuiColorToRgbString(styles.getPropertyValue("--input"));
 
       setThemeVars({
-        "--buzz-emoji-picker-rgb-background": muted ?? "54, 58, 79",
-        "--buzz-emoji-picker-rgb-color": foreground ?? "245, 247, 255",
-        "--buzz-emoji-picker-rgb-input": input ?? "47, 51, 68",
+        "--buzz-emoji-picker-rgb-background": muted ?? "232, 232, 232",
+        "--buzz-emoji-picker-rgb-color": foreground ?? "0, 0, 0",
+        "--buzz-emoji-picker-rgb-input": input ?? "105, 105, 105",
       } as React.CSSProperties);
     };
 

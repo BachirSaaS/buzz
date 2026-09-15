@@ -1,0 +1,46 @@
+{
+  "schema_version": 2,
+  "report_path": ".font-cache/font-source-report.json",
+  "sources": [
+    {
+      "id": "inter_variable_italic",
+      "family": "Inter Local",
+      "weight": "100 900",
+      "style": "italic",
+      "url": "https://github.com/rsms/inter/blob/master/docs/font-files/InterVariable-Italic.ttf",
+      "copied_from": "mobile/assets/fonts/InterVariable-Italic.ttf",
+      "output_file": "InterVariable-Italic.ttf",
+      "format": "truetype",
+      "expected_sha256": "d6f1f6a172d9e588438db9f986fd5cfad7b30f644374080a8a9d4d91e344586f"
+    },
+    {
+      "id": "inter_variable_normal",
+      "family": "Inter Local",
+      "weight": "100 900",
+      "style": "normal",
+      "url": "https://github.com/rsms/inter/blob/master/docs/font-files/InterVariable.ttf",
+      "copied_from": "mobile/assets/fonts/InterVariable.ttf",
+      "output_file": "InterVariable.ttf",
+      "format": "truetype",
+      "expected_sha256": "4989b125924991b90d05b2d16e0e388c48f7d5bb8b30539bbf9c755278d0ccaf"
+    },
+    {
+      "id": "cash_sans_mono_regular_400",
+      "family": "Cash Sans Mono Local",
+      "weight": 400,
+      "url": "https://cash-f.squarecdn.com/static/fonts/cashsans/v2/woff2/CashSansMono-Regular.woff2",
+      "output_file": "CashSansMono-Regular.woff2",
+      "format": "woff2",
+      "expected_sha256": "6d137e3eee3e849b96bb201cfd907d071d4562a344097912cc99b62c0d8d1dff"
+    },
+    {
+      "id": "cash_sans_mono_medium_500",
+      "family": "Cash Sans Mono Local",
+      "weight": 500,
+      "url": "https://cash-f.squarecdn.com/static/fonts/cashsans/v2/woff2/CashSansMono-Medium.woff2",
+      "output_file": "CashSansMono-Medium.woff2",
+      "format": "woff2",
+      "expected_sha256": "19ba9f48350be25ad8abd51aa945377ade2dc224828424fce078015197dcba46"
+    }
+  ]
+}

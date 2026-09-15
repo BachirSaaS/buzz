@@ -457,7 +457,7 @@ test("keeps the saved profile description after a community round trip", async (
   await page.getByTestId("profile-about").fill(description);
   await page.getByTestId("profile-metadata-edit").click();
   await expect(page.getByTestId("profile-about-value")).toHaveText(description);
-  await page.getByTestId("settings-back-to-app").click();
+  await page.getByTestId("global-back").click();
 
   const communityA = page.getByTestId(
     "community-rail-button-profile-community-a",
@@ -527,7 +527,7 @@ test("updates the relay-backed profile from settings", async ({ page }) => {
   await page.getByTestId("profile-avatar-done").click();
   await expandIdentity(page);
 
-  await page.getByTestId("settings-back-to-app").click();
+  await page.getByTestId("global-back").click();
   await expectHomeView(page);
   await expect(page.getByTestId("open-settings")).toBeVisible();
 
@@ -2194,7 +2194,7 @@ test("renders settings in the app shell with a back button", async ({
 
   await openSettings(page);
   await expect(page.getByTestId("settings-sidebar")).toBeVisible();
-  await expect(page.getByTestId("settings-back-to-app")).toBeVisible();
+  await expect(page.getByTestId("settings-view")).toBeVisible();
   await expect(page.getByPlaceholder("Search everything")).toHaveCount(0);
   await expect(page.getByText("Personal", { exact: true })).toBeVisible();
   const personalGroup = page
@@ -2228,7 +2228,7 @@ test("renders settings in the app shell with a back button", async ({
   ).toBeVisible();
   await expect(inboxNavButton).toHaveCount(0);
 
-  await page.getByTestId("settings-back-to-app").click();
+  await page.getByTestId("global-back").click();
   await expectHomeView(page);
   await expect(inboxNavButton).toBeVisible();
 });
@@ -2255,7 +2255,7 @@ test("notification settings drive the Inbox badge and desktop alerts", async ({
     "On",
   );
 
-  await page.getByTestId("settings-back-to-app").click();
+  await page.getByTestId("global-back").click();
   await page.getByTestId("channel-general").click();
   await expect(page.getByTestId("chat-title")).toHaveText("general");
 
@@ -2351,14 +2351,14 @@ test("notification settings drive the Inbox badge and desktop alerts", async ({
 
   await openSettings(page, "notifications");
   await page.getByTestId("notifications-home-badge-toggle").click();
-  await page.getByTestId("settings-back-to-app").click();
+  await page.getByTestId("global-back").click();
   await expect(page.getByTestId("chat-title")).toHaveText("engineering");
   await expect(page.getByTestId("sidebar-home-count")).toHaveCount(0);
   await expect.poll(getAppBadgeCount).toBe(baseline);
 
   await openSettings(page, "notifications");
   await page.getByTestId("notifications-home-badge-toggle").click();
-  await page.getByTestId("settings-back-to-app").click();
+  await page.getByTestId("global-back").click();
   await expect(page.getByTestId("sidebar-home-count")).toHaveText("1");
   await expect.poll(getAppBadgeCount).toBe(baseline + 1);
 
@@ -2380,7 +2380,7 @@ test("desktop notification clicks open the matching forum thread", async ({
   await expect(page.getByTestId("notifications-desktop-state")).toContainText(
     "On",
   );
-  await page.getByTestId("settings-back-to-app").click();
+  await page.getByTestId("global-back").click();
   await expectHomeView(page);
 
   await page.evaluate(() => {

@@ -1,3 +1,4 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
 import * as React from "react";
 import { AlertCircle, LoaderCircle } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
@@ -43,19 +44,19 @@ import {
   DialogTitle,
 } from "@/shared/ui/dialog";
 
-const FUZZY_SURFACE_CLASS =
-  "relative left-1/2 w-[min(calc(100%+12rem),calc(100vw-2rem))] max-w-[1040px] -translate-x-1/2 px-20 pb-14 pt-20 !text-[rgb(var(--buzz-hosted-community-surface-fg))] [--buzz-card-textured-min-height:224px]";
+const ONBOARDING_SURFACE_CLASS =
+  "relative left-1/2 w-[min(calc(100%+12rem),calc(100vw-2rem))] max-w-[1040px] -translate-x-1/2 px-20 pb-14 pt-20 !text-[var(--buzz-hosted-community-surface-fg)]";
 const COMMUNITY_LIST_CLASS = "mx-auto w-full max-w-[520px] text-left";
 const COMMUNITY_ROW_CLASS =
   "flex min-h-[5.75rem] items-center justify-between gap-8 py-4 text-sm";
 const COMMUNITY_DIVIDER_CLASS =
-  "border-b-[0.5px] border-[rgb(var(--buzz-hosted-community-divider-border)/0.5)]";
+  "border-b-[0.5px] border-[color-mix(in_srgb,_var(--buzz-hosted-community-divider-border)_50.0%,_transparent)]";
 const COMMUNITY_ACTION_CLASS =
-  "h-[2.375rem] min-w-32 shrink-0 rounded-full bg-[rgb(var(--buzz-hosted-community-action-bg))] px-6 text-sm text-foreground shadow-none hover:bg-[rgb(var(--buzz-hosted-community-action-bg-hover))]";
+  "h-[2.375rem] min-w-32 shrink-0 rounded-full bg-[var(--buzz-hosted-community-action-bg)] px-6 text-sm text-foreground shadow-none hover:bg-[var(--buzz-hosted-community-action-bg-hover)]";
 const PAGE_CTA_CLASS = `${ONBOARDING_PRIMARY_CTA_CLASS} w-36 shadow-none`;
 const PAGE_BACK_CLASS =
   "h-[2.375rem] w-36 rounded-full bg-foreground/10 px-6 shadow-none hover:bg-foreground/15";
-const MODAL_PRIMARY_ACTION_CLASS = `${ONBOARDING_PRIMARY_CTA_CLASS} !text-[rgb(var(--buzz-hosted-community-modal-action-fg))]`;
+const MODAL_PRIMARY_ACTION_CLASS = `${ONBOARDING_PRIMARY_CTA_CLASS} !text-[var(--buzz-hosted-community-modal-action-fg)]`;
 const MODAL_BACK_ACTION_CLASS =
   "h-9 rounded-full bg-foreground/10 px-6 hover:bg-foreground/15";
 
@@ -376,7 +377,7 @@ export function HostedCommunityOnboarding({
       role="alert"
     >
       <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-destructive/15 text-destructive">
-        <AlertCircle className="h-4 w-4" />
+        <AlertCircle className="size-4" />
       </span>
       <span className="text-sm font-medium leading-5 text-destructive">
         {error}
@@ -421,8 +422,8 @@ export function HostedCommunityOnboarding({
       autoComplete="off"
       className={
         inline
-          ? "h-[2.375rem] w-[16.5rem] rounded-full border border-[color:var(--buzz-onboarding-backup-ink)]/25 bg-[rgb(var(--buzz-hosted-community-input-bg)/0.6)] px-6 text-center text-sm shadow-none placeholder:text-foreground/30 focus-visible:ring-1 focus-visible:ring-[color:var(--buzz-onboarding-backup-ink)]/40"
-          : "h-auto min-w-0 flex-none rounded-none border-0 bg-transparent p-0 text-right font-mono !text-[rgb(var(--buzz-hosted-community-surface-fg))] shadow-none placeholder:!text-[rgb(var(--buzz-hosted-community-surface-fg))] placeholder:opacity-20 focus-visible:ring-0"
+          ? "h-[2.375rem] w-[16.5rem] rounded-full border border-[color:var(--buzz-onboarding-backup-ink)]/25 bg-[color-mix(in_srgb,_var(--buzz-hosted-community-input-bg)_60.0%,_transparent)] px-6 text-center text-sm shadow-none placeholder:text-foreground focus-visible:ring-1 focus-visible:ring-[color:var(--buzz-onboarding-backup-ink)]/40"
+          : "h-auto min-w-0 flex-none rounded-none border-0 bg-transparent p-0 text-right font-mono !text-[var(--buzz-hosted-community-surface-fg)] shadow-none placeholder:!text-[var(--buzz-hosted-community-surface-fg)] placeholder:opacity-20 focus-visible:ring-0"
       }
       disabled={busy || atCommunityLimit}
       id="hosted-community-address"
@@ -454,18 +455,17 @@ export function HostedCommunityOnboarding({
         onSubmit={create}
       >
         <div className={COMMUNITY_ROW_CLASS}>
-          <label className="text-sm" htmlFor="hosted-community-address">
+          <BlockLabel className="text-sm" htmlFor="hosted-community-address">
             Set new community name
-          </label>
+          </BlockLabel>
           {creationInput(true)}
         </div>
       </form>
     ) : (
       <Card
         asChild
-        className={`${FUZZY_SURFACE_CLASS} !py-10 [--buzz-card-textured-min-height:176px]`}
+        className={`${ONBOARDING_SURFACE_CLASS} !py-10`}
         data-testid="hosted-community-create-surface"
-        variant="textured"
       >
         <form id="hosted-community-create-form" onSubmit={create}>
           <div
@@ -475,7 +475,7 @@ export function HostedCommunityOnboarding({
           >
             {creationInput(false)}
             <span
-              className="shrink-0 font-mono !text-[rgb(var(--buzz-hosted-community-surface-fg))]"
+              className="shrink-0 font-mono !text-[var(--buzz-hosted-community-surface-fg)]"
               id="hosted-community-suffix"
               style={{ fontSize: addressFontSize }}
             >
@@ -502,8 +502,7 @@ export function HostedCommunityOnboarding({
         className="buzz-onboarding-neutral-theme max-w-[560px] text-foreground [&_button]:shadow-none"
         closeButtonClassName={ONBOARDING_INK_ICON_CLASS}
         data-system-color-scheme="light"
-        overlayClassName="bg-[rgb(var(--buzz-hosted-community-modal-overlay-bg)/0.25)]"
-        surface="textured"
+        overlayClassName="bg-[color-mix(in_srgb,_var(--buzz-hosted-community-modal-overlay-bg)_25.0%,_transparent)]"
       >
         <div className="mx-auto flex w-full max-w-sm flex-col items-center py-2 text-center">
           <BuzzMark className="mb-5 h-auto w-9 text-foreground" />
@@ -524,7 +523,7 @@ export function HostedCommunityOnboarding({
                   className={`mt-6 ${MODAL_PRIMARY_ACTION_CLASS}`}
                   disabled
                 >
-                  <LoaderCircle className="h-4 w-4 animate-spin" />
+                  <LoaderCircle className="size-4 animate-spin" />
                   Waiting for your browser…
                 </Button>
               ) : (
@@ -537,7 +536,7 @@ export function HostedCommunityOnboarding({
               )}
               {/* Quiet breadcrumb: Buzz itself is open source; this hosted
                     relay is the one account-backed piece of the flow. */}
-              <p className="mt-6 w-full border-t border-foreground/10 pt-4 text-xs leading-5 text-foreground/45">
+              <p className="mt-6 w-full border-t border-foreground/10 pt-4 text-xs leading-5 text-foreground">
                 Buzz is open source. Builderlab hosts the relay for this
                 account.
               </p>
@@ -559,9 +558,7 @@ export function HostedCommunityOnboarding({
                 disabled={busy}
                 onClick={() => void connectIdentity()}
               >
-                {busy ? (
-                  <LoaderCircle className="h-4 w-4 animate-spin" />
-                ) : null}
+                {busy ? <LoaderCircle className="size-4 animate-spin" /> : null}
                 {busy ? action : "Connect and continue"}
               </Button>
             </>
@@ -574,7 +571,7 @@ export function HostedCommunityOnboarding({
                 This account is connected to another Buzz identity. Reconnect
                 this device, or sign out to use a different email.
               </DialogDescription>
-              <p className="mt-4 w-full break-all rounded-xl bg-[rgb(var(--buzz-hosted-community-identity-bg)/0.5)] px-4 py-3 text-left font-mono text-xs text-foreground">
+              <p className="mt-4 w-full break-all rounded-xl bg-[color-mix(in_srgb,_var(--buzz-hosted-community-identity-bg)_50.0%,_transparent)] px-4 py-3 text-left font-mono text-xs text-foreground">
                 Account: {boundNpub ?? UNAVAILABLE_KEY_LABEL}
                 <br />
                 This device: {localNpub ?? UNAVAILABLE_KEY_LABEL}
@@ -624,7 +621,7 @@ export function HostedCommunityOnboarding({
       <div className="flex w-full flex-1 flex-col justify-center text-left">
         {loading ? (
           <div className="flex justify-center py-10" role="status">
-            <LoaderCircle className="h-6 w-6 animate-spin" />
+            <LoaderCircle className="size-6 animate-spin" />
             <span className="sr-only">Checking sign-in</span>
           </div>
         ) : ready ? (
@@ -633,9 +630,8 @@ export function HostedCommunityOnboarding({
             {hasCommunities ? (
               <>
                 <Card
-                  className={`${FUZZY_SURFACE_CLASS} !max-w-[760px]`}
+                  className={`${ONBOARDING_SURFACE_CLASS} !max-w-[760px]`}
                   data-testid="hosted-community-list-surface"
-                  variant="textured"
                 >
                   <section className={COMMUNITY_LIST_CLASS}>
                     <h2 className="text-center text-sm font-medium">
@@ -655,7 +651,7 @@ export function HostedCommunityOnboarding({
                                 community.slug ??
                                 "Hosted community"}
                             </p>
-                            <p className="mt-1 truncate text-sm text-foreground/55">
+                            <p className="mt-1 truncate text-sm text-foreground">
                               {community.normalized_host}
                             </p>
                           </div>
@@ -768,8 +764,7 @@ export function HostedCommunityOnboarding({
         ) : (
           <Card
             aria-hidden
-            className={`${FUZZY_SURFACE_CLASS} opacity-70`}
-            variant="textured"
+            className={`${ONBOARDING_SURFACE_CLASS} opacity-70`}
           />
         )}
       </div>
@@ -788,7 +783,7 @@ export function HostedCommunityOnboarding({
             form="hosted-community-create-form"
             type="submit"
           >
-            {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
+            {busy ? <LoaderCircle className="size-4 animate-spin" /> : null}
             {action ?? "Next"}
           </Button>
           <Button

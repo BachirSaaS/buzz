@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 
 import { FolderGit2, Globe, SquareTerminal } from "lucide-react";
@@ -89,7 +90,7 @@ function RepositoryHostIcon({
           aria-label={label}
           className={
             compact
-              ? "pointer-events-auto flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground/70"
+              ? "pointer-events-auto flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground"
               : "pointer-events-auto flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-muted/40 text-muted-foreground"
           }
           data-testid="repository-host-icon"
@@ -109,13 +110,13 @@ function RepositoryOpenButton({
   repository,
 }: Pick<RepositoryItemProps, "onOpen" | "project" | "repository">) {
   return (
-    <button
+    <Action
       className="absolute inset-0 z-0 cursor-pointer"
       onClick={() => onOpen(project, repository)}
       type="button"
     >
       <span className="sr-only">View {repository.name}</span>
-    </button>
+    </Action>
   );
 }
 
@@ -186,7 +187,7 @@ function RepositoryActionsMenu({
           onOpenTerminal(repository);
         }}
       >
-        <SquareTerminal className="h-4 w-4" />
+        <SquareTerminal className="size-4" />
         {projectTerminalLabel(hasLocal)}
       </DropdownMenuItem>
     </ProjectListRowMenu>

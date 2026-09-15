@@ -194,7 +194,7 @@ export function ChannelManagementModerationActions({
           type="button"
           variant="ghost"
         >
-          <ArchiveRestore className="h-4 w-4" />
+          <ArchiveRestore className="size-4" />
         </Button>
       ) : (
         <Button
@@ -217,7 +217,7 @@ export function ChannelManagementModerationActions({
           type="button"
           variant="ghost"
         >
-          <Archive className="h-4 w-4" />
+          <Archive className="size-4" />
         </Button>
       )}
       {canDeleteChannel ? (
@@ -240,7 +240,7 @@ export function ChannelManagementModerationActions({
               type="button"
               variant="ghost"
             >
-              <Trash2 className="h-4 w-4" />
+              <Trash2 className="size-4" />
             </Button>
           }
         />

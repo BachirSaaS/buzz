@@ -263,7 +263,7 @@ export function AddChannelBotDialog({
 
         {providers.length === 0 && !providersLoading ? (
           <div className="flex gap-3 rounded-lg border border-warning/30 bg-warning-bg px-4 py-3">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
             <p className="text-sm text-warning">
               Install an agent runtime before adding an agent to this channel.
             </p>

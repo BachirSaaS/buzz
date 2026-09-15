@@ -1,3 +1,5 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { Plus, X } from "lucide-react";
 
@@ -52,8 +54,8 @@ function CommandAvailabilityBadge({ command }: { command: string }) {
       className={cn(
         "inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium",
         available
-          ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
-          : "bg-amber-500/15 text-amber-600 dark:text-amber-400",
+          ? "bg-success text-success-foreground dark:text-success-foreground"
+          : "bg-warning text-warning-foreground dark:text-warning-foreground",
       )}
     >
       {available ? "Found on PATH" : "Not found on PATH"}
@@ -123,7 +125,7 @@ function ArgsEditor({
             type="button"
             variant="ghost"
           >
-            <X className="h-4 w-4" />
+            <X className="size-4" />
           </Button>
         </div>
       ))}
@@ -133,7 +135,7 @@ function ArgsEditor({
         type="button"
         variant="outline"
       >
-        <Plus className="mr-1 h-4 w-4" />
+        <Plus className="mr-1 size-4" />
         Add argument
       </Button>
     </div>
@@ -179,7 +181,7 @@ function EnvEditor({
             type="button"
             variant="ghost"
           >
-            <X className="h-4 w-4" />
+            <X className="size-4" />
           </Button>
         </div>
       ))}
@@ -189,7 +191,7 @@ function EnvEditor({
         type="button"
         variant="outline"
       >
-        <Plus className="mr-1 h-4 w-4" />
+        <Plus className="mr-1 size-4" />
         Add env var
       </Button>
     </div>
@@ -297,14 +299,14 @@ export function CustomHarnessForm({
           <p className="text-sm font-medium">
             {originalId ? "Edit harness" : "Add custom harness"}
           </p>
-          <button
+          <Action
             aria-label="Cancel"
             className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
             onClick={onCancel}
             type="button"
           >
-            <X className="h-4 w-4" />
-          </button>
+            <X className="size-4" />
+          </Action>
         </div>
       )}
 
@@ -318,12 +320,12 @@ export function CustomHarnessForm({
 
         <div className="flex gap-3">
           <div className="flex-1 space-y-1.5">
-            <label
+            <BlockLabel
               className="text-sm font-medium text-foreground"
               htmlFor="ch-label"
             >
               Name
-            </label>
+            </BlockLabel>
             <FieldShell>
               <Input
                 className={FIELD_INPUT_CLASS}
@@ -337,7 +339,7 @@ export function CustomHarnessForm({
           </div>
 
           <div className="flex-1 space-y-1.5">
-            <label
+            <BlockLabel
               className="text-sm font-medium text-foreground"
               htmlFor="ch-id"
             >
@@ -345,7 +347,7 @@ export function CustomHarnessForm({
               <span className={PERSONA_LABEL_OPTIONAL_CLASS}>
                 (auto-derived)
               </span>
-            </label>
+            </BlockLabel>
             <FieldShell>
               <Input
                 className={cn(FIELD_INPUT_CLASS, "font-mono")}
@@ -361,12 +363,12 @@ export function CustomHarnessForm({
 
         <div className="space-y-1.5">
           <div className="flex items-center gap-2">
-            <label
+            <BlockLabel
               className="text-sm font-medium text-foreground"
               htmlFor="ch-command"
             >
               Command
-            </label>
+            </BlockLabel>
             <CommandAvailabilityBadge command={form.command} />
           </div>
           <FieldShell>
@@ -406,13 +408,13 @@ export function CustomHarnessForm({
         </div>
 
         <div className="space-y-1.5">
-          <label
+          <BlockLabel
             className="text-sm font-medium text-foreground"
             htmlFor="ch-docs-url"
           >
             Docs URL
             <span className={PERSONA_LABEL_OPTIONAL_CLASS}>(optional)</span>
-          </label>
+          </BlockLabel>
           <FieldShell>
             <Input
               className={FIELD_INPUT_CLASS}
@@ -425,13 +427,13 @@ export function CustomHarnessForm({
         </div>
 
         <div className="space-y-1.5">
-          <label
+          <BlockLabel
             className="text-sm font-medium text-foreground"
             htmlFor="ch-install-hint"
           >
             Install hint
             <span className={PERSONA_LABEL_OPTIONAL_CLASS}>(optional)</span>
-          </label>
+          </BlockLabel>
           <FieldShell>
             <Input
               className={FIELD_INPUT_CLASS}

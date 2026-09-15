@@ -1,0 +1,22 @@
+// Block UI type names used by the upstream class merger. See SOURCE.json.
+export const BLOCKUI_FONT_SIZES = [
+  "body-large",
+  "body-medium",
+  "body-small",
+  "body-xsmall",
+  "caption",
+  "headline-large",
+  "headline-small",
+  "hero",
+  "label-large",
+  "label-medium",
+  "label-small",
+  "label-xsmall",
+  "link-medium",
+  "link-small",
+  "link-xsmall",
+  "numeral-large",
+  "numeral-small",
+  "page-title",
+  "section-title",
+] as const;

@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import React from "react";
 import { ChevronDown } from "lucide-react";
 
@@ -36,7 +37,7 @@ export function PromptSectionAccordion({
 
   return (
     <article className="overflow-hidden rounded-2xl bg-muted/40">
-      <button
+      <Action
         aria-expanded={open}
         className="w-full px-4 py-3 text-left transition-colors hover:bg-muted/50"
         onClick={() => setOpen((value) => !value)}
@@ -54,7 +55,7 @@ export function PromptSectionAccordion({
             </div>
             <div
               className={cn(
-                "mt-1 text-xs leading-5 text-foreground/70",
+                "mt-1 text-xs leading-5 text-foreground",
                 open
                   ? "whitespace-pre-wrap wrap-anywhere"
                   : "line-clamp-2 wrap-anywhere",
@@ -63,7 +64,7 @@ export function PromptSectionAccordion({
               {body.length > 0 ? (
                 body
               ) : (
-                <span className="italic text-foreground/50">No metadata.</span>
+                <span className="italic text-foreground">No metadata.</span>
               )}
             </div>
           </div>
@@ -74,7 +75,7 @@ export function PromptSectionAccordion({
             )}
           />
         </div>
-      </button>
+      </Action>
     </article>
   );
 }

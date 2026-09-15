@@ -1,3 +1,6 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { NativeSelect } from "@/shared/blockui/components/native-select";
+import { Action } from "@/shared/ui/action";
 /**
  * Shared provider and model field components for agent dialogs.
  *
@@ -170,7 +173,7 @@ export function AgentDropdownSelect({
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
-        <button
+        <Action
           aria-controls={`${id}-listbox`}
           aria-expanded={open}
           aria-haspopup="listbox"
@@ -190,7 +193,7 @@ export function AgentDropdownSelect({
             className={cn(
               "min-w-0 truncate",
               isPlaceholderSelection &&
-                (placeholderClassName ?? "text-foreground/45"),
+                (placeholderClassName ?? "text-foreground"),
             )}
           >
             {selectedLabel ?? selectedOption?.label ?? placeholder}
@@ -199,11 +202,11 @@ export function AgentDropdownSelect({
             aria-hidden="true"
             className={cn(
               "ml-3 h-4 w-4 shrink-0 transition-transform duration-150",
-              disabled ? "text-foreground/30" : "text-foreground",
+              disabled ? "text-foreground" : "text-foreground",
               open && "rotate-180",
             )}
           />
-        </button>
+        </Action>
       </PopoverTrigger>
       <PopoverContent
         align="start"
@@ -224,7 +227,7 @@ export function AgentDropdownSelect({
             <div className="relative">
               <Search
                 aria-hidden="true"
-                className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-foreground/45"
+                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-foreground"
               />
               <Input
                 aria-label="Search models"
@@ -239,7 +242,7 @@ export function AgentDropdownSelect({
           ) : null}
           {filteredOptions.length === 0 ? (
             <p
-              className="px-3 py-2 text-sm text-foreground/55"
+              className="px-3 py-2 text-sm text-foreground"
               data-testid={testId ? `${testId}-empty` : undefined}
             >
               {showSearch && query.trim().length > 0
@@ -250,7 +253,7 @@ export function AgentDropdownSelect({
           {filteredOptions.map((option) => {
             const selected = option.value === value;
             return (
-              <button
+              <Action
                 aria-disabled={option.disabled || undefined}
                 aria-selected={selected}
                 className={cn(
@@ -278,9 +281,8 @@ export function AgentDropdownSelect({
                     option.disabled && "text-black/35",
                     selected ? "opacity-100" : "opacity-0",
                   )}
-                  strokeWidth={2.5}
                 />
-              </button>
+              </Action>
             );
           })}
         </div>
@@ -301,14 +303,17 @@ export function RequiredFieldLabel({
   isRequired: boolean;
 }) {
   return (
-    <label className={cn("text-sm font-medium", className)} htmlFor={htmlFor}>
+    <BlockLabel
+      className={cn("text-sm font-medium", className)}
+      htmlFor={htmlFor}
+    >
       {children}
       {isRequired ? (
         <span className="ml-1 text-destructive" aria-hidden="true">
           *
         </span>
       ) : null}
-    </label>
+    </BlockLabel>
   );
 }
 
@@ -542,7 +547,7 @@ export function AgentModelField({
       value={modelSelectValue}
     />
   ) : (
-    <select
+    <NativeSelect
       aria-required={isRequired}
       className={cn(
         "flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs disabled:cursor-not-allowed disabled:opacity-60",
@@ -563,7 +568,7 @@ export function AgentModelField({
           {option.label}
         </option>
       ))}
-    </select>
+    </NativeSelect>
   );
 
   return (
@@ -580,7 +585,7 @@ export function AgentModelField({
           {modelSelect}
           <ChevronDown
             aria-hidden="true"
-            className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-foreground"
+            className="pointer-events-none absolute right-4 top-1/2 size-4 -translate-y-1/2 text-foreground"
           />
         </div>
       ) : (
@@ -636,7 +641,7 @@ export function AgentProviderField({
       <RequiredFieldLabel htmlFor="agent-provider" isRequired={isRequired}>
         LLM provider
       </RequiredFieldLabel>
-      <select
+      <NativeSelect
         aria-required={isRequired}
         className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs disabled:cursor-not-allowed disabled:opacity-60"
         disabled={disabled}
@@ -655,7 +660,7 @@ export function AgentProviderField({
         <option value={CUSTOM_PROVIDER_DROPDOWN_VALUE}>
           Custom provider...
         </option>
-      </select>
+      </NativeSelect>
       {isCustomProviderEditing ? (
         <Input
           aria-label="Custom provider ID"

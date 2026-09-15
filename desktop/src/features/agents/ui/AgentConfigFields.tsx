@@ -1,3 +1,6 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { NativeSelect } from "@/shared/blockui/components/native-select";
+import { Action } from "@/shared/ui/action";
 /**
  * Controlled field group for global agent config (provider, model, effort, env vars).
  *
@@ -720,7 +723,7 @@ export function AgentConfigFields({
       value={providerSelectValue}
     />
   ) : (
-    <select
+    <NativeSelect
       className={cn(
         "flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs",
         useChevronSelectIcon && "appearance-none pr-10",
@@ -735,23 +738,23 @@ export function AgentConfigFields({
           {option.label}
         </option>
       ))}
-    </select>
+    </NativeSelect>
   );
 
   const providerContent = providerFieldVisible ? (
     <div className={fieldClassName}>
-      <label
+      <BlockLabel
         className={cn("text-sm font-medium", fieldLabelClassName)}
         htmlFor="global-agent-provider"
       >
         Provider
-      </label>
+      </BlockLabel>
       {!useCustomSelect && useChevronSelectIcon ? (
         <div className="relative">
           {providerSelect}
           <ChevronDown
             aria-hidden="true"
-            className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-foreground"
+            className="pointer-events-none absolute right-4 top-1/2 size-4 -translate-y-1/2 text-foreground"
           />
         </div>
       ) : (
@@ -944,10 +947,10 @@ export function AgentConfigFields({
       {showAdvancedFields ? (
         <div className={cn(blockClassName, "space-y-3")}>
           <CardMintKeyCue envVars={config.env_vars} />
-          <button
+          <Action
             aria-expanded={advancedOpen}
             className={cn(
-              "inline-flex h-9 items-center gap-1.5 text-sm font-medium text-foreground transition-colors hover:text-foreground/80 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+              "inline-flex h-9 items-center gap-1.5 text-sm font-medium text-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
               unstyled && "ml-3",
             )}
             data-testid="global-agent-advanced-toggle"
@@ -965,7 +968,7 @@ export function AgentConfigFields({
                 advancedOpen && "rotate-180",
               )}
             />
-          </button>
+          </Action>
           {disclosure === "progressive-defaults" ? (
             <AnimatePresence initial={false}>
               {advancedOpen ? (

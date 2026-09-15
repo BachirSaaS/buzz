@@ -1,3 +1,5 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { ChevronDown } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
@@ -49,7 +51,7 @@ const MAX_VRAM_DRAFT_STORAGE_KEY = "buzz.mesh-compute.share.max-vram-gb.v1";
 const MESH_SELECT_TRIGGER_CLASS = cn(
   PERSONA_FIELD_CONTROL_CLASS,
   PERSONA_FIELD_SHELL_CLASS,
-  "h-11 px-3 py-2 leading-6 hover:bg-muted/40 focus:bg-muted/40 [&>svg]:text-muted-foreground/60",
+  "h-11 px-3 py-2 leading-6 hover:bg-muted/40 focus:bg-muted/40 [&>svg]:text-muted-foreground",
 );
 
 const SHARE_COMPUTE_REVEAL_TRANSITION = {
@@ -249,12 +251,12 @@ export function MeshComputeSettingsCard() {
         <div className="space-y-5 px-4 py-3">
           <div className="flex min-w-0 items-start justify-between gap-6">
             <div className="min-w-0">
-              <label
+              <BlockLabel
                 className="text-sm font-medium"
                 htmlFor="mesh-share-compute-toggle"
               >
                 Share this machine
-              </label>
+              </BlockLabel>
               {!isSharing ? (
                 <StatusLine
                   isConsuming={isConsuming}
@@ -296,9 +298,9 @@ export function MeshComputeSettingsCard() {
           />
 
           <div className="pt-3">
-            <button
+            <Action
               aria-expanded={advancedOpen}
-              className="inline-flex h-9 items-center gap-1.5 text-sm font-medium text-foreground transition-colors hover:text-foreground/80 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+              className="inline-flex h-9 items-center gap-1.5 text-sm font-medium text-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
               data-testid="mesh-share-compute-advanced-toggle"
               onClick={() => setAdvancedOpen((current) => !current)}
               type="button"
@@ -310,12 +312,12 @@ export function MeshComputeSettingsCard() {
                   advancedOpen && "rotate-180",
                 )}
               />
-            </button>
+            </Action>
             {advancedOpen ? (
               <div className="mt-3 space-y-1.5">
-                <label className="text-sm font-medium" htmlFor="mesh-vram">
+                <BlockLabel className="text-sm font-medium" htmlFor="mesh-vram">
                   Max VRAM (GB)
-                </label>
+                </BlockLabel>
                 <AgentConfigTextInput
                   data-testid="mesh-share-compute-vram"
                   disabled={controlsDisabled}
@@ -378,7 +380,7 @@ export function MeshComputeSettingsCard() {
                       <p
                         className={
                           servingIndicator.hasRemoteConsumers
-                            ? "text-2xs text-emerald-600 dark:text-emerald-400"
+                            ? "text-2xs text-success-foreground dark:text-success-foreground"
                             : "text-2xs text-muted-foreground"
                         }
                         data-testid="mesh-serving-usage"
@@ -461,9 +463,9 @@ const FIT_LABEL: Record<MeshCatalogEntry["fit"], string> = {
 };
 
 const FIT_CLASS: Record<MeshCatalogEntry["fit"], string> = {
-  comfortable: "text-green-600 dark:text-green-400",
-  tight: "text-amber-600 dark:text-amber-400",
-  tradeoff: "text-orange-600 dark:text-orange-400",
+  comfortable: "text-success-foreground dark:text-success-foreground",
+  tight: "text-warning-foreground dark:text-warning-foreground",
+  tradeoff: "text-warning-foreground dark:text-warning-foreground",
   too_large: "text-destructive",
 };
 
@@ -542,9 +544,12 @@ function MeshModelPicker({
 
   return (
     <div className="space-y-1.5" data-testid="mesh-share-compute-catalog">
-      <label className="text-sm font-medium" htmlFor="mesh-share-compute-model">
+      <BlockLabel
+        className="text-sm font-medium"
+        htmlFor="mesh-share-compute-model"
+      >
         Model
-      </label>
+      </BlockLabel>
       <AgentDropdownSelect
         className={MESH_SELECT_TRIGGER_CLASS}
         disabled={disabled}
@@ -552,7 +557,7 @@ function MeshModelPicker({
         onValueChange={handleModelChange}
         options={options}
         placeholder="Select a model"
-        placeholderClassName="text-muted-foreground/55"
+        placeholderClassName="text-muted-foreground"
         searchable
         testId="mesh-share-compute-model"
         value={selectedValue}
@@ -575,7 +580,7 @@ function MeshModelPicker({
         />
       ) : null}
       <p
-        className="text-sm font-normal text-muted-foreground/70"
+        className="text-sm font-normal text-muted-foreground"
         data-settings-subcopy
       >
         {catalog
@@ -670,7 +675,7 @@ function StatusLine({
     }
     if (health.status === "degraded") {
       return (
-        <p className="text-sm text-amber-600 dark:text-amber-400">
+        <p className="text-sm text-warning-foreground dark:text-warning-foreground">
           Active{modelLabel ? ` — ${modelLabel}` : ""}. {health.reason}
         </p>
       );

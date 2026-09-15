@@ -1,3 +1,6 @@
+import { TableCell as BlockTableCell } from "@/shared/blockui/components/table";
+import { TableHead as BlockTableHead } from "@/shared/blockui/components/table";
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { createPortal } from "react-dom";
 import type { Components } from "react-markdown";
@@ -7,7 +10,6 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { requestOpenSnapshotImport } from "@/features/agents/openSnapshotImportFromUrlEvent";
 import { parseChannelLink } from "@/features/messages/lib/channelLink";
-import { isAudioAttachment } from "@/features/messages/lib/audioAttachment";
 import {
   parseMessageLink,
   resolveMessageLinkRenderTarget,
@@ -24,7 +26,6 @@ import { AttachmentGroup } from "@/shared/ui/attachment";
 import { ConfigNudgeCard } from "@/shared/ui/config-nudge-attachment";
 import { createMarkdownMention } from "./markdown/MarkdownMention";
 import { LinkPreviewList } from "@/shared/ui/link-preview-list";
-import { useSmoothCorners } from "@/shared/ui/smoothCorners";
 import {
   computeConfigNudge,
   selectNudgeLeadingContent,
@@ -35,13 +36,8 @@ import {
   MESSAGE_MARKDOWN_CLASS,
 } from "@/shared/ui/mentionChip";
 
-import {
-  classifyChildren,
-  hasBlockMedia,
-  isImageOnlyParagraph,
-  markdownPropsAreEqual,
-} from "./markdownUtils";
-import { ImageMosaic } from "./markdown/ImageMosaic";
+import { hasBlockMedia, markdownPropsAreEqual } from "./markdownUtils";
+import { MarkdownParagraph } from "./markdown/MarkdownParagraph";
 import { copyImageToClipboard, downloadImage } from "./markdown/imageActions";
 import { ImageGalleryStatus } from "./markdown/ImageGalleryStatus";
 import { ImageLightboxZoomControls } from "./markdown/ImageLightboxZoomControls";
@@ -227,7 +223,6 @@ function ImageZoomOverlay({
   const hasPreviousImage = currentIndex > 0;
   const hasNextImage = currentIndex < items.length - 1;
   const canActOnCurrentImage = Boolean(currentItem.src);
-  useSmoothCorners(imageFrameSurfaceRef);
 
   const galleryTransitionFilter =
     !prefersReducedMotion && isGalleryNavigating
@@ -779,7 +774,7 @@ function ImageZoomOverlay({
       </p>
       <div
         className={cn(
-          "absolute inset-0 bg-[#08090a] transition-opacity",
+          "absolute inset-0 bg-muted transition-opacity",
           isOpen || isClosing ? "opacity-100" : "opacity-0",
         )}
         style={{
@@ -873,10 +868,10 @@ function ImageZoomOverlay({
         </div>
       </div>
       {hasPreviousImage ? (
-        <button
+        <Action
           aria-label="Previous image"
           className={cn(
-            "absolute left-3 top-1/2 z-20 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-muted text-muted-foreground shadow-sm backdrop-blur-xl backdrop-saturate-150 transition-[background-color,color,opacity] duration-150 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring/70 sm:left-6",
+            "absolute left-3 top-1/2 z-20 flex size-11 -translate-y-1/2 items-center justify-center rounded-full bg-muted text-muted-foreground shadow-sm backdrop-blur-xl backdrop-saturate-150 transition-[background-color,color,opacity] duration-150 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring/70 sm:left-6",
             isOpen ? "opacity-100" : "pointer-events-none opacity-0",
           )}
           data-image-lightbox-controls=""
@@ -886,14 +881,14 @@ function ImageZoomOverlay({
             goToPreviousImage();
           }}
         >
-          <ChevronLeft className="h-6 w-6 -translate-x-[0.5px]" />
-        </button>
+          <ChevronLeft className="size-6 -translate-x-[0.5px]" />
+        </Action>
       ) : null}
       {hasNextImage ? (
-        <button
+        <Action
           aria-label="Next image"
           className={cn(
-            "absolute right-3 top-1/2 z-20 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-muted text-muted-foreground shadow-sm backdrop-blur-xl backdrop-saturate-150 transition-[background-color,color,opacity] duration-150 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring/70 sm:right-6",
+            "absolute right-3 top-1/2 z-20 flex size-11 -translate-y-1/2 items-center justify-center rounded-full bg-muted text-muted-foreground shadow-sm backdrop-blur-xl backdrop-saturate-150 transition-[background-color,color,opacity] duration-150 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring/70 sm:right-6",
             isOpen ? "opacity-100" : "pointer-events-none opacity-0",
           )}
           data-image-lightbox-controls=""
@@ -903,8 +898,8 @@ function ImageZoomOverlay({
             goToNextImage();
           }}
         >
-          <ChevronRight className="h-6 w-6 translate-x-[0.5px]" />
-        </button>
+          <ChevronRight className="size-6 translate-x-[0.5px]" />
+        </Action>
       ) : null}
       <div
         className={cn(
@@ -926,9 +921,9 @@ function ImageZoomOverlay({
             aria-hidden="true"
             className="pointer-events-none absolute inset-0 -z-10 rounded-[inherit] bg-muted shadow-sm backdrop-blur-xl backdrop-saturate-150"
           />
-          <button
+          <Action
             aria-label="Download image"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-muted-foreground/10 hover:text-foreground outline-hidden focus-visible:ring-2 focus-visible:ring-ring/70 disabled:pointer-events-none disabled:opacity-45"
+            className="flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-muted-foreground/10 hover:text-foreground outline-hidden focus-visible:ring-2 focus-visible:ring-ring/70 disabled:pointer-events-none disabled:opacity-45"
             disabled={!canActOnCurrentImage}
             type="button"
             onClick={(event) => {
@@ -936,8 +931,8 @@ function ImageZoomOverlay({
               downloadImage(currentItem.src);
             }}
           >
-            <Download className="h-4 w-4" />
-          </button>
+            <Download className="size-4" />
+          </Action>
           <div
             aria-hidden="true"
             className="h-5 w-px shrink-0 bg-muted-foreground/15"
@@ -996,8 +991,6 @@ function ImageBlock({ alt, dim, resolvedSrc, src, thumbSrc }: ImageBlockProps) {
   const inlineImageRef = React.useRef<HTMLImageElement | null>(null);
   const thumbnailImageRef = React.useRef<HTMLImageElement | null>(null);
   const triggerRef = React.useRef<HTMLButtonElement | null>(null);
-  useSmoothCorners(inlineImageRef);
-  useSmoothCorners(thumbnailImageRef);
   const [spoilerMediaSize, setSpoilerMediaSize] = React.useState<{
     height: number;
     src: string;
@@ -1149,7 +1142,7 @@ function ImageBlock({ alt, dim, resolvedSrc, src, thumbSrc }: ImageBlockProps) {
 
   return (
     <>
-      <button
+      <Action
         aria-hidden={isHiddenInSpoiler ? true : undefined}
         aria-label={alt?.trim() ? `Zoom image: ${alt}` : "Zoom image"}
         className={cn(
@@ -1181,7 +1174,7 @@ function ImageBlock({ alt, dim, resolvedSrc, src, thumbSrc }: ImageBlockProps) {
           thumbSrc={thumbSrc}
           width={intrinsicDimensions.width}
         />
-      </button>
+      </Action>
       {menu && src ? (
         <MediaContextMenu
           dataAttributes={["data-image-context-menu"]}
@@ -1215,7 +1208,7 @@ export function createMarkdownComponents(
   blockCode = false,
 ): Components {
   const listItemClassName = "[&_p]:inline";
-  const listClassName = "space-y-1 pl-6 marker:text-muted-foreground/80";
+  const listClassName = "space-y-1 pl-6 marker:text-muted-foreground";
 
   function MarkdownAnchor({
     children,
@@ -1516,33 +1509,7 @@ export function createMarkdownComponents(
     ol: ({ children }) => (
       <ol className={cn("list-decimal", listClassName)}>{children}</ol>
     ),
-    p: function MarkdownParagraph({ children }) {
-      const { imetaByUrl } = useMarkdownRuntime();
-      // Detect media-only paragraphs (images + <br> from remarkBreaks).
-      // Multi-image: render as a compact, count-aware mosaic. Two images split
-      // a row, three form a hero-and-stack triptych, and larger odd counts let
-      // the final image span both columns.
-      // Single media: render as a plain <div> to avoid invalid <p><div> nesting
-      // (the img component returns block-level wrappers for lightbox/video).
-      const childArray = React.Children.toArray(children);
-      const { imageChildren } = classifyChildren(childArray);
-      const hasAudioAttachment = childArray.some(
-        (child) =>
-          React.isValidElement<{ href?: string }>(child) &&
-          typeof child.props.href === "string" &&
-          isAudioAttachment(imetaByUrl?.get(child.props.href)),
-      );
-
-      if (isImageOnlyParagraph(childArray)) {
-        return <ImageMosaic>{imageChildren}</ImageMosaic>;
-      }
-
-      if (hasBlockMedia(childArray) || hasAudioAttachment) {
-        return <div>{children}</div>;
-      }
-
-      return <p>{children}</p>;
-    },
+    p: MarkdownParagraph,
     pre: ({ children }) => {
       if (!interactive && !blockCode) return <span>{children}</span>;
       let language = "";
@@ -1563,14 +1530,14 @@ export function createMarkdownComponents(
     ),
     table: ({ children }) => <MarkdownTable>{children}</MarkdownTable>,
     td: ({ children }) => (
-      <td className="min-w-24 border-t border-border/70 px-3 py-2 align-top">
+      <BlockTableCell className="whitespace-normal min-w-24 border-t border-border/70 px-3 py-2 align-top">
         {children}
-      </td>
+      </BlockTableCell>
     ),
     th: ({ children }) => (
-      <th className="min-w-24 bg-muted/60 px-3 py-2 align-top font-semibold text-foreground">
+      <BlockTableHead className="whitespace-normal min-w-24 bg-muted/60 px-3 py-2 align-top font-semibold text-foreground">
         {children}
-      </th>
+      </BlockTableHead>
     ),
     ul: ({ children }) => (
       <ul className={cn("list-disc", listClassName)}>{children}</ul>
@@ -1643,7 +1610,7 @@ export function createMarkdownComponents(
  * sixteen instances ever exist. Module-stable maps mean cached markdown
  * element trees (see ./markdown/nodeCache.ts) never embed per-mount closures.
  */
-const MARKDOWN_COMPONENT_SCHEMA_VERSION = "8";
+const MARKDOWN_COMPONENT_SCHEMA_VERSION = "9";
 const markdownComponentsByVariant = new Map<string, MarkdownComponentSet>();
 
 type MarkdownComponentSet = { components: Components; variant: string };

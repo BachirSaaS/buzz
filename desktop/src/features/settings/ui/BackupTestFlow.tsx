@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { Check, Eye, EyeOff, FileKey2, FileUp } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import * as React from "react";
@@ -250,7 +251,7 @@ export function BackupTestFlow({
               : { type: "spring", stiffness: 380, damping: 18 }
           }
         >
-          <Check aria-hidden="true" className="h-8 w-8" strokeWidth={3} />
+          <Check aria-hidden="true" className="size-8" />
         </motion.div>
         <motion.div
           animate={{ opacity: 1, y: 0 }}
@@ -312,14 +313,14 @@ export function BackupTestFlow({
             tabIndex={-1}
             type="file"
           />
-          <button
+          <Action
             className="mx-auto flex h-9 items-center justify-center rounded-full bg-primary px-6 text-center text-primary-foreground shadow transition-colors hover:bg-primary/90"
             data-testid="backup-test-dropzone"
             onClick={() => fileInputRef.current?.click()}
             type="button"
           >
             <span className="text-sm font-medium">Select your backup file</span>
-          </button>
+          </Action>
           {isWindowDragging ? (
             /*
              * Composer-style takeover: fills the nearest positioned host
@@ -362,12 +363,12 @@ export function BackupTestFlow({
           >
             <FileKey2
               aria-hidden="true"
-              className="h-4 w-4 text-muted-foreground"
+              className="size-4 text-muted-foreground"
             />
             <span className="max-w-70 truncate font-mono text-xs">
               {fileName}
             </span>
-            <Check aria-hidden="true" className="h-4 w-4 text-primary" />
+            <Check aria-hidden="true" className="size-4 text-primary" />
           </div>
           <p className="text-center text-sm leading-6 text-muted-foreground">
             That's the one. Now enter your password to prove you can unlock it.
@@ -402,9 +403,9 @@ export function BackupTestFlow({
               variant="ghost"
             >
               {isRevealed ? (
-                <EyeOff aria-hidden="true" className="h-4 w-4" />
+                <EyeOff aria-hidden="true" className="size-4" />
               ) : (
-                <Eye aria-hidden="true" className="h-4 w-4" />
+                <Eye aria-hidden="true" className="size-4" />
               )}
             </Button>
             {error ? (

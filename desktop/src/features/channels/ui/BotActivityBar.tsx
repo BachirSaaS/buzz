@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { Loader2 } from "lucide-react";
 
@@ -163,7 +164,7 @@ export function BotActivityComposerAction({
   return (
     <Popover onOpenChange={setOpen} open={open}>
       <PopoverTrigger asChild>
-        <button
+        <Action
           aria-label={`${triggerLabel}. View activity.`}
           className={cn(
             "inline-flex items-center justify-center rounded-full border border-border/60 bg-background font-medium text-muted-foreground transition-colors hover:border-primary/30 hover:bg-primary/5 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring data-[state=open]:border-primary/40 data-[state=open]:bg-primary/10 data-[state=open]:text-primary",
@@ -220,9 +221,9 @@ export function BotActivityComposerAction({
             )}
           </span>
           {isInline ? null : (
-            <Loader2 className="h-4 w-4 shrink-0 animate-spin opacity-70" />
+            <Loader2 className="size-4 shrink-0 animate-spin opacity-70" />
           )}
-        </button>
+        </Action>
       </PopoverTrigger>
       <PopoverContent
         align={isInline ? "start" : "end"}
@@ -241,7 +242,7 @@ export function BotActivityComposerAction({
             const isSelected = selectedPubkey === agent.pubkey.toLowerCase();
 
             return (
-              <button
+              <Action
                 className={cn(
                   "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors",
                   isSelected
@@ -268,8 +269,8 @@ export function BotActivityComposerAction({
                 <span className="shrink-0 whitespace-nowrap text-xs font-medium opacity-80">
                   View activity
                 </span>
-                <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground/70" />
-              </button>
+                <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />
+              </Action>
             );
           })}
         </div>

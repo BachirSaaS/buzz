@@ -1,3 +1,5 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { NativeSelect } from "@/shared/blockui/components/native-select";
 import * as React from "react";
 import { toast } from "sonner";
 
@@ -67,9 +69,9 @@ export function ProjectsCategoryCreateDialogs({
         testId="create-project-channel-dialog"
         title="Create a project channel"
       >
-        <label className="block space-y-1.5 text-sm font-medium">
+        <BlockLabel className="block space-y-1.5 text-sm font-medium">
           <span>Project</span>
-          <select
+          <NativeSelect
             className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm font-normal outline-hidden focus:ring-1 focus:ring-ring"
             data-testid="create-project-channel-project"
             disabled={createChannelMutation.isPending}
@@ -81,8 +83,8 @@ export function ProjectsCategoryCreateDialogs({
                 {project.name}
               </option>
             ))}
-          </select>
-        </label>
+          </NativeSelect>
+        </BlockLabel>
       </CreateChannelDialog>
       <AddProjectRepositoryDialog
         channels={repositoryAccessChannels}

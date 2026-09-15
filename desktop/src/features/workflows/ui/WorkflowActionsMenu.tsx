@@ -49,20 +49,20 @@ export function WorkflowActionsMenu({
           type="button"
           variant="ghost"
         >
-          <MoreHorizontal className="h-4 w-4" />
+          <MoreHorizontal className="size-4" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuItem onClick={onTrigger}>
-          <Play className="mr-2 h-4 w-4" />
+          <Play className="mr-2 size-4" />
           Trigger
         </DropdownMenuItem>
         <DropdownMenuItem onClick={onEdit}>
-          <Pencil className="mr-2 h-4 w-4" />
+          <Pencil className="mr-2 size-4" />
           Edit
         </DropdownMenuItem>
         <DropdownMenuItem onClick={onDuplicate}>
-          <Copy className="mr-2 h-4 w-4" />
+          <Copy className="mr-2 size-4" />
           Duplicate
         </DropdownMenuItem>
         {showEnabledToggle ? (
@@ -76,9 +76,9 @@ export function WorkflowActionsMenu({
             onSelect={(event) => event.preventDefault()}
           >
             {isEnabled ? (
-              <Power className="mr-2 h-4 w-4 shrink-0" />
+              <Power className="mr-2 size-4 shrink-0" />
             ) : (
-              <PowerOff className="mr-2 h-4 w-4 shrink-0" />
+              <PowerOff className="mr-2 size-4 shrink-0" />
             )}
             <span>Enable</span>
             <span
@@ -100,7 +100,7 @@ export function WorkflowActionsMenu({
         ) : null}
         <DropdownMenuSeparator />
         <DropdownMenuItem className="text-destructive" onClick={onDelete}>
-          <Trash2 className="mr-2 h-4 w-4" />
+          <Trash2 className="mr-2 size-4" />
           Delete
         </DropdownMenuItem>
       </DropdownMenuContent>

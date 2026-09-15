@@ -1,3 +1,5 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { NativeSelect } from "@/shared/blockui/components/native-select";
 import type { ManagedAgent } from "@/shared/api/types";
 
 type AddChannelBotReuseGuardProps = {
@@ -20,10 +22,10 @@ export function AddChannelBotReuseGuard({
 
   return (
     <div className="space-y-2" data-testid="agent-instance-mode">
-      <label className="text-sm font-medium" htmlFor="agent-instance-mode">
+      <BlockLabel className="text-sm font-medium" htmlFor="agent-instance-mode">
         Agent instance
-      </label>
-      <select
+      </BlockLabel>
+      <NativeSelect
         className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs"
         disabled={disabled}
         id="agent-instance-mode"
@@ -32,7 +34,7 @@ export function AddChannelBotReuseGuard({
       >
         <option value="reuse">Reuse existing agent</option>
         <option value="new">Create new instance</option>
-      </select>
+      </NativeSelect>
       <p className="text-xs text-muted-foreground">
         <span className="font-medium text-foreground">
           {reusableAgent.name}

@@ -1,3 +1,4 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
 import { useState } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 
@@ -84,16 +85,16 @@ export function NotificationSettingsCard({
         <SettingsOptionGroup title="Desktop">
           <SettingsOptionRow>
             <div className="min-w-0">
-              <label
+              <BlockLabel
                 className="text-sm font-medium"
                 htmlFor="desktop-alerts-switch"
               >
                 {isUpdatingDesktopNotifications
                   ? "Requesting..."
                   : "Desktop alerts"}
-              </label>
+              </BlockLabel>
               <p
-                className="text-sm font-normal text-muted-foreground/70"
+                className="text-sm font-normal text-muted-foreground"
                 data-settings-subcopy
               >
                 {notificationSettings.desktopEnabled
@@ -114,14 +115,14 @@ export function NotificationSettingsCard({
 
           <SettingsOptionRow>
             <div className="min-w-0">
-              <label
+              <BlockLabel
                 className="text-sm font-medium"
                 htmlFor="notify-while-viewing-switch"
               >
                 Notify while viewing
-              </label>
+              </BlockLabel>
               <p
-                className="text-sm font-normal text-muted-foreground/70"
+                className="text-sm font-normal text-muted-foreground"
                 data-settings-subcopy
               >
                 Also alert for direct messages in the conversation you have
@@ -148,14 +149,14 @@ export function NotificationSettingsCard({
             <SettingsOptionGroup title="Sound">
               <SettingsOptionRow>
                 <div className="min-w-0">
-                  <label
+                  <BlockLabel
                     className="text-sm font-medium"
                     htmlFor="notification-sound-switch"
                   >
                     Sound
-                  </label>
+                  </BlockLabel>
                   <p
-                    className="text-sm font-normal text-muted-foreground/70"
+                    className="text-sm font-normal text-muted-foreground"
                     data-settings-subcopy
                   >
                     Alert with a sound for the events below.
@@ -197,7 +198,7 @@ export function NotificationSettingsCard({
                             ) : null}
                           </span>
                           <p
-                            className="text-sm font-normal text-muted-foreground/70"
+                            className="text-sm font-normal text-muted-foreground"
                             data-settings-subcopy
                           >
                             {SLOT_DESCRIPTIONS[slot]}
@@ -242,12 +243,12 @@ export function NotificationSettingsCard({
                   >
                     {showComingSoon ? (
                       <>
-                        <ChevronUp className="h-4 w-4" />
+                        <ChevronUp className="size-4" />
                         Show less
                       </>
                     ) : (
                       <>
-                        <ChevronDown className="h-4 w-4" />
+                        <ChevronDown className="size-4" />
                         View all
                       </>
                     )}
@@ -261,14 +262,14 @@ export function NotificationSettingsCard({
         <SettingsOptionGroup title="Badges">
           <SettingsOptionRow>
             <div className="min-w-0">
-              <label
+              <BlockLabel
                 className="text-sm font-medium"
                 htmlFor="home-badge-switch"
               >
                 Home badge
-              </label>
+              </BlockLabel>
               <p
-                className="text-sm font-normal text-muted-foreground/70"
+                className="text-sm font-normal text-muted-foreground"
                 data-settings-subcopy
               >
                 Show a Home badge for mentions and needs-action items in the

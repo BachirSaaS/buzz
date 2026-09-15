@@ -23,7 +23,7 @@ import {
 } from "@/shared/ui/dialog";
 import { Toggle } from "@/shared/ui/toggle";
 import { AnimatedCount } from "@/shared/ui/AnimatedCount";
-import { FuzzyLogo } from "@/shared/ui/buzz-logo/FuzzyLogo";
+import { Spinner } from "@/shared/ui/spinner";
 import type { PromptSection, TranscriptItem } from "./agentSessionTypes";
 import { TurnLivenessIndicator } from "./TurnLivenessIndicator";
 import { PromptSectionList as PromptContextSections } from "./PromptSectionAccordion";
@@ -197,7 +197,7 @@ export function AgentSessionTranscriptList({
     items.length > 0 && hasRenderableDisplayContent(displayBlocks, variant);
 
   const scrollContainerClassNames = cn(
-    "w-full",
+    "blockui-activity w-full",
     autoTail ? "h-full overflow-y-auto" : null,
   );
 
@@ -208,15 +208,13 @@ export function AgentSessionTranscriptList({
       <div className={scrollContainerClassNames}>
         <div className="flex h-full min-h-40 flex-col items-center justify-center px-6 py-10 text-center">
           {isLoading ? (
-            <FuzzyLogo
-              ariaLabel="Waiting for ACP activity"
-              className="mx-auto text-muted-foreground"
-              fuzz={false}
-              loop
+            <Spinner
+              aria-label="Waiting for ACP activity"
+              className="size-8 text-muted-foreground"
             />
           ) : (
             <>
-              <Radio className="mx-auto h-4 w-4 text-muted-foreground" />
+              <Radio className="mx-auto size-4 text-muted-foreground" />
               <p className="mt-3 text-sm font-medium">No ACP activity yet</p>
               <p className="mt-1 text-sm text-muted-foreground">
                 {emptyDescription}
@@ -240,7 +238,7 @@ export function AgentSessionTranscriptList({
         aria-live="polite"
         className={cn(
           "flex w-full flex-col",
-          isCompactPreview ? "gap-1" : "gap-4",
+          isCompactPreview ? "gap-2" : "gap-6",
           autoTail && "pb-4",
           contentContainerClassName,
         )}
@@ -340,7 +338,7 @@ function isRenderableCompactItem(item: TranscriptItem) {
 function TranscriptAcpSourceBadge({ source }: { source: string }) {
   return (
     <span
-      className="mb-1 inline-flex max-w-full rounded border border-amber-500/25 bg-amber-500/10 px-1.5 py-0.5 font-mono text-xs leading-none text-amber-800 dark:text-amber-200"
+      className="mb-1 inline-flex max-w-full rounded border border-warning-foreground/30 bg-warning px-1.5 py-0.5 font-mono text-xs leading-none text-warning-foreground dark:text-warning-foreground"
       data-testid="transcript-acp-source"
       title={`ACP wire source: ${source}`}
     >
@@ -394,7 +392,7 @@ function TranscriptDisplayBlockView({
 
   return (
     <div
-      className={cn("flex flex-col", isCompactPreview ? "gap-2.5" : "gap-4")}
+      className={cn("flex flex-col", isCompactPreview ? "gap-2" : "gap-4")}
       data-testid="transcript-turn-group"
       data-turn-id={block.turnId}
     >
@@ -517,7 +515,7 @@ function SameKindSummaryItem({
   return (
     <>
       <ActivityRow
-        className="flex flex-col gap-0.5"
+        className="flex flex-col gap-2"
         openToneScope="summary"
         testId="transcript-same-kind-summary"
         title={formatTranscriptTimestampTitle(summary.timestamp)}
@@ -529,7 +527,7 @@ function SameKindSummaryItem({
         <ActivityRowContent
           className={cn(
             "flex flex-col",
-            expandsToToolItems || childSegments ? "gap-0.5" : "gap-1 pl-5",
+            expandsToToolItems || childSegments ? "gap-4" : "gap-2 pl-4",
           )}
         >
           {childSegments
@@ -752,7 +750,7 @@ function PromptContextDialog({
             <DialogTitle>Prompt context</DialogTitle>
             {setupText ? (
               <div className="flex items-center gap-1.5">
-                <CheckCheck className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <CheckCheck className="size-3.5 shrink-0 text-muted-foreground" />
                 <DialogDescription>{setupText}</DialogDescription>
               </div>
             ) : null}
@@ -805,7 +803,7 @@ function TurnSetupFooter({
 
   return (
     <div
-      className="flex items-center gap-1.5 text-muted-foreground/80"
+      className="flex items-center gap-1.5 text-muted-foreground"
       data-testid="transcript-turn-setup"
     >
       {showContext ? (
@@ -822,8 +820,8 @@ function TurnSetupFooter({
           <CheckCheck aria-hidden="true" />
         </Toggle>
       ) : (
-        <span className="inline-flex shrink-0 items-center justify-center rounded-sm text-muted-foreground/70">
-          <CheckCheck className="h-3.5 w-3.5" />
+        <span className="inline-flex shrink-0 items-center justify-center rounded-sm text-muted-foreground">
+          <CheckCheck className="size-3.5" />
           <span className="sr-only">{tooltipText}</span>
         </span>
       )}
@@ -961,9 +959,9 @@ function SessionBoundaryDivider({
       <div className="h-px flex-1 bg-border" />
       <span className="flex items-center gap-1 text-xs text-muted-foreground">
         {labelState === "current" ? (
-          <Radio aria-hidden="true" className="h-3 w-3" />
+          <Radio aria-hidden="true" className="size-3" />
         ) : (
-          <Clock aria-hidden="true" className="h-3 w-3" />
+          <Clock aria-hidden="true" className="size-3" />
         )}
         {label}
         {" · "}

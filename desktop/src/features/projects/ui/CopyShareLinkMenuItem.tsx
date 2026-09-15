@@ -30,7 +30,7 @@ export function CopyShareLinkMenuItem({
         copyTextToClipboard(link, successMessage);
       }}
     >
-      <Link2 className="h-4 w-4" />
+      <Link2 className="size-4" />
       {label}
     </DropdownMenuItem>
   );

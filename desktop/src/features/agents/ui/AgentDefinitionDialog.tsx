@@ -1,3 +1,5 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { ChevronDown } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
@@ -743,7 +745,7 @@ export function AgentDefinitionDialog({
   );
   const form = (
     <form
-      className="grid gap-5 lg:grid-cols-[220px_minmax(0,1fr)]"
+      className="grid gap-6 sm:grid-cols-[160px_minmax(0,1fr)]"
       id="persona-dialog-form"
       onChangeCapture={() => setHasUserChanges(true)}
       onSubmit={handleSubmitForm}
@@ -763,7 +765,7 @@ export function AgentDefinitionDialog({
         }}
       />
 
-      <div className="space-y-5">
+      <div className="space-y-6">
         <AgentIdentityFields
           description={descriptionDraft}
           disabled={isPending}
@@ -772,17 +774,17 @@ export function AgentDefinitionDialog({
           onDisplayNameChange={setDisplayName}
         />
 
-        <div className="space-y-1.5">
-          <label
+        <div className="space-y-2">
+          <BlockLabel
             className="text-sm font-medium text-foreground"
             htmlFor="persona-system-prompt"
           >
             Agent instructions
-          </label>
+          </BlockLabel>
           <div className={PERSONA_FIELD_SHELL_CLASS}>
             <Textarea
               className={cn(
-                "min-h-40 resize-y px-3 py-3 leading-5",
+                "min-h-40 resize-y p-4 leading-5",
                 PERSONA_FIELD_CONTROL_CLASS,
               )}
               disabled={isPending}
@@ -803,7 +805,7 @@ export function AgentDefinitionDialog({
         ) : null}
 
         <div
-          className="space-y-5"
+          className="space-y-6"
           data-testid={`agent-${aiConfigurationMode}-configuration-section`}
         >
           {aiConfigurationMode === "custom" ? (
@@ -818,7 +820,7 @@ export function AgentDefinitionDialog({
             />
           ) : null}
           {llmProviderFieldVisible && aiConfigurationMode === "custom" ? (
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <RequiredFieldLabel
                 htmlFor="persona-llm-provider"
                 isRequired={providerIsRequired}
@@ -927,10 +929,10 @@ export function AgentDefinitionDialog({
           open={isAddHarnessOpen}
         />
 
-        <div className="space-y-3">
-          <button
+        <div className="space-y-4">
+          <Action
             aria-expanded={showAdvancedFields}
-            className="inline-flex h-9 items-center gap-1.5 text-sm font-medium text-foreground transition-colors hover:text-foreground/80 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+            className="inline-flex h-9 items-center gap-1.5 text-sm font-medium text-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
             onClick={() => setShowAdvancedFields((current) => !current)}
             type="button"
           >
@@ -953,7 +955,7 @@ export function AgentDefinitionDialog({
                 showAdvancedFields && "rotate-180",
               )}
             />
-          </button>
+          </Action>
           <AnimatePresence initial={false}>
             {showAdvancedFields ? (
               <motion.div

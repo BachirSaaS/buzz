@@ -1,3 +1,6 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { NativeSelect } from "@/shared/blockui/components/native-select";
+import { Action } from "@/shared/ui/action";
 import {
   Bot,
   Copy,
@@ -117,7 +120,7 @@ export function ChannelTemplatesSettingsCard() {
             type="button"
             variant="outline"
           >
-            <Plus className="mr-1.5 h-4 w-4" />
+            <Plus className="mr-1.5 size-4" />
             Create
           </Button>
         }
@@ -222,31 +225,31 @@ function TemplateRow({
         </div>
         {template.description ? (
           <p
-            className="mt-0.5 truncate text-sm font-normal text-muted-foreground/70"
+            className="mt-0.5 truncate text-sm font-normal text-muted-foreground"
             data-settings-subcopy
           >
             {template.description}
           </p>
         ) : null}
         <div
-          className="mt-1 flex items-center gap-3 text-xs text-muted-foreground/70"
+          className="mt-1 flex items-center gap-3 text-xs text-muted-foreground"
           data-settings-subcopy
         >
           {personaCount > 0 ? (
             <span className="flex items-center gap-1">
-              <Bot className="h-4 w-4" />
+              <Bot className="size-4" />
               {personaCount} {personaCount === 1 ? "agent" : "agents"}
             </span>
           ) : null}
           {teamCount > 0 ? (
             <span className="flex items-center gap-1">
-              <Users className="h-4 w-4" />
+              <Users className="size-4" />
               {teamCount} {teamCount === 1 ? "team" : "teams"}
             </span>
           ) : null}
           {template.canvasTemplate ? (
             <span className="flex items-center gap-1">
-              <MessageSquare className="h-4 w-4" />
+              <MessageSquare className="size-4" />
               canvas
             </span>
           ) : null}
@@ -261,16 +264,16 @@ function TemplateRow({
             type="button"
             variant="ghost"
           >
-            <MoreHorizontal className="h-4 w-4" />
+            <MoreHorizontal className="size-4" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuItem onClick={onEdit}>
-            <Pencil className="mr-2 h-4 w-4" />
+            <Pencil className="mr-2 size-4" />
             Edit
           </DropdownMenuItem>
           <DropdownMenuItem onClick={onDuplicate}>
-            <Copy className="mr-2 h-4 w-4" />
+            <Copy className="mr-2 size-4" />
             Duplicate
           </DropdownMenuItem>
           {!template.isBuiltin ? (
@@ -278,7 +281,7 @@ function TemplateRow({
               className="text-destructive focus:text-destructive"
               onClick={onDelete}
             >
-              <Trash2 className="mr-2 h-4 w-4" />
+              <Trash2 className="mr-2 size-4" />
               Delete
             </DropdownMenuItem>
           ) : null}
@@ -483,12 +486,12 @@ export function TemplateFormDialog({
         <form className="space-y-5" id="template-form" onSubmit={handleSubmit}>
           {/* Name */}
           <div className="space-y-1.5">
-            <label
+            <BlockLabel
               className="text-sm font-medium text-foreground"
               htmlFor="template-name"
             >
               Name
-            </label>
+            </BlockLabel>
             <Input
               autoComplete="off"
               disabled={isPending}
@@ -501,7 +504,7 @@ export function TemplateFormDialog({
 
           {/* Description */}
           <div className="space-y-1.5">
-            <label
+            <BlockLabel
               className="text-sm font-medium text-foreground"
               htmlFor="template-description"
             >
@@ -509,7 +512,7 @@ export function TemplateFormDialog({
               <span className="font-normal text-muted-foreground">
                 (optional)
               </span>
-            </label>
+            </BlockLabel>
             <Textarea
               className="min-h-16 resize-none"
               disabled={isPending}
@@ -523,7 +526,7 @@ export function TemplateFormDialog({
 
           {/* Canvas Template */}
           <div className="space-y-1.5">
-            <label
+            <BlockLabel
               className="text-sm font-medium text-foreground"
               htmlFor="template-canvas"
             >
@@ -531,7 +534,7 @@ export function TemplateFormDialog({
               <span className="font-normal text-muted-foreground">
                 (optional)
               </span>
-            </label>
+            </BlockLabel>
             <Textarea
               className="min-h-20 resize-none font-mono text-xs"
               disabled={isPending}
@@ -541,10 +544,7 @@ export function TemplateFormDialog({
               rows={4}
               value={canvasTemplate}
             />
-            <p
-              className="text-xs text-muted-foreground/70"
-              data-settings-subcopy
-            >
+            <p className="text-xs text-muted-foreground" data-settings-subcopy>
               Use {"{channel.name}"} and {"{template.name}"} as placeholders.
             </p>
           </div>
@@ -619,7 +619,7 @@ function TemplateTeamSelector({
       <div>
         <div className="text-sm font-medium">Teams</div>
         <p
-          className="text-sm font-normal text-muted-foreground/70"
+          className="text-sm font-normal text-muted-foreground"
           data-settings-subcopy
         >
           Select teams to include in this template.
@@ -629,7 +629,7 @@ function TemplateTeamSelector({
         {teams.map((team) => {
           const isSelected = selectedTeamIds.includes(team.id);
           return (
-            <button
+            <Action
               key={team.id}
               type="button"
               aria-pressed={isSelected}
@@ -650,7 +650,7 @@ function TemplateTeamSelector({
                 )}
               />
               {team.name}
-            </button>
+            </Action>
           );
         })}
       </div>
@@ -697,7 +697,7 @@ function RuntimeAssignments({
       <div>
         <div className="text-sm font-medium">Runtimes</div>
         <p
-          className="text-sm font-normal text-muted-foreground/70"
+          className="text-sm font-normal text-muted-foreground"
           data-settings-subcopy
         >
           Choose which runtime to use for each agent.
@@ -763,7 +763,7 @@ function RuntimeRow({
     <div className="flex items-center gap-2">
       <div className="flex min-w-0 flex-1 items-center gap-2">
         {icon === "team" ? (
-          <Users className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <Users className="size-4 shrink-0 text-muted-foreground" />
         ) : (
           <ProfileAvatar
             avatarUrl={avatarUrl ?? null}
@@ -773,7 +773,7 @@ function RuntimeRow({
         )}
         <span className="truncate text-sm">{label}</span>
       </div>
-      <select
+      <NativeSelect
         className="h-7 rounded-md border border-input bg-background px-2 text-xs shadow-xs focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
         disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
@@ -785,7 +785,7 @@ function RuntimeRow({
             {runtime.label}
           </option>
         ))}
-      </select>
+      </NativeSelect>
     </div>
   );
 }

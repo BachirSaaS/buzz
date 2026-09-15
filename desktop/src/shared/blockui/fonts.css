@@ -1,0 +1,29 @@
+/* Local, bundled fonts; provenance and digests are in font-sources.json. */
+@font-face {
+  font-family: "Inter Local";
+  src: url("./fonts/InterVariable.ttf") format("truetype");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Inter Local";
+  src: url("./fonts/InterVariable-Italic.ttf") format("truetype");
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Cash Sans Mono Local";
+  src: url("./fonts/CashSansMono-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Cash Sans Mono Local";
+  src: url("./fonts/CashSansMono-Medium.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}

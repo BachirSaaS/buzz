@@ -1,13 +1,11 @@
 import React from "react";
 import { cn } from "@/shared/lib/cn";
-import { useSmoothCorners } from "@/shared/ui/smoothCorners";
 
 /** Grid layout for messages that contain multiple standalone images. */
 export function ImageMosaic({ children }: { children: React.ReactNode[] }) {
   const mosaicRef = React.useRef<HTMLDivElement | null>(null);
   const isTriptych = children.length === 3;
   const hasOddTail = children.length > 3 && children.length % 2 === 1;
-  useSmoothCorners(mosaicRef);
 
   return (
     <div

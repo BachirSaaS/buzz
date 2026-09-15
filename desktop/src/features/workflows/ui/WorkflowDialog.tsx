@@ -662,7 +662,7 @@ export function WorkflowDialog({
                   type="button"
                   variant="ghost"
                 >
-                  <X className="h-4 w-4" />
+                  <X className="size-4" />
                 </Button>
               </DialogClose>
             </div>
@@ -755,7 +755,7 @@ export function WorkflowDialog({
                   disabled={mutation.isPending}
                   value="yaml"
                 >
-                  <Code className="h-3.5 w-3.5" />
+                  <Code className="size-3.5" />
                   YAML
                 </TabsTrigger>
               </TabsList>

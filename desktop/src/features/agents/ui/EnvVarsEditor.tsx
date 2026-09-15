@@ -357,22 +357,22 @@ export function EnvVarsEditor({
                   className={cn(
                     "flex min-h-11 flex-1 items-center gap-1.5 px-3",
                     PERSONA_FIELD_SHELL_CLASS,
-                    "border-amber-500/40 bg-amber-50/30 dark:bg-amber-950/20",
+                    "border-warning-foreground/30 bg-warning dark:bg-warning",
                   )}
                 >
                   <Lock
-                    className="h-3 w-3 shrink-0 text-muted-foreground/60"
+                    className="size-3 shrink-0 text-muted-foreground"
                     aria-hidden
                   />
                   <span
-                    className="font-mono text-sm leading-6 text-foreground/80"
+                    className="font-mono text-sm leading-6 text-foreground"
                     data-testid="env-vars-required-key"
                   >
                     {key}
                   </span>
                   {isMissing ? (
-                    <span className="ml-1 flex items-center gap-0.5 rounded-sm bg-amber-100 px-1 py-0.5 text-2xs font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
-                      <AlertCircle className="h-2.5 w-2.5" aria-hidden />
+                    <span className="ml-1 flex items-center gap-0.5 rounded-sm bg-warning px-1 py-0.5 text-2xs font-medium text-warning-foreground dark:bg-warning dark:text-warning-foreground">
+                      <AlertCircle className="size-2.5" aria-hidden />
                       Required
                     </span>
                   ) : null}
@@ -450,11 +450,11 @@ export function EnvVarsEditor({
                 )}
               >
                 <Lock
-                  className="h-3 w-3 shrink-0 text-muted-foreground/40"
+                  className="size-3 shrink-0 text-muted-foreground"
                   aria-hidden
                 />
                 <span
-                  className="font-mono text-sm leading-6 text-foreground/60"
+                  className="font-mono text-sm leading-6 text-foreground"
                   data-testid="env-vars-file-satisfied-key"
                 >
                   {key}
@@ -495,11 +495,11 @@ export function EnvVarsEditor({
                   )}
                 >
                   <Lock
-                    className="h-3 w-3 shrink-0 text-muted-foreground/40"
+                    className="size-3 shrink-0 text-muted-foreground"
                     aria-hidden
                   />
                   <span
-                    className="font-mono text-sm leading-6 text-foreground/60"
+                    className="font-mono text-sm leading-6 text-foreground"
                     data-testid="env-vars-inherited-key"
                   >
                     {irow.key}
@@ -518,9 +518,7 @@ export function EnvVarsEditor({
                   <span
                     className={cn(
                       "font-mono text-sm",
-                      irow.masked
-                        ? "text-muted-foreground/50"
-                        : "text-foreground/70",
+                      irow.masked ? "text-muted-foreground" : "text-foreground",
                     )}
                     data-testid="env-vars-inherited-value"
                   >
@@ -600,7 +598,7 @@ export function EnvVarsEditor({
                   type="button"
                   variant="ghost"
                 >
-                  <X className="h-4 w-4" />
+                  <X className="size-4" />
                 </Button>
               </div>
               {showsInherited ? (
@@ -643,7 +641,7 @@ export function EnvVarsEditor({
           type="button"
           variant="outline"
         >
-          <Plus className="mr-1 h-4 w-4" />
+          <Plus className="mr-1 size-4" />
           Add variable
         </Button>
       </div>

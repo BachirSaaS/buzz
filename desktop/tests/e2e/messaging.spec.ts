@@ -4,7 +4,7 @@ import { expect, test, type Locator } from "@playwright/test";
 
 import { waitForAnimations } from "../helpers/animations";
 import { installMockBridge, TEST_IDENTITIES } from "../helpers/bridge";
-import { expectCornerRadiusPx, expectSmoothCorners } from "../helpers/css";
+import { expectCornerRadiusPx, expectBlockUICorners } from "../helpers/css";
 import { openSettings } from "../helpers/settings";
 
 const LINK_PREVIEW_IMAGE = readFileSync(
@@ -631,9 +631,9 @@ test("sent link preview media uses the authenticated proxy in compact and rich c
   const compactThumbnailFrame = compactPreview
     .locator("[data-link-preview-thumbnail]")
     .first();
-  await expectCornerRadiusPx(compactPreview, 16);
+  await expectCornerRadiusPx(compactPreview, 24);
   await expectCornerRadiusPx(compactThumbnailFrame, 16);
-  await expectSmoothCorners(compactThumbnailFrame);
+  await expectBlockUICorners(compactThumbnailFrame);
 
   await openSettings(page, "appearance");
   await page.getByTestId("link-preview-style-rich").click();
@@ -641,7 +641,7 @@ test("sent link preview media uses the authenticated proxy in compact and rich c
     "aria-pressed",
     "true",
   );
-  await page.getByTestId("settings-back-to-app").click();
+  await page.getByTestId("global-back").click();
 
   const richPreview = row.locator(
     '[data-link-preview="github-pull-request"][data-link-preview-inline]',
@@ -691,8 +691,8 @@ test("link preview style defaults to compact and Rich unfurls descriptions", asy
   const compactPreview = row.locator(
     '[data-link-preview="github-pull-request"]',
   );
-  await expect(compactPreview).toHaveCSS("border-top-left-radius", "0px");
-  await expect(compactPreview).toHaveCSS("border-left-width", "3px");
+  await expect(compactPreview).toHaveCSS("border-top-left-radius", "24px");
+  await expect(compactPreview).toHaveCSS("border-left-width", "1px");
   if (process.env.BUZZ_LINK_PREVIEW_SCREENSHOTS_DIR) {
     await waitForAnimations(page);
     await page.screenshot({
@@ -719,14 +719,16 @@ test("link preview style defaults to compact and Rich unfurls descriptions", asy
     )
     .toBe("rich");
 
-  await page.getByTestId("settings-back-to-app").click();
+  await page.getByTestId("global-back").click();
   const richPreview = row.locator(
     '[data-link-preview="github-pull-request"][data-link-preview-inline]',
   );
   await expect(richPreview).toBeVisible();
   const richHostname = richPreview.locator("[data-link-preview-hostname]");
   await expect(richHostname).toHaveText("github.com");
-  await expect(richHostname).toHaveAttribute("href", previewUrl);
+  await expect(
+    richPreview.getByRole("link", { name: /^Open GitHub PR:/ }),
+  ).toHaveAttribute("href", previewUrl);
   if (process.env.BUZZ_LINK_PREVIEW_SCREENSHOTS_DIR) {
     await waitForAnimations(page);
     await page.screenshot({
@@ -1535,7 +1537,7 @@ test("composer link preview embeds stay attachment-sized while loading and ready
   }
 });
 
-test("compact link preview image geometry truncates long titles to one line", async ({
+test("compact link preview image geometry follows the 8px grid and limits titles to two lines", async ({
   page,
 }) => {
   const previewUrl = "https://github.com/block/buzz/pull/3246?geometry=1";
@@ -1562,18 +1564,17 @@ test("compact link preview image geometry truncates long titles to one line", as
   const image = thumbnail.locator("img");
   await expect(card).toHaveAttribute("data-image-state", "image");
   await expect(image).toHaveJSProperty("complete", true);
-  await expect(card).toHaveCSS("height", "64px");
+  await expect(card).toHaveCSS("padding", "24px");
+  await expect(card).toHaveCSS("border-radius", "24px");
   await expect(thumbnail).toHaveCSS("height", "64px");
-  await expect(thumbnail).toHaveCSS("width", "104px");
+  await expect(thumbnail).toHaveCSS("width", "64px");
   await expect(title).toHaveText(
     "Ship a wider horizontal preview with a two-line title that wraps cleanly",
   );
-  await expect(title).toHaveCSS("white-space", "nowrap");
-  await expect
-    .poll(() =>
-      title.evaluate((element) => element.scrollWidth - element.clientWidth),
-    )
-    .toBeGreaterThan(1);
+  await expect(title.locator("a")).toHaveCSS("-webkit-line-clamp", "2");
+  await expect(card.locator("[data-link-preview-context]")).toHaveText(
+    "block / buzz · #3246",
+  );
 
   if (process.env.BUZZ_LINK_PREVIEW_SCREENSHOTS_DIR) {
     await waitForAnimations(page);
@@ -1636,7 +1637,7 @@ test("mixed link preview image outcomes keep Compact and Rich fallbacks stable",
     "aria-pressed",
     "true",
   );
-  await page.getByTestId("settings-back-to-app").click();
+  await page.getByTestId("global-back").click();
 
   const richCards = row.locator(
     '[data-link-preview="github-pull-request"][data-link-preview-inline]',
@@ -1709,7 +1710,7 @@ test("link preview browser image errors render a fallback", async ({
     "aria-pressed",
     "true",
   );
-  await page.getByTestId("settings-back-to-app").click();
+  await page.getByTestId("global-back").click();
 
   const richCard = row.locator(
     '[data-link-preview="github-pull-request"][data-link-preview-inline]',
@@ -1719,7 +1720,7 @@ test("link preview browser image errors render a fallback", async ({
   ).toHaveCount(0);
 });
 
-test("supported Compact link previews keep the message link visible with square outer corners", async ({
+test("supported Compact link previews keep the message link visible with Block UI widget corners", async ({
   page,
 }) => {
   const previewUrl = "https://github.com/block/sprout/pull/1334";
@@ -1738,7 +1739,7 @@ test("supported Compact link previews keep the message link visible with square 
   ).toBeVisible();
   const previewCard = row.locator('[data-link-preview="github-pull-request"]');
   await expect(previewCard).toBeVisible();
-  await expectCornerRadiusPx(previewCard, 0);
+  await expectCornerRadiusPx(previewCard, 24);
 });
 
 test("send multiple messages in sequence", async ({ page }) => {
@@ -1791,8 +1792,8 @@ test("copy a rendered code block and paste it back as code", async ({
 
   const codeBlock = page.locator("[data-code-block]");
   await expect(codeBlock).toHaveCount(1);
-  await expectCornerRadiusPx(codeBlock.locator("pre"), 16);
-  await expectSmoothCorners(codeBlock.locator("pre"));
+  await expectCornerRadiusPx(codeBlock, 24);
+  await expectBlockUICorners(codeBlock);
 
   const copyButton = page.getByLabel("Copy code block");
   await expect(copyButton).toHaveCSS("opacity", "0");
@@ -2712,7 +2713,7 @@ test("sends a thread message to its parent channel with a root-thread link", asy
   await expect(sourceLine).toHaveClass(/text-sm/);
   await expect(sourceLine).toHaveClass(/font-normal/);
   await expect(sourceLine).toHaveClass(/leading-4/);
-  await expect(sourceLine).toHaveClass(/text-muted-foreground\/70/);
+  await expect(sourceLine).toHaveClass(/text-muted-foreground/);
   const rootLink = sourceLine.locator("[data-message-link]");
   const sourcePrefix = sourceLine.locator("span").first();
   const rootLinkLabel = rootContent;
@@ -2789,7 +2790,7 @@ test("shows your avatar on your own message when profile avatar is set", async (
   await page.getByTestId("profile-avatar-edit").click();
   await page.getByTestId("profile-avatar-url").fill(avatarUrl);
   await page.getByTestId("profile-avatar-done").click();
-  await page.getByTestId("settings-back-to-app").click();
+  await page.getByTestId("global-back").click();
 
   await page.getByTestId("channel-general").click();
   await expect(page.getByTestId("chat-title")).toHaveText("general");

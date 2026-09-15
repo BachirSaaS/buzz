@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { AgentManagementMarker } from "@/features/agents/ui/OtherSetupAgentMarker";
 import { SmilePlus } from "lucide-react";
 import * as React from "react";
@@ -308,12 +309,12 @@ function MemberNamesInlineList({
           , and{" "}
           <Tooltip>
             <TooltipTrigger asChild>
-              <button
+              <Action
                 className="cursor-help rounded-xs hover:underline focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
                 type="button"
               >
                 {hiddenTargets.length} others
-              </button>
+              </Action>
             </TooltipTrigger>
             <TooltipContent className="max-w-72 p-2 text-left" side="top">
               <div className="max-h-56 space-y-1 overflow-y-auto pr-1">
@@ -898,7 +899,7 @@ export const SystemMessageRow = React.memo(function SystemMessageRow({
                 profiles={profiles}
                 pubkeys={membershipPubkeys}
               />
-              <p className="min-w-0 text-left text-xs font-normal leading-4 text-muted-foreground/70">
+              <p className="min-w-0 text-left text-xs font-normal leading-4 text-muted-foreground">
                 {description.title} {description.action}
               </p>
             </div>

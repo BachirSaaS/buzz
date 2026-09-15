@@ -1,0 +1,181 @@
+/* Keep rich media outside the message surface. The renderer already marks
+   image/video blocks, so captions and attachments retain their original order. */
+.message-bubble-anchor {
+  --bubble-background: var(--blockui-surface-standard);
+  --bubble-foreground: var(--foreground);
+  --bubble-link-color: var(--blockui-text-link);
+}
+.dark .message-bubble-anchor {
+  --bubble-background: var(--muted);
+  --bubble-link-color: var(--blockui-text-link);
+}
+.message-bubble-anchor[data-bubble-direction="outgoing"] {
+  --bubble-background: var(--primary);
+  --bubble-foreground: var(--primary-foreground);
+  --bubble-link-color: var(--primary-foreground);
+}
+
+/* Media renderers carry their own document spacing. In a bubble, use one
+   precise gap between the caption and the visible attachment instead. */
+.message-bubble-body [data-bubble-media-paragraph] {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.message-bubble-body [data-block-media] {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+}
+.message-bubble-body [data-block-media] > * {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+.message-bubble-body [data-testid="video-player"] > div:first-child,
+.message-bubble-body [data-image-lightbox-trigger],
+.message-bubble-body [data-progressive-image-frame],
+.message-bubble-body [data-progressive-image-frame] img {
+  border: 0;
+}
+.message-bubble-body:has([data-block-media]) > .message-markdown > * + * {
+  margin-top: 2px;
+}
+.message-bubble-body[data-message-bubble="outgoing"] [data-block-media] {
+  justify-content: flex-end;
+}
+.message-bubble-body:has([data-block-media]) [data-bubble-caption],
+.message-bubble-body:not(:has([data-block-media])),
+.message-bubble-body:has([data-block-media])
+  > .message-markdown
+  > :not(:has([data-block-media])):not([data-block-media]):not(
+    [data-link-preview]
+  ) {
+  border-radius: var(--blockui-radius-lg);
+  background: var(--bubble-background);
+  color: var(--bubble-foreground);
+  padding: 0.5rem 0.875rem;
+}
+.message-bubble-body[data-message-bubble="outgoing"] [data-bubble-caption],
+.message-bubble-body[data-message-bubble="outgoing"]:not(
+  :has([data-block-media])
+),
+.message-bubble-body[data-message-bubble="outgoing"]:has([data-block-media])
+  > .message-markdown
+  > :not(:has([data-block-media])):not([data-block-media]):not(
+    [data-link-preview]
+  ) {
+  --foreground: var(--primary-foreground);
+  --muted-foreground: var(--primary-foreground);
+  --muted: var(--primary);
+  --background: var(--primary);
+  --card: var(--primary);
+  --card-foreground: var(--primary-foreground);
+  --border: var(--primary-foreground);
+}
+
+/* Only the message surface loses its hover fill; buttons retain feedback. */
+[data-testid="unified-pulse"] .group\/message:has(.message-bubble-body):hover,
+[data-testid="unified-pulse"]
+  .group\/message:has(.message-bubble-body):focus-within {
+  background-color: transparent;
+}
+
+.message-bubble-body
+  .message-markdown
+  a:not([data-link-preview], [data-link-preview] *) {
+  color: var(--bubble-link-color);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.message-bubble-body
+  .message-markdown
+  .mention-chip:is([data-mention], [data-channel-link]) {
+  --inline-chip-padding-inline: 0px;
+  --inline-chip-padding-block-start: 0px;
+  --inline-chip-padding-block-end: 0px;
+  background: transparent;
+  color: var(--bubble-link-color);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.message-bubble-body
+  .message-markdown
+  .mention-chip-hover:is([data-mention], [data-channel-link]):hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Reactions share their message surface, with a cutout in the conversation color. */
+[data-testid="bubble-reactions-anchor"] [data-testid="message-reactions"] {
+  height: 1.75rem;
+  flex-wrap: nowrap;
+  gap: 0;
+  border-radius: var(--blockui-radius-pill);
+  background: var(--bubble-background);
+  color: var(--bubble-foreground);
+  border: 1.5px solid var(--background);
+}
+
+[data-testid="bubble-reactions-anchor"] .reaction-segment {
+  position: relative;
+  display: inline-flex;
+  height: 100%;
+}
+
+[data-testid="bubble-reactions-anchor"]
+  .reaction-segment
+  + .reaction-segment::before {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  left: 0;
+  top: 25%;
+  height: 50%;
+  width: 1px;
+  background: color-mix(in srgb, var(--bubble-foreground) 15%, transparent);
+}
+
+[data-testid="bubble-reactions-anchor"] button {
+  height: 100%;
+  background: transparent;
+  color: inherit;
+  border: 0;
+}
+
+[data-testid="bubble-reactions-anchor"] .buzz-animated-count {
+  color: inherit;
+}
+
+[data-testid="bubble-reactions-anchor"] [data-reaction-glyph="native"] {
+  font-size: inherit;
+  width: 0.625rem;
+  height: 0.625rem;
+}
+
+[data-testid="bubble-reactions-anchor"] [data-reaction-glyph="custom"] {
+  width: 0.75rem;
+  height: 0.75rem;
+}
+
+.typing-dots-bubble {
+  background: var(--bubble-background);
+}
+.typing-avatar-stroke {
+  box-shadow: 0 0 0 1.5px var(--background);
+}
+
+/* Structured widgets own their surface; only their text captions become bubbles. */
+.message-bubble-body [data-content-widget] {
+  --foreground: var(--blockui-text-standard);
+  --muted-foreground: var(--blockui-text-tertiary);
+  --background: var(--blockui-surface-app);
+  --muted: var(--blockui-surface-subtle);
+  --card: var(--blockui-surface-card);
+  --card-foreground: var(--blockui-card-foreground);
+  --border: var(--blockui-border-subtle);
+  justify-content: initial;
+}
+.message-bubble-body:has([data-content-widget]) > .message-markdown > * + * {
+  margin-top: calc(var(--spacing) * 2);
+}

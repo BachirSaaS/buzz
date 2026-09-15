@@ -36,7 +36,7 @@ export function TimeoutDurationSubmenu({
   return (
     <DropdownMenuSub>
       <DropdownMenuSubTrigger disabled={disabled}>
-        <Clock className="h-4 w-4" />
+        <Clock className="size-4" />
         {label}
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent>

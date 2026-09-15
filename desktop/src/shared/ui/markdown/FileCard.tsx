@@ -1,9 +1,9 @@
-import * as React from "react";
+import { Action } from "@/shared/ui/action";
+import { ContentWidget } from "@/shared/ui/content-widget";
 import { Download, FileText } from "lucide-react";
 import { toast } from "sonner";
 
 import { invokeTauri } from "@/shared/api/tauri";
-import { useSmoothCorners } from "@/shared/ui/smoothCorners";
 
 /** Human-readable byte size: "820 B", "12.4 KB", "3.1 MB". */
 function formatFileSize(bytes: number): string {
@@ -38,40 +38,49 @@ export function FileCard({
   filename: string;
   size?: number;
 }) {
-  const cardRef = React.useRef<HTMLButtonElement | null>(null);
   const sizeLabel = size != null ? formatFileSize(size) : "";
-  useSmoothCorners(cardRef);
 
   return (
-    <button
-      ref={cardRef}
-      type="button"
-      onClick={() => {
-        invokeTauri("download_file", { url: href, filename }).catch(
-          (err: unknown) => {
-            const msg = err instanceof Error ? err.message : "Download failed";
-            toast.error(msg);
-          },
-        );
-      }}
-      data-testid="file-card"
-      className="my-1 inline-flex max-w-sm items-center gap-3 rounded-2xl border border-border/70 bg-muted/40 px-3 py-2 text-left no-underline transition-colors hover:bg-muted/70"
-      style={{ borderRadius: "1rem" }}
-    >
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-background text-muted-foreground">
-        <FileText className="h-4 w-4" />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium text-foreground">
-          {filename}
+    <ContentWidget className="my-2 w-112 max-w-full p-0">
+      <Action
+        type="button"
+        onClick={() => {
+          invokeTauri("download_file", { url: href, filename }).catch(
+            (err: unknown) => {
+              const msg =
+                err instanceof Error ? err.message : "Download failed";
+              toast.error(msg);
+            },
+          );
+        }}
+        data-testid="file-card"
+        className="inline-flex w-full min-w-0 items-center gap-4 rounded-blockui-lg p-6 text-left no-underline"
+      >
+        <span
+          aria-hidden="true"
+          className="flex size-12 shrink-0 items-center justify-center rounded-blockui-md bg-muted text-muted-foreground"
+        >
+          <FileText className="size-6" />
         </span>
-        {sizeLabel ? (
-          <span className="block text-xs text-muted-foreground">
-            {sizeLabel}
+        <span className="flex min-w-0 flex-1 flex-col gap-2">
+          <span className="block break-words text-base font-semibold text-foreground">
+            {filename}
           </span>
-        ) : null}
-      </span>
-      <Download className="h-4 w-4 shrink-0 text-muted-foreground" />
-    </button>
+          {sizeLabel || filename.includes(".") ? (
+            <span className="block text-xs text-muted-foreground">
+              {[
+                filename.includes(".")
+                  ? filename.split(".").at(-1)?.toUpperCase()
+                  : null,
+                sizeLabel,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </span>
+          ) : null}
+        </span>
+        <Download className="size-4 shrink-0 text-muted-foreground" />
+      </Action>
+    </ContentWidget>
   );
 }

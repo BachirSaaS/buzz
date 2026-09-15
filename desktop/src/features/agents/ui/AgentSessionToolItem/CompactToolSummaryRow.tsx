@@ -1,5 +1,14 @@
 import * as React from "react";
-import { ChevronDown } from "lucide-react";
+import {
+  ChevronDown,
+  FileCode2,
+  FileSearch,
+  Terminal,
+  Wrench,
+  Image,
+  MessageCircle,
+  ListChecks,
+} from "lucide-react";
 
 import { cn } from "@/shared/lib/cn";
 import { useAgentSessionTranscriptVariant } from "../agentSessionTranscriptContext";
@@ -16,7 +25,7 @@ import {
 } from "../activityRenderClasses/ActivityRow";
 
 export function compactSummaryTone() {
-  return "text-muted-foreground/60 transition-colors group-hover/row:text-foreground group-open:text-foreground";
+  return "text-muted-foreground transition-colors group-hover/row:text-foreground group-open:text-foreground";
 }
 
 export function CompactToolSummaryRow({
@@ -48,8 +57,26 @@ export function CompactToolSummaryRow({
     ? null
     : getCompactToolActionLabel(action, kind, label, preview);
 
+  const Icon =
+    kind === "shell"
+      ? Terminal
+      : kind === "file-edit"
+        ? FileCode2
+        : kind === "file-read" || kind === "skill-read"
+          ? FileSearch
+          : kind === "image"
+            ? Image
+            : kind === "relay-op"
+              ? MessageCircle
+              : kind === "plan"
+                ? ListChecks
+                : Wrench;
   return (
     <>
+      <Icon
+        aria-hidden="true"
+        className="size-4 shrink-0 text-muted-foreground"
+      />
       {fileEditSummary ? (
         <CompactFileEditSummaryView summary={fileEditSummary} />
       ) : actionLabel ? (
@@ -62,7 +89,7 @@ export function CompactToolSummaryRow({
       ) : (
         <span
           className={cn(
-            "shrink-0 font-semibold",
+            "min-w-0 font-medium",
             isCompactPreview ? "text-xs" : "text-sm",
             mutedTone,
           )}
@@ -96,8 +123,9 @@ export function CompactToolSummaryRow({
         <span className={cn("shrink-0 text-xs", mutedTone)}>{duration}</span>
       ) : null}
       <ChevronDown
+        aria-hidden="true"
         className={cn(
-          "h-3.5 w-3.5 shrink-0 transition-transform group-open:rotate-180",
+          "ml-auto size-4 shrink-0 transition-transform group-open:rotate-180",
           mutedTone,
         )}
       />

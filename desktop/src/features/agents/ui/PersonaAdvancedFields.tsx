@@ -1,3 +1,4 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
 import * as React from "react";
 import { useAgentAccessOwnerOnlyQuery } from "../useAgentAccessOwnerOnly";
 import { Input } from "@/shared/ui/input";
@@ -164,12 +165,12 @@ export function PersonaAdvancedFields({
 
       <div className="grid gap-5 sm:grid-cols-2">
         <div className="space-y-1.5">
-          <label
+          <BlockLabel
             className="text-sm font-medium text-foreground"
             htmlFor="persona-session-policy"
           >
             Conversation context
-          </label>
+          </BlockLabel>
           <PersonaDropdownField
             ariaDescribedBy="persona-session-policy-description"
             disabled={disabled}
@@ -198,13 +199,13 @@ export function PersonaAdvancedFields({
         </div>
 
         <div className="space-y-1.5">
-          <label
+          <BlockLabel
             className="text-sm font-medium text-foreground"
             htmlFor="persona-parallelism"
           >
             Parallelism
             <span className={PERSONA_LABEL_OPTIONAL_CLASS}>Optional</span>
-          </label>
+          </BlockLabel>
           <div
             className={cn(
               "flex min-h-11 items-center px-3",
@@ -236,7 +237,7 @@ export function PersonaAdvancedFields({
             {AGENT_PARALLELISM_HELP}
           </p>
           {personaParallelismHint !== null ? (
-            <p className="text-xs text-amber-600 dark:text-amber-400">
+            <p className="text-xs text-warning-foreground dark:text-warning-foreground">
               {personaParallelismHint}
             </p>
           ) : null}
@@ -244,13 +245,13 @@ export function PersonaAdvancedFields({
       </div>
 
       <div className="space-y-1.5">
-        <label
+        <BlockLabel
           className="text-sm font-medium text-foreground"
           htmlFor="persona-name-pool"
         >
           Instance name pool
           <span className={PERSONA_LABEL_OPTIONAL_CLASS}>Optional</span>
-        </label>
+        </BlockLabel>
         <div
           className={cn(
             "flex min-h-11 items-center px-3",

@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import type * as React from "react";
 
 import { cn } from "@/shared/lib/cn";
@@ -59,13 +60,13 @@ export function InlineChip({
   );
   if (as === "button") {
     return (
-      <button
+      <Action
         {...(props as React.ComponentPropsWithoutRef<"button">)}
         type="button"
         className={classes}
       >
         {children}
-      </button>
+      </Action>
     );
   }
 

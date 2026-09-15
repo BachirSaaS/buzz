@@ -1,3 +1,5 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { NativeSelect } from "@/shared/blockui/components/native-select";
 import * as React from "react";
 
 import {
@@ -14,7 +16,7 @@ import { Textarea } from "@/shared/ui/textarea";
 const FIELD_SHELL_CLASS =
   "rounded-xl border border-input bg-muted/40 transition-colors hover:border-muted-foreground/40 focus-within:border-muted-foreground/50";
 const FIELD_CONTROL_CLASS =
-  "border-0 bg-transparent shadow-none outline-none ring-0 placeholder:text-muted-foreground/55 focus-visible:ring-0";
+  "border-0 bg-transparent shadow-none outline-none ring-0 placeholder:text-muted-foreground focus-visible:ring-0";
 
 export type CreateProjectWorkItemDialogInput = {
   title: string;
@@ -135,14 +137,14 @@ export function CreateProjectWorkItemDialog({
           {children}
           {itemName === "issue" ? (
             <div className="space-y-1.5">
-              <label
+              <BlockLabel
                 className="text-sm font-medium text-foreground"
                 htmlFor={`${testIdPrefix}-category`}
               >
                 Category
-              </label>
+              </BlockLabel>
               <div className={FIELD_SHELL_CLASS}>
-                <select
+                <NativeSelect
                   className={cn(
                     "h-11 w-full px-3 text-sm",
                     FIELD_CONTROL_CLASS,
@@ -160,17 +162,17 @@ export function CreateProjectWorkItemDialog({
                       {option.label}
                     </option>
                   ))}
-                </select>
+                </NativeSelect>
               </div>
             </div>
           ) : null}
           <div className="space-y-1.5">
-            <label
+            <BlockLabel
               className="text-sm font-medium text-foreground"
               htmlFor={`${testIdPrefix}-title`}
             >
               Title
-            </label>
+            </BlockLabel>
             <div
               className={cn(
                 "flex min-h-11 items-center px-3",
@@ -194,15 +196,15 @@ export function CreateProjectWorkItemDialog({
             </div>
           </div>
           <div className="space-y-1.5">
-            <label
+            <BlockLabel
               className="text-sm font-medium text-foreground"
               htmlFor={`${testIdPrefix}-body`}
             >
               Description
-              <span className="ml-1 text-xs font-normal text-muted-foreground/50">
+              <span className="ml-1 text-xs font-normal text-muted-foreground">
                 Optional
               </span>
-            </label>
+            </BlockLabel>
             <div className={FIELD_SHELL_CLASS}>
               <Textarea
                 className={cn(

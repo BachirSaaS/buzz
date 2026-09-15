@@ -1,3 +1,5 @@
+import { ContentWidget } from "@/shared/ui/content-widget";
+import { Action } from "@/shared/ui/action";
 import { Bot, ChevronDown, ChevronRight } from "lucide-react";
 import * as React from "react";
 
@@ -32,10 +34,10 @@ function formatRelativeTime(unixSeconds: number): string {
 function StatusDot({ status }: { status: "online" | "away" | "offline" }) {
   const color =
     status === "online"
-      ? "bg-emerald-500"
+      ? "bg-success-foreground"
       : status === "away"
-        ? "bg-amber-500"
-        : "bg-zinc-400";
+        ? "bg-warning-foreground"
+        : "bg-muted";
   return (
     <span
       aria-label={`Agent ${status}`}
@@ -59,15 +61,15 @@ export function AgentActivityCard({
   const summaryNote = group.notes[0];
 
   return (
-    <div className="rounded-2xl px-1 py-4 sm:px-2">
+    <ContentWidget className="blockui-activity">
       {/* Header */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-4">
         <UserProfilePopover
           botIdenticonValue={displayName}
           pubkey={group.pubkey}
           role={"bot" as const}
         >
-          <button
+          <Action
             aria-label={`Open profile for ${displayName}`}
             className="relative flex shrink-0 rounded-xl pt-1 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
             type="button"
@@ -77,48 +79,52 @@ export function AgentActivityCard({
               displayName={displayName}
               shape="squircle"
             />
-            <Bot className="absolute -bottom-0.5 -right-0.5 h-4 w-4 rounded-full bg-background p-0.5 text-muted-foreground" />
-          </button>
+            <Bot
+              aria-hidden="true"
+              className="absolute -bottom-0.5 -right-0.5 size-4 rounded-full bg-background p-0.5 text-muted-foreground"
+            />
+          </Action>
         </UserProfilePopover>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="truncate text-sm font-semibold leading-none">
+            <span className="truncate text-base font-semibold leading-none">
               {displayName}
             </span>
             {agentStatus && agentStatus !== "unknown" ? (
               <StatusDot status={agentStatus} />
             ) : null}
-            <span className="shrink-0 text-2xs text-muted-foreground">
+            <span className="shrink-0 text-xs text-muted-foreground">
               {formatRelativeTime(group.latestAt)}
             </span>
           </div>
         </div>
         {!isSingleNote ? (
-          <button
-            className="flex h-6 items-center gap-1 rounded-full px-2 text-xs text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+          <Action
+            className="flex h-8 items-center gap-2 rounded-full px-2 text-xs text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+            aria-expanded={expanded}
             onClick={() => setExpanded(!expanded)}
             type="button"
           >
             {expanded ? (
-              <ChevronDown className="h-4 w-4" />
+              <ChevronDown aria-hidden="true" className="size-4" />
             ) : (
-              <ChevronRight className="h-4 w-4" />
+              <ChevronRight aria-hidden="true" className="size-4" />
             )}
             {group.notes.length} updates
-          </button>
+          </Action>
         ) : null}
       </div>
 
       {/* Content */}
       {isSingleNote || !expanded ? (
-        <div className="mt-1.5 ml-[44px] text-sm leading-relaxed text-foreground">
+        <div className="mt-0 text-sm leading-relaxed text-foreground">
           <Markdown content={summaryNote.content} />
         </div>
       ) : (
-        <div className="mt-2 ml-[44px] space-y-2">
+        <div className="space-y-4">
           {group.notes.map((note, idx) => (
             <div
-              className="flex gap-2 rounded-xl border border-border/50 bg-muted/20 px-3 py-2"
+              className="flex gap-2 rounded-blockui-md border border-border bg-muted/20 p-4"
               key={note.id}
             >
               <span className="mt-0.5 shrink-0 text-xs font-medium text-muted-foreground">
@@ -126,7 +132,7 @@ export function AgentActivityCard({
               </span>
               <div className="min-w-0 flex-1 text-sm">
                 <Markdown content={note.content} />
-                <p className="mt-1 text-2xs text-muted-foreground">
+                <p className="mt-1 text-xs text-muted-foreground">
                   {formatRelativeTime(note.createdAt)}
                 </p>
               </div>
@@ -134,6 +140,6 @@ export function AgentActivityCard({
           ))}
         </div>
       )}
-    </div>
+    </ContentWidget>
   );
 }

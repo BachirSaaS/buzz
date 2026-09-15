@@ -1,3 +1,4 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
 import * as React from "react";
 
 import { ProfileAvatar } from "@/features/profile/ui/ProfileAvatar";
@@ -186,9 +187,9 @@ export function TeamDialog({
 
             <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
               <div className="space-y-1.5">
-                <label className="text-sm font-medium" htmlFor="team-name">
+                <BlockLabel className="text-sm font-medium" htmlFor="team-name">
                   Name
-                </label>
+                </BlockLabel>
                 <Input
                   autoCorrect="off"
                   disabled={isPending}
@@ -200,12 +201,12 @@ export function TeamDialog({
               </div>
 
               <div className="space-y-1.5">
-                <label
+                <BlockLabel
                   className="text-sm font-medium"
                   htmlFor="team-description"
                 >
                   Description
-                </label>
+                </BlockLabel>
                 <Textarea
                   className="min-h-20"
                   disabled={isPending}
@@ -217,12 +218,12 @@ export function TeamDialog({
               </div>
 
               <div className="space-y-1.5">
-                <label
+                <BlockLabel
                   className="text-sm font-medium"
                   htmlFor="team-instructions"
                 >
                   Team Instructions
-                </label>
+                </BlockLabel>
                 <Textarea
                   className="min-h-24"
                   disabled={isPending}

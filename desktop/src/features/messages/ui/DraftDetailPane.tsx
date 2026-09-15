@@ -48,7 +48,7 @@ export function DraftDetailPane({
       >
         <div className="max-w-sm">
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-muted text-muted-foreground">
-            <FileText className="h-6 w-6" />
+            <FileText className="size-6" />
           </div>
           <p className="mt-4 text-base font-semibold">Select a draft</p>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -96,7 +96,7 @@ export function DraftDetailPane({
               ) : null}
               <div className="flex min-w-0 items-center gap-1.5">
                 {isPrivate ? (
-                  <Lock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <Lock className="size-3.5 shrink-0 text-muted-foreground" />
                 ) : null}
                 <h2 className="truncate text-sm font-semibold leading-5 tracking-tight text-foreground">
                   {channelLabel}
@@ -113,7 +113,7 @@ export function DraftDetailPane({
             className="mx-5 mb-3 flex items-start gap-2 rounded-lg border border-destructive/25 bg-destructive/5 p-3 text-sm text-destructive"
             data-testid="home-inbox-draft-orphaned-notice"
           >
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <AlertTriangle className="mt-0.5 size-4 shrink-0" />
             <span>
               The original thread was deleted. This draft can no longer be
               opened or sent.
@@ -146,7 +146,7 @@ export function DraftDetailPane({
                 <span className="text-xs font-medium text-muted-foreground">
                   Draft
                 </span>
-                <span className="shrink-0 text-xs font-normal tabular-nums text-muted-foreground/55">
+                <span className="shrink-0 text-xs font-normal tabular-nums text-muted-foreground">
                   {formatDraftCreatedAt(entry.draft)}
                 </span>
               </div>
@@ -211,17 +211,17 @@ function DraftActionBar({
               label="Open draft"
               onClick={onOpen}
             >
-              <Pencil className="h-4 w-4" />
+              <Pencil className="size-4" />
             </DraftActionButton>
             <DraftActionButton
               disabled={!canSend}
               label="Send"
               onClick={onSend}
             >
-              <Send className="h-4 w-4" />
+              <Send className="size-4" />
             </DraftActionButton>
             <DraftActionButton destructive label="Delete" onClick={onDelete}>
-              <Trash2 className="h-4 w-4" />
+              <Trash2 className="size-4" />
             </DraftActionButton>
           </div>
         </div>

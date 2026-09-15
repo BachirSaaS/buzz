@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { ChevronRight } from "lucide-react";
 import * as React from "react";
 
@@ -252,7 +253,7 @@ export function WorkflowTriggerConditions({
             An advanced expression is active. Replacing it with basic filters
             cannot be undone.
           </p>
-          <button
+          <Action
             className="text-sm font-medium text-destructive hover:underline"
             disabled={disabled}
             onClick={() => {
@@ -263,7 +264,7 @@ export function WorkflowTriggerConditions({
             type="button"
           >
             Replace with basic filters
-          </button>
+          </Action>
         </div>
       ) : (
         <div
@@ -308,7 +309,7 @@ export function WorkflowTriggerConditions({
                 )}
                 key={field.value}
               >
-                <button
+                <Action
                   aria-expanded={expanded}
                   className="flex min-h-12 w-full items-center gap-3 py-3 text-left transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:opacity-50"
                   disabled={disabled}
@@ -355,11 +356,11 @@ export function WorkflowTriggerConditions({
                   )}
                   <ChevronRight
                     className={cn(
-                      "h-4 w-4 shrink-0 text-muted-foreground/70 transition-transform duration-150 motion-reduce:transition-none",
+                      "h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-150 motion-reduce:transition-none",
                       expanded && "rotate-90",
                     )}
                   />
-                </button>
+                </Action>
                 {expanded ? (
                   <div
                     className={cn(
@@ -375,7 +376,7 @@ export function WorkflowTriggerConditions({
                           (operator) => {
                             const selected = condition.operator === operator;
                             return (
-                              <button
+                              <Action
                                 aria-pressed={selected}
                                 className={cn(
                                   "flex min-h-12 items-center justify-center rounded-lg border px-3 py-2 text-center text-sm font-medium",
@@ -398,7 +399,7 @@ export function WorkflowTriggerConditions({
                                 type="button"
                               >
                                 {OPERATOR_LABELS[operator]}
-                              </button>
+                              </Action>
                             );
                           },
                         )}
@@ -508,7 +509,7 @@ export function WorkflowTriggerConditions({
                       )
                     ) : null}
                     {existing && !fieldUsesFullHeightPicker(field.value) ? (
-                      <button
+                      <Action
                         className="text-xs font-medium text-muted-foreground hover:text-foreground"
                         disabled={disabled}
                         onClick={() =>
@@ -521,7 +522,7 @@ export function WorkflowTriggerConditions({
                         type="button"
                       >
                         Clear filter
-                      </button>
+                      </Action>
                     ) : null}
                   </div>
                 ) : null}

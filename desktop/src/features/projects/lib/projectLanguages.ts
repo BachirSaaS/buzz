@@ -19,11 +19,11 @@ export const LANGUAGE_LABELS: Record<string, string> = {
 
 /** Dot accent colors cycled through language chips. */
 export const LANGUAGE_DOT_CLASSES = [
-  "bg-blue-500",
-  "bg-violet-500",
-  "bg-emerald-500",
-  "bg-orange-500",
-  "bg-pink-500",
+  "bg-info-foreground",
+  "bg-info-foreground",
+  "bg-success-foreground",
+  "bg-warning-foreground",
+  "bg-info-foreground",
 ];
 
 /** Maps a file path to its language label, or undefined when unknown. */

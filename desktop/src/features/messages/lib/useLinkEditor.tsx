@@ -1,3 +1,4 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
 import * as React from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Pencil, Unlink } from "lucide-react";
@@ -366,7 +367,7 @@ export function useLinkEditor(richText: UseRichTextEditorResult) {
             save();
           }}
         >
-          <label
+          <BlockLabel
             className="flex flex-col gap-1 text-sm font-medium"
             htmlFor={textId}
           >
@@ -382,8 +383,8 @@ export function useLinkEditor(richText: UseRichTextEditorResult) {
                 )
               }
             />
-          </label>
-          <label
+          </BlockLabel>
+          <BlockLabel
             className="flex flex-col gap-1 text-sm font-medium"
             htmlFor={urlId}
           >
@@ -399,7 +400,7 @@ export function useLinkEditor(richText: UseRichTextEditorResult) {
                 )
               }
             />
-          </label>
+          </BlockLabel>
           <div className="mt-2 flex items-center justify-between gap-2">
             {draft?.isExistingLink ? (
               <Button type="button" variant="destructive" onClick={remove}>

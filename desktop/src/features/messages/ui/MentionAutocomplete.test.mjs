@@ -134,7 +134,7 @@ test("automatic mention setting is visible by default without an options ingress
   const toggle = view.getByRole("switch", {
     name: "Automatically mention agents",
   });
-  assert.equal(toggle.getAttribute("data-state"), "checked");
+  assert.equal(toggle.getAttribute("aria-checked"), "true");
   assert.ok(view.getByText("Address selected agents in thread replies"));
   assert.ok(view.getByRole("button", { name: "Mention Agent Ada" }));
 
@@ -163,7 +163,7 @@ test("automatic selection updates the visible setting in place", async () => {
   const toggle = view.getByRole("switch", {
     name: "Automatically mention agents",
   });
-  assert.equal(toggle.getAttribute("data-state"), "unchecked");
+  assert.equal(toggle.getAttribute("aria-checked"), "false");
 
   view.rerender(
     React.createElement(MentionAutocomplete, {
@@ -173,7 +173,7 @@ test("automatic selection updates the visible setting in place", async () => {
     }),
   );
   assert.equal(view.getByTestId("mention-options-settings"), settings);
-  assert.equal(toggle.getAttribute("data-state"), "checked");
+  assert.equal(toggle.getAttribute("aria-checked"), "true");
 });
 
 test("clicking outside dismisses the tray without intercepting its trigger", async () => {

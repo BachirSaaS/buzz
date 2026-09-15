@@ -17,8 +17,8 @@
 }
 
 .message-markdown [data-link-preview] {
-  --buzz-link-preview-icon-bg: hsl(var(--muted));
-  --buzz-link-preview-icon-color: hsl(var(--foreground));
+  --buzz-link-preview-icon-bg: var(--muted);
+  --buzz-link-preview-icon-color: var(--foreground);
 }
 
 .dark .message-markdown [data-link-preview] {
@@ -83,8 +83,8 @@
 
 .message-markdown .mention-chip {
   font-size: inherit;
-  background: hsl(var(--primary) / 0.15);
-  color: hsl(var(--primary));
+  background: color-mix(in srgb, var(--primary) 15.0%, transparent);
+  color: var(--primary);
 }
 
 .message-markdown .mention-chip.wrapping-inline-chip {
@@ -110,18 +110,18 @@
 .message-markdown .mention-chip.buzz-link-unavailable:hover,
 .message-markdown .mention-chip.buzz-link-deleted,
 .message-markdown .mention-chip.buzz-link-deleted:hover {
-  background: hsl(var(--secondary));
-  color: hsl(var(--secondary-foreground) / 0.7);
+  background: var(--secondary);
+  color: color-mix(in srgb, var(--secondary-foreground) 70.0%, transparent);
 }
 
 .message-markdown .mention-chip.inbox-channel-chip {
-  background: hsl(var(--muted));
-  color: hsl(var(--muted-foreground) / 0.82);
+  background: var(--muted);
+  color: color-mix(in srgb, var(--muted-foreground) 82.0%, transparent);
 }
 
 .message-markdown .mention-chip.search-channel-chip {
-  background: hsl(var(--muted));
-  color: hsl(var(--muted-foreground) / 0.82);
+  background: var(--muted);
+  color: color-mix(in srgb, var(--muted-foreground) 82.0%, transparent);
   transition:
     background-color 150ms ease-out,
     color 150ms ease-out;
@@ -130,8 +130,8 @@
 .search-result-row[aria-selected="true"]
   .message-markdown
   .mention-chip.search-channel-chip {
-  background: hsl(var(--muted) / 0.82);
-  color: hsl(var(--muted-foreground) / 0.95);
+  background: color-mix(in srgb, var(--muted) 82.0%, transparent);
+  color: color-mix(in srgb, var(--muted-foreground) 95.0%, transparent);
 }
 
 .message-markdown.inbox-preview-markdown {
@@ -280,8 +280,8 @@
 .message-markdown .inline-code-chip,
 .message-markdown :not(pre) > code {
   font-size: var(--inline-code-font-size);
-  font-family: ui-monospace, monospace;
-  background: hsl(var(--muted));
+  font-family: var(--font-mono);
+  background: var(--muted);
   color: inherit;
 }
 
@@ -305,8 +305,8 @@
 }
 
 .mention-chip-hover:hover {
-  background: hsl(var(--primary) / 0.25);
-  color: hsl(var(--primary) / 0.9);
+  background: color-mix(in srgb, var(--primary) 25.0%, transparent);
+  color: color-mix(in srgb, var(--primary) 90.0%, transparent);
 }
 
 .message-markdown .mention-prefix-hidden {
@@ -368,23 +368,23 @@
   width: 2.5ch;
   margin-right: 1.5ch;
   text-align: right;
-  color: hsl(var(--muted-foreground) / 0.4);
+  color: color-mix(in srgb, var(--muted-foreground) 40.0%, transparent);
   user-select: none;
   pointer-events: none;
 }
 
 .code-line-diff-add {
-  background-color: hsl(120 40% 50% / 0.15);
+  background-color: var(--success);
 }
 
 .code-line-diff-remove {
-  background-color: hsl(0 60% 50% / 0.15);
+  background-color: var(--blockui-destructive-surface);
 }
 
 .dark .code-line-diff-add {
-  background-color: hsl(120 40% 50% / 0.12);
+  background-color: var(--success);
 }
 
 .dark .code-line-diff-remove {
-  background-color: hsl(0 60% 50% / 0.12);
+  background-color: var(--blockui-destructive-surface);
 }

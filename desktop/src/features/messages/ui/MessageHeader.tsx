@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 
 import { AgentManagementMarker } from "@/features/agents/ui/OtherSetupAgentMarker";
@@ -44,7 +45,7 @@ export function MessageHeaderRow({
  */
 export function MessageMetaSeparator() {
   return (
-    <span aria-hidden="true" className="text-xs text-muted-foreground/40">
+    <span aria-hidden="true" className="text-xs text-muted-foreground">
       ·
     </span>
   );
@@ -131,12 +132,12 @@ export function MessageAuthorIdentity({
           botIdenticonValue={displayName}
           triggerClassName="min-w-0 max-w-full"
         >
-          <button
+          <Action
             className="truncate rounded leading-message-author focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
             type="button"
           >
             {children}
-          </button>
+          </Action>
         </UserProfilePopover>
       ) : (
         children

@@ -1,4 +1,5 @@
 import * as React from "react";
+import { ActivityToolStatus } from "../activityRenderClasses/ActivityToolStatus";
 
 import {
   resolveUserLabel,
@@ -107,25 +108,36 @@ export function ToolItem({
       title={timestampTitle}
     >
       <details
-        className="group w-full"
+        className="activity-widget group w-full rounded-blockui-lg border border-border bg-card p-6"
+        data-activity-tone={
+          item.isError || item.status === "failed" ? "error" : undefined
+        }
         onToggle={handleToggle}
         open={isExpanded}
       >
         <summary
           className={cn(
-            "group/row flex min-h-6 max-w-full cursor-pointer list-none items-center gap-1.5",
+            "group/row flex min-h-8 max-w-full cursor-pointer list-none flex-wrap items-center gap-2",
             compactSummaryTone(),
           )}
         >
-          <CompactToolSummaryRow
-            action={compactSummary.action}
-            duration={duration}
-            fileEditSummary={compactSummary.fileEditSummary}
-            kind={compactSummary.kind}
-            preview={compactSummary.preview}
-            thumbnailSrc={compactSummary.thumbnailSrc}
-            label={compactSummary.label}
-          />
+          <span className="flex w-full min-w-0 items-center gap-2">
+            <CompactToolSummaryRow
+              action={compactSummary.action}
+              duration={null}
+              fileEditSummary={compactSummary.fileEditSummary}
+              kind={compactSummary.kind}
+              preview={compactSummary.preview}
+              thumbnailSrc={compactSummary.thumbnailSrc}
+              label={compactSummary.label}
+            />
+          </span>
+          <span className="flex w-full items-center gap-2">
+            <ActivityToolStatus item={item} />
+            {duration ? (
+              <span className="text-xs text-muted-foreground">{duration}</span>
+            ) : null}
+          </span>
         </summary>
 
         <ToolDetailBlocks
@@ -143,7 +155,7 @@ export function ToolItem({
                 }
               : null
           }
-          isError={item.isError}
+          isError={item.isError || item.status === "failed"}
           result={item.result}
           shellCommand={compactSummary.shellContent}
         />

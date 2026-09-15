@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Bot, Check, X } from "lucide-react";
@@ -334,7 +335,7 @@ export function WelcomeComposerBanner({
           className={cn(
             "relative z-[1] mx-5 mb-0 flex items-center gap-2 rounded-t-2xl border border-b-0 px-4 pb-5 pt-2.5 text-sm leading-5 transition-colors",
             state !== "prompt"
-              ? "border-emerald-500/30 bg-emerald-500/15 text-foreground"
+              ? "border-success-foreground/30 bg-success text-foreground"
               : "border-border/60 bg-muted/55 text-muted-foreground",
           )}
           data-state={state}
@@ -361,7 +362,7 @@ export function WelcomeComposerBanner({
               >
                 <Check
                   aria-hidden
-                  className="h-4 w-4"
+                  className="size-4"
                   data-testid="welcome-composer-complete-icon"
                 />
               </motion.span>
@@ -374,7 +375,7 @@ export function WelcomeComposerBanner({
                 key="prompt-icon"
                 variants={welcomeComposerBannerContentVariants}
               >
-                <Bot aria-hidden className="h-4 w-4" />
+                <Bot aria-hidden className="size-4" />
               </motion.span>
             )}
           </AnimatePresence>
@@ -417,15 +418,15 @@ export function WelcomeComposerBanner({
             )}
           </AnimatePresence>
           {state === "prompt" && onDismiss && !settingUp ? (
-            <button
+            <Action
               aria-label="Dismiss hint"
-              className="ml-auto flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground/60 transition-colors hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="ml-auto flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               data-testid="welcome-composer-dismiss-button"
               onClick={onDismiss}
               type="button"
             >
-              <X aria-hidden className="h-3 w-3" />
-            </button>
+              <X aria-hidden className="size-3" />
+            </Action>
           ) : null}
         </motion.div>
       </motion.div>

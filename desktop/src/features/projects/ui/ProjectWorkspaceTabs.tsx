@@ -427,7 +427,7 @@ export function WorkspaceTabs({
                 title="Publish the pushed commit to this review"
                 variant="outline"
               >
-                <RefreshCw className="h-4 w-4" />
+                <RefreshCw className="size-4" />
                 {updatePullRequestAction.pending
                   ? "Updating…"
                   : "Update review"}

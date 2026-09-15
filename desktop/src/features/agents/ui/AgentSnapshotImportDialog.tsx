@@ -1,3 +1,5 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { ChoiceInput } from "@/shared/ui/native-controls";
 import * as React from "react";
 import { AlertCircle, Lock, Upload } from "lucide-react";
 
@@ -92,7 +94,7 @@ export function AgentSnapshotImportDialog({
                     type="button"
                     variant="default"
                   >
-                    <Upload className="h-4 w-4" />
+                    <Upload className="size-4" />
                     Import
                   </Button>
                   <DialogClose asChild>
@@ -168,7 +170,7 @@ export function PreviewBody({
           className="flex items-start gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm"
           data-testid="agent-snapshot-import-locked-notice"
         >
-          <Lock className="mt-0.5 h-4 w-4 shrink-0" />
+          <Lock className="mt-0.5 size-4 shrink-0" />
           <p>
             This card is <strong>locked</strong> — its agent is encrypted to the
             original owner and agent keys. Your keys unlocked it; the full
@@ -210,10 +212,10 @@ export function PreviewBody({
       {/* Memory section */}
       {hasMemory ? (
         <div
-          className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400"
+          className="flex items-start gap-2 rounded-md border border-warning-foreground/30 bg-warning px-3 py-2 text-sm text-warning-foreground dark:text-warning-foreground"
           data-testid="agent-snapshot-import-memory-warning"
         >
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <AlertCircle className="mt-0.5 size-4 shrink-0" />
           <p>
             This snapshot includes{" "}
             <strong>
@@ -255,8 +257,8 @@ export function PreviewBody({
             ))}
           </ul>
           <div className="flex flex-col gap-1.5">
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
+            <BlockLabel className="flex cursor-pointer items-center gap-2">
+              <ChoiceInput
                 checked={!keepAllowlist}
                 data-testid="agent-snapshot-import-allowlist-clear"
                 name="allowlist-choice"
@@ -266,9 +268,9 @@ export function PreviewBody({
               <span className="text-sm">
                 <strong>Clear</strong> — start with an empty allowlist (safer)
               </span>
-            </label>
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
+            </BlockLabel>
+            <BlockLabel className="flex cursor-pointer items-center gap-2">
+              <ChoiceInput
                 checked={keepAllowlist}
                 data-testid="agent-snapshot-import-allowlist-keep"
                 name="allowlist-choice"
@@ -278,7 +280,7 @@ export function PreviewBody({
               <span className="text-sm">
                 <strong>Keep</strong> — copy source allowlist to the new agent
               </span>
-            </label>
+            </BlockLabel>
           </div>
         </div>
       ) : null}
@@ -324,10 +326,10 @@ export function ResultBody({
       {result.memoryTotal > 0 ? (
         hasPartialMemory ? (
           <div
-            className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400"
+            className="flex items-start gap-2 rounded-md border border-warning-foreground/30 bg-warning px-3 py-2 text-sm text-warning-foreground dark:text-warning-foreground"
             data-testid="agent-snapshot-import-partial-memory"
           >
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <AlertCircle className="mt-0.5 size-4 shrink-0" />
             <div className="flex flex-col gap-1">
               <p>
                 Memory partially restored: {result.memoryWritten} of{" "}
@@ -361,7 +363,7 @@ export function ResultBody({
       ) : null}
 
       {result.profileSyncError ? (
-        <p className="text-xs text-amber-600 dark:text-amber-400">
+        <p className="text-xs text-warning-foreground dark:text-warning-foreground">
           Profile sync: {result.profileSyncError}
         </p>
       ) : null}

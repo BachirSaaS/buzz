@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 
 import { getPresenceLabel } from "@/features/presence/lib/presence";
@@ -108,7 +109,7 @@ export function SidebarProfileCard({
       ref={profileCardRef}
     >
       <div className="flex min-w-0 items-center gap-3">
-        <button
+        <Action
           aria-label={`Open profile menu for ${resolvedDisplayName}`}
           className="relative shrink-0 rounded-xl outline-hidden focus:outline-none focus-visible:outline-none"
           data-testid="sidebar-profile-avatar-button"
@@ -144,7 +145,7 @@ export function SidebarProfileCard({
               testId="sidebar-profile-avatar"
             />
           </MaskedAvatarBadgeFrame>
-        </button>
+        </Action>
 
         <div className="min-w-0 flex-1">
           <ProfilePopover
@@ -185,7 +186,7 @@ export function SidebarProfileCard({
               />
             }
           >
-            <button
+            <Action
               onClick={(event) => {
                 event.stopPropagation();
                 toggleProfilePopover();
@@ -200,12 +201,12 @@ export function SidebarProfileCard({
               >
                 {resolvedDisplayName}
               </p>
-            </button>
+            </Action>
           </ProfilePopover>
 
           {hasStatus ? (
             <div className="relative mt-0.5">
-              <button
+              <Action
                 aria-label={`Open profile menu for ${resolvedDisplayName}`}
                 className={cn(
                   "flex w-full min-w-0 items-center truncate rounded-sm text-left text-xs leading-snug text-sidebar-foreground/70 outline-hidden transition-opacity duration-150 focus:outline-none focus-visible:outline-none group-hover/profile-card:opacity-0",
@@ -226,7 +227,7 @@ export function SidebarProfileCard({
                   />
                 ) : null}
                 <span className="truncate">{selfUserStatus?.text}</span>
-              </button>
+              </Action>
               <div
                 className={cn(
                   "pointer-events-none absolute inset-0 flex min-w-0 items-center text-xs leading-snug text-sidebar-foreground/70 opacity-0 transition-opacity duration-150 group-hover/profile-card:opacity-100",

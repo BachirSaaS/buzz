@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { Clock, Loader2, MailOpen } from "lucide-react";
 
@@ -61,7 +62,7 @@ function RowActionButton({
   onClick: () => void;
 }) {
   return (
-    <button
+    <Action
       aria-label={label}
       className="inline-flex size-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-background/80 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring [&>svg]:size-4"
       onClick={(event) => {
@@ -73,7 +74,7 @@ function RowActionButton({
       type="button"
     >
       {children}
-    </button>
+    </Action>
   );
 }
 
@@ -95,7 +96,7 @@ function ThreadPreviewRow({
       className="group/activity-row relative border-t border-border/50 first:border-t-0"
       data-testid={`channel-activity-item-${item.conversationId}`}
     >
-      <button
+      <Action
         aria-label={`Open thread from ${item.senderLabel}`}
         className="absolute inset-0 z-0 w-full text-left"
         onClick={onOpen}
@@ -114,7 +115,7 @@ function ThreadPreviewRow({
             <span className="min-w-0 flex-1 truncate text-sm font-semibold leading-4 text-foreground">
               {item.senderLabel}
             </span>
-            <span className="shrink-0 text-xs leading-4 text-muted-foreground/70 transition-opacity group-hover/activity-row:opacity-0 group-focus-within/activity-row:opacity-0">
+            <span className="shrink-0 text-xs leading-4 text-muted-foreground transition-opacity group-hover/activity-row:opacity-0 group-focus-within/activity-row:opacity-0">
               {item.timestampLabel}
             </span>
           </div>
@@ -164,7 +165,7 @@ function WorkingAgentRow({
   pubkey: string;
 }) {
   return (
-    <button
+    <Action
       className="flex w-full min-w-0 items-start gap-2.5 border-t border-border/50 px-3 py-3 text-left transition-colors first:border-t-0 hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-hidden"
       data-testid={`channel-activity-agent-${pubkey}`}
       onClick={onOpen}
@@ -183,16 +184,16 @@ function WorkingAgentRow({
           <span className="min-w-0 flex-1 truncate text-sm font-semibold leading-4 text-foreground">
             {name}
           </span>
-          <span className="shrink-0 text-xs leading-4 text-muted-foreground/70">
+          <span className="shrink-0 text-xs leading-4 text-muted-foreground">
             {elapsed}
           </span>
         </div>
         <span className="mt-0.5 flex items-center gap-1.5 text-xs leading-4 text-muted-foreground">
-          <Loader2 className="h-3.5 w-3.5 animate-spin text-primary/70" />
+          <Loader2 className="size-3.5 animate-spin text-primary/70" />
           Working
         </span>
       </div>
-    </button>
+    </Action>
   );
 }
 

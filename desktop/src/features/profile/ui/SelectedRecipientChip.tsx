@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { Bot, X } from "lucide-react";
 
 import type { UserSearchResult } from "@/shared/api/types";
@@ -47,7 +48,7 @@ export function SelectedRecipientChip({
 }) {
   return (
     <div className="inline-flex h-7 max-w-56 items-center gap-1.5 rounded-full bg-muted px-1 pr-2.5 text-sm transition-colors hover:bg-muted/80">
-      <button
+      <Action
         aria-label={`Remove ${label}`}
         className={cn(
           "group/remove-recipient relative h-5 w-5 shrink-0 rounded-full focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60",
@@ -84,13 +85,13 @@ export function SelectedRecipientChip({
           )}
           data-avatar-shape={user.isAgent ? "squircle" : "circle"}
         >
-          <X aria-hidden="true" className="h-3 w-3" />
+          <X aria-hidden="true" className="size-3" />
         </span>
-      </button>
+      </Action>
       {inspectable ? (
         <Popover onOpenChange={onInspectionOpenChange} open={inspectionOpen}>
           <PopoverAnchor asChild>
-            <button
+            <Action
               aria-expanded={inspectionOpen}
               aria-haspopup="dialog"
               aria-label={`Verify ${label} public key`}
@@ -103,7 +104,7 @@ export function SelectedRecipientChip({
               type="button"
             >
               {label}
-            </button>
+            </Action>
           </PopoverAnchor>
           <PopoverContent
             align="start"
@@ -126,7 +127,7 @@ export function SelectedRecipientChip({
       {user.isAgent ? (
         <Bot
           aria-label="agent"
-          className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+          className="size-3.5 shrink-0 text-muted-foreground"
         />
       ) : null}
     </div>

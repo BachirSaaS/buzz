@@ -15,15 +15,15 @@ export function ShellCommandBlock({
 
   return (
     <div
-      className="overflow-hidden rounded-lg bg-muted font-mono text-xs leading-5"
+      className="overflow-hidden rounded-blockui-md bg-muted font-mono text-xs leading-5"
       data-testid="transcript-shell-command"
     >
       <ScrollFadeMonoPanel
         fadeFromClassName="from-muted"
         maxHeightClassName="max-h-36"
       >
-        <p className="whitespace-pre-wrap wrap-break-word text-muted-foreground/70">
-          <Terminal className="mr-2 inline h-3.5 w-3.5 align-[-0.1875rem] text-primary" />
+        <p className="whitespace-pre-wrap wrap-break-word text-muted-foreground">
+          <Terminal className="mr-2 inline size-4 align-text-bottom text-primary" />
           {command}
         </p>
       </ScrollFadeMonoPanel>

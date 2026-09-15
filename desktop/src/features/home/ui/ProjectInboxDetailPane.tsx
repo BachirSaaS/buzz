@@ -93,7 +93,7 @@ export function ProjectInboxDetailPane({
                   type="button"
                   variant="ghost"
                 >
-                  <ArrowLeft className="h-4 w-4" />
+                  <ArrowLeft className="size-4" />
                 </Button>
               ) : null}
               <UserAvatar
@@ -120,7 +120,7 @@ export function ProjectInboxDetailPane({
               type="button"
               variant="ghost"
             >
-              <ExternalLink className="h-4 w-4" />
+              <ExternalLink className="size-4" />
               {showWideActions ? openLabel : null}
             </Button>
           </div>

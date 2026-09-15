@@ -117,7 +117,7 @@ function EmptyBestie() {
   return (
     <div className="flex min-h-32 flex-col items-center justify-center gap-3 px-4 text-center">
       <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
-        <Plus aria-hidden="true" className="h-5 w-5" />
+        <Plus aria-hidden="true" className="size-5" />
       </div>
       <div>
         <h2 className="text-sm font-semibold">Choose a Bestie</h2>
@@ -447,7 +447,7 @@ export function BestiePopover({
                 {contextMessage.author}
               </span>
             </div>
-            <p className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-4 text-foreground/80">
+            <p className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-4 text-foreground">
               {contextMessage.body}
             </p>
           </div>

@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { MoreHorizontal, Trash2 } from "lucide-react";
 import * as React from "react";
 
@@ -24,20 +25,20 @@ export function DeleteActionMenu({ label, onConfirm }: DeleteActionMenuProps) {
     <div className="ml-auto opacity-0 transition-opacity group-hover:opacity-100">
       <DropdownMenu modal={false}>
         <DropdownMenuTrigger asChild>
-          <button
+          <Action
             className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
             tabIndex={-1}
             type="button"
           >
             <MoreHorizontal className={iconClass} />
-          </button>
+          </Action>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuItem
             className="text-destructive focus:text-destructive"
             onClick={() => setIsOpen(true)}
           >
-            <Trash2 className="mr-2 h-4 w-4" />
+            <Trash2 className="mr-2 size-4" />
             Delete {label}
           </DropdownMenuItem>
         </DropdownMenuContent>

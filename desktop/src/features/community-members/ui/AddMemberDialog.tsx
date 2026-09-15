@@ -1,3 +1,5 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { Action } from "@/shared/ui/action";
 import { ChevronDown, Search } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import * as React from "react";
@@ -203,9 +205,9 @@ export function DirectAddMemberForm({
     >
       <div className="space-y-1.5">
         {showLabel ? (
-          <label className="text-sm font-medium" htmlFor="member-search">
+          <BlockLabel className="text-sm font-medium" htmlFor="member-search">
             Person
-          </label>
+          </BlockLabel>
         ) : null}
         <div className="flex gap-2">
           <Popover
@@ -223,7 +225,7 @@ export function DirectAddMemberForm({
                 >
                   <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                     {selectedUsers.length === 0 ? (
-                      <Search className="h-4 w-4 shrink-0 text-muted-foreground/55" />
+                      <Search className="size-4 shrink-0 text-muted-foreground" />
                     ) : null}
                     {selectedUsers.map((user) => (
                       <motion.div
@@ -250,7 +252,7 @@ export function DirectAddMemberForm({
                       aria-expanded={isPickerOpen}
                       autoCapitalize="none"
                       autoCorrect="off"
-                      className="h-7 w-auto min-w-16 flex-1 border-0 bg-transparent px-0 py-0.5 text-sm shadow-none outline-hidden placeholder:text-muted-foreground/55 focus-visible:ring-0"
+                      className="h-7 w-auto min-w-16 flex-1 border-0 bg-transparent px-0 py-0.5 text-sm shadow-none outline-hidden placeholder:text-muted-foreground focus-visible:ring-0"
                       data-testid="member-pubkey-input"
                       disabled={addMutation.isPending}
                       id="member-search"
@@ -292,7 +294,7 @@ export function DirectAddMemberForm({
                       >
                         <DropdownMenu modal={false}>
                           <DropdownMenuTrigger asChild>
-                            <button
+                            <Action
                               aria-label="Choose member role"
                               className="inline-flex items-center gap-1.5 bg-transparent text-sm text-muted-foreground outline-hidden transition-colors hover:text-foreground focus-visible:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
                               data-testid="member-role"
@@ -300,8 +302,8 @@ export function DirectAddMemberForm({
                               type="button"
                             >
                               {selectedRoleLabel}
-                              <ChevronDown className="h-3.5 w-3.5 shrink-0" />
-                            </button>
+                              <ChevronDown className="size-3.5 shrink-0" />
+                            </Action>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent
                             align="end"
@@ -429,7 +431,7 @@ function SearchResult({
   const isDirectPubkey = user.displayName === null && user.nip05Handle === null;
 
   return (
-    <button
+    <Action
       className="flex min-h-11 w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-hidden"
       data-testid={`member-search-result-${user.pubkey}`}
       onClick={onSelect}
@@ -451,7 +453,7 @@ function SearchResult({
           public key
         </span>
       ) : null}
-    </button>
+    </Action>
   );
 }
 

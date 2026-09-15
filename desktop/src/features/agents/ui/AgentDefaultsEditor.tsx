@@ -1,3 +1,4 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
 /**
  * Settings card for global agent configuration defaults.
  *
@@ -51,7 +52,7 @@ const PROGRESSIVE_FIELDS_TRANSITION = {
 const PERSONA_SELECT_TRIGGER_CLASS = cn(
   PERSONA_FIELD_CONTROL_CLASS,
   PERSONA_FIELD_SHELL_CLASS,
-  "h-11 px-3 py-2 leading-6 hover:bg-muted/40 focus:bg-muted/40 [&>svg]:text-muted-foreground/60",
+  "h-11 px-3 py-2 leading-6 hover:bg-muted/40 focus:bg-muted/40 [&>svg]:text-muted-foreground",
 );
 
 export type GlobalAgentConfigSaveResult = Awaited<
@@ -251,7 +252,7 @@ export function AgentDefaultsEditor({
       onCustomModelEditingChange={setIsCustomModelEditing}
       onIsCustomProviderChange={setIsCustomProvider}
       onValidityChange={setConfigIsValid}
-      placeholderClassName={flatLayout ? "text-muted-foreground/55" : undefined}
+      placeholderClassName={flatLayout ? "text-muted-foreground" : undefined}
       runtimeFileConfig={runtimeFileConfig}
       key={selectedRuntime.id}
       selectClassName={flatLayout ? PERSONA_SELECT_TRIGGER_CLASS : undefined}
@@ -284,12 +285,12 @@ export function AgentDefaultsEditor({
       ) : (
         <>
           <div className="space-y-1.5">
-            <label
+            <BlockLabel
               className="text-sm font-medium text-foreground"
               htmlFor="global-agent-default-harness"
             >
               Default harness
-            </label>
+            </BlockLabel>
             <AgentDropdownSelect
               className={flatLayout ? PERSONA_SELECT_TRIGGER_CLASS : undefined}
               id="global-agent-default-harness"
@@ -297,7 +298,7 @@ export function AgentDefaultsEditor({
               options={harnessOptions}
               placeholder="Select a harness"
               placeholderClassName={
-                flatLayout ? "text-muted-foreground/55" : undefined
+                flatLayout ? "text-muted-foreground" : undefined
               }
               testId="global-agent-default-harness"
               value={selectedRuntime?.id ?? ""}
@@ -329,7 +330,7 @@ export function AgentDefaultsEditor({
       {!configSurfaceLoading && !configSurfaceError && (
         <div className="mt-4 flex flex-wrap items-center gap-3">
           {saveState === "saved" && (
-            <span className="flex min-w-0 items-center gap-1 text-sm text-green-600 dark:text-green-400">
+            <span className="flex min-w-0 items-center gap-1 text-sm text-success-foreground dark:text-success-foreground">
               <Check className="size-3.5 shrink-0" />
               {restartedCount > 0
                 ? `Saved. Restarted ${restartedCount} agent${restartedCount === 1 ? "" : "s"}.${failedRestartCount > 0 ? ` ${failedRestartCount} couldn't restart — check the Agents page.` : ""}`

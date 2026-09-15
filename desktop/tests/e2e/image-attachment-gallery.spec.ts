@@ -2,7 +2,7 @@ import { expect, type Page, test } from "@playwright/test";
 
 import { installMockBridge } from "../helpers/bridge";
 import { waitForAnimations } from "../helpers/animations";
-import { expectCornerRadiusPx, expectSmoothCorners } from "../helpers/css";
+import { expectCornerRadiusPx, expectBlockUICorners } from "../helpers/css";
 
 const IMAGE_SHAS = ["a".repeat(64), "b".repeat(64), "c".repeat(64)];
 const SPOILER_VISIBLE_SHA = "d".repeat(64);
@@ -173,7 +173,7 @@ test("image bundle lightbox navigates as a gallery", async ({ page }) => {
 
   const mosaic = row.locator("[data-image-mosaic]");
   await expect(mosaic).toHaveAttribute("data-image-mosaic-count", "3");
-  await expectSmoothCorners(mosaic);
+  await expectBlockUICorners(mosaic);
   const mosaicCornerRadius = await mosaic.evaluate(
     (element) => window.getComputedStyle(element).borderTopLeftRadius,
   );
@@ -209,7 +209,7 @@ test("image bundle lightbox navigates as a gallery", async ({ page }) => {
     .locator("[data-image-lightbox-frame] > div > div")
     .first();
   await expectCornerRadiusPx(lightboxSurface, 16);
-  await expectSmoothCorners(lightboxSurface);
+  await expectBlockUICorners(lightboxSurface);
   await expect(page.getByRole("button", { name: "Zoom out" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Zoom in" })).toBeEnabled();
 

@@ -131,8 +131,8 @@ export function ManagedAgentSessionPanel({
   return (
     <section
       className={cn(
-        "rounded-lg border border-border/70 bg-background/80 shadow-xs",
-        panelPadding && "p-4",
+        "blockui-activity rounded-blockui-lg border border-border bg-background font-sans shadow-none",
+        panelPadding && "p-6",
         autoTail && "flex flex-col overflow-hidden",
         className,
       )}
@@ -182,7 +182,7 @@ function SessionHeader({
   latestSessionId: string | null | undefined;
 }) {
   return (
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
       <div className="min-w-0">
         <div className="flex items-center gap-2">
           <h3 className="text-sm font-semibold tracking-tight">
@@ -190,7 +190,7 @@ function SessionHeader({
           </h3>
           <ObserverStatusBadge state={connectionState} />
         </div>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <p className="mt-2 text-sm text-muted-foreground">
           {hasObserver
             ? latestSessionId
               ? `Session ${shorten(latestSessionId)}`
@@ -252,8 +252,8 @@ function SessionBody({
         <RawEventRail events={events} />
 
         {errorMessage ? (
-          <p className="mt-4 inline-flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            <CircleAlert className="h-4 w-4" />
+          <p className="mt-4 inline-flex items-center gap-2 rounded-blockui-lg border border-destructive/30 bg-destructive/10 p-6 text-sm text-destructive">
+            <CircleAlert className="size-4" />
             {errorMessage}
           </p>
         ) : null}
@@ -300,8 +300,8 @@ function SessionBody({
       )}
 
       {errorMessage ? (
-        <p className="mt-4 inline-flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          <CircleAlert className="h-4 w-4" />
+        <p className="mt-4 inline-flex items-center gap-2 rounded-blockui-lg border border-destructive/30 bg-destructive/10 p-6 text-sm text-destructive">
+          <CircleAlert className="size-4" />
           {errorMessage}
         </p>
       ) : null}
@@ -368,9 +368,9 @@ function ObserverStatusBadge({ state }: { state: ConnectionState }) {
 function EmptyObserverState() {
   return (
     <div className="mt-4 flex min-h-48 flex-col items-center justify-center px-6 py-8 text-center">
-      <TerminalSquare className="mx-auto h-4 w-4 text-muted-foreground" />
+      <TerminalSquare className="mx-auto size-4 text-muted-foreground" />
       <p className="mt-3 text-sm font-medium">Observer not attached</p>
-      <p className="mt-1 text-sm text-muted-foreground">
+      <p className="mt-2 text-sm text-muted-foreground">
         The live feed is available for local agents started after this update.
       </p>
     </div>

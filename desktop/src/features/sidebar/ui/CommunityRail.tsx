@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import {
   DndContext,
   DragOverlay,
@@ -120,7 +121,7 @@ function CommunityButton({
       <Tooltip>
         <TooltipTrigger asChild>
           <ContextMenuTrigger asChild>
-            <button
+            <Action
               aria-current={isActive ? "true" : undefined}
               aria-label={tooltipLabel}
               className={cn(
@@ -173,7 +174,7 @@ function CommunityButton({
                   <span className="sr-only">unread</span>
                 </span>
               ) : null}
-            </button>
+            </Action>
           </ContextMenuTrigger>
         </TooltipTrigger>
         <TooltipContent side="right" sideOffset={8}>
@@ -260,7 +261,7 @@ function SortableCommunityButton({
         menu={
           <>
             <ContextMenuItem onClick={() => onMarkAllRead(community)}>
-              <CheckCheck className="h-4 w-4" />
+              <CheckCheck className="size-4" />
               Mark all as read
             </ContextMenuItem>
             <ContextMenuSeparator />
@@ -269,17 +270,17 @@ function SortableCommunityButton({
                 void writeTextToClipboard(community.relayUrl);
               }}
             >
-              <Link2 className="h-4 w-4" />
+              <Link2 className="size-4" />
               Copy community URL
             </ContextMenuItem>
             {canInvite ? (
               <ContextMenuItem onClick={onInvite}>
-                <Ticket className="h-4 w-4" />
+                <Ticket className="size-4" />
                 Invite to community
               </ContextMenuItem>
             ) : null}
             <ContextMenuItem onClick={() => onSetEditingCommunity(community)}>
-              <Settings2 className="h-4 w-4" />
+              <Settings2 className="size-4" />
               Community settings
             </ContextMenuItem>
           </>
@@ -414,15 +415,15 @@ export function CommunityRail({
       </DndContext>
       <Tooltip>
         <TooltipTrigger asChild>
-          <button
+          <Action
             aria-label="Add community"
             className="flex h-9 w-9 items-center justify-center rounded-2xl bg-sidebar-accent/60 text-sidebar-foreground/70 outline-hidden transition-all hover:rounded-xl hover:bg-primary/80 hover:text-primary-foreground focus:outline-none focus-visible:outline-none"
             data-testid="community-rail-add"
             onClick={onAddCommunity}
             type="button"
           >
-            <Plus className="h-4 w-4" />
-          </button>
+            <Plus className="size-4" />
+          </Action>
         </TooltipTrigger>
         <TooltipContent side="right" sideOffset={8}>
           Add community

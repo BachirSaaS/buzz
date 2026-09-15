@@ -1,3 +1,5 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { NativeSelect } from "@/shared/blockui/components/native-select";
 /**
  * Tier-1 buzz-agent model-tuning UI fields.
  *
@@ -147,12 +149,12 @@ export function EffortSelectField({
 
   return (
     <div className={cn("space-y-1.5", fieldClassName)}>
-      <label
+      <BlockLabel
         className={cn("text-sm font-medium", labelClassName)}
         htmlFor={htmlFor}
       >
         {label}
-      </label>
+      </BlockLabel>
       {useCustomSelect ? (
         <AgentDropdownSelect
           className={selectClassName}
@@ -166,7 +168,7 @@ export function EffortSelectField({
           value={currentEffort}
         />
       ) : (
-        <select
+        <NativeSelect
           className={cn(
             "flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs disabled:cursor-not-allowed disabled:opacity-60",
             selectClassName,
@@ -186,7 +188,7 @@ export function EffortSelectField({
               {option.label}
             </option>
           ))}
-        </select>
+        </NativeSelect>
       )}
     </div>
   );
@@ -293,9 +295,9 @@ export function NumericTuningFields({
         const inheritedVal = inheritedEnvVars[key];
         return (
           <div className="space-y-1.5" key={key}>
-            <label className="text-sm font-medium" htmlFor={testId}>
+            <BlockLabel className="text-sm font-medium" htmlFor={testId}>
               {label}
-            </label>
+            </BlockLabel>
             <Input
               aria-describedby={`help-${testId}`}
               autoComplete="off"

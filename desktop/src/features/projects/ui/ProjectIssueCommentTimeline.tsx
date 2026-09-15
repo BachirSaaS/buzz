@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { ChevronDown, ChevronUp, History } from "lucide-react";
 import * as React from "react";
 
@@ -51,7 +52,7 @@ export function ProjectIssueCommentTimeline({
 
   return (
     <div className="overflow-hidden px-px">
-      <button
+      <Action
         aria-expanded={!isCollapsed}
         className="flex min-h-10 w-full items-center gap-2 py-2.5 text-sm font-semibold text-muted-foreground transition-colors hover:text-foreground"
         data-testid="project-issue-comment-history-toggle"
@@ -63,7 +64,7 @@ export function ProjectIssueCommentTimeline({
             <span className="absolute top-2.5 -bottom-[1.875rem] w-px bg-border/80" />
           ) : null}
           <span className="relative z-10 flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-primary ring-1 ring-primary/35">
-            <History className="h-3 w-3" />
+            <History className="size-3" />
           </span>
         </span>
         <span className="flex min-h-5 min-w-0 flex-1 items-center text-left">
@@ -72,14 +73,14 @@ export function ProjectIssueCommentTimeline({
             : "Collapse comment history"}
         </span>
         {isCollapsed ? (
-          <ChevronDown className="mt-0.5 h-3.5 w-3.5" />
+          <ChevronDown className="mt-0.5 size-3.5" />
         ) : (
-          <ChevronUp className="mt-0.5 h-3.5 w-3.5" />
+          <ChevronUp className="mt-0.5 size-3.5" />
         )}
-      </button>
+      </Action>
 
       {!isCollapsed && earlierCommentCount > 0 && !isExpanded ? (
-        <button
+        <Action
           className="flex min-h-10 w-full items-center gap-2 py-2.5 text-sm font-semibold text-muted-foreground transition-colors hover:text-foreground"
           data-testid="project-issue-earlier-comments"
           onClick={() => setIsExpanded(true)}
@@ -88,13 +89,13 @@ export function ProjectIssueCommentTimeline({
           <span className="relative flex w-5 shrink-0 justify-center self-stretch">
             <span className="absolute top-2.5 -bottom-[1.875rem] w-px bg-border/80" />
             <span className="relative z-10 flex h-5 w-5 items-center justify-center rounded-full bg-background ring-1 ring-border/70">
-              <ChevronDown className="h-3 w-3" />
+              <ChevronDown className="size-3" />
             </span>
           </span>
           <span className="min-w-0 flex-1 text-left">
             Show {pluralize(earlierCommentCount, "earlier comment")}
           </span>
-        </button>
+        </Action>
       ) : null}
 
       {displayedComments.map((comment, index) => {
@@ -137,14 +138,14 @@ export function ProjectIssueCommentTimeline({
                   </ProfileAuthorName>
                 </span>
                 <span
-                  className="ml-auto w-20 shrink-0 text-right text-muted-foreground/70"
+                  className="ml-auto w-20 shrink-0 text-right text-muted-foreground"
                   title={formatExactTimestamp(comment.createdAt)}
                 >
                   {relativeTime(comment.createdAt)}
                 </span>
               </div>
               <ProjectRichContent
-                className="mt-1 text-sm text-foreground/90"
+                className="mt-1 text-sm text-foreground"
                 content={comment.content}
                 tags={comment.tags}
               />

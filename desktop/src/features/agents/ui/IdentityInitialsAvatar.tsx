@@ -45,7 +45,7 @@ export function IdentityInitialsAvatar({
         className,
       )}
     >
-      {initials.length > 0 ? initials : <UserRound className="h-8 w-8" />}
+      {initials.length > 0 ? initials : <UserRound className="size-8" />}
     </span>
   );
 }

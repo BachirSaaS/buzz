@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { Check, Plus } from "lucide-react";
 
 import type { AgentPersona } from "@/shared/api/types";
@@ -18,7 +19,7 @@ function AgentRow({
   onToggle: () => void;
 }) {
   return (
-    <button
+    <Action
       aria-pressed={inChannel ? undefined : selected}
       className={cn(
         "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
@@ -45,7 +46,7 @@ function AgentRow({
       </span>
       {inChannel ? (
         <span className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-muted-foreground">
-          <Check className="h-4 w-4" />
+          <Check className="size-4" />
           In channel
         </span>
       ) : (
@@ -58,23 +59,23 @@ function AgentRow({
               : "border-border bg-background",
           )}
         >
-          {selected ? <Check className="h-3.5 w-3.5" /> : null}
+          {selected ? <Check className="size-3.5" /> : null}
         </span>
       )}
-    </button>
+    </Action>
   );
 }
 
 function CreateAgentRow({ onCreateAgent }: { onCreateAgent: () => void }) {
   return (
-    <button
+    <Action
       className="flex w-full items-center gap-3 rounded-lg border border-border bg-card px-3 py-3 text-left transition-colors hover:bg-accent/50 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
       data-testid="add-channel-create-agent"
       onClick={onCreateAgent}
       type="button"
     >
       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-        <Plus className="h-5 w-5" />
+        <Plus className="size-5" />
       </span>
       <span className="min-w-0 flex-1">
         <span className="block text-sm font-medium text-foreground">
@@ -84,7 +85,7 @@ function CreateAgentRow({ onCreateAgent }: { onCreateAgent: () => void }) {
           Give it a name, purpose, and instructions.
         </span>
       </span>
-    </button>
+    </Action>
   );
 }
 

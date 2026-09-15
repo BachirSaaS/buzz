@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { ExternalLink, Plus, RefreshCw } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -26,7 +27,7 @@ function GitBashCard({
     <div
       className={cn(
         "min-h-16 px-4 py-4 text-sm",
-        !prerequisite.available && "bg-amber-500/5",
+        !prerequisite.available && "bg-warning",
       )}
       data-testid="doctor-git-bash"
     >
@@ -34,33 +35,33 @@ function GitBashCard({
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
             <p className="text-sm font-medium">Git Bash</p>
-            <span aria-hidden="true" className="text-muted-foreground/50">
+            <span aria-hidden="true" className="text-muted-foreground">
               ·
             </span>
             <span
               className={cn(
                 "inline-flex shrink-0 items-center rounded-md px-2 py-0.5 text-xs font-medium",
                 prerequisite.available
-                  ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
-                  : "bg-amber-500/15 text-amber-600 dark:text-amber-400",
+                  ? "bg-success text-success-foreground dark:text-success-foreground"
+                  : "bg-warning text-warning-foreground dark:text-warning-foreground",
               )}
             >
               {prerequisite.available ? "Available" : "Action needed"}
             </span>
           </div>
           {!prerequisite.available ? (
-            <button
+            <Action
               className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
               onClick={() => void openUrl(prerequisite.installInstructionsUrl)}
               type="button"
             >
-              <ExternalLink className="h-4 w-4" /> Install Git for Windows
-            </button>
+              <ExternalLink className="size-4" /> Install Git for Windows
+            </Action>
           ) : null}
         </div>
         {!prerequisite.available ? (
           <div
-            className="mt-3 space-y-1 text-sm text-muted-foreground/70"
+            className="mt-3 space-y-1 text-sm text-muted-foreground"
             data-settings-subcopy
           >
             <p>Required for buzz-agent shell tools on Windows.</p>
@@ -142,7 +143,7 @@ export function HarnessesSettingsPanel() {
                 System prerequisites
               </h2>
               <p
-                className="mt-1 text-sm font-normal text-muted-foreground/70"
+                className="mt-1 text-sm font-normal text-muted-foreground"
                 data-settings-subcopy
               >
                 Windows tools required by supported agents.
@@ -162,7 +163,7 @@ export function HarnessesSettingsPanel() {
                 Your runtimes
               </h2>
               <p
-                className="mt-1 text-sm font-normal text-muted-foreground/70"
+                className="mt-1 text-sm font-normal text-muted-foreground"
                 data-settings-subcopy
               >
                 Ready to use, or one click from installed.
@@ -189,7 +190,7 @@ export function HarnessesSettingsPanel() {
               ))}
             </div>
           ) : (
-            <div className="bg-amber-500/10 px-4 py-4 text-sm text-warning">
+            <div className="bg-warning px-4 py-4 text-sm text-warning">
               No agent runtimes ready yet — add one below.
             </div>
           )}
@@ -209,7 +210,7 @@ export function HarnessesSettingsPanel() {
               type="button"
               variant="outline"
             >
-              <Plus className="h-4 w-4" />
+              <Plus className="size-4" />
               Add runtimes
             </Button>
           </div>

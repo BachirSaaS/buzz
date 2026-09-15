@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 
 import type { EmojiSuggestion } from "@/features/messages/lib/useEmojiAutocomplete";
@@ -78,7 +79,7 @@ export const EmojiAutocomplete = React.memo(function EmojiAutocomplete({
           items={suggestions}
           onVirtualizer={handleVirtualizer}
           renderItem={(suggestion, index) => (
-            <button
+            <Action
               className={cn(
                 "flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-1.5 text-left text-sm",
                 index === selectedIndex
@@ -107,7 +108,7 @@ export const EmojiAutocomplete = React.memo(function EmojiAutocomplete({
               <span className="truncate text-muted-foreground">
                 :{suggestion.id}:
               </span>
-            </button>
+            </Action>
           )}
         />
       </div>

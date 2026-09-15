@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { Plus } from "lucide-react";
 
@@ -17,10 +18,10 @@ export const CreateIdentityCard = React.forwardRef<
   ref,
 ) {
   return (
-    <button
+    <Action
       aria-label={ariaLabel}
       className={cn(
-        "group relative flex aspect-[4/5] w-full min-w-0 items-center justify-center overflow-hidden rounded-2xl border border-dashed border-border/80 bg-transparent text-muted-foreground shadow-xs transition-colors hover:border-border hover:bg-muted/70 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+        "group relative flex aspect-[4/5] min-h-56 w-full min-w-0 items-center justify-center overflow-hidden rounded-blockui-lg border border-dashed border-border/80 bg-transparent text-muted-foreground shadow-none transition-colors hover:border-border hover:bg-muted/70 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
         className,
       )}
       data-testid={dataTestId}
@@ -29,11 +30,11 @@ export const CreateIdentityCard = React.forwardRef<
       {...buttonProps}
     >
       <span className="flex flex-col items-center justify-center gap-2 text-center">
-        <Plus className="h-7 w-7 transition-colors" />
+        <Plus aria-hidden="true" className="size-8 transition-colors" />
         {label ? (
           <span className="text-sm font-medium leading-5">{label}</span>
         ) : null}
       </span>
-    </button>
+    </Action>
   );
 });

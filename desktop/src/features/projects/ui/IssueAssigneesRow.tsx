@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { Check, Search, UserPlus, Users, X } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
@@ -244,7 +245,7 @@ export function IssueAssigneesRow({
           <Tooltip key={pubkey}>
             <TooltipTrigger asChild>
               {canUnassign ? (
-                <button
+                <Action
                   aria-label={`Unassign ${label}`}
                   className={cn(
                     "group relative inline-flex rounded-full focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring",
@@ -263,9 +264,9 @@ export function IssueAssigneesRow({
                       profile?.isAgent ? "rounded-squircle" : "rounded-full",
                     )}
                   >
-                    <X className="h-3 w-3 text-foreground" />
+                    <X className="size-3 text-foreground" />
                   </span>
-                </button>
+                </Action>
               ) : (
                 <span className="inline-flex">{avatar}</span>
               )}
@@ -308,7 +309,7 @@ export function IssueAssigneesRow({
           type="button"
           variant="ghost"
         >
-          <Check className="h-3 w-3" />
+          <Check className="size-3" />
           Assigned to me
         </Button>
       ) : null}
@@ -338,7 +339,7 @@ export function IssueAssigneesRow({
               </DialogDescription>
             </DialogHeader>
             <div className="flex items-center gap-2 border-b border-border/60 px-6 py-3">
-              <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <Search className="size-3.5 shrink-0 text-muted-foreground" />
               <Input
                 autoFocus
                 className="h-8 border-0 px-0 text-sm shadow-none focus-visible:ring-0"
@@ -357,7 +358,7 @@ export function IssueAssigneesRow({
                 candidates.map((candidate) => {
                   const label = assigneeSearchLabel(candidate);
                   return (
-                    <button
+                    <Action
                       className="flex w-full min-w-0 items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
                       data-testid={`project-assignee-result-${candidate.pubkey}`}
                       disabled={assignMutation.isPending}
@@ -385,7 +386,7 @@ export function IssueAssigneesRow({
                           {truncateNpub(candidate.pubkey)}
                         </span>
                       </span>
-                    </button>
+                    </Action>
                   );
                 })
               ) : (

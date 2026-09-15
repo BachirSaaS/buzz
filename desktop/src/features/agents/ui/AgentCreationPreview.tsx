@@ -1,3 +1,5 @@
+import { Input as BlockInput } from "@/shared/ui/input";
+import { Action } from "@/shared/ui/action";
 import emojiData from "@emoji-mart/data";
 import Picker from "@emoji-mart/react";
 import * as React from "react";
@@ -471,7 +473,7 @@ export function AgentCreationPreview({
         {activeTab === "image" ? (
           <div className="grid gap-2.5">
             {/* Click to browse zone */}
-            <button
+            <Action
               className="relative flex h-[80px] flex-col items-center justify-center gap-1.5 overflow-hidden rounded-lg border border-transparent bg-muted text-foreground transition-[background-color,border-color,box-shadow,color] duration-200 ease-out hover:bg-muted/80 disabled:opacity-60"
               disabled={disabled || isUploading}
               onClick={() => {
@@ -486,20 +488,20 @@ export function AgentCreationPreview({
                   className="h-5 w-5 border-2 text-muted-foreground"
                 />
               ) : (
-                <UploadCloud className="h-5 w-5 text-muted-foreground" />
+                <UploadCloud className="size-5 text-muted-foreground" />
               )}
               <span className="text-xs font-medium text-muted-foreground">
                 {isUploading ? "Uploading..." : "Drop or browse"}
               </span>
-            </button>
+            </Action>
 
             {/* URL input */}
             <div className="flex h-10 items-center gap-2.5 rounded-lg bg-muted px-3">
-              <Link2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
-              <input
+              <Link2 className="size-3.5 shrink-0 text-muted-foreground" />
+              <BlockInput
                 autoCapitalize="none"
                 autoCorrect="off"
-                className="min-w-0 flex-1 bg-transparent text-xs font-medium text-foreground outline-none placeholder:text-muted-foreground/50"
+                className="min-w-0 flex-1 bg-transparent text-xs font-medium text-foreground outline-none placeholder:text-muted-foreground"
                 disabled={disabled || isUploading}
                 onChange={(event) => setAvatarUrlDraft(event.target.value)}
                 onKeyDown={(event) => {
@@ -544,7 +546,7 @@ export function AgentCreationPreview({
             ) : null}
 
             {hasAvatar && onClearAvatar ? (
-              <button
+              <Action
                 className="flex min-h-8 w-full items-center justify-center rounded-lg text-xs text-destructive outline-hidden transition-colors duration-150 ease-out hover:bg-destructive/10 focus-visible:bg-destructive/10 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
                 disabled={disabled || isUploading}
                 onClick={() => {
@@ -554,7 +556,7 @@ export function AgentCreationPreview({
                 type="button"
               >
                 Remove {assetLabel}
-              </button>
+              </Action>
             ) : null}
           </div>
         ) : null}
@@ -614,7 +616,7 @@ export function AgentCreationPreview({
                   : swatch.toUpperCase() === selectedColor.toUpperCase();
 
                 return (
-                  <button
+                  <Action
                     aria-label={
                       isCustomSwatch
                         ? selectedEmoji
@@ -651,7 +653,7 @@ export function AgentCreationPreview({
                         }}
                       />
                     ) : null}
-                  </button>
+                  </Action>
                 );
               })}
             </div>
@@ -672,7 +674,7 @@ export function AgentCreationPreview({
             />
 
             {hasAvatar && onClearAvatar ? (
-              <button
+              <Action
                 className="flex min-h-8 w-full items-center justify-center rounded-lg text-xs text-destructive outline-hidden transition-colors duration-150 ease-out hover:bg-destructive/10 focus-visible:bg-destructive/10 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
                 disabled={disabled}
                 onClick={() => {
@@ -683,7 +685,7 @@ export function AgentCreationPreview({
                 type="button"
               >
                 Remove {assetLabel}
-              </button>
+              </Action>
             ) : null}
           </div>
         ) : null}
@@ -718,7 +720,7 @@ export function AgentCreationPreview({
                   isRoundedSquare
                     ? isCompact
                       ? "rounded-2xl"
-                      : "rounded-[2rem]"
+                      : "rounded-2xl"
                     : "rounded-squircle",
                 )}
                 role="img"
@@ -738,7 +740,7 @@ export function AgentCreationPreview({
                 alt={`${label} ${assetLabel}`}
                 className={cn(
                   "h-full w-full object-cover shadow-xs",
-                  isCompact ? "rounded-2xl" : "rounded-[2rem]",
+                  isCompact ? "rounded-2xl" : "rounded-2xl",
                 )}
                 src={avatarUrl}
               />
@@ -797,7 +799,7 @@ export function AgentCreationPreview({
                 <MaskedAvatarBadgeFrame
                   badge={
                     <PopoverTrigger asChild>
-                      <button
+                      <Action
                         aria-label={`Edit ${assetLabel}`}
                         className={cn(
                           "flex items-center justify-center rounded-full bg-sidebar-active text-sidebar-active-foreground shadow-lg transition-[background-color,scale] duration-150 ease-out hover:scale-[1.04] hover:bg-sidebar-active focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-default disabled:opacity-90 disabled:hover:scale-100",
@@ -820,7 +822,7 @@ export function AgentCreationPreview({
                             className={isCompact ? "h-3 w-3" : "h-4 w-4"}
                           />
                         )}
-                      </button>
+                      </Action>
                     </PopoverTrigger>
                   }
                   badgeBox={
@@ -844,7 +846,7 @@ export function AgentCreationPreview({
                       aria-label={`${label} ${assetLabel}`}
                       className={cn(
                         "relative flex h-full w-full shrink-0 items-center justify-center overflow-hidden shadow-xs transition-[background-color] duration-200 ease-out",
-                        isCompact ? "rounded-2xl" : "rounded-[2rem]",
+                        isCompact ? "rounded-2xl" : "rounded-2xl",
                       )}
                       role="img"
                       style={{
@@ -873,7 +875,7 @@ export function AgentCreationPreview({
                       alt={`${label} ${assetLabel}`}
                       className={cn(
                         "h-full w-full object-cover shadow-xs transition-shadow duration-150",
-                        isCompact ? "rounded-2xl" : "rounded-[2rem]",
+                        isCompact ? "rounded-2xl" : "rounded-2xl",
                         isDragOverAvatar &&
                           !isAvatarMenuOpen &&
                           "ring-2 ring-primary/30",
@@ -886,7 +888,7 @@ export function AgentCreationPreview({
                 <MaskedAvatarBadgeFrame
                   badge={
                     <PopoverTrigger asChild>
-                      <button
+                      <Action
                         aria-label={`Edit ${assetLabel}`}
                         className={cn(
                           "flex items-center justify-center rounded-full bg-sidebar-active text-sidebar-active-foreground shadow-lg transition-[background-color,scale] duration-150 ease-out hover:scale-[1.04] hover:bg-sidebar-active focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-default disabled:opacity-90 disabled:hover:scale-100",
@@ -909,7 +911,7 @@ export function AgentCreationPreview({
                             className={isCompact ? "h-3 w-3" : "h-4 w-4"}
                           />
                         )}
-                      </button>
+                      </Action>
                     </PopoverTrigger>
                   }
                   badgeBox={
@@ -971,7 +973,7 @@ export function AgentCreationPreview({
                 </MaskedAvatarBadgeFrame>
               ) : (
                 <PopoverTrigger asChild>
-                  <button
+                  <Action
                     aria-label={`Add ${assetLabel}`}
                     className={cn(
                       "group/add-avatar relative flex items-center justify-center bg-transparent text-primary shadow-xs transition-[background-color,border-color,color,filter,scale] duration-150 ease-out hover:scale-[1.02] hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-default disabled:opacity-60 disabled:hover:scale-100",
@@ -979,7 +981,7 @@ export function AgentCreationPreview({
                       isRoundedSquare
                         ? cn(
                             "border-2 border-dashed border-border hover:border-primary/60 hover:bg-primary/5",
-                            isCompact ? "rounded-2xl" : "rounded-[2rem]",
+                            isCompact ? "rounded-2xl" : "rounded-2xl",
                           )
                         : "border-0",
                       isDragOverAvatar &&
@@ -1024,7 +1026,7 @@ export function AgentCreationPreview({
                         )}
                       />
                     )}
-                  </button>
+                  </Action>
                 </PopoverTrigger>
               )}
             </div>

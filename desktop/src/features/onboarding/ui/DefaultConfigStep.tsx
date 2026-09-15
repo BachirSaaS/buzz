@@ -1,3 +1,4 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
 import * as React from "react";
 
 import {
@@ -247,12 +248,12 @@ function AgentDefaultsSection({
           {!onUseDifferentHarness ? (
             <div className="space-y-4">
               <div className="pl-3">
-                <label
+                <BlockLabel
                   className="text-sm font-medium"
                   htmlFor="global-agent-default-harness"
                 >
                   Default harness
-                </label>
+                </BlockLabel>
               </div>
               <AgentDropdownSelect
                 className={
@@ -264,7 +265,7 @@ function AgentDefaultsSection({
                 onValueChange={handleHarnessChange}
                 options={harnessOptions}
                 placeholder="Select a harness"
-                placeholderClassName="text-foreground/70"
+                placeholderClassName="text-foreground"
                 testId="global-agent-default-harness"
                 value={selectedRuntimeId}
               />
@@ -297,7 +298,7 @@ function AgentDefaultsSection({
               });
             }}
             onValidityChange={setConfigIsValid}
-            placeholderClassName="text-foreground/70"
+            placeholderClassName="text-foreground"
             runtimeFileConfig={runtimeFileConfig}
             selectClassName={
               cardLayout
@@ -314,7 +315,7 @@ function AgentDefaultsSection({
           />
 
           {onUseDifferentHarness ? (
-            <div className="flex items-baseline gap-1.5 text-sm text-foreground/70">
+            <div className="flex items-baseline gap-1.5 text-sm text-foreground">
               <span>or</span>
               <Button
                 className="h-auto p-0 text-sm text-foreground"
@@ -399,7 +400,7 @@ export function DefaultConfigStep({
             : "Choose your model settings"}
         </h1>
         <p
-          className={`w-full text-foreground/80 ${cardLayout ? "mt-2 text-base leading-6" : "mx-auto mt-3 max-w-[440px] text-sm leading-5"}`}
+          className={`w-full text-foreground ${cardLayout ? "mt-2 text-base leading-6" : "mx-auto mt-3 max-w-[440px] text-sm leading-5"}`}
         >
           {actions.useDifferentHarness
             ? "Choose your provider and enter an API key to connect to the Buzz harness."

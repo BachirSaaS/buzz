@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { cn } from "@/shared/lib/cn";
 
 import {
@@ -43,7 +44,7 @@ export function AnimatedAvatarBackdropPanel({
             swatch.toUpperCase() === backdropColor.toUpperCase();
 
         return (
-          <button
+          <Action
             aria-label={
               isCustomSwatch
                 ? "Choose custom backdrop color"
@@ -90,7 +91,7 @@ export function AnimatedAvatarBackdropPanel({
                 }}
               />
             ) : null}
-          </button>
+          </Action>
         );
       })}
     </div>

@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { Spinner } from "@/shared/ui/spinner";
 
@@ -51,7 +52,7 @@ export function QuickBotBar({ personas, pending, onAdd }: QuickBotBarProps) {
           return (
             <Tooltip key={persona.id}>
               <TooltipTrigger asChild>
-                <button
+                <Action
                   aria-label={`Add ${persona.displayName}`}
                   className={cn(
                     "relative flex h-7 w-7 shrink-0 items-center justify-center rounded-lg",
@@ -84,7 +85,7 @@ export function QuickBotBar({ personas, pending, onAdd }: QuickBotBarProps) {
                       <Spinner className="h-4 w-4 border-2 text-primary" />
                     </div>
                   ) : null}
-                </button>
+                </Action>
               </TooltipTrigger>
               <TooltipContent side="bottom" className="text-xs">
                 Add {instanceName} ({persona.displayName})

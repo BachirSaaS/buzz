@@ -122,15 +122,17 @@ export function AgentSnapshotCard({
 
   return (
     <Attachment
-      className="my-1 inline-flex w-fit max-w-full shadow-none"
+      className="my-2 inline-flex flex-wrap w-112 max-w-full gap-4 rounded-blockui-lg p-6 shadow-none font-sans text-sm"
       data-testid="agent-snapshot-card"
+      data-content-widget=""
+      data-block-media=""
       state={importState.phase === "error" ? "error" : "done"}
     >
       <AttachmentMedia
         className={cn(
           showThumb
-            ? "relative h-9 w-9"
-            : "bg-primary/10 text-primary ring-1 ring-primary/20 dark:bg-primary/15",
+            ? "relative size-12 rounded-blockui-md"
+            : "size-12 rounded-blockui-md bg-muted text-foreground",
         )}
         variant={showThumb ? "image" : "icon"}
       >
@@ -158,7 +160,7 @@ export function AgentSnapshotCard({
       </AttachmentMedia>
       <AttachmentContent>
         <AttachmentTitle
-          className="overflow-visible whitespace-normal text-clip"
+          className="overflow-visible whitespace-normal text-clip text-base font-semibold"
           title={displayName}
         >
           {displayName}
@@ -178,7 +180,7 @@ export function AgentSnapshotCard({
       </AttachmentContent>
       <AttachmentActions
         aria-label={`Actions for ${displayName}`}
-        className="ml-4 gap-2"
+        className="ml-0 flex-wrap gap-2"
         role="group"
       >
         <AttachmentAction

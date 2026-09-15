@@ -156,7 +156,7 @@ export function ReadmePanel({
         </div>
       ) : null}
       <div className="flex min-h-10 items-center gap-2 border-border/50 border-b bg-muted/20 px-4">
-        <BookOpen className="h-4 w-4 text-muted-foreground" />
+        <BookOpen className="size-4 text-muted-foreground" />
         <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
           {file ? baseName(file.path) : "README"}
         </span>
@@ -203,7 +203,7 @@ export function ReadmePanel({
             {externalHost === "github.com" ? (
               <GitHubMark className="h-6 w-6" />
             ) : (
-              <Globe className="h-6 w-6" />
+              <Globe className="size-6" />
             )}
           </div>
           <h3 className="text-base font-semibold text-foreground">
@@ -231,9 +231,9 @@ export function ReadmePanel({
                 size="sm"
               >
                 {sourceControls.clonePending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <Loader2 className="size-4 animate-spin" />
                 ) : (
-                  <DownloadCloud className="h-4 w-4" />
+                  <DownloadCloud className="size-4" />
                 )}
                 {sourceControls.clonePending ? "Cloning…" : "Clone locally"}
               </Button>
@@ -241,7 +241,7 @@ export function ReadmePanel({
             {externalOpenUrl ? (
               <Button asChild size="sm" variant="outline">
                 <a href={externalOpenUrl} rel="noreferrer" target="_blank">
-                  <ExternalLink className="h-4 w-4" />
+                  <ExternalLink className="size-4" />
                   Open on {externalHost}
                 </a>
               </Button>
@@ -271,7 +271,7 @@ export function ReadmePanel({
           action={
             sourceControls?.onAskForAccess ? (
               <Button onClick={sourceControls.onAskForAccess} size="sm">
-                <MessageCircle className="h-4 w-4" />
+                <MessageCircle className="size-4" />
                 Chat with an agent
               </Button>
             ) : undefined

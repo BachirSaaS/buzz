@@ -1,3 +1,5 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { Action } from "@/shared/ui/action";
 import { Check, ChevronDown, Copy, Pencil } from "lucide-react";
 import {
   AnimatePresence,
@@ -75,7 +77,7 @@ function IdentityRow({
         </p>
       </div>
       {copyValue ? (
-        <button
+        <Action
           aria-label={`Copy ${label}`}
           className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-muted px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           data-testid={`copy-${testId}`}
@@ -86,9 +88,9 @@ function IdentityRow({
           title={`Copy ${label}`}
           type="button"
         >
-          <Copy className="h-4 w-4 shrink-0" />
+          <Copy className="size-4 shrink-0" />
           Copy
-        </button>
+        </Action>
       ) : null}
     </div>
   );
@@ -112,7 +114,7 @@ function EditProfileMetadataButton({
   const accessibleLabel = isEditing ? `Done editing ${label}` : `Edit ${label}`;
 
   return (
-    <button
+    <Action
       aria-label={accessibleLabel}
       className={cn(
         "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60",
@@ -128,7 +130,7 @@ function EditProfileMetadataButton({
     >
       <Icon className="h-4 w-4 shrink-0" />
       {actionLabel}
-    </button>
+    </Action>
   );
 }
 
@@ -561,7 +563,7 @@ export function ProfileSettingsCard({
                               className={avatarEditShellClassName}
                               data-testid="profile-avatar-edit-shell"
                             >
-                              <button
+                              <Action
                                 aria-expanded={isAvatarEditorOpen}
                                 aria-label={
                                   isAvatarEditorSaving
@@ -585,9 +587,9 @@ export function ProfileSettingsCard({
                                     className="h-4 w-4 border-2"
                                   />
                                 ) : (
-                                  <Pencil className="h-4 w-4" />
+                                  <Pencil className="size-4" />
                                 )}
-                              </button>
+                              </Action>
                             </div>
                           )
                         }
@@ -692,15 +694,15 @@ export function ProfileSettingsCard({
                         >
                           <div className="flex min-h-16 items-center gap-4 px-4 py-3">
                             <div className="min-w-0 flex-1 space-y-1">
-                              <label
+                              <BlockLabel
                                 className="block text-sm font-medium"
                                 htmlFor="profile-display-name"
                               >
                                 Display name
-                              </label>
+                              </BlockLabel>
                               {isEditingProfileMetadata ? (
                                 <Input
-                                  className="h-auto border-0 bg-transparent px-0 py-0 text-sm text-muted-foreground shadow-none placeholder:text-muted-foreground/60 focus-visible:ring-0"
+                                  className="h-auto border-0 bg-transparent px-0 py-0 text-sm text-muted-foreground shadow-none placeholder:text-muted-foreground focus-visible:ring-0"
                                   data-testid="profile-display-name"
                                   disabled={updateProfileMutation.isPending}
                                   id="profile-display-name"
@@ -725,15 +727,15 @@ export function ProfileSettingsCard({
 
                           <div className="flex min-h-16 items-center gap-4 px-4 py-3">
                             <div className="min-w-0 flex-1 space-y-1">
-                              <label
+                              <BlockLabel
                                 className="block text-sm font-medium"
                                 htmlFor="profile-about"
                               >
                                 Profile description
-                              </label>
+                              </BlockLabel>
                               {isEditingProfileMetadata ? (
                                 <Textarea
-                                  className="min-h-[72px] resize-none border-0 bg-transparent px-0 py-0 text-sm leading-6 text-muted-foreground shadow-none placeholder:text-muted-foreground/60 focus-visible:ring-0"
+                                  className="min-h-[72px] resize-none border-0 bg-transparent px-0 py-0 text-sm leading-6 text-muted-foreground shadow-none placeholder:text-muted-foreground focus-visible:ring-0"
                                   data-testid="profile-about"
                                   disabled={updateProfileMutation.isPending}
                                   id="profile-about"
@@ -750,7 +752,7 @@ export function ProfileSettingsCard({
                                     "min-w-0 break-words text-sm",
                                     aboutDraft
                                       ? "text-muted-foreground"
-                                      : "text-muted-foreground/55",
+                                      : "text-muted-foreground",
                                   )}
                                   data-testid="profile-about-value"
                                   title={aboutDraft || "Not set"}
@@ -776,14 +778,14 @@ export function ProfileSettingsCard({
                                   Identity details
                                 </p>
                                 <p
-                                  className="text-sm font-normal text-muted-foreground/70"
+                                  className="text-sm font-normal text-muted-foreground"
                                   data-settings-subcopy
                                 >
                                   Your keypair and NIP-05 handle are fixed for
                                   this device.
                                 </p>
                               </div>
-                              <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-[color,transform] duration-150 ease-out group-open:rotate-180 group-hover/identity:text-foreground group-focus-visible/identity:text-foreground" />
+                              <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-[color,transform] duration-150 ease-out group-open:rotate-180 group-hover/identity:text-foreground group-focus-visible/identity:text-foreground" />
                             </summary>
                             <div
                               className="divide-y divide-border/55"

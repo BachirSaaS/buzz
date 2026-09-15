@@ -74,7 +74,7 @@ export function RuntimeIcon({
         className={cn(
           "rounded-md object-contain",
           className,
-          id === "omp" && "bg-[#0d0d0d] p-1",
+          id === "omp" && "bg-muted p-1",
           id === "grok" && "bg-white p-1",
         )}
         onError={() => setImageFailed(true)}

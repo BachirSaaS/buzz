@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { ChevronRight, ExternalLink, Plus, Search } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -145,7 +146,7 @@ export function HarnessCatalogDialog({
           <div className="flex max-h-56 min-h-0 flex-col sm:max-h-none sm:w-56">
             <div className="px-3 pt-3">
               <div className="relative">
-                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-sidebar-foreground/50" />
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-sidebar-foreground/50" />
                 <Input
                   aria-label="Search runtimes"
                   className="h-8 border-sidebar-border bg-sidebar-accent/40 pl-8 text-sm"
@@ -182,14 +183,14 @@ export function HarnessCatalogDialog({
                     data-testid="harness-catalog-refresh-error"
                   >
                     <span>Couldn't refresh runtimes.</span>
-                    <button
+                    <Action
                       className="shrink-0 underline underline-offset-2 hover:text-foreground"
                       data-testid="harness-catalog-refresh-retry"
                       onClick={() => void runtimesQuery.forceRefresh()}
                       type="button"
                     >
                       Retry
-                    </button>
+                    </Action>
                   </div>
                 ) : null}
                 {isLoading ? (
@@ -200,14 +201,14 @@ export function HarnessCatalogDialog({
                     data-testid="harness-catalog-load-error"
                   >
                     <span>Couldn't load runtimes.</span>
-                    <button
+                    <Action
                       className="shrink-0 text-destructive underline underline-offset-2 hover:text-foreground"
                       data-testid="harness-catalog-load-retry"
                       onClick={() => void runtimesQuery.forceRefresh()}
                       type="button"
                     >
                       Retry
-                    </button>
+                    </Action>
                   </div>
                 ) : filtered.length === 0 ? (
                   <p className="px-4 py-2 text-sm text-sidebar-foreground/60">
@@ -255,7 +256,7 @@ export function HarnessCatalogDialog({
                 )}
               </div>
               <div className="my-2 border-t border-sidebar-border/60" />
-              <button
+              <Action
                 aria-current={
                   selectedId === CUSTOM_ENTRY_ID ? "true" : undefined
                 }
@@ -269,16 +270,16 @@ export function HarnessCatalogDialog({
                 onClick={() => setSelectedId(CUSTOM_ENTRY_ID)}
                 type="button"
               >
-                <Plus className="h-4 w-4 shrink-0" />
+                <Plus className="size-4 shrink-0" />
                 <span className="min-w-0 flex-1 truncate text-sm font-medium">
                   Custom harness
                 </span>
-              </button>
+              </Action>
             </div>
           </div>
 
           {/* Right: detail pane */}
-          <div className="relative z-10 ml-px flex min-h-0 flex-1 flex-col overflow-hidden rounded-tl-xl bg-background shadow-[-1px_0_0_0_hsl(var(--sidebar-border)/0.45)]">
+          <div className="relative z-10 ml-px flex min-h-0 flex-1 flex-col overflow-hidden rounded-tl-xl bg-background shadow-[-1px_0_0_0_color-mix(in_srgb,_var(--sidebar-border)_45.0%,_transparent)]">
             <div
               className="flex min-h-0 flex-1 flex-col overflow-hidden"
               data-testid="harness-catalog-detail-pane"
@@ -330,7 +331,7 @@ function CatalogSection({
 }) {
   return (
     <div>
-      <button
+      <Action
         aria-expanded={open}
         className="flex w-full items-center gap-1 rounded-md px-2 py-1 text-left text-2xs font-semibold uppercase tracking-wider text-sidebar-foreground/60 transition-colors hover:text-sidebar-foreground focus:outline-hidden focus-visible:ring-2 focus-visible:ring-sidebar-ring/50"
         data-testid={testId}
@@ -351,7 +352,7 @@ function CatalogSection({
         >
           {count}
         </span>
-      </button>
+      </Action>
       {open ? <div className="space-y-1 pt-0.5">{children}</div> : null}
     </div>
   );
@@ -421,7 +422,7 @@ function CatalogListItem({
   const isReady = entry.availability === "available";
 
   return (
-    <button
+    <Action
       aria-current={isCurrent ? "true" : undefined}
       className={cn(
         "flex w-full items-center gap-2 rounded-lg px-4 py-1.5 text-left transition-[background-color,color,box-shadow] focus:outline-hidden focus-visible:ring-2 focus-visible:ring-sidebar-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar",
@@ -440,11 +441,11 @@ function CatalogListItem({
       {isReady ? (
         <span
           aria-label={`${entry.label} is ready`}
-          className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500"
+          className="h-1.5 w-1.5 shrink-0 rounded-full bg-success-foreground"
           role="img"
         />
       ) : null}
-    </button>
+    </Action>
   );
 }
 
@@ -513,7 +514,7 @@ function CatalogDetail({ entry }: { entry: AcpRuntimeCatalogEntry }) {
         type="button"
         variant={action.kind === "docs" ? "default" : "outline"}
       >
-        <ExternalLink className="mr-1 h-3.5 w-3.5" />
+        <ExternalLink className="mr-1 size-3.5" />
         {action.kind === "docs" ? action.label : installLinkLabel(entry)}
       </Button>
     ) : null;
@@ -539,7 +540,7 @@ function CatalogDetail({ entry }: { entry: AcpRuntimeCatalogEntry }) {
                 {statusLabel}
               </span>
             ) : isReady ? (
-              <span className="mt-1 inline-flex items-center rounded-md bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+              <span className="mt-1 inline-flex items-center rounded-md bg-success px-2 py-0.5 text-xs font-medium text-success-foreground dark:text-success-foreground">
                 Ready
               </span>
             ) : null}
@@ -584,7 +585,7 @@ function CatalogDetail({ entry }: { entry: AcpRuntimeCatalogEntry }) {
         <div className="flex shrink-0 items-center justify-end gap-3 border-t border-border/60 bg-background px-5 py-3">
           {isSecondaryCta ? (
             <p
-              className="text-xs text-muted-foreground/80"
+              className="text-xs text-muted-foreground"
               data-testid={`harness-catalog-ready-hint-${entry.id}`}
             >
               Already set up

@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import {
   Archive,
@@ -122,7 +123,7 @@ export function ProfileAgentActionRow({
   testId: string;
 }) {
   return (
-    <button
+    <Action
       className="flex min-h-16 w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
       data-testid={testId}
       disabled={disabled}
@@ -147,7 +148,7 @@ export function ProfileAgentActionRow({
       >
         {label}
       </span>
-    </button>
+    </Action>
   );
 }
 

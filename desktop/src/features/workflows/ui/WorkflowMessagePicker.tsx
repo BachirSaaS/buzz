@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { useInfiniteQuery, useQueries, useQuery } from "@tanstack/react-query";
 import { Check, LoaderCircle, Search } from "lucide-react";
 import * as React from "react";
@@ -227,7 +228,7 @@ export function WorkflowMessagePicker({
       data-testid="workflow-message-picker"
     >
       <div className="relative shrink-0 border-b border-border/70">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           aria-activedescendant={
             activeIndex !== null && visibleCandidates[activeIndex]
@@ -299,7 +300,7 @@ export function WorkflowMessagePicker({
         exactQuery.isFetching ? (
           <LoaderCircle
             aria-label="Loading messages"
-            className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground"
+            className="absolute right-3 top-1/2 size-4 -translate-y-1/2 animate-spin text-muted-foreground"
           />
         ) : null}
       </div>
@@ -352,7 +353,7 @@ export function WorkflowMessagePicker({
             className="flex items-center justify-center gap-2 px-3 py-8 text-sm text-muted-foreground"
             role="status"
           >
-            <LoaderCircle className="h-4 w-4 animate-spin" /> Loading messages…
+            <LoaderCircle className="size-4 animate-spin" /> Loading messages…
           </p>
         ) : visibleCandidates.length === 0 ? (
           <p className="px-3 py-8 text-center text-sm text-muted-foreground">
@@ -364,7 +365,7 @@ export function WorkflowMessagePicker({
           </p>
         ) : null}
         {failed ? (
-          <button
+          <Action
             className="w-full rounded-md px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-muted/45 hover:text-foreground"
             onClick={() => {
               void historyQuery.refetch();
@@ -377,10 +378,10 @@ export function WorkflowMessagePicker({
             type="button"
           >
             Couldn’t load all messages. Retry
-          </button>
+          </Action>
         ) : null}
         {!normalizedQuery && historyQuery.hasNextPage ? (
-          <button
+          <Action
             className="w-full rounded-md px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-muted/45 hover:text-foreground"
             disabled={disabled || historyQuery.isFetchingNextPage}
             onClick={() => void historyQuery.fetchNextPage()}
@@ -389,7 +390,7 @@ export function WorkflowMessagePicker({
             {historyQuery.isFetchingNextPage
               ? "Loading older messages…"
               : "Load older messages"}
-          </button>
+          </Action>
         ) : null}
       </div>
     </div>
@@ -423,7 +424,7 @@ function MessageOption({
     : undefined;
   const timestamp = formatTimestamp(candidate.createdAt);
   return (
-    <button
+    <Action
       aria-selected={selected}
       className={cn(
         "relative flex min-w-0 w-full items-start gap-2.5 overflow-hidden rounded-md border px-3 py-2.5 text-left transition-colors",
@@ -465,6 +466,6 @@ function MessageOption({
       <Check
         className={cn("mt-1 h-4 w-4 shrink-0", !selected && "opacity-0")}
       />
-    </button>
+    </Action>
   );
 }

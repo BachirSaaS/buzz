@@ -722,7 +722,7 @@ test("shows a sidebar update card when an update is ready", async ({
     )
     .toBe(false);
 
-  await page.getByTestId("settings-back-to-app").click();
+  await page.getByTestId("global-back").click();
 
   const updateCard = page.getByTestId("sidebar-update-card");
   await expect(updateCard).toBeVisible();
@@ -800,7 +800,7 @@ test("reflects an install started from the header update button on the sidebar c
   await expect(page.getByTestId("settings-panel-updates")).toContainText(
     "Update downloaded. Click to apply.",
   );
-  await page.getByTestId("settings-back-to-app").click();
+  await page.getByTestId("global-back").click();
 
   await page.getByTestId("channel-general").click();
 
@@ -859,7 +859,7 @@ test("shows manual-required update card and never auto-downloads on non-AppImage
     "AppImage",
   );
 
-  await page.getByTestId("settings-back-to-app").click();
+  await page.getByTestId("global-back").click();
 
   // Sidebar card shows the manual update card.
   const updateCard = page.getByTestId("sidebar-update-card-manual");

@@ -1,3 +1,7 @@
+import { Kbd as BlockKbd } from "@/shared/blockui/components/kbd";
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { RangeInput } from "@/shared/ui/native-controls";
+import { Action } from "@/shared/ui/action";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Check, ChevronUp, Mic, MicOff, Volume2, VolumeX } from "lucide-react";
 import * as React from "react";
@@ -171,9 +175,9 @@ export function MicControls({
               }
             >
               {isEffectivelyMuted || micUnavailable ? (
-                <MicOff className="h-4 w-4" />
+                <MicOff className="size-4" />
               ) : (
-                <Mic className="h-4 w-4" />
+                <Mic className="size-4" />
               )}
             </Button>
           </TooltipTrigger>
@@ -181,9 +185,9 @@ export function MicControls({
             {isPttMode && !micUnavailable && isEffectivelyMuted ? (
               <span className="flex items-center gap-1.5">
                 <span>Click to unmute or hold</span>
-                <kbd className="rounded border border-border/70 bg-muted/70 px-1.5 py-0.5 text-2xs text-muted-foreground">
+                <BlockKbd className="rounded border border-border/70 bg-muted/70 px-1.5 py-0.5 text-2xs text-muted-foreground">
                   {pushToTalkShortcut}
-                </kbd>
+                </BlockKbd>
               </span>
             ) : (
               micTooltip
@@ -216,10 +220,10 @@ export function MicControls({
                     style={micMeterBarStyle(rightBarHeight)}
                   />
                 </span>
-                <ChevronUp className="hidden h-4 w-4 group-data-[state=open]:block group-focus-visible:block group-hover:block" />
+                <ChevronUp className="hidden size-4 group-data-[state=open]:block group-focus-visible:block group-hover:block" />
               </span>
             ) : (
-              <ChevronUp className="h-4 w-4" />
+              <ChevronUp className="size-4" />
             )}
           </Button>
         </PopoverTrigger>
@@ -231,7 +235,7 @@ export function MicControls({
         <div className="flex flex-col gap-3">
           <div>
             <span className="mb-1 block text-xs font-medium">Input Mode</span>
-            <button
+            <Action
               aria-label={
                 isPttMode ? "Turn off Push to Talk" : "Turn on Push to Talk"
               }
@@ -248,10 +252,10 @@ export function MicControls({
                 className={cn("h-3 w-3 shrink-0", !isPttMode && "invisible")}
               />
               <span className="font-medium">Push to Talk</span>
-              <kbd className="ml-auto rounded border border-border/70 bg-muted/70 px-1.5 py-0.5 text-2xs font-medium text-muted-foreground">
+              <BlockKbd className="ml-auto rounded border border-border/70 bg-muted/70 px-1.5 py-0.5 text-2xs font-medium text-muted-foreground">
                 {pushToTalkShortcut}
-              </kbd>
-            </button>
+              </BlockKbd>
+            </Action>
             <span className="sr-only" aria-live="polite">
               {isPttMode
                 ? "Push to Talk is enabled."
@@ -269,14 +273,14 @@ export function MicControls({
             showChangeHint={!!selectedDeviceId && micConnected}
           />
           <div>
-            <label
+            <BlockLabel
               htmlFor="mic-volume"
               className="mb-1 block text-xs font-medium"
             >
               Input Volume
-            </label>
+            </BlockLabel>
             <div className="flex items-center gap-2">
-              <input
+              <RangeInput
                 id="mic-volume"
                 type="range"
                 min={0}
@@ -293,7 +297,7 @@ export function MicControls({
             {micUnavailable && (
               <div className="mt-3 rounded-md border border-foreground/10 bg-foreground/8 px-2 py-2 text-xs text-foreground">
                 <p className="font-medium">Microphone unavailable</p>
-                <p className="mt-1 leading-snug text-foreground/70">
+                <p className="mt-1 leading-snug text-foreground">
                   Check app microphone permission or select another input
                   device.
                 </p>
@@ -363,7 +367,7 @@ export function SpeakerControls({
           <PopoverContent
             align="center"
             aria-label="Headphones recommended"
-            className="buzz-huddle-drawer buzz-huddle-popover buzz-huddle-headphones-hint w-64 p-3 text-foreground"
+            className="w-64 bg-card p-3 text-card-foreground"
             onCloseAutoFocus={(event) => event.preventDefault()}
             onOpenAutoFocus={(event) => event.preventDefault()}
             side="top"
@@ -374,7 +378,7 @@ export function SpeakerControls({
                 <p className="text-xs font-medium">
                   Headphones help prevent echo
                 </p>
-                <p className="mt-1 text-xs leading-snug text-foreground/75">
+                <p className="mt-1 text-xs leading-snug text-foreground">
                   If people are nearby, speakers can feed back into your mic.
                   Headphones keep huddles clearer.
                 </p>
@@ -405,9 +409,9 @@ export function SpeakerControls({
           variant={ttsEnabled ? "secondary" : "ghost"}
         >
           {ttsEnabled ? (
-            <Volume2 className="h-4 w-4" />
+            <Volume2 className="size-4" />
           ) : (
-            <VolumeX className="h-4 w-4" />
+            <VolumeX className="size-4" />
           )}
         </Button>
         <PopoverTrigger asChild>
@@ -417,7 +421,7 @@ export function SpeakerControls({
             size="icon"
             variant="secondary"
           >
-            <ChevronUp className="h-4 w-4" />
+            <ChevronUp className="size-4" />
           </Button>
         </PopoverTrigger>
       </div>
@@ -466,7 +470,7 @@ export function DeviceList({
       <span className="mb-1 block text-xs font-medium">{label}</span>
       <ul className="flex flex-col">
         <li>
-          <button
+          <Action
             className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent"
             onClick={() => onSelect("")}
             type="button"
@@ -475,13 +479,13 @@ export function DeviceList({
               className={cn("h-4 w-4 shrink-0", selectedId && "invisible")}
             />
             System default
-          </button>
+          </Action>
         </li>
         {keyedDevices.map((d) => {
           const isSelected = selectedId === d.id;
           return (
             <li key={d.key}>
-              <button
+              <Action
                 className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent"
                 onClick={() => onSelect(d.id)}
                 type="button"
@@ -490,7 +494,7 @@ export function DeviceList({
                   className={cn("h-4 w-4 shrink-0", !isSelected && "invisible")}
                 />
                 <span className="truncate">{d.label}</span>
-              </button>
+              </Action>
             </li>
           );
         })}

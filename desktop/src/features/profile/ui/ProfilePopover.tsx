@@ -1,3 +1,5 @@
+import { Kbd as BlockKbd } from "@/shared/blockui/components/kbd";
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { Smile } from "lucide-react";
 
@@ -156,7 +158,7 @@ export function ProfilePopover({
                   open={presenceMenuOpen}
                 >
                   <PopoverTrigger asChild>
-                    <button
+                    <Action
                       aria-expanded={presenceMenuOpen}
                       aria-haspopup="menu"
                       className={cn(
@@ -172,7 +174,7 @@ export function ProfilePopover({
                       <span className="truncate">
                         {getPresenceLabel(currentStatus)}
                       </span>
-                    </button>
+                    </Action>
                   </PopoverTrigger>
                   <PopoverContent
                     align="start"
@@ -182,7 +184,7 @@ export function ProfilePopover({
                   >
                     <div aria-label="Presence status" role="menu">
                       {ALL_STATUSES.map((status) => (
-                        <button
+                        <Action
                           className={MENU_ITEM_CLASS}
                           data-testid={`profile-popover-status-${status}`}
                           disabled={isStatusPending}
@@ -196,7 +198,7 @@ export function ProfilePopover({
                             status={status}
                           />
                           <span>{getPresenceLabel(status)}</span>
-                        </button>
+                        </Action>
                       ))}
                     </div>
                   </PopoverContent>
@@ -206,7 +208,7 @@ export function ProfilePopover({
 
             {/* ── Status input (Slack-style) ──────────────────────── */}
             <div className="px-2 pt-0 pb-1">
-              <button
+              <Action
                 className="flex w-full items-center gap-2 rounded-lg border border-border/60 bg-transparent px-3 py-2 text-left text-sm outline-hidden transition-colors hover:bg-muted/50 focus:outline-none focus-visible:bg-muted/50 focus-visible:outline-none"
                 data-testid="profile-popover-set-status"
                 onClick={() => {
@@ -227,7 +229,7 @@ export function ProfilePopover({
                 ) : (
                   <Smile
                     aria-hidden="true"
-                    className="h-4 w-4 shrink-0 text-muted-foreground"
+                    className="size-4 shrink-0 text-muted-foreground"
                   />
                 )}
                 {hasUserStatus ? (
@@ -239,7 +241,7 @@ export function ProfilePopover({
                     Update your status
                   </span>
                 )}
-              </button>
+              </Action>
             </div>
 
             <hr className="my-1 h-px border-0 bg-border/60" />
@@ -255,7 +257,7 @@ export function ProfilePopover({
             ) : null}
 
             {onSendFeedback ? (
-              <button
+              <Action
                 className={MENU_ITEM_CLASS}
                 data-testid="profile-popover-send-feedback"
                 onClick={() => {
@@ -268,11 +270,11 @@ export function ProfilePopover({
                 type="button"
               >
                 <span className="flex-1">Send feedback</span>
-              </button>
+              </Action>
             ) : null}
 
             {/* ── Settings ───────────────────────────────────────── */}
-            <button
+            <Action
               className={MENU_ITEM_CLASS}
               data-testid="profile-popover-settings"
               onClick={() => {
@@ -285,10 +287,10 @@ export function ProfilePopover({
               type="button"
             >
               <span className="flex-1">Settings</span>
-              <kbd className="text-xs text-muted-foreground">
+              <BlockKbd className="text-xs text-muted-foreground">
                 {settingsShortcutLabel}
-              </kbd>
-            </button>
+              </BlockKbd>
+            </Action>
           </div>
         </PopoverContent>
       </Popover>

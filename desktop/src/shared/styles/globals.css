@@ -6,7 +6,10 @@
 @import "./globals/animations.css";
 @import "./globals/composer.css";
 @import "./globals/markdown.css";
-@import "./globals/theme.css";
+@import "../blockui/theme.css";
+@import "../blockui/aliases.css";
+@import "../blockui/foundation.css";
+@import "../blockui/application.css";
 @import "./globals/typography.css";
 @import "./globals/skeleton.css";
 @import "./globals/spoilers.css";

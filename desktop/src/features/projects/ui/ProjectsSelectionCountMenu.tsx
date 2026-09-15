@@ -149,7 +149,7 @@ export function ProjectsSelectionCountMenu({
           type="button"
           variant="ghost"
         >
-          <X className="h-3.5 w-3.5" />
+          <X className="size-4" />
           Clear selection
         </Button>
       </div>

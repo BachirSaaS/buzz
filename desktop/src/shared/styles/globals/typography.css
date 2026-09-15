@@ -15,16 +15,16 @@
      */
     --buzz-type-scale: 1;
     --buzz-type-rem: calc(1rem * var(--buzz-type-scale));
-    --text-xs: calc(var(--buzz-type-rem) * 0.75);
-    --text-sm: calc(var(--buzz-type-rem) * 0.875);
-    --text-base: var(--buzz-type-rem);
-    --text-lg: calc(var(--buzz-type-rem) * 1.125);
-    --text-xl: calc(var(--buzz-type-rem) * 1.25);
-    --text-2xl: calc(var(--buzz-type-rem) * 1.5);
-    --text-3xl: calc(var(--buzz-type-rem) * 1.875);
-    --text-4xl: calc(var(--buzz-type-rem) * 2.25);
-    --text-5xl: calc(var(--buzz-type-rem) * 3);
-    --text-6xl: calc(var(--buzz-type-rem) * 3.75);
+    --text-xs: var(--blockui-type-caption-size);
+    --text-sm: var(--blockui-type-body-small-size);
+    --text-base: var(--blockui-type-body-medium-size);
+    --text-lg: var(--blockui-type-body-large-size);
+    --text-xl: var(--blockui-type-body-large-size);
+    --text-2xl: var(--blockui-type-section-title-size);
+    --text-3xl: var(--blockui-type-page-title-size);
+    --text-4xl: var(--blockui-type-headline-large-size);
+    --text-5xl: var(--blockui-type-hero-size);
+    --text-6xl: var(--blockui-type-hero-size);
 
     /*
      * Default conversation type and comfy spacing for channels, DMs, threads,
@@ -67,6 +67,7 @@
 
   body {
     font-synthesis-weight: none;
+    font-family: var(--font-sans);
     font-variant-emoji: unicode;
     font-variant-ligatures: no-contextual;
     text-rendering: optimizeLegibility;

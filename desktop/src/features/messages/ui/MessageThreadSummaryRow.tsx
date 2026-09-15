@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 
 import type {
@@ -45,7 +46,7 @@ function ParticipantAvatar({
   const avatar = (
     <UserAvatar
       avatarUrl={participant.avatarUrl}
-      className="h-6 w-6 text-2xs"
+      className="size-6 text-2xs"
       displayName={participant.author}
       shape={participant.isAgent ? "squircle" : "circle"}
       size="sm"
@@ -79,6 +80,7 @@ function ParticipantAvatar({
 }
 
 export function MessageThreadSummaryRow({
+  inline = false,
   collapseDepthGuideActions,
   depth = 0,
   depthGuideDepths,
@@ -92,6 +94,7 @@ export function MessageThreadSummaryRow({
   summaryIndentOffsetRem = 0,
   unreadCount,
 }: {
+  inline?: boolean;
   collapseDepthGuideActions?: ReadonlyArray<ThreadDepthGuideAction>;
   depth?: number;
   depthGuideDepths?: ReadonlyArray<number>;
@@ -171,7 +174,7 @@ export function MessageThreadSummaryRow({
                       left: threadReplyLength(offset),
                     }}
                   />
-                  <button
+                  <Action
                     aria-label={collapseAction.label}
                     className="absolute bottom-0 top-0 z-20 w-5 -translate-x-1/2 cursor-pointer rounded-full focus-visible:outline-hidden"
                     data-thread-head-id={collapseAction.message.id}
@@ -232,28 +235,35 @@ export function MessageThreadSummaryRow({
         </div>
       ) : null}
 
-      <button
+      <Action
         aria-label={summaryAriaLabel}
-        className="group relative isolate inline-flex h-[1.875rem] w-fit max-w-full cursor-pointer items-center gap-1.5 rounded-full py-0 pr-3 text-left text-xs font-medium text-muted-foreground transition-[color,opacity] hover:text-foreground hover:opacity-90 focus-visible:outline-hidden"
+        className={cn(
+          "group relative isolate inline-flex h-[1.875rem] w-fit max-w-full cursor-pointer items-center gap-1.5 rounded-full py-0 text-left text-xs font-medium text-muted-foreground transition-[color,opacity] hover:text-foreground hover:opacity-90 focus-visible:outline-hidden",
+          inline
+            ? "bg-transparent hover:bg-transparent active:bg-transparent focus-visible:ring-2 focus-visible:ring-ring"
+            : "pr-3",
+        )}
         data-thread-head-id={message.id}
         data-testid="message-thread-summary"
         onClick={() => onOpenThread(message)}
         style={{
-          marginLeft: hoverLeft,
-          maxWidth: `calc(100% - ${hoverLeft})`,
-          paddingLeft: contentPaddingStart,
+          marginLeft: inline ? 0 : hoverLeft,
+          maxWidth: inline ? "100%" : `calc(100% - ${hoverLeft})`,
+          paddingLeft: inline ? 0 : contentPaddingStart,
         }}
         type="button"
       >
-        <span
-          aria-hidden="true"
-          className="pointer-events-none absolute bottom-[-0.125rem] top-[-0.125rem] rounded-full opacity-0 ring-border/70 transition-[background-color,box-shadow,opacity] group-hover:bg-background/95 group-hover:opacity-100 group-hover:ring-1 group-focus-visible:bg-background/95 group-focus-visible:opacity-100 group-focus-visible:ring-1 group-focus-visible:ring-ring"
-          data-testid="message-thread-summary-surface"
-          style={{
-            left: surfaceInsetStart,
-            right: 0,
-          }}
-        />
+        {!inline && (
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute bottom-[-0.125rem] top-[-0.125rem] rounded-full opacity-0 ring-border/70 transition-[background-color,box-shadow,opacity] group-hover:bg-background/95 group-hover:opacity-100 group-hover:ring-1 group-focus-visible:bg-background/95 group-focus-visible:opacity-100 group-focus-visible:ring-1 group-focus-visible:ring-ring"
+            data-testid="message-thread-summary-surface"
+            style={{
+              left: surfaceInsetStart,
+              right: 0,
+            }}
+          />
+        )}
         <div className="relative z-10 flex shrink-0 items-center">
           {summary.participants.map((participant, index) => (
             <ParticipantAvatar
@@ -279,10 +289,10 @@ export function MessageThreadSummaryRow({
             ) : null}
             {summary.lastReplyAt ? (
               <>
-                <span className="mx-1 font-normal text-muted-foreground/50">
+                <span className="mx-1 font-normal text-muted-foreground">
                   ·
                 </span>
-                <span className="inline-grid font-normal text-muted-foreground/70">
+                <span className="inline-grid font-normal text-muted-foreground">
                   <span
                     className="col-start-1 row-start-1 transition-opacity group-hover:opacity-0 group-focus-visible:opacity-0"
                     data-testid="message-thread-summary-last-reply"
@@ -301,7 +311,7 @@ export function MessageThreadSummaryRow({
             ) : null}
           </div>
         </div>
-      </button>
+      </Action>
     </div>
   );
 }

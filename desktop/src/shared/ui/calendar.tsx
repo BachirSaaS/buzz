@@ -1,3 +1,4 @@
+import { TableCell as BlockTableCell } from "@/shared/blockui/components/table";
 import * as React from "react";
 import {
   ChevronDownIcon,
@@ -153,11 +154,11 @@ function Calendar({
         },
         DayButton: CalendarDayButton,
         WeekNumber: ({ children, ...weekNumberProps }) => (
-          <td {...weekNumberProps}>
+          <BlockTableCell {...weekNumberProps}>
             <div className="flex size-[--cell-size] items-center justify-center text-center">
               {children}
             </div>
-          </td>
+          </BlockTableCell>
         ),
         ...components,
       }}

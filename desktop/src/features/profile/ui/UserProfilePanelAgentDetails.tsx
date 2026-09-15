@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { ChevronRight, MessageSquare } from "lucide-react";
 
 import { Markdown } from "@/shared/ui/markdown";
@@ -116,7 +117,7 @@ export function AgentInstructionRow({
     trimmedInstruction.length > 0 && onOpenInstructions !== undefined;
   const rowContent = (
     <>
-      <MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground" />
+      <MessageSquare className="size-4 shrink-0 text-muted-foreground" />
       <div className="min-w-0 flex-1 text-left">
         <div className="text-xs font-medium text-foreground">
           Agent instructions
@@ -151,21 +152,21 @@ export function AgentInstructionRow({
         )}
       </div>
       {canOpenInstructions ? (
-        <ChevronRight className="mt-2.5 h-4 w-4 shrink-0 text-muted-foreground" />
+        <ChevronRight className="mt-2.5 size-4 shrink-0 text-muted-foreground" />
       ) : null}
     </>
   );
 
   if (canOpenInstructions) {
     return (
-      <button
+      <Action
         className="flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40"
         data-testid="user-profile-agent-instruction-row"
         onClick={onOpenInstructions}
         type="button"
       >
         {rowContent}
-      </button>
+      </Action>
     );
   }
 

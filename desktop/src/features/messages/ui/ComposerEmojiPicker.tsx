@@ -164,7 +164,7 @@ export const ComposerEmojiPicker = React.memo(function ComposerEmojiPicker({
                 className="relative z-10 h-8 gap-1.5 bg-transparent shadow-none transition-colors data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                 value="emoji"
               >
-                <Smile aria-hidden className="h-4 w-4" />
+                <Smile aria-hidden className="size-4" />
                 Emoji
               </TabsTrigger>
               <TabsTrigger
@@ -172,7 +172,7 @@ export const ComposerEmojiPicker = React.memo(function ComposerEmojiPicker({
                 disabled={gifsDisabled}
                 value="gifs"
               >
-                <Images aria-hidden className="h-4 w-4" />
+                <Images aria-hidden className="size-4" />
                 GIFs
               </TabsTrigger>
             </TabsList>

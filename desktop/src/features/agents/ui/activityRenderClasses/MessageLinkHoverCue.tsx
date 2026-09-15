@@ -18,7 +18,7 @@ export function MessageLinkHoverCue({ className }: { className?: string }) {
       )}
     >
       Open in chat
-      <ArrowUpRight className="h-3 w-3" />
+      <ArrowUpRight className="size-3" />
     </span>
   );
 }

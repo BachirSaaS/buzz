@@ -1,22 +1,22 @@
+import { Table as BlockTable } from "@/shared/blockui/components/table";
 import * as React from "react";
-
-import { useSmoothCorners } from "@/shared/ui/smoothCorners";
 
 export function MarkdownTable({ children }: { children?: React.ReactNode }) {
   const tableBlockRef = React.useRef<HTMLDivElement | null>(null);
-  useSmoothCorners(tableBlockRef);
 
   return (
     <div
       ref={tableBlockRef}
-      className="overflow-x-auto rounded-2xl border border-border/70"
+      className="flex flex-col overflow-x-auto rounded-blockui-lg border border-border bg-card p-6"
       data-table-block=""
+      data-content-widget=""
+      data-block-media=""
     >
       {/* Inherit message wrap-anywhere for long tokens. The cells' minimum
           widths keep short labels readable; many-column tables scroll locally. */}
-      <table className="w-full border-collapse text-left text-sm">
+      <BlockTable className="w-full border-collapse text-left text-sm">
         {children}
-      </table>
+      </BlockTable>
     </div>
   );
 }

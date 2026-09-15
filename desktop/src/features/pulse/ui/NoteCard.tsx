@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import {
   Bot,
   Heart,
@@ -83,7 +84,7 @@ function ReplyParentContext({
             role={parentIsAgent ? "bot" : undefined}
             triggerElement="span"
           >
-            <button
+            <Action
               className="flex shrink-0 rounded-md focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
               type="button"
             >
@@ -93,19 +94,19 @@ function ReplyParentContext({
                 displayName={parentDisplayName ?? "Parent note author"}
                 shape={parentIsAgent ? "squircle" : "circle"}
               />
-            </button>
+            </Action>
           </UserProfilePopover>
           <span className="min-w-0 truncate">
             <UserProfilePopover
               pubkey={parentNote.pubkey}
               triggerElement="span"
             >
-              <button
-                className="rounded font-medium text-foreground/80 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+              <Action
+                className="rounded font-medium text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
                 type="button"
               >
                 {parentDisplayName}
-              </button>
+              </Action>
             </UserProfilePopover>
             : {parentSnippet || "No text"}
           </span>
@@ -153,7 +154,7 @@ export function NoteCard({
   const avatarUrl = profile?.avatarUrl ?? null;
   const [isReplyComposerOpen, setIsReplyComposerOpen] = React.useState(false);
   const actionButtonClass =
-    "inline-flex min-w-7 items-center gap-1.5 text-muted-foreground/60 transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring";
+    "inline-flex min-w-7 items-center gap-1.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring";
   const activeActionClass = "text-primary";
   const countPlaceholder = <span aria-hidden className="w-2.5" />;
   const reactionCountLabel =
@@ -168,7 +169,7 @@ export function NoteCard({
         pubkey={note.pubkey}
         role={isAgent ? "bot" : undefined}
       >
-        <button
+        <Action
           className="relative flex shrink-0 rounded-xl focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
           type="button"
         >
@@ -179,9 +180,9 @@ export function NoteCard({
             shape={isAgent ? "squircle" : "circle"}
           />
           {isAgent ? (
-            <Bot className="absolute -bottom-0.5 -right-0.5 h-4 w-4 rounded-full bg-background p-0.5 text-muted-foreground" />
+            <Bot className="absolute -bottom-0.5 -right-0.5 size-4 rounded-full bg-background p-0.5 text-muted-foreground" />
           ) : null}
-        </button>
+        </Action>
       </UserProfilePopover>
 
       <div className="min-w-0 flex-1">
@@ -191,12 +192,12 @@ export function NoteCard({
             pubkey={note.pubkey}
             role={isAgent ? "bot" : undefined}
           >
-            <button
+            <Action
               className="truncate rounded text-sm font-semibold leading-none tracking-tight focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
               type="button"
             >
               {displayName}
-            </button>
+            </Action>
           </UserProfilePopover>
           {isAgent ? (
             <span className="inline-flex h-4 items-center rounded bg-muted px-1 text-2xs font-medium text-muted-foreground">
@@ -208,7 +209,7 @@ export function NoteCard({
               {profile.nip05Handle}
             </span>
           ) : null}
-          <span className="shrink-0 text-xs text-muted-foreground/70">
+          <span className="shrink-0 text-xs text-muted-foreground">
             {formatRelativeTime(note.createdAt)}
           </span>
         </div>
@@ -228,7 +229,7 @@ export function NoteCard({
           <div className="flex flex-wrap items-center gap-5">
             <Tooltip>
               <TooltipTrigger asChild>
-                <button
+                <Action
                   aria-label={isUpvoted ? "Unlike" : "Like"}
                   aria-pressed={isUpvoted}
                   className={`${actionButtonClass} ${isUpvoted ? activeActionClass : ""} disabled:opacity-45`}
@@ -244,50 +245,50 @@ export function NoteCard({
                     className={`h-4 w-4 ${isUpvoted ? "fill-current" : ""}`}
                   />
                   {reactionCountLabel}
-                </button>
+                </Action>
               </TooltipTrigger>
               <TooltipContent>{isUpvoted ? "Unlike" : "Like"}</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
-                <button
+                <Action
                   aria-label="Reply"
                   aria-expanded={isReplyComposerOpen}
                   className={actionButtonClass}
                   onClick={() => setIsReplyComposerOpen((current) => !current)}
                   type="button"
                 >
-                  <MessageCircle className="h-4 w-4" />
+                  <MessageCircle className="size-4" />
                   {countPlaceholder}
-                </button>
+                </Action>
               </TooltipTrigger>
               <TooltipContent>Reply</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
-                <button
+                <Action
                   aria-label="Share"
                   className={actionButtonClass}
                   onClick={() => actions?.share?.(note)}
                   type="button"
                 >
-                  <SquareArrowOutUpRight className="h-4 w-4" />
+                  <SquareArrowOutUpRight className="size-4" />
                   {countPlaceholder}
-                </button>
+                </Action>
               </TooltipTrigger>
               <TooltipContent>Share</TooltipContent>
             </Tooltip>
             {!isOwnNote ? (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <button
+                  <Action
                     aria-label="Start direct message"
                     className={actionButtonClass}
                     onClick={() => actions?.startDm?.(note.pubkey)}
                     type="button"
                   >
-                    <PenSquare className="h-4 w-4" />
-                  </button>
+                    <PenSquare className="size-4" />
+                  </Action>
                 </TooltipTrigger>
                 <TooltipContent>Start direct message</TooltipContent>
               </Tooltip>

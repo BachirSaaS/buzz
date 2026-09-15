@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import {
   AlertCircle,
@@ -464,7 +465,7 @@ export function SnapshotShareDialog({
             className="absolute right-4 top-4 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 ease-out hover:bg-accent hover:text-accent-foreground focus:outline-hidden focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-100"
             disabled={isActionPending}
           >
-            <X className="h-4 w-4" />
+            <X className="size-4" />
             <span className="sr-only">Close</span>
           </DialogClose>
 
@@ -614,9 +615,9 @@ export function SnapshotShareDialog({
                             className="h-4 w-4 border-2"
                           />
                         ) : copyStatus === "copied" ? (
-                          <Check aria-hidden="true" className="h-4 w-4" />
+                          <Check aria-hidden="true" className="size-4" />
                         ) : (
-                          <Link2 aria-hidden="true" className="h-4 w-4" />
+                          <Link2 aria-hidden="true" className="size-4" />
                         )}
                         <span>{copyStatusLabel}</span>
                       </motion.span>
@@ -638,10 +639,10 @@ export function SnapshotShareDialog({
                   transition={warningTransition}
                 >
                   <div
-                    className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400"
+                    className="flex items-start gap-2 rounded-md border border-warning-foreground/30 bg-warning px-3 py-2 text-sm text-warning-foreground dark:text-warning-foreground"
                     data-testid={`${testIdPrefix}-memory-warning`}
                   >
-                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <AlertCircle className="mt-0.5 size-4 shrink-0" />
                     <p>
                       Memory is stored as <strong>plaintext</strong> in the
                       snapshot. Only share it with people you trust.
@@ -653,17 +654,17 @@ export function SnapshotShareDialog({
           </div>
         </div>
         {beforeExport}
-        <button
+        <Action
           className="relative flex min-h-14 w-full items-center gap-3 rounded-2xl bg-background px-5 py-4 text-left text-sm font-medium shadow-2xl outline-hidden transition-colors hover:bg-muted focus-visible:bg-muted disabled:cursor-default disabled:opacity-100"
           data-testid={`${testIdPrefix}-export`}
           disabled={isActionPending}
           onClick={onExport}
           type="button"
         >
-          <Download className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <Download className="size-4 shrink-0 text-muted-foreground" />
           <span className="min-w-0 flex-1">Export {itemLabel}</span>
-          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-        </button>
+          <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+        </Action>
       </DialogContent>
       <MemoryShareConfirmation
         itemLabel={itemLabel}
@@ -713,7 +714,7 @@ export function PersonaShareDialog({
             className="relative flex min-h-16 w-full items-center gap-3 rounded-2xl bg-background px-5 py-4 shadow-2xl"
             data-testid="persona-share-catalog"
           >
-            <BookUser className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <BookUser className="size-4 shrink-0 text-muted-foreground" />
             <div className="min-w-0 flex-1">
               <h3 className="text-sm font-medium">Share to catalog</h3>
               <p className="text-xs text-secondary-foreground/75">

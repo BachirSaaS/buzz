@@ -1,3 +1,6 @@
+import { ListChecks } from "lucide-react";
+import { Progress } from "@/shared/ui/progress";
+import { ChoiceInput } from "@/shared/ui/native-controls";
 import { cn } from "@/shared/lib/cn";
 import type { TranscriptItem } from "../agentSessionTypes";
 import type { CompactToolSummary } from "../agentSessionToolSummary";
@@ -33,11 +36,15 @@ export function TodoToolSummary({
   const isCompactPreview = variant === "compactPreview";
   const actionLabel = {
     verb: "Updated",
-    object: fallbackPreview ?? "todos",
+    object: todos.length > 0 ? "plan" : (fallbackPreview ?? "todos"),
   };
 
   return (
     <ActivityRow title={formatTranscriptTimestampTitle(item.timestamp)}>
+      <ListChecks
+        aria-hidden="true"
+        className="size-4 shrink-0 text-muted-foreground"
+      />
       <ActivityRowLabel
         object={actionLabel.object}
         openToneScope="tool"
@@ -45,13 +52,25 @@ export function TodoToolSummary({
         verb={actionLabel.verb}
       />
       {duration ? (
-        <span className="shrink-0 text-xs text-muted-foreground/60 group-open:text-foreground">
+        <span className="shrink-0 text-xs text-muted-foreground group-open:text-foreground">
           {duration}
         </span>
       ) : null}
-      <ActivityRowContent className="pt-1 pb-1.5">
+      {todos.length > 0 ? (
+        <span className="text-xs font-medium text-muted-foreground">
+          {todos.filter((todo) => todo.checked).length}/{todos.length} complete
+        </span>
+      ) : null}
+      <ActivityRowContent className="space-y-4">
         {todos.length > 0 ? (
-          <div className="space-y-1">
+          <div className="space-y-4">
+            <Progress
+              aria-label="Plan completion"
+              value={
+                (todos.filter((todo) => todo.checked).length / todos.length) *
+                100
+              }
+            />
             {todos.map((todo, index) => (
               <TodoCheckboxRow
                 // biome-ignore lint/suspicious/noArrayIndexKey: todo snapshots are static transcript content
@@ -63,7 +82,7 @@ export function TodoToolSummary({
         ) : (
           <p
             className={cn(
-              "text-muted-foreground/80",
+              "text-muted-foreground",
               isCompactPreview ? "text-xs" : "text-sm",
             )}
           >
@@ -93,9 +112,9 @@ function TodoCheckboxRow({ todo }: { todo: TodoDisplayItem }) {
         isCompactPreview ? "text-xs" : "text-sm",
       )}
     >
-      <input
+      <ChoiceInput
         checked={todo.checked}
-        className="mt-0.5 h-3.5 w-3.5 shrink-0 cursor-default accent-primary"
+        className="mt-0.5 size-4 shrink-0 cursor-default accent-primary"
         disabled
         readOnly
         type="checkbox"

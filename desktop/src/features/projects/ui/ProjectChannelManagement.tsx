@@ -75,7 +75,7 @@ export function ProjectChannelManagement({
         type="button"
         variant="ghost"
       >
-        <Plus className="h-4 w-4" />
+        <Plus className="size-4" />
       </Button>
     </>
   );

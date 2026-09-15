@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { ChevronDown, ChevronUp, Pencil } from "lucide-react";
 
@@ -669,7 +670,7 @@ function ProfileHero({
       <div className="flex flex-col items-center gap-1">
         {onEditAgent ? (
           <h3 className="max-w-full" data-testid="user-profile-name-row">
-            <button
+            <Action
               aria-label={`Edit ${displayName}`}
               className="group relative flex max-w-full items-center justify-center gap-2 rounded-lg px-1 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
               data-testid="user-profile-edit-agent"
@@ -686,9 +687,9 @@ function ProfileHero({
                 className="pointer-events-none absolute top-1/2 left-full ml-1 -translate-y-1/2 text-muted-foreground opacity-0 transition-[color,opacity] duration-150 ease-out group-hover:text-foreground group-hover:opacity-100 group-focus-visible:opacity-100"
                 data-testid="user-profile-edit-agent-icon"
               >
-                <Pencil className="h-4 w-4" />
+                <Pencil className="size-4" />
               </span>
-            </button>
+            </Action>
           </h3>
         ) : (
           <h3
@@ -776,26 +777,26 @@ function ProfileHeroDescription({ about }: { about: string }) {
         </p>
       </div>
       {!expanded && isTruncated ? (
-        <button
+        <Action
           className={toggleClassName}
           data-testid="user-profile-description-toggle"
           onClick={() => setExpanded(true)}
           type="button"
         >
           more
-          <ChevronDown className="h-4 w-4" />
-        </button>
+          <ChevronDown className="size-4" />
+        </Action>
       ) : null}
       {expanded ? (
-        <button
+        <Action
           className={toggleClassName}
           data-testid="user-profile-description-toggle"
           onClick={() => setExpanded(false)}
           type="button"
         >
           less
-          <ChevronUp className="h-4 w-4" />
-        </button>
+          <ChevronUp className="size-4" />
+        </Action>
       ) : null}
     </div>
   );

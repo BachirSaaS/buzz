@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 
 import { AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
@@ -101,7 +102,7 @@ export function ManagedAgentRow({
     >
       <div className="flex items-start gap-3 px-4 py-3">
         {isLocal ? (
-          <button
+          <Action
             aria-expanded={isLogSelected}
             className="-m-1 min-w-0 flex-1 rounded-lg p-1 text-left transition-colors hover:bg-background/40"
             onClick={() =>
@@ -129,7 +130,7 @@ export function ManagedAgentRow({
               />
               <RuntimeBlock agent={agent} runtimeSource={runtimeSource} />
             </div>
-          </button>
+          </Action>
         ) : (
           <div className="min-w-0 flex-1">
             <div className="grid gap-3 lg:grid-cols-[minmax(0,1.8fr)_minmax(120px,0.8fr)_minmax(0,1.1fr)] lg:gap-4">
@@ -225,9 +226,9 @@ function AgentSummary({
       <div className="flex items-start gap-3">
         {isExpandable ? (
           isLogSelected ? (
-            <ChevronDown className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+            <ChevronDown className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
           ) : (
-            <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+            <ChevronRight className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
           )
         ) : (
           <span className="mt-0.5 h-4 w-4 shrink-0" />
@@ -246,13 +247,13 @@ function AgentSummary({
             <AgentOriginBadge agent={agent} />
             {agent.personaOrphaned ? (
               <Badge className="gap-1" variant="warning">
-                <AlertTriangle className="h-3 w-3" />
+                <AlertTriangle className="size-3" />
                 Configuration missing
               </Badge>
             ) : null}
             {agent.personaOutOfDate ? (
               <Badge className="gap-1" variant="warning">
-                <AlertTriangle className="h-3 w-3" />
+                <AlertTriangle className="size-3" />
                 Out of date
               </Badge>
             ) : null}
@@ -268,18 +269,18 @@ function AgentSummary({
             )}
           </div>
           {agent.personaOrphaned ? (
-            <p className="mt-1.5 text-xs text-amber-600 dark:text-amber-400">
+            <p className="mt-1.5 text-xs text-warning-foreground dark:text-warning-foreground">
               This agent's configuration is missing — it may still be syncing or
               was deleted on another device.
             </p>
           ) : agent.needsRestart ? (
-            <p className="mt-1.5 text-xs text-amber-600 dark:text-amber-400">
+            <p className="mt-1.5 text-xs text-warning-foreground dark:text-warning-foreground">
               Configuration changed since this agent started. Restart to apply
               it.
             </p>
           ) : null}
           {agent.personaOutOfDate ? (
-            <p className="mt-1.5 text-xs text-amber-600 dark:text-amber-400">
+            <p className="mt-1.5 text-xs text-warning-foreground dark:text-warning-foreground">
               Template updated since this agent was created. Respawn to apply
               the new configuration.
             </p>

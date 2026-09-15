@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 
@@ -227,11 +228,11 @@ export function ModelPicker({
           >
             <span className="truncate">{displayLabel}</span>
             {modelOriginLabel ? (
-              <span className="shrink-0 text-2xs text-muted-foreground/70">
+              <span className="shrink-0 text-2xs text-muted-foreground">
                 ({modelOriginLabel})
               </span>
             ) : null}
-            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            <ChevronDown className="size-4 text-muted-foreground" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
@@ -247,7 +248,7 @@ export function ModelPicker({
           ) : error ? (
             <div className="space-y-2 px-3 py-2 text-sm">
               <p className="text-destructive">Failed to load models.</p>
-              <button
+              <Action
                 className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
                 onClick={() => {
                   setHasRequestedModels(true);
@@ -256,7 +257,7 @@ export function ModelPicker({
                 type="button"
               >
                 Retry
-              </button>
+              </Action>
             </div>
           ) : !modelsData ? (
             <div className="px-3 py-2 text-sm text-muted-foreground">

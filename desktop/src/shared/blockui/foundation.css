@@ -1,0 +1,399 @@
+/* Adapted from squareup/blockui-web; see SOURCE.json and README.md. */
+:root {
+  --blockui-destructive-surface: color-mix(
+    in oklch,
+    var(--destructive) 10%,
+    transparent
+  );
+}
+
+:root.dark {
+  --blockui-destructive-surface: color-mix(
+    in oklch,
+    var(--destructive) 20%,
+    transparent
+  );
+}
+
+@custom-variant disabled-any (&:disabled,
+&[aria-disabled="true"],
+&[data-disabled]:not([data-disabled="false"]));
+
+:root {
+  --blockui-button-focus-ring-width: calc(1rem * 0.125);
+  --blockui-button-outline-border-width: calc(1rem * 0.0625);
+  --blockui-button-outline-border-width-active: calc(1rem * 0.03125);
+  --blockui-button-focus-ring-color: var(--ring);
+  --blockui-button-spinner-size: calc(1rem * 1.125);
+  --blockui-button-state-surface: var(--muted);
+  --blockui-button-prominent-fill: var(--primary);
+  --blockui-button-prominent-fill-hover: color-mix(
+    in oklch,
+    var(--primary) 80%,
+    transparent
+  );
+  --blockui-button-prominent-fill-pressed: var(
+    --blockui-button-prominent-fill-hover
+  );
+  --blockui-button-prominent-fill-disabled: var(--muted);
+  --blockui-button-prominent-label: var(--primary-foreground);
+  --blockui-button-prominent-label-disabled: var(--muted-foreground);
+  --blockui-button-subtle-fill: var(--secondary);
+  --blockui-button-subtle-fill-hover: color-mix(
+    in oklch,
+    var(--secondary),
+    var(--foreground) 5%
+  );
+  --blockui-button-subtle-fill-pressed: var(--muted);
+  --blockui-button-subtle-fill-disabled: var(--muted);
+  --blockui-button-subtle-label: var(--secondary-foreground);
+  --blockui-button-subtle-label-disabled: var(--muted-foreground);
+  --blockui-button-ghost-fill: transparent;
+  --blockui-button-ghost-fill-hover: var(--muted);
+  --blockui-button-ghost-fill-pressed: var(--muted);
+  --blockui-button-ghost-fill-disabled: transparent;
+  --blockui-button-ghost-label: var(--foreground);
+  --blockui-button-ghost-label-disabled: var(--muted-foreground);
+  --blockui-button-inverted-fill: var(--blockui-text-inverse);
+  --blockui-button-inverted-fill-hover: var(--accent);
+  --blockui-button-inverted-fill-pressed: var(--muted);
+  --blockui-button-inverted-fill-disabled: var(--muted);
+  --blockui-button-inverted-label: var(--foreground);
+  --blockui-button-inverted-label-disabled: var(--muted-foreground);
+  --blockui-button-destructive-fill: color-mix(
+    in oklch,
+    var(--destructive) 10%,
+    transparent
+  );
+  --blockui-button-destructive-fill-hover: color-mix(
+    in oklch,
+    var(--destructive) 20%,
+    transparent
+  );
+  --blockui-button-destructive-fill-pressed: var(
+    --blockui-button-destructive-fill-hover
+  );
+  --blockui-button-destructive-fill-disabled: var(--muted);
+  --blockui-button-destructive-label: var(--destructive);
+  --blockui-button-destructive-label-disabled: var(--muted-foreground);
+  --blockui-button-outline-fill: var(--background);
+  --blockui-button-outline-fill-hover: var(--muted);
+  --blockui-button-outline-fill-pressed: var(--muted);
+  --blockui-button-outline-fill-disabled: var(--background);
+  --blockui-button-outline-label: var(--foreground);
+  --blockui-button-outline-label-disabled: var(--muted-foreground);
+  --blockui-button-outline-border: var(--border);
+  --blockui-button-link-label-pressed: color-mix(
+    in oklch,
+    var(--primary),
+    var(--blockui-surface-app) 20%
+  );
+}
+
+:root.dark {
+  --blockui-button-focus-ring-color: var(--ring);
+  --blockui-button-ghost-fill-hover: color-mix(
+    in oklch,
+    var(--muted) 50%,
+    transparent
+  );
+  --blockui-button-destructive-fill: color-mix(
+    in oklch,
+    var(--destructive) 20%,
+    transparent
+  );
+  --blockui-button-destructive-fill-hover: color-mix(
+    in oklch,
+    var(--destructive) 30%,
+    transparent
+  );
+  --blockui-button-outline-fill: color-mix(
+    in oklch,
+    var(--input) 30%,
+    transparent
+  );
+  --blockui-button-outline-fill-hover: color-mix(
+    in oklch,
+    var(--input) 50%,
+    transparent
+  );
+  --blockui-button-outline-border: var(--input);
+}
+
+:root:not(
+  [data-substrate="managerbot"],
+  [data-substrate="moneybot"],
+  [data-substrate="arcade"]
+) {
+  --blockui-destructive-surface: var(--danger);
+  --blockui-button-focus-ring-color: #000000;
+  --blockui-button-state-surface: #f5f5f5;
+  --blockui-button-prominent-fill: #000000;
+  --blockui-button-prominent-fill-hover: #3b3b3b;
+  --blockui-button-prominent-fill-pressed: #242424;
+  --blockui-button-prominent-fill-disabled: #f5f5f5;
+  --blockui-button-prominent-label: #ffffff;
+  --blockui-button-prominent-label-disabled: #d1d1d1;
+
+  --blockui-button-subtle-fill: #e8e8e8;
+  --blockui-button-subtle-fill-hover: #dedede;
+  --blockui-button-subtle-fill-pressed: #d1d1d1;
+  --blockui-button-subtle-fill-disabled: #f5f5f5;
+  --blockui-button-subtle-label: #000000;
+  --blockui-button-subtle-label-disabled: #d1d1d1;
+
+  --blockui-button-ghost-fill: rgb(255 255 255 / 0.00019999999494757503);
+  --blockui-button-ghost-fill-hover: #dedede;
+  --blockui-button-ghost-fill-pressed: #d1d1d1;
+  --blockui-button-ghost-fill-disabled: rgb(
+    255 255 255 / 0.00019999999494757503
+  );
+  --blockui-button-ghost-label: #000000;
+  --blockui-button-ghost-label-disabled: #d1d1d1;
+
+  --blockui-button-inverted-fill: #ffffff;
+  --blockui-button-inverted-fill-hover: #dedede;
+  --blockui-button-inverted-fill-pressed: #d1d1d1;
+  --blockui-button-inverted-fill-disabled: #f5f5f5;
+  --blockui-button-inverted-label: #000000;
+  --blockui-button-inverted-label-disabled: #d1d1d1;
+
+  --blockui-button-destructive-fill: #fee2e2;
+  --blockui-button-destructive-fill-hover: #fecaca;
+  --blockui-button-destructive-fill-pressed: #fca5a5;
+  --blockui-button-destructive-fill-disabled: #f5f5f5;
+  --blockui-button-destructive-label: #d3040e;
+  --blockui-button-destructive-label-disabled: #d1d1d1;
+
+  --blockui-button-outline-fill: rgb(255 255 255 / 0.00019999999494757503);
+  --blockui-button-outline-fill-hover: #dedede;
+  --blockui-button-outline-fill-disabled: rgb(
+    255 255 255 / 0.00019999999494757503
+  );
+  --blockui-button-outline-label: #000000;
+  --blockui-button-outline-label-disabled: #d1d1d1;
+  --blockui-button-outline-border: #e8e8e8;
+  --blockui-button-outline-fill-pressed: #d1d1d1;
+
+  --blockui-button-link-label-pressed: color-mix(
+    in oklch,
+    var(--primary),
+    var(--blockui-surface-app) 20%
+  );
+}
+
+:root:not(
+  [data-substrate="managerbot"],
+  [data-substrate="moneybot"],
+  [data-substrate="arcade"]
+).dark {
+  --blockui-button-focus-ring-color: #ffffff;
+  --blockui-button-state-surface: #171717;
+  --blockui-button-prominent-fill: #ffffff;
+  --blockui-button-prominent-fill-hover: #e8e8e8;
+  --blockui-button-prominent-fill-pressed: #d1d1d1;
+  --blockui-button-prominent-fill-disabled: #171717;
+  --blockui-button-prominent-label: #000000;
+  --blockui-button-prominent-label-disabled: #3b3b3b;
+
+  --blockui-button-subtle-fill: #242424;
+  --blockui-button-subtle-fill-hover: #2e2e2e;
+  --blockui-button-subtle-fill-pressed: #0d0d0d;
+  --blockui-button-subtle-fill-disabled: #171717;
+  --blockui-button-subtle-label: #ffffff;
+  --blockui-button-subtle-label-disabled: #3b3b3b;
+
+  --blockui-button-ghost-fill: rgb(0 0 0 / 0.00019999999494757503);
+  --blockui-button-ghost-fill-hover: #2e2e2e;
+  --blockui-button-ghost-fill-pressed: #0d0d0d;
+  --blockui-button-ghost-fill-disabled: rgb(0 0 0 / 0.00019999999494757503);
+  --blockui-button-ghost-label: #ffffff;
+  --blockui-button-ghost-label-disabled: #3b3b3b;
+
+  --blockui-button-inverted-fill: #000000;
+  --blockui-button-inverted-fill-hover: #2e2e2e;
+  --blockui-button-inverted-fill-pressed: #0d0d0d;
+  --blockui-button-inverted-fill-disabled: #171717;
+  --blockui-button-inverted-label: #ffffff;
+  --blockui-button-inverted-label-disabled: #3b3b3b;
+
+  --blockui-button-destructive-fill: #7f1d1d;
+  --blockui-button-destructive-fill-hover: #991b1b;
+  --blockui-button-destructive-fill-pressed: #450a0a;
+  --blockui-button-destructive-fill-disabled: #171717;
+  --blockui-button-destructive-label: #fca5a5;
+  --blockui-button-destructive-label-disabled: #3b3b3b;
+
+  --blockui-button-outline-fill: rgb(0 0 0 / 0.00019999999494757503);
+  --blockui-button-outline-fill-hover: #2e2e2e;
+  --blockui-button-outline-fill-disabled: rgb(0 0 0 / 0.00019999999494757503);
+  --blockui-button-outline-label: #ffffff;
+  --blockui-button-outline-label-disabled: #3b3b3b;
+  --blockui-button-outline-border: #242424;
+  --blockui-button-outline-fill-pressed: #0d0d0d;
+
+  --blockui-button-link-label-pressed: color-mix(
+    in oklch,
+    var(--primary),
+    var(--blockui-surface-app) 20%
+  );
+}
+
+@theme inline {
+  --color-blockui-button-focus-ring: var(--blockui-button-focus-ring-color);
+  --color-blockui-button-prominent-fill: var(--blockui-button-prominent-fill);
+  --color-blockui-button-prominent-fill-hover: var(
+    --blockui-button-prominent-fill-hover
+  );
+  --color-blockui-button-prominent-fill-pressed: var(
+    --blockui-button-prominent-fill-pressed
+  );
+  --color-blockui-button-prominent-fill-disabled: var(
+    --blockui-button-prominent-fill-disabled
+  );
+  --color-blockui-button-prominent-label: var(--blockui-button-prominent-label);
+  --color-blockui-button-prominent-label-disabled: var(
+    --blockui-button-prominent-label-disabled
+  );
+  --color-blockui-button-subtle-fill: var(--blockui-button-subtle-fill);
+  --color-blockui-button-subtle-fill-hover: var(
+    --blockui-button-subtle-fill-hover
+  );
+  --color-blockui-button-subtle-fill-pressed: var(
+    --blockui-button-subtle-fill-pressed
+  );
+  --color-blockui-button-subtle-fill-disabled: var(
+    --blockui-button-subtle-fill-disabled
+  );
+  --color-blockui-button-subtle-label: var(--blockui-button-subtle-label);
+  --color-blockui-button-subtle-label-disabled: var(
+    --blockui-button-subtle-label-disabled
+  );
+  --color-blockui-button-ghost-fill: var(--blockui-button-ghost-fill);
+  --color-blockui-button-ghost-fill-hover: var(
+    --blockui-button-ghost-fill-hover
+  );
+  --color-blockui-button-ghost-fill-pressed: var(
+    --blockui-button-ghost-fill-pressed
+  );
+  --color-blockui-button-ghost-fill-disabled: var(
+    --blockui-button-ghost-fill-disabled
+  );
+  --color-blockui-button-ghost-label: var(--blockui-button-ghost-label);
+  --color-blockui-button-ghost-label-disabled: var(
+    --blockui-button-ghost-label-disabled
+  );
+  --color-blockui-button-inverted-fill: var(--blockui-button-inverted-fill);
+  --color-blockui-button-inverted-fill-hover: var(
+    --blockui-button-inverted-fill-hover
+  );
+  --color-blockui-button-inverted-fill-pressed: var(
+    --blockui-button-inverted-fill-pressed
+  );
+  --color-blockui-button-inverted-fill-disabled: var(
+    --blockui-button-inverted-fill-disabled
+  );
+  --color-blockui-button-inverted-label: var(--blockui-button-inverted-label);
+  --color-blockui-button-inverted-label-disabled: var(
+    --blockui-button-inverted-label-disabled
+  );
+  --color-blockui-button-destructive-fill: var(
+    --blockui-button-destructive-fill
+  );
+  --color-blockui-button-destructive-fill-hover: var(
+    --blockui-button-destructive-fill-hover
+  );
+  --color-blockui-button-destructive-fill-pressed: var(
+    --blockui-button-destructive-fill-pressed
+  );
+  --color-blockui-button-destructive-fill-disabled: var(
+    --blockui-button-destructive-fill-disabled
+  );
+  --color-blockui-button-destructive-label: var(
+    --blockui-button-destructive-label
+  );
+  --color-blockui-button-destructive-label-disabled: var(
+    --blockui-button-destructive-label-disabled
+  );
+  --color-blockui-button-outline-fill: var(--blockui-button-outline-fill);
+  --color-blockui-button-outline-fill-hover: var(
+    --blockui-button-outline-fill-hover
+  );
+  --color-blockui-button-outline-fill-disabled: var(
+    --blockui-button-outline-fill-disabled
+  );
+  --color-blockui-button-outline-label: var(--blockui-button-outline-label);
+  --color-blockui-button-outline-label-disabled: var(
+    --blockui-button-outline-label-disabled
+  );
+  --color-blockui-button-outline-border: var(--blockui-button-outline-border);
+  --color-blockui-button-outline-fill-pressed: var(
+    --blockui-button-outline-fill-pressed
+  );
+  --color-blockui-button-link-label-pressed: var(
+    --blockui-button-link-label-pressed
+  );
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans:
+    "Inter Local", var(--blockui-font-sans), ui-sans-serif, system-ui,
+    sans-serif;
+  --font-mono:
+    "Cash Sans Mono Local", var(--blockui-font-mono), ui-monospace, "SF Mono",
+    Menlo, monospace;
+  --font-heading:
+    "Inter Local", var(--blockui-font-sans), ui-sans-serif, system-ui,
+    sans-serif;
+
+  --font-blockui-sans:
+    "Inter Local", var(--blockui-font-sans), ui-sans-serif, system-ui,
+    sans-serif;
+  --font-blockui-mono:
+    "Cash Sans Mono Local", var(--blockui-font-mono), ui-monospace, "SF Mono",
+    Menlo, monospace;
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+}
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+@custom-variant loading (&[data-loading]);
+
+[data-slot="button-spinner"] {
+  inline-size: var(--blockui-button-spinner-size);
+  block-size: var(--blockui-button-spinner-size);
+  background: currentColor;
+  mask:
+    url("/src/shared/blockui/button-progress.svg") center / contain no-repeat;
+}

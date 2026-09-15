@@ -8,17 +8,17 @@
   --buzz-avatar-framing-slider-fill: 50%;
   --buzz-avatar-framing-slider-fill-color: color-mix(
     in oklab,
-    hsl(var(--foreground)) 10.5%,
-    hsl(var(--background))
+    var(--foreground) 10.5%,
+    var(--background)
   );
 
   position: relative;
   height: 48px;
   width: 100%;
   overflow: visible;
-  border: 1px solid hsl(var(--foreground) / 0.08);
+  border: 1px solid color-mix(in srgb, var(--foreground) 8.0%, transparent);
   border-radius: 8px;
-  background: hsl(var(--background));
+  background: var(--background);
   cursor: pointer;
   touch-action: none;
   user-select: none;
@@ -30,7 +30,7 @@
 
 .buzz-avatar-framing-slider:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px hsl(var(--ring) / 0.42);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 42.0%, transparent);
 }
 
 .buzz-avatar-framing-slider-hashmarks {
@@ -48,7 +48,11 @@
   width: 4px;
   border: 0;
   border-radius: 9999px;
-  background: hsl(var(--foreground) / 0.14);
+  background: color-mix(
+    in srgb,
+    var(--foreground) 14.000000000000002%,
+    transparent
+  );
   transform: translate(-50%, -50%);
   transition: background 180ms ease;
 }
@@ -76,7 +80,7 @@
 
 .buzz-avatar-framing-slider-hashmark[data-reset="true"]:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px hsl(var(--ring) / 0.3);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 30.0%, transparent);
 }
 
 .buzz-avatar-framing-slider-fill {
@@ -108,7 +112,7 @@
   width: 3px;
   height: calc(100% + 8px);
   border-radius: 9999px;
-  background: hsl(var(--foreground));
+  background: var(--foreground);
   opacity: 0;
   pointer-events: none;
   transform: translate(-50%, -50%) scaleX(0.25);
@@ -131,7 +135,7 @@
   margin: 8px auto 0;
   width: 100%;
   max-width: none;
-  color: hsl(var(--muted-foreground) / 0.72);
+  color: color-mix(in srgb, var(--muted-foreground) 72.0%, transparent);
   font-size: calc(var(--buzz-type-rem) * 0.875);
   line-height: calc(var(--buzz-type-rem) * 1.25);
   text-align: center;

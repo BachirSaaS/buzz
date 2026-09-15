@@ -28,7 +28,7 @@ export function CopyButton({
       type="button"
       variant={variant}
     >
-      <Copy className="h-4 w-4" />
+      <Copy className="size-4" />
       <span className={iconOnly ? "sr-only" : undefined}>{resolvedLabel}</span>
     </Button>
   );

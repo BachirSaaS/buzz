@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import {
   Camera,
   Circle,
@@ -66,7 +67,7 @@ export function AnimatedAvatarReviewNav({
       {REVIEW_SECTIONS.filter((section) => !section.hidden).map((section) => {
         const Icon = section.icon;
         return (
-          <button
+          <Action
             aria-label={section.label}
             aria-pressed={activeSection === section.key}
             className="group flex flex-col items-center gap-1.5 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -82,7 +83,7 @@ export function AnimatedAvatarReviewNav({
                 "grid h-12 w-12 place-items-center rounded-full transition-[background-color,color,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none motion-safe:group-hover:scale-[1.04] motion-safe:group-active:scale-[0.98] group-disabled:scale-100",
                 activeSection === section.key
                   ? "bg-foreground text-background"
-                  : "bg-muted text-muted-foreground/70 group-hover:bg-muted/80 group-hover:text-muted-foreground group-disabled:bg-muted group-disabled:text-muted-foreground/70",
+                  : "bg-muted text-muted-foreground group-hover:bg-muted/80 group-hover:text-muted-foreground group-disabled:bg-muted group-disabled:text-muted-foreground",
               )}
             >
               <Icon
@@ -100,14 +101,14 @@ export function AnimatedAvatarReviewNav({
             >
               {section.caption}
             </span>
-          </button>
+          </Action>
         );
       })}
       <span
         aria-hidden="true"
         className="h-12 w-px shrink-0 rounded-full bg-border/70"
       />
-      <button
+      <Action
         aria-label="Retake the recording"
         className="group flex flex-col items-center gap-1.5 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         data-testid={`${testIdPrefix}-animated-retake`}
@@ -117,14 +118,14 @@ export function AnimatedAvatarReviewNav({
         title="Retake the recording"
         type="button"
       >
-        <span className="grid h-12 w-12 place-items-center rounded-full bg-muted text-muted-foreground/70 transition-[background-color,color,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none group-hover:bg-muted/80 group-hover:text-muted-foreground motion-safe:group-hover:scale-[1.04] motion-safe:group-active:scale-[0.98] group-disabled:bg-muted group-disabled:text-muted-foreground/70 group-disabled:scale-100">
+        <span className="grid h-12 w-12 place-items-center rounded-full bg-muted text-muted-foreground transition-[background-color,color,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none group-hover:bg-muted/80 group-hover:text-muted-foreground motion-safe:group-hover:scale-[1.04] motion-safe:group-active:scale-[0.98] group-disabled:bg-muted group-disabled:text-muted-foreground group-disabled:scale-100">
           <Camera
             aria-hidden="true"
-            className="h-5 w-5 transition-transform duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none motion-safe:group-hover:rotate-[5deg] motion-safe:group-hover:scale-[1.12] motion-safe:group-active:scale-[0.98]"
+            className="size-5 transition-transform duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none motion-safe:group-hover:rotate-[5deg] motion-safe:group-hover:scale-[1.12] motion-safe:group-active:scale-[0.98]"
           />
         </span>
         <span className="text-sm text-muted-foreground">Retake</span>
-      </button>
+      </Action>
     </div>
   );
 }

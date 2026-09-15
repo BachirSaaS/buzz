@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import type * as React from "react";
 import { BellOff, ChevronDown, CircleDot, X } from "lucide-react";
 
@@ -173,7 +174,7 @@ function DmChannelIcon({
   const primaryParticipant = participants?.[0];
 
   if (!primaryParticipant) {
-    return <CircleDot className="h-4 w-4" />;
+    return <CircleDot className="size-4" />;
   }
 
   if (!isPair && participants && participants.length > 1) {
@@ -210,7 +211,7 @@ function DmChannelIcon({
     );
   }
 
-  return <CircleDot className="h-4 w-4" />;
+  return <CircleDot className="size-4" />;
 }
 
 function SidebarChannelIcon({
@@ -440,7 +441,7 @@ export function SidebarSection({
       <div className="relative">
         <SidebarGroupLabel asChild={canToggle}>
           {canToggle ? (
-            <button
+            <Action
               aria-controls={contentId}
               aria-expanded={!isCollapsed}
               className={SECTION_LABEL_BUTTON_CLASS}
@@ -457,7 +458,7 @@ export function SidebarSection({
                   )}
                 />
               </span>
-            </button>
+            </Action>
           ) : (
             title
           )}
@@ -503,7 +504,7 @@ export function SidebarSection({
                       />
                     ) : null}
                     {channel.channelType === "dm" && onHideDm ? (
-                      <button
+                      <Action
                         aria-label="Close direct message"
                         className={cn(
                           "absolute right-1 top-1/2 z-10 -translate-y-1/2 after:absolute after:-inset-2 after:md:hidden group-data-[collapsible=icon]:hidden",
@@ -519,7 +520,7 @@ export function SidebarSection({
                         type="button"
                       >
                         <X />
-                      </button>
+                      </Action>
                     ) : null}
                   </SidebarMenuItem>
                 );

@@ -148,7 +148,7 @@ export function CustomEmojiSettingsCard() {
               <div className="min-w-0 flex-[1_1_22rem]">
                 <h4 className="text-sm font-medium">Upload an image</h4>
                 <p
-                  className="text-sm font-normal text-muted-foreground/70"
+                  className="text-sm font-normal text-muted-foreground"
                   data-settings-subcopy
                 >
                   Square images work best. GIF, PNG, JPEG, and WebP files are
@@ -165,7 +165,7 @@ export function CustomEmojiSettingsCard() {
                       draggable={false}
                     />
                   ) : (
-                    <ImagePlus className="h-6 w-6 text-muted-foreground" />
+                    <ImagePlus className="size-6 text-muted-foreground" />
                   )}
                 </div>
                 <div className="min-w-0 space-y-2">
@@ -195,7 +195,7 @@ export function CustomEmojiSettingsCard() {
               <div className="min-w-0 flex-[1_1_22rem]">
                 <h4 className="text-sm font-medium">Give it a name</h4>
                 <p
-                  className="text-sm font-normal text-muted-foreground/70"
+                  className="text-sm font-normal text-muted-foreground"
                   data-settings-subcopy
                 >
                   This is what you’ll type to add this emoji to messages and
@@ -228,7 +228,7 @@ export function CustomEmojiSettingsCard() {
                   </p>
                 ) : pendingUpload === null ? (
                   <p
-                    className="text-sm font-normal text-muted-foreground/70"
+                    className="text-sm font-normal text-muted-foreground"
                     data-settings-subcopy
                   >
                     Choose an image first; Buzz will suggest a name from the
@@ -236,7 +236,7 @@ export function CustomEmojiSettingsCard() {
                   </p>
                 ) : ownDuplicate ? (
                   <p
-                    className="text-sm font-normal text-muted-foreground/70"
+                    className="text-sm font-normal text-muted-foreground"
                     data-settings-subcopy
                   >
                     You already have :{normalized}: — saving will replace its
@@ -304,7 +304,7 @@ export function CustomEmojiSettingsCard() {
                     onClick={() => void handleRemove(e.shortcode)}
                     disabled={removeEmoji.isPending}
                   >
-                    <Trash2 className="h-4 w-4" />
+                    <Trash2 className="size-4" />
                   </Button>
                 </div>
               ))}

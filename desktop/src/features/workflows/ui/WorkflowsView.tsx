@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { Plus, RefreshCw } from "lucide-react";
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -89,15 +90,15 @@ function WorkflowsListSkeleton() {
 
 function CreateWorkflowCard({ onClick }: { onClick: () => void }) {
   return (
-    <button
+    <Action
       aria-label="Create Workflow"
       className="group relative flex min-h-60 w-full min-w-0 items-center justify-center overflow-hidden rounded-2xl border border-dashed border-border/80 bg-transparent text-muted-foreground shadow-xs transition-colors hover:border-border hover:bg-muted/70 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
       data-testid="new-workflow-card"
       onClick={onClick}
       type="button"
     >
-      <Plus className="h-7 w-7 transition-colors" />
-    </button>
+      <Plus className="size-7 transition-colors" />
+    </Action>
   );
 }
 
@@ -301,7 +302,9 @@ export function WorkflowsView({
             <WorkflowsListSkeleton />
           ) : allWorkflowsQuery.isError ? (
             <div className="flex flex-col items-center justify-center gap-2 py-16 text-muted-foreground">
-              <p className="text-sm text-red-400">Failed to load workflows</p>
+              <p className="text-sm text-danger-foreground">
+                Failed to load workflows
+              </p>
               <Button
                 onClick={() => void allWorkflowsQuery.refetch()}
                 size="sm"

@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { AgentManagementMarker } from "@/features/agents/ui/OtherSetupAgentMarker";
 import { ArrowUp, AtSign, Square, X } from "lucide-react";
 import {
@@ -180,7 +181,7 @@ export function ComposerMentionButton({
         >
           <Tooltip disableHoverableContent>
             <TooltipTrigger asChild>
-              <button
+              <Action
                 aria-label={hasAgents ? "Manage mentions" : "Mention someone"}
                 className={cn(
                   "flex h-8 items-center justify-center rounded-lg focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50",
@@ -198,8 +199,8 @@ export function ComposerMentionButton({
                 }}
                 type="button"
               >
-                <AtSign aria-hidden="true" className="h-4 w-4 shrink-0" />
-              </button>
+                <AtSign aria-hidden="true" className="size-4 shrink-0" />
+              </Action>
             </TooltipTrigger>
             <TooltipContent>
               {hasAgents ? "Manage mentions" : "Mention someone"}
@@ -265,7 +266,7 @@ export function ComposerMentionButton({
                             }
                           />
                           <span className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-full bg-foreground text-background opacity-0 transition-opacity group-hover/address:opacity-100 group-focus-visible/address:opacity-100">
-                            <X aria-hidden="true" className="h-3 w-3" />
+                            <X aria-hidden="true" className="size-3" />
                           </span>
                         </motion.button>
                       </TooltipTrigger>
@@ -298,14 +299,14 @@ export function ComposerMentionButton({
           style={{ width: "max-content" }}
         >
           <span className="whitespace-nowrap">{confirmationTitle}</span>
-          <button
+          <Action
             className="shrink-0 rounded-md px-1.5 py-1 font-medium text-primary outline-hidden hover:bg-primary/10 focus-visible:ring-1 focus-visible:ring-ring"
             onClick={onConfirmationTurnOff}
             onMouseDown={(event) => event.preventDefault()}
             type="button"
           >
             Turn off
-          </button>
+          </Action>
         </PopoverContent>
       ) : null}
     </Popover>
@@ -323,7 +324,7 @@ export function ComposerSendButton({
 }) {
   const isFinishingVoiceNote = onFinishVoiceNote != null;
   return (
-    <button
+    <Action
       aria-label={
         isFinishingVoiceNote
           ? "Finish voice note"
@@ -338,13 +339,13 @@ export function ComposerSendButton({
       type={isFinishingVoiceNote ? "button" : "submit"}
     >
       {isFinishingVoiceNote ? (
-        <Square aria-hidden className="h-3.5 w-3.5 fill-current" />
+        <Square aria-hidden className="size-4 fill-current" />
       ) : isSending ? (
         <SendSpinner />
       ) : (
-        <ArrowUp aria-hidden className="h-4 w-4" />
+        <ArrowUp aria-hidden className="size-4" />
       )}
-    </button>
+    </Action>
   );
 }
 

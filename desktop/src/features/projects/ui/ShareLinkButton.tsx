@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { Check, Link2 } from "lucide-react";
 import * as React from "react";
 
@@ -45,7 +46,7 @@ export function ShareLinkButton({
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <button
+        <Action
           aria-label={label}
           className={cn(
             "flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
@@ -56,11 +57,11 @@ export function ShareLinkButton({
           type="button"
         >
           {copied ? (
-            <Check className="h-3.5 w-3.5 text-green-500" />
+            <Check className="size-3.5 text-success-foreground" />
           ) : (
-            <Link2 className="h-3.5 w-3.5" />
+            <Link2 className="size-3.5" />
           )}
-        </button>
+        </Action>
       </TooltipTrigger>
       <TooltipContent>{copied ? "Link copied" : label}</TooltipContent>
     </Tooltip>

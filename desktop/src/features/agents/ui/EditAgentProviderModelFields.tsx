@@ -1,3 +1,4 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
 import { cn } from "@/shared/lib/cn";
 import { Input } from "@/shared/ui/input";
 
@@ -78,7 +79,7 @@ export function EditAgentProviderModelFields({
       {/* LLM provider */}
       {llmProviderFieldVisible ? (
         <div className="space-y-1.5">
-          <label
+          <BlockLabel
             className="text-sm font-medium text-foreground"
             htmlFor="edit-agent-llm-provider"
           >
@@ -90,7 +91,7 @@ export function EditAgentProviderModelFields({
             ) : (
               <span className={PERSONA_LABEL_OPTIONAL_CLASS}>Optional</span>
             )}
-          </label>
+          </BlockLabel>
           <PersonaDropdownField
             disabled={disabled}
             id="edit-agent-llm-provider"
@@ -139,7 +140,7 @@ export function EditAgentProviderModelFields({
 
       {/* Model */}
       <div className="space-y-1.5">
-        <label
+        <BlockLabel
           className="text-sm font-medium text-foreground"
           htmlFor="edit-agent-model"
         >
@@ -151,7 +152,7 @@ export function EditAgentProviderModelFields({
           ) : (
             <span className={PERSONA_LABEL_OPTIONAL_CLASS}>Optional</span>
           )}
-        </label>
+        </BlockLabel>
         <PersonaDropdownField
           disabled={disabled || modelDiscoveryLoading}
           id="edit-agent-model"

@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { createPortal } from "react-dom";
 
@@ -96,14 +97,14 @@ export function MediaContextMenu({
       style={{ ...POPOVER_SHADOW_STYLE, left: position.x, top: position.y }}
     >
       {items.map((item) => (
-        <button
+        <Action
           className={itemClass}
           key={item.label}
           onClick={item.onSelect}
           type="button"
         >
           {item.label}
-        </button>
+        </Action>
       ))}
     </div>,
     portalContainer ?? document.body,

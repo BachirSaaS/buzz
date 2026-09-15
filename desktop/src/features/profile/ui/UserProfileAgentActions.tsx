@@ -90,7 +90,7 @@ export function UserProfileAgentSettingsMenu({
                 onToggleAutoStart();
               }}
             >
-              <Power className="h-4 w-4 text-muted-foreground" />
+              <Power className="size-4 text-muted-foreground" />
               <span className="min-w-0 flex-1 text-sm font-medium">
                 Auto-start
               </span>
@@ -111,7 +111,7 @@ export function UserProfileAgentSettingsMenu({
               disabled={isPending}
               onClick={onDuplicatePersona}
             >
-              <CopyPlus className="h-4 w-4" />
+              <CopyPlus className="size-4" />
               Duplicate
             </DropdownMenuItem>
           ) : null}
@@ -121,7 +121,7 @@ export function UserProfileAgentSettingsMenu({
               disabled={isPending}
               onClick={onExportPersona}
             >
-              <Download className="h-4 w-4" />
+              <Download className="size-4" />
               Export
             </DropdownMenuItem>
           ) : null}
@@ -135,7 +135,7 @@ export function UserProfileAgentSettingsMenu({
                 disabled={isPending}
                 onClick={archiveActions.unarchive}
               >
-                <ArchiveRestore className="h-4 w-4" />
+                <ArchiveRestore className="size-4" />
                 {archiveActions.isPending ? "Unarchiving…" : unarchiveLabel}
               </DropdownMenuItem>
             ) : (
@@ -144,7 +144,7 @@ export function UserProfileAgentSettingsMenu({
                 disabled={isPending}
                 onSelect={() => setArchiveConfirmOpen(true)}
               >
-                <Archive className="h-4 w-4" />
+                <Archive className="size-4" />
                 {archiveActions.isPending ? "Archiving…" : archiveLabel}
               </DropdownMenuItem>
             )

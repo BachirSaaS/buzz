@@ -11,13 +11,16 @@ import {
   profilePanelTabFromSearch,
   profilePanelViewFromSearch,
 } from "@/features/profile/ui/UserProfilePanelUtils";
-import { PulseView } from "@/features/pulse/ui/PulseView";
+import { UnifiedPulseView } from "@/features/pulse/ui/UnifiedPulseView";
 import { useIdentityQuery } from "@/shared/api/hooks";
 import { ProfilePanelProvider } from "@/shared/context/ProfilePanelContext";
 import { useHistorySearchState } from "@/shared/hooks/useHistorySearchState";
 import { useThreadPanelWidth } from "@/shared/hooks/useThreadPanelWidth";
 
 const PULSE_PANEL_SEARCH_KEYS = [
+  "feed",
+  "channel",
+  "conversation",
   "profile",
   "profileTab",
   "profileView",
@@ -64,11 +67,15 @@ export function PulseScreen() {
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <div className="flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-            <PulseView currentPubkey={identityQuery.data?.pubkey} />
+            <UnifiedPulseView currentPubkey={identityQuery.data?.pubkey} />
           </div>
-          {profilePanelPubkey ? (
+          {profilePanelPubkey &&
+          values.feed !== "dm" &&
+          !(values.feed === "conversation" && values.conversation) &&
+          !(values.feed === "channel" && values.channel) ? (
             <UserProfilePanel
               canResetWidth={threadPanelWidth.canReset}
+              className="mb-(--buzz-top-chrome-height,40px) mr-2 h-auto overflow-hidden rounded-blockui-lg border-0"
               currentPubkey={identityQuery.data?.pubkey}
               onClose={handleCloseProfilePanel}
               onOpenDm={handleOpenDm}

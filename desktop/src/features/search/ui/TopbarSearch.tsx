@@ -1,3 +1,5 @@
+import { Kbd as BlockKbd } from "@/shared/blockui/components/kbd";
+import { Action } from "@/shared/ui/action";
 import { Search } from "lucide-react";
 import * as React from "react";
 import { resolveUserLabel } from "@/features/profile/lib/identity";
@@ -44,12 +46,12 @@ type TopbarSearchProps = {
   onCreateChannel?: () => void | Promise<void>;
   suggestionChannels?: Channel[];
   scopeFocusRequest?: number;
-  variant?: "bar" | "icon";
+  variant?: "bar" | "icon" | "dialog";
 };
 const MAX_SEARCH_SUGGESTIONS = 4;
 const SEARCH_RESULT_LIMIT = 40;
 const SEARCH_SECTION_TITLE_CLASS =
-  "px-2.5 pb-1.5 pt-2 text-xs font-medium text-muted-foreground/70";
+  "px-2.5 pb-1.5 pt-2 text-xs font-medium text-muted-foreground";
 const SEARCH_RESULT_SECTION_ORDER = [
   "channels",
   "direct-messages",
@@ -237,7 +239,7 @@ function SearchHitContextLine({ label }: { label: SearchHitContextLabel }) {
     <span
       className={cn(
         MESSAGE_MARKDOWN_CLASS,
-        "mt-0 flex min-w-0 items-center gap-1.5 text-2xs font-medium leading-3 text-muted-foreground/80",
+        "mt-0 flex min-w-0 items-center gap-1.5 text-2xs font-medium leading-3 text-muted-foreground",
       )}
     >
       <span className="shrink-0">{label.text}</span>
@@ -356,7 +358,7 @@ function SearchResultsSkeleton() {
           className="flex w-full items-center gap-3 rounded-lg px-3 py-2"
           key={row.key}
         >
-          <Skeleton className={cn("h-7 w-7 shrink-0", row.iconShape)} />
+          <Skeleton className={cn("size-7 shrink-0", row.iconShape)} />
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-1.5">
               <Skeleton className={cn("h-4", row.titleWidth)} />
@@ -397,6 +399,7 @@ export function TopbarSearch({
   const [selectedMenuIndex, setSelectedMenuIndex] = React.useState(0);
   const triggerRef = React.useRef<HTMLButtonElement>(null);
   const dialogInputRef = React.useRef<HTMLInputElement>(null);
+  const returnFocusRef = React.useRef<HTMLElement | null>(null);
   const { cancelDeferredModalOpen, openAfterExit, openNextFrame } =
     useDeferredModalOpen();
   const {
@@ -515,11 +518,14 @@ export function TopbarSearch({
 
   const openSearchDialog = React.useCallback(
     (nextScopeChannelId: string | null = null) => {
+      if (!isOpen && document.activeElement instanceof HTMLElement) {
+        returnFocusRef.current = document.activeElement;
+      }
       setScopeChannelId(nextScopeChannelId);
       setSelectedMenuIndex(0);
       openNextFrame(() => setIsOpen(true));
     },
-    [openNextFrame],
+    [isOpen, openNextFrame],
   );
 
   const handleSearchOpenChange = React.useCallback(
@@ -697,7 +703,7 @@ export function TopbarSearch({
           : null;
 
     return (
-      <button
+      <Action
         aria-selected={menuIndex === selectedMenuIndex}
         className={cn(
           "search-result-row flex w-full gap-3 rounded-lg px-2.5 text-left transition-colors",
@@ -721,7 +727,7 @@ export function TopbarSearch({
               resultProfiles?.[result.hit.pubkey.toLowerCase()]?.avatarUrl ??
               null
             }
-            className="h-8 w-8"
+            className="size-8"
             displayName={resolveUserLabel({
               currentPubkey,
               profiles: resultProfiles,
@@ -739,15 +745,15 @@ export function TopbarSearch({
         ) : result.kind === "user" ? (
           <UserAvatar
             avatarUrl={result.user.avatarUrl}
-            className="h-7 w-7"
+            className="size-7"
             displayName={userDisplayName ?? result.user.pubkey}
             shape={result.user.isAgent ? "squircle" : "circle"}
             size="sm"
           />
         ) : (
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-background/70 text-muted-foreground">
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-background/70 text-muted-foreground">
             {React.createElement(resultIcon(result, channelLookup), {
-              className: "h-4 w-4",
+              className: "size-4",
             })}
           </span>
         )}
@@ -758,7 +764,7 @@ export function TopbarSearch({
                 {title}
               </span>
               {trailingLabel ? (
-                <span className="col-start-2 row-start-1 flex shrink-0 items-center justify-self-end text-xs font-medium leading-4 text-muted-foreground/70">
+                <span className="col-start-2 row-start-1 flex shrink-0 items-center justify-self-end text-xs font-medium leading-4 text-muted-foreground">
                   {trailingLabel}
                 </span>
               ) : null}
@@ -787,11 +793,11 @@ export function TopbarSearch({
           )}
         </span>
         {result.kind !== "message" && trailingLabel ? (
-          <span className="shrink-0 text-2xs text-muted-foreground/75">
+          <span className="shrink-0 text-2xs text-muted-foreground">
             {trailingLabel}
           </span>
         ) : null}
-      </button>
+      </Action>
     );
   };
 
@@ -924,44 +930,46 @@ export function TopbarSearch({
   return (
     <div className={cn("relative", className)}>
       <Dialog open={isOpen} onOpenChange={handleSearchOpenChange}>
-        <button
-          aria-label="Search everything"
-          className={
-            isIconVariant
-              ? "group/search flex size-6 items-center justify-center rounded p-1 text-sidebar-foreground/50 transition-colors hover:bg-sidebar-border/35 hover:text-sidebar-foreground focus-visible:bg-sidebar-border/35 focus-visible:text-sidebar-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sidebar-ring"
-              : "group/search flex h-8 w-full items-center gap-2 rounded-md bg-sidebar-border/35 px-2 text-left text-sm text-sidebar-foreground/55 transition-colors duration-150 ease-out hover:bg-sidebar-border/35 hover:text-sidebar-foreground focus-visible:bg-sidebar-border/35 focus-visible:text-sidebar-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-sidebar-ring"
-          }
-          data-testid="open-search"
-          onClick={() => openSearchDialog(null)}
-          ref={triggerRef}
-          title="Search everything"
-          type="button"
-        >
-          <Search
+        {variant !== "dialog" && (
+          <Action
+            aria-label="Search everything"
             className={
               isIconVariant
-                ? "h-4 w-4 shrink-0"
-                : "h-4 w-4 shrink-0 text-sidebar-foreground/45 transition-colors duration-150 ease-out group-hover/search:text-sidebar-foreground/65 group-focus-visible/search:text-sidebar-foreground"
+                ? "group/search flex size-6 items-center justify-center rounded p-1 text-sidebar-foreground/50 transition-colors hover:bg-sidebar-border/35 hover:text-sidebar-foreground focus-visible:bg-sidebar-border/35 focus-visible:text-sidebar-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+                : "group/search flex h-8 w-full items-center gap-2 rounded-md bg-sidebar-border/35 px-2 text-left text-sm text-sidebar-foreground/55 transition-colors duration-150 ease-out hover:bg-sidebar-border/35 hover:text-sidebar-foreground focus-visible:bg-sidebar-border/35 focus-visible:text-sidebar-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-sidebar-ring"
             }
-          />
-          {isIconVariant ? null : (
-            <>
-              <span
-                className={cn(
-                  "min-w-0 flex-1 truncate transition-colors duration-150 ease-out",
-                  query
-                    ? "text-sidebar-foreground"
-                    : "text-sidebar-foreground/55",
-                )}
-              >
-                {query || "Search everything"}
-              </span>
-              <kbd className="shrink-0 text-2xs text-sidebar-foreground/45">
-                &#x2318;K
-              </kbd>
-            </>
-          )}
-        </button>
+            data-testid="open-search"
+            onClick={() => openSearchDialog(null)}
+            ref={triggerRef}
+            title="Search everything"
+            type="button"
+          >
+            <Search
+              className={
+                isIconVariant
+                  ? "size-4 shrink-0"
+                  : "size-4 shrink-0 text-sidebar-foreground/45 transition-colors duration-150 ease-out group-hover/search:text-sidebar-foreground/65 group-focus-visible/search:text-sidebar-foreground"
+              }
+            />
+            {isIconVariant ? null : (
+              <>
+                <span
+                  className={cn(
+                    "min-w-0 flex-1 truncate transition-colors duration-150 ease-out",
+                    query
+                      ? "text-sidebar-foreground"
+                      : "text-sidebar-foreground/55",
+                  )}
+                >
+                  {query || "Search everything"}
+                </span>
+                <BlockKbd className="shrink-0 text-2xs text-sidebar-foreground/45">
+                  &#x2318;K
+                </BlockKbd>
+              </>
+            )}
+          </Action>
+        )}
         <DialogContent
           aria-busy={isSearchLoading && visibleSearchableResults.length === 0}
           className="mt-[18vh] max-w-2xl self-start gap-0 overflow-hidden rounded-2xl p-0 shadow-2xl"
@@ -972,7 +980,7 @@ export function TopbarSearch({
           }}
           onCloseAutoFocus={(event) => {
             event.preventDefault();
-            triggerRef.current?.focus();
+            (triggerRef.current ?? returnFocusRef.current)?.focus();
           }}
           showCloseButton={false}
         >

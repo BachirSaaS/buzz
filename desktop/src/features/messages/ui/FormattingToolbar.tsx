@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { TextSelection } from "@tiptap/pm/state";
 import type { Editor } from "@tiptap/react";
@@ -390,7 +391,7 @@ export const FormattingToolbar = React.memo(function FormattingToolbar({
       {items.map((item) => (
         <Tooltip key={item.label} disableHoverableContent>
           <TooltipTrigger asChild>
-            <button
+            <Action
               type="button"
               aria-label={item.label}
               aria-pressed={item.active}
@@ -409,7 +410,7 @@ export const FormattingToolbar = React.memo(function FormattingToolbar({
               )}
             >
               <item.icon className="h-4 w-4" />
-            </button>
+            </Action>
           </TooltipTrigger>
           <TooltipContent>
             {"shortcut" in item

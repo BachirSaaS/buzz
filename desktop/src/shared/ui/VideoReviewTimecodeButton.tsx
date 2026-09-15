@@ -1,11 +1,10 @@
+import { Action } from "@/shared/ui/action";
 import type * as React from "react";
 
 import { cn } from "@/shared/lib/cn";
 
-const TIMECODE_ACCENT_CLASS =
-  "bg-[hsl(var(--buzz-video-review-accent,var(--primary))/0.15)] text-[hsl(var(--buzz-video-review-accent-foreground,var(--buzz-video-review-accent,var(--primary))))]";
-const TIMECODE_ACCENT_HOVER_CLASS =
-  "hover:bg-[hsl(var(--buzz-video-review-accent,var(--primary))/0.3)]";
+const TIMECODE_ACCENT_CLASS = "bg-secondary text-secondary-foreground";
+const TIMECODE_ACCENT_HOVER_CLASS = "hover:bg-accent";
 const MESSAGE_TIMECODE_ACCENT_CLASS =
   "bg-primary/15 text-primary hover:bg-primary/30";
 
@@ -43,7 +42,7 @@ export function VideoReviewTimecodeButton({
   timecode: string;
 }) {
   return (
-    <button
+    <Action
       aria-label={`Jump to ${timecode}`}
       className={timecodeClasses({ className, interactive: true, surface })}
       data-testid="video-review-comment-timecode"
@@ -51,7 +50,7 @@ export function VideoReviewTimecodeButton({
       onClick={onClick}
     >
       {timecode}
-    </button>
+    </Action>
   );
 }
 

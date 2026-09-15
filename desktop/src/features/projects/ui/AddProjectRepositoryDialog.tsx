@@ -1,3 +1,5 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { NativeSelect } from "@/shared/blockui/components/native-select";
 import * as React from "react";
 
 import type { Project } from "@/features/projects/hooks";
@@ -12,7 +14,7 @@ import { Input } from "@/shared/ui/input";
 const FIELD_SHELL_CLASS =
   "flex min-h-11 items-center rounded-xl border border-input bg-muted/40 px-3 transition-colors hover:border-muted-foreground/40 focus-within:border-muted-foreground/50";
 const FIELD_CONTROL_CLASS =
-  "h-8 border-0 bg-transparent px-0 py-0 text-muted-foreground/55 shadow-none outline-none ring-0 placeholder:text-muted-foreground/55 focus:bg-transparent focus:text-foreground focus-visible:ring-0";
+  "h-8 border-0 bg-transparent px-0 py-0 text-muted-foreground shadow-none outline-none ring-0 placeholder:text-muted-foreground focus:bg-transparent focus:text-foreground focus-visible:ring-0";
 
 export function AddProjectRepositoryDialog({
   accessChannelId,
@@ -127,14 +129,14 @@ export function AddProjectRepositoryDialog({
         >
           {projects ? (
             <div className="space-y-1.5">
-              <label
+              <BlockLabel
                 className="text-sm font-medium text-foreground"
                 htmlFor="add-project-repository-project"
               >
                 Project
-              </label>
+              </BlockLabel>
               <div className={FIELD_SHELL_CLASS}>
-                <select
+                <NativeSelect
                   className={cn(FIELD_CONTROL_CLASS, "w-full")}
                   data-testid="add-project-repository-project"
                   disabled={isCreating}
@@ -152,17 +154,17 @@ export function AddProjectRepositoryDialog({
                       {candidate.name}
                     </option>
                   ))}
-                </select>
+                </NativeSelect>
               </div>
             </div>
           ) : null}
           <div className="space-y-1.5">
-            <label
+            <BlockLabel
               className="text-sm font-medium text-foreground"
               htmlFor="add-project-repository-name"
             >
               Name
-            </label>
+            </BlockLabel>
             <div className={FIELD_SHELL_CLASS}>
               <Input
                 autoCapitalize="none"
@@ -184,14 +186,14 @@ export function AddProjectRepositoryDialog({
             </div>
           </div>
           <div className="space-y-1.5">
-            <label
+            <BlockLabel
               className="text-sm font-medium text-foreground"
               htmlFor="add-project-repository-channel"
             >
               Access channel
-            </label>
+            </BlockLabel>
             <div className={FIELD_SHELL_CLASS}>
-              <select
+              <NativeSelect
                 className={cn(FIELD_CONTROL_CLASS, "w-full")}
                 data-testid="add-project-repository-channel"
                 disabled={isCreating}
@@ -209,22 +211,22 @@ export function AddProjectRepositoryDialog({
                     {channel.name}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
             </div>
             <p className="text-xs text-muted-foreground">
               Members of this channel can access the repository.
             </p>
           </div>
           <div className="space-y-1.5">
-            <label
+            <BlockLabel
               className="text-sm font-medium text-foreground"
               htmlFor="add-project-repository-clone-url"
             >
               Clone URL
-              <span className="ml-1 text-xs font-normal text-muted-foreground/50">
+              <span className="ml-1 text-xs font-normal text-muted-foreground">
                 Optional
               </span>
-            </label>
+            </BlockLabel>
             <div className={FIELD_SHELL_CLASS}>
               <Input
                 autoCapitalize="none"

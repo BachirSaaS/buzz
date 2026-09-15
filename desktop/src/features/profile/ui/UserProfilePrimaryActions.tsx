@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode, Ref } from "react";
 import {
@@ -231,7 +232,7 @@ function ProfileActionTile({
   title?: string;
 }) {
   return (
-    <button
+    <Action
       aria-label={label}
       aria-busy={isLoading || undefined}
       className={cn(
@@ -252,6 +253,6 @@ function ProfileActionTile({
         />
       )}
       <span className="min-w-0 text-xs font-medium leading-tight">{label}</span>
-    </button>
+    </Action>
   );
 }

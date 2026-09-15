@@ -30,7 +30,7 @@ export function ProjectWorkItemCommunicationActions({
         type="button"
         variant="ghost"
       >
-        <Bot className="h-3.5 w-3.5" />
+        <Bot className="size-3.5" />
         Chat with an agent
       </Button>
       <ProjectSelectionDiscussAction

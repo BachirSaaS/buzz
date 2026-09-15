@@ -175,7 +175,7 @@ export function IdentityRecoveryPairing({
           />
         ) : step === "sas" && sas ? (
           <div className="flex max-w-60 flex-col items-center gap-3 py-2 text-center text-foreground">
-            <ShieldCheck className="h-10 w-10 text-primary" />
+            <ShieldCheck className="size-10 text-primary" />
             <p className="text-sm font-medium">
               Does this code match your phone?
             </p>
@@ -197,7 +197,7 @@ export function IdentityRecoveryPairing({
                 data-testid="confirm-identity-recovery-sas"
                 onClick={() => void confirm()}
               >
-                <Check className="mr-1.5 h-4 w-4" />
+                <Check className="mr-1.5 size-4" />
                 Codes match
               </Button>
               <Button
@@ -206,30 +206,30 @@ export function IdentityRecoveryPairing({
                 onClick={() => void deny()}
                 variant="outline"
               >
-                <X className="mr-1.5 h-4 w-4" />
+                <X className="mr-1.5 size-4" />
                 Cancel
               </Button>
             </div>
           </div>
         ) : step === "done" ? (
           <div className="flex flex-col items-center gap-3 text-foreground">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30">
-              <Check className="h-6 w-6 text-green-600 dark:text-green-400" />
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-success dark:bg-success">
+              <Check className="size-6 text-success-foreground dark:text-success-foreground" />
             </div>
             <p className="text-sm font-medium">Identity received securely</p>
           </div>
         ) : step === "error" ? (
           <div className="flex max-w-52 flex-col items-center gap-3 text-center text-foreground">
-            <TriangleAlert className="h-6 w-6 text-destructive" />
+            <TriangleAlert className="size-6 text-destructive" />
             <p className="text-sm text-destructive">{error}</p>
             <Button onClick={() => void start()} size="sm" variant="outline">
-              <RefreshCw className="mr-1.5 h-4 w-4" />
+              <RefreshCw className="mr-1.5 size-4" />
               Try again
             </Button>
           </div>
         ) : (
           <div className="flex flex-col items-center gap-3 text-foreground">
-            <LoaderCircle className="h-6 w-6 animate-spin text-muted-foreground" />
+            <LoaderCircle className="size-6 animate-spin text-muted-foreground" />
             <p className="text-sm text-muted-foreground">
               {step === "receiving"
                 ? "Receiving identity from mobile device..."
@@ -249,11 +249,11 @@ export function IdentityRecoveryPairing({
           variant="outline"
         >
           {step === "loading" ? (
-            <LoaderCircle className="mr-1.5 h-4 w-4 animate-spin" />
+            <LoaderCircle className="mr-1.5 size-4 animate-spin" />
           ) : copied ? (
-            <Check className="mr-1.5 h-4 w-4" />
+            <Check className="mr-1.5 size-4" />
           ) : (
-            <Copy className="mr-1.5 h-4 w-4" />
+            <Copy className="mr-1.5 size-4" />
           )}
           {step === "loading"
             ? "Generating pairing code..."

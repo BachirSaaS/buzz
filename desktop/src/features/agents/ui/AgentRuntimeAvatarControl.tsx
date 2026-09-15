@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { CircleAlert } from "lucide-react";
 import { useReducedMotion } from "motion/react";
 
@@ -198,14 +199,14 @@ export function AgentRuntimeAvatarControl({
               title={startBlockReason ?? `${label}: ${availabilityLabel}`}
             />
           ) : (
-            <button
+            <Action
               aria-label={hasError ? errorActionLabel : actionLabel}
               className={cn(
                 "pointer-events-auto flex h-full w-full items-center justify-center rounded-full px-2.5 text-xs font-semibold leading-none transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-default disabled:opacity-90",
                 hasError
                   ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
                   : isRestartAction
-                    ? "bg-transparent text-amber-800 hover:bg-amber-500/10 dark:text-amber-400"
+                    ? "bg-transparent text-warning-foreground hover:bg-warning dark:text-warning-foreground"
                     : "bg-primary text-primary-foreground hover:bg-primary/90",
               )}
               data-testid={hasError ? errorTestId : startTestId}
@@ -227,11 +228,11 @@ export function AgentRuntimeAvatarControl({
                   className="h-4 w-4 border-2"
                 />
               ) : hasError ? (
-                <CircleAlert className="h-4 w-4" />
+                <CircleAlert className="size-4" />
               ) : (
                 actionText
               )}
-            </button>
+            </Action>
           )}
         </span>
       }
@@ -246,7 +247,7 @@ export function AgentRuntimeAvatarControl({
           : hasError
             ? "bg-destructive"
             : isRestartAction
-              ? "bg-amber-500/15"
+              ? "bg-warning"
               : "bg-primary",
       )}
       className="h-24 w-24"

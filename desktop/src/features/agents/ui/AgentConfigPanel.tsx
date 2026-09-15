@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -165,7 +166,7 @@ function NormalizedRow({
       </span>
       {isEditable ? (
         <Pencil
-          className="h-4 w-4 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+          className="size-4 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
           data-testid={`agent-config-${fieldKey}-edit-indicator`}
         />
       ) : null}
@@ -174,7 +175,7 @@ function NormalizedRow({
 
   if (isEditable) {
     return (
-      <button
+      <Action
         aria-label={`Edit ${label}`}
         className="group flex min-h-16 w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         onClick={onEdit}
@@ -182,7 +183,7 @@ function NormalizedRow({
         type="button"
       >
         {content}
-      </button>
+      </Action>
     );
   }
 
@@ -254,7 +255,7 @@ function AdvancedRow({
 
   if (isCopyable && field.value) {
     return (
-      <button
+      <Action
         aria-label={`Copy ${field.label}`}
         className="group flex min-h-16 w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         onClick={() => void copy()}
@@ -262,7 +263,7 @@ function AdvancedRow({
         type="button"
       >
         {content}
-      </button>
+      </Action>
     );
   }
 
@@ -299,7 +300,7 @@ function ProfileConfigSection({
 function ClaudeConfigDirNotice() {
   return (
     <div className="mt-3 border-t border-border/50 px-4 pt-2">
-      <p className="text-xs text-muted-foreground/80">
+      <p className="text-xs text-muted-foreground">
         ⚠ Custom <code className="font-mono text-xs">CLAUDE_CONFIG_DIR</code>{" "}
         active — config is read from that directory. Claude Code keys its login
         to the config-dir path, so a custom dir creates a new Keychain
@@ -493,18 +494,18 @@ export function AgentConfigSurfaceRows({
 
       {advanced.length > 0 ? (
         <div className="mt-3 border-t border-border/50 pt-2">
-          <button
+          <Action
             className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
             onClick={() => setAdvancedOpen((v) => !v)}
             type="button"
           >
             {advancedOpen ? (
-              <ChevronDown className="h-3 w-3" />
+              <ChevronDown className="size-3" />
             ) : (
-              <ChevronRight className="h-3 w-3" />
+              <ChevronRight className="size-3" />
             )}
             Advanced ({advanced.length})
-          </button>
+          </Action>
 
           {advancedOpen ? (
             <div className="mt-1 divide-y divide-border/50">

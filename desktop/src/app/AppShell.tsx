@@ -4,10 +4,12 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Outlet, useLocation } from "@tanstack/react-router";
 import { deriveShellRoute, markAllReadSources } from "@/app/AppShell.helpers";
 import { useTerminalContext } from "@/app/useTerminalContext";
+import { AppNavigationScope } from "@/app/AppNavigationScope";
 import { AppShellProvider } from "@/app/AppShellContext";
 import { AppShellOverlays, TerminalBootstrap } from "@/app/AppShellOverlays";
 import { AppShellChannelSurface } from "@/app/AppShellChannelSurface";
 import { AppHuddleShell } from "@/app/AppHuddleShell";
+import { PulseSettingsWorkspace } from "@/features/pulse/ui/PulseSettingsWorkspace";
 import { AppTopChrome } from "@/app/AppTopChrome";
 import {
   type TerminalContextOverride,
@@ -106,8 +108,18 @@ import { AppShellTrayMenu } from "@/app/useAppShellTrayMenu";
 import { AppProfilePanelProvider } from "@/app/AppProfilePanelProvider";
 import { AppWorkflowEditorOverlayProvider } from "@/app/AppWorkflowEditorOverlayProvider";
 import { LazySettingsScreen } from "@/app/LazySettingsScreen";
+import { TopbarSearch } from "@/features/search/ui/TopbarSearch";
+
 const EMPTY_CHANNELS: Channel[] = [];
 export function AppShell() {
+  return (
+    <AppNavigationScope>
+      <AppShellContent />
+    </AppNavigationScope>
+  );
+}
+
+function AppShellContent() {
   useWebviewZoomShortcuts();
   useTauriWindowDrag();
   useWebviewScrollBoundaryLock();
@@ -172,7 +184,13 @@ export function AppShell() {
     selectedView,
   });
   // Settings lives in history so back returns to the previous app entry.
+  const isPulse = location.pathname === "/pulse";
   const settingsOpen = location.pathname === "/settings";
+  const hasAppDock = isPulse || settingsOpen;
+  const lastPulseSearch = React.useRef<Record<string, unknown>>({});
+  React.useEffect(() => {
+    if (isPulse) lastPulseSearch.current = location.search;
+  }, [isPulse, location.search]);
   const locationSearchSection = (location.search as { section?: unknown })
     .section;
   const settingsSection: SettingsSection = isSettingsSection(
@@ -338,7 +356,7 @@ export function AppShell() {
         ...terminalContext,
         channelId: terminalContextOverride.channelId,
         channelName: terminalContextOverride.channelName,
-        threadId: null,
+        threadId: terminalContextOverride.threadId ?? null,
       }
     : terminalContext;
   const managedChannel = React.useMemo(() => {
@@ -758,7 +776,7 @@ export function AppShell() {
             onViewHuddleChannel={viewHuddleChannel}
             onVisibilityChange={handleHuddleVisibilityChange}
           >
-            {hasCommunityRail && !isHuddleRoom ? (
+            {hasCommunityRail && !isHuddleRoom && !hasAppDock ? (
               <CommunityRail
                 activeCommunityId={communitiesHook.activeCommunity?.id ?? null}
                 onAddCommunity={addCommunityDialog.openDialog}
@@ -769,22 +787,27 @@ export function AppShell() {
               />
             ) : null}
             <SidebarProvider
+              open={hasAppDock ? false : undefined}
+              disableRail={hasAppDock}
               className="relative z-10 min-h-0 min-w-0 flex-1 flex-col overflow-visible"
               data-testid="app-sidebar-layer"
             >
               <AppProfilePanelProvider>
                 <AppWorkflowEditorOverlayProvider>
-                  {!settingsOpen && !isHuddleRoom ? (
+                  {!isHuddleRoom ? (
                     <AppTopChrome
                       canGoBack={canGoBack}
                       canGoForward={canGoForward}
-                      hasCommunityRail={hasCommunityRail}
+                      hasCommunityRail={hasCommunityRail && !hasAppDock}
+                      hideSidebarTrigger={hasAppDock}
                       onGoBack={goBack}
                       onGoForward={goForward}
                     />
                   ) : null}
                   {settingsOpen ? (
-                    <div className="flex min-h-0 flex-1 overflow-hidden">
+                    <PulseSettingsWorkspace
+                      lastPulseSearch={lastPulseSearch.current}
+                    >
                       <React.Suspense fallback={null}>
                         <LazySettingsScreen
                           currentPubkey={identityQuery.data?.pubkey}
@@ -822,10 +845,10 @@ export function AppShell() {
                           section={settingsSection}
                         />
                       </React.Suspense>
-                    </div>
+                    </PulseSettingsWorkspace>
                   ) : (
                     <div className="relative flex min-h-0 flex-1 overflow-visible">
-                      {!isHuddleRoom ? (
+                      {!isHuddleRoom && !isPulse ? (
                         <AppSidebar
                           activeCommunity={communitiesHook.activeCommunity}
                           channels={sidebarChannels}
@@ -933,12 +956,16 @@ export function AppShell() {
                         onChange={setTerminalContextOverride}
                       >
                         <AppShellChannelSurface
+                          isPulse={isPulse}
                           hasCommunityRail={hasCommunityRail}
                           isHuddleRoom={isHuddleRoom}
                           isHuddleRoomStarting={isHuddleRoomStarting}
                           mainInsetRef={mainInsetRef}
                           terminal={
-                            <TerminalBootstrap {...effectiveTerminalContext} />
+                            <TerminalBootstrap
+                              {...effectiveTerminalContext}
+                              sidePanel={isPulse}
+                            />
                           }
                         >
                           <Outlet />
@@ -953,6 +980,25 @@ export function AppShell() {
                         />
                       ) : null}
                     </div>
+                  )}
+                  {isPulse && !settingsOpen && (
+                    <TopbarSearch
+                      variant="dialog"
+                      channels={channels}
+                      suggestionChannels={sidebarChannels}
+                      currentPubkey={identityQuery.data?.pubkey}
+                      focusRequest={searchFocusRequest}
+                      onOpenChannel={handleSidebarChannelSelect}
+                      onOpenResult={handleOpenSearchResult}
+                      onOpenUser={async (user) => {
+                        const dm = await openDmMutation.mutateAsync({
+                          pubkeys: [user.pubkey],
+                        });
+                        await goChannel(dm.id);
+                      }}
+                      onBrowseChannels={handleOpenBrowseChannels}
+                      onCreateAgent={() => requestOpenCreateAgent()}
+                    />
                   )}
                   <RequestedAgentCreateDialogs />
                   <AgentManagementDialogs />

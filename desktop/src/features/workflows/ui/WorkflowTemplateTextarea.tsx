@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 
 import { cn } from "@/shared/lib/cn";
@@ -146,7 +147,7 @@ export function WorkflowTemplateTextarea({
                       {variable.group}
                     </p>
                   ) : null}
-                  <button
+                  <Action
                     aria-selected={index === selectedIndex}
                     className={cn(
                       "flex w-full items-center justify-between gap-3 rounded-md px-2 py-1.5 text-left",
@@ -167,7 +168,7 @@ export function WorkflowTemplateTextarea({
                     <span className="shrink-0 text-2xs text-muted-foreground">
                       {variable.description}
                     </span>
-                  </button>
+                  </Action>
                 </React.Fragment>
               );
             })

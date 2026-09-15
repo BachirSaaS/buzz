@@ -150,12 +150,12 @@ export function PrivateKeyBackupRow() {
             >
               {isOpen ? (
                 <>
-                  <EyeOff className="h-4 w-4 shrink-0" />
+                  <EyeOff className="size-4 shrink-0" />
                   Hide
                 </>
               ) : (
                 <>
-                  <Eye className="h-4 w-4 shrink-0" />
+                  <Eye className="size-4 shrink-0" />
                   Reveal
                 </>
               )}

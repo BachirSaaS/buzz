@@ -32,7 +32,7 @@ export function ProjectsListScopeDropdown<T extends string>({
           variant="ghost"
         >
           {selectedLabel}
-          <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+          <ChevronDown className="size-3.5 text-muted-foreground" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="min-w-44">
@@ -43,7 +43,7 @@ export function ProjectsListScopeDropdown<T extends string>({
             onSelect={() => onChange(option.value)}
           >
             {option.label}
-            {option.value === value ? <Check className="h-4 w-4" /> : null}
+            {option.value === value ? <Check className="size-4" /> : null}
           </DropdownMenuItem>
         ))}
       </DropdownMenuContent>

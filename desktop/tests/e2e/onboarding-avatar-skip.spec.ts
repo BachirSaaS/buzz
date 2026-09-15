@@ -4,7 +4,7 @@ import { installMockBridge, TEST_IDENTITIES } from "../helpers/bridge";
 import { waitForAnimations } from "../helpers/animations";
 import {
   expectEmojiMartStylesInstalled,
-  expectSmoothCorners,
+  expectBlockUICorners,
 } from "../helpers/css";
 import { installFakeCamera } from "../helpers/fakeCamera";
 import { seedActiveIdentity } from "../helpers/onboarding";
@@ -111,7 +111,9 @@ test("avatar step uses the compact prototype emoji picker", async ({
     .getByTestId("onboarding-content-card")
     .evaluate((element) => window.getComputedStyle(element).backgroundColor);
   expect(activeSegmentColor).toBe(cardColor);
-  await expectSmoothCorners(page.getByTestId("onboarding-avatar-emoji-picker"));
+  await expectBlockUICorners(
+    page.getByTestId("onboarding-avatar-emoji-picker"),
+  );
   await waitForAnimations(page);
   await page.screenshot({
     path: `${SHOTS}/04-avatar-compact-emoji.png`,

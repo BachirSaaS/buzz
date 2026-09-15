@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { Component, type ReactNode } from "react";
 
 type RootErrorBoundaryProps = {
@@ -43,13 +44,13 @@ export class RootErrorBoundary extends Component<
             Reload Buzz to try again. If this keeps happening, check that Buzz
             can access website data, then contact support.
           </p>
-          <button
+          <Action
             type="button"
             className="rounded-md border border-border bg-secondary px-4 py-2 text-sm hover:bg-secondary/80"
             onClick={() => window.location.reload()}
           >
             Reload
-          </button>
+          </Action>
         </div>
       );
     }

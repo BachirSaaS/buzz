@@ -1,3 +1,4 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
 import { Flag } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
@@ -77,7 +78,7 @@ export function ReportMessageDialog({
       <DialogContent className="sm:max-w-[420px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Flag className="h-4 w-4" />
+            <Flag className="size-4" />
             Report message
           </DialogTitle>
           <DialogDescription>
@@ -101,12 +102,12 @@ export function ReportMessageDialog({
         </div>
 
         <div className="space-y-2">
-          <label
+          <BlockLabel
             htmlFor="report-note"
             className="text-sm font-medium text-muted-foreground"
           >
             Additional context (optional)
-          </label>
+          </BlockLabel>
           <Textarea
             id="report-note"
             placeholder="Add anything that helps moderators..."

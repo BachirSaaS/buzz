@@ -33,7 +33,7 @@ export function AgentContextPayloadPreview({
         className={cn(
           "h-7 rounded-full text-muted-foreground",
           iconOnly
-            ? "w-7 p-0 text-muted-foreground/75 hover:text-muted-foreground focus-visible:text-muted-foreground"
+            ? "w-7 p-0 text-muted-foreground hover:text-muted-foreground focus-visible:text-muted-foreground"
             : "gap-1 px-2 text-xs",
         )}
         data-testid="agent-context-preview-trigger"

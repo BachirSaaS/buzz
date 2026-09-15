@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { ChevronRight } from "lucide-react";
 
@@ -18,7 +19,7 @@ function ProfileInstanceRow({
 }) {
   const isCurrent = instance.pubkey === currentPubkey;
   return (
-    <button
+    <Action
       className="flex min-h-16 w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
       data-testid={`user-profile-instance-${instance.pubkey}`}
       onClick={() => onOpenInstance(instance.pubkey)}
@@ -34,8 +35,8 @@ function ProfileInstanceRow({
             ? "Current"
             : instance.status.replace("_", " ")}
       </span>
-      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-    </button>
+      <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+    </Action>
   );
 }
 
@@ -68,7 +69,7 @@ export function ProfileInstancesSection({
       testId="user-profile-instances-section"
       title="Instances"
     >
-      <button
+      <Action
         aria-expanded={expanded}
         className="flex min-h-16 w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         data-testid="user-profile-instances"
@@ -84,7 +85,7 @@ export function ProfileInstancesSection({
             expanded && "rotate-90",
           )}
         />
-      </button>
+      </Action>
       {expanded ? (
         <>
           {instances.map((instance) => (

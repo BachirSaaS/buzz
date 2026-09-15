@@ -23,7 +23,7 @@ for (const label of ["Only me (default)", "Selected people", "Anyone"]) {
 test("native and persona controls share one option list", () => {
   assert.match(
     respondToFieldSource,
-    /<select[\s\S]*RESPOND_TO_OPTIONS\.map\(\(option\) => \([\s\S]*<option/,
+    /<NativeSelect[\s\S]*RESPOND_TO_OPTIONS\.map\(\(option\) => \([\s\S]*<option/,
   );
 });
 

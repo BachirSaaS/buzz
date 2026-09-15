@@ -13,7 +13,6 @@ import type { IdentityStorage } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
 import { writeTextToClipboard } from "@/shared/lib/clipboard";
 import { Button } from "@/shared/ui/button";
-import { FuzzyLogo } from "@/shared/ui/buzz-logo/FuzzyLogo";
 import { Spinner } from "@/shared/ui/spinner";
 import {
   ONBOARDING_PRIMARY_CTA_CLASS,
@@ -186,7 +185,7 @@ export function BackupStep({
           </h1>
           <p
             className={cn(
-              "leading-6 text-foreground/75",
+              "leading-6 text-foreground",
               cardLayout ? "mt-2 text-base" : "mt-5 text-sm",
             )}
           >
@@ -219,7 +218,7 @@ export function BackupStep({
               data-testid="backup-option-panel"
             >
               <span className="text-lg font-medium">{storageTitle}</span>
-              <span className="mt-3 block text-sm leading-6 text-foreground/65">
+              <span className="mt-3 block text-sm leading-6 text-foreground">
                 {storageDescription}
               </span>
             </div>
@@ -235,7 +234,7 @@ export function BackupStep({
               <span className="text-lg font-medium">
                 Saved in your password manager
               </span>
-              <span className="mt-3 block text-sm leading-6 text-foreground/65">
+              <span className="mt-3 block text-sm leading-6 text-foreground">
                 Copy your identity key, then save it in a password manager like
                 1Password.
               </span>
@@ -253,9 +252,9 @@ export function BackupStep({
                 {copyState === "copying" ? (
                   <Spinner className="h-4 w-4 border-2" />
                 ) : copyState === "copied" ? (
-                  <Check className="h-4 w-4" aria-hidden="true" />
+                  <Check className="size-4" aria-hidden="true" />
                 ) : (
-                  <Copy className="h-4 w-4" aria-hidden="true" />
+                  <Copy className="size-4" aria-hidden="true" />
                 )}
                 {copyState === "copying"
                   ? "Copying…"
@@ -276,7 +275,7 @@ export function BackupStep({
               <span className="text-lg font-medium">
                 Locked in a backup file
               </span>
-              <span className="mt-3 block text-sm leading-6 text-foreground/65">
+              <span className="mt-3 block text-sm leading-6 text-foreground">
                 Create a backup file and choose a password you can remember.
                 You’ll need both to restore your account.
               </span>
@@ -290,7 +289,7 @@ export function BackupStep({
                 type="button"
                 variant="ghost"
               >
-                <ShieldCheck className="h-5 w-5" aria-hidden="true" />
+                <ShieldCheck className="size-5" aria-hidden="true" />
                 Create locked backup
               </Button>
             </div>
@@ -338,8 +337,8 @@ export function BackupStep({
           <p
             className={cn(
               cardLayout
-                ? "mt-2 text-base leading-6 text-foreground/80"
-                : "mt-5 text-sm leading-6 text-foreground/80",
+                ? "mt-2 text-base leading-6 text-foreground"
+                : "mt-5 text-sm leading-6 text-foreground",
               REVEAL_ANIMATION_CLASS,
             )}
           >
@@ -353,12 +352,9 @@ export function BackupStep({
           className="flex w-full flex-1 items-center justify-center py-10"
           data-testid="backup-intro-logo"
         >
-          <FuzzyLogo
-            ariaLabel="Creating your identity key"
-            className="w-20! text-foreground"
-            fuzz
-            loop
-            loopRestSeconds={0}
+          <Spinner
+            aria-label="Creating your identity key"
+            className="size-8 text-muted-foreground"
           />
         </div>
       ) : (
@@ -371,7 +367,7 @@ export function BackupStep({
         >
           <div className="w-full">
             <div
-              className="group/key relative flex h-[7.625rem] w-full items-center justify-center overflow-hidden rounded-xl border border-[#e5e5e5] bg-[#f5f5f5] px-4 py-6"
+              className="group/key relative flex h-[7.625rem] w-full items-center justify-center overflow-hidden rounded-xl border border-border bg-muted px-4 py-6"
               data-testid="backup-key-well"
             >
               <p
@@ -385,7 +381,7 @@ export function BackupStep({
               </p>
               <div
                 aria-hidden
-                className="pointer-events-none absolute inset-px rounded-[11px] bg-white/60 opacity-0 transition-opacity duration-150 ease-out group-hover/key:opacity-100 group-focus-within/key:opacity-100 motion-reduce:transition-none"
+                className="pointer-events-none absolute inset-px rounded-lg bg-white/60 opacity-0 transition-opacity duration-150 ease-out group-hover/key:opacity-100 group-focus-within/key:opacity-100 motion-reduce:transition-none"
               />
               <Button
                 className="pointer-events-none absolute left-1/2 top-1/2 z-10 h-8 -translate-x-1/2 -translate-y-1/2 gap-2 rounded-full bg-primary px-4 text-sm text-primary-foreground opacity-0 shadow-none transition-opacity duration-150 ease-out group-hover/key:pointer-events-auto group-hover/key:opacity-100 group-focus-within/key:pointer-events-auto group-focus-within/key:opacity-100 hover:bg-primary/90 hover:text-primary-foreground motion-reduce:transition-none"
@@ -398,9 +394,9 @@ export function BackupStep({
                 {copyState === "copying" ? (
                   <Spinner className="h-4 w-4 border-2" />
                 ) : copyState === "copied" ? (
-                  <Check aria-hidden className="h-4 w-4" />
+                  <Check aria-hidden className="size-4" />
                 ) : (
-                  <Copy aria-hidden className="h-4 w-4" />
+                  <Copy aria-hidden className="size-4" />
                 )}
                 {copyState === "copying"
                   ? "Copying…"

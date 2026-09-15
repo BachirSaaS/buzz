@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { ChevronDown } from "lucide-react";
 
@@ -41,7 +42,7 @@ export function PersonaDropdownField({
     <div className={PERSONA_FIELD_SHELL_CLASS}>
       <DropdownMenu modal={false} onOpenChange={setOpen} open={open}>
         <DropdownMenuTrigger asChild>
-          <button
+          <Action
             aria-describedby={ariaDescribedBy}
             className={cn(
               "flex h-11 w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm leading-6",
@@ -55,13 +56,13 @@ export function PersonaDropdownField({
             <span
               className={cn(
                 "min-w-0 flex-1 truncate",
-                !selectedOption && "text-muted-foreground/55",
+                !selectedOption && "text-muted-foreground",
               )}
             >
               {selectedOption?.label ?? placeholder}
             </span>
-            <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground/60" />
-          </button>
+            <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+          </Action>
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="start"

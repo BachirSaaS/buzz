@@ -1,7 +1,7 @@
 import { expect, type Page, test } from "@playwright/test";
 
 import { installMockBridge } from "../helpers/bridge";
-import { expectCornerRadiusPx, expectSmoothCorners } from "../helpers/css";
+import { expectCornerRadiusPx, expectBlockUICorners } from "../helpers/css";
 
 const VIDEO_SHA = "b".repeat(64);
 const VIDEO_URL = `http://localhost:3000/media/${VIDEO_SHA}.mp4`;
@@ -328,7 +328,7 @@ test("video upload previews use poster frames and inline videos open review mode
   const inlinePlayer = page.getByTestId("video-player").last();
   const inlineSurface = inlinePlayer.locator("[data-smooth-corners]").first();
   await expectCornerRadiusPx(inlineSurface, 16);
-  await expectSmoothCorners(inlineSurface);
+  await expectBlockUICorners(inlineSurface);
   const inlineVideo = inlinePlayer.locator("video");
   await inlinePlayer.getByRole("button", { name: "Play video" }).click();
 

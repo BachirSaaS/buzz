@@ -1,30 +1,40 @@
+// Block UI toast presentation, with Buzz's local appearance provider.
 import { Toaster as Sonner } from "sonner";
-
+import { CircleCheck, Info, TriangleAlert, OctagonX } from "lucide-react";
 import { useTheme } from "@/shared/theme/ThemeProvider";
-
+import { Spinner } from "@/shared/ui/spinner";
 type ToasterProps = React.ComponentProps<typeof Sonner>;
-
-const Toaster = ({ ...props }: ToasterProps) => {
+export function Toaster(props: ToasterProps) {
   const { isDark } = useTheme();
-
   return (
     <Sonner
       theme={isDark ? "dark" : "light"}
       className="toaster group"
+      icons={{
+        success: <CircleCheck className="size-4" />,
+        info: <Info className="size-4" />,
+        warning: <TriangleAlert className="size-4" />,
+        error: <OctagonX className="size-4" />,
+        loading: <Spinner className="size-4" />,
+      }}
+      style={
+        {
+          "--normal-bg": "var(--card)",
+          "--normal-text": "var(--card-foreground)",
+          "--normal-border": "var(--border)",
+          "--border-radius": "var(--blockui-radius-md)",
+          "--font-family": "var(--font-sans)",
+        } as React.CSSProperties
+      }
       toastOptions={{
         classNames: {
-          toast:
-            "group toast group-[.toaster]:bg-background group-[.toaster]:text-foreground group-[.toaster]:border-border group-[.toaster]:shadow-lg",
-          description: "group-[.toast]:text-muted-foreground",
-          actionButton:
-            "group-[.toast]:bg-primary group-[.toast]:text-primary-foreground",
+          toast: "cn-toast",
+          actionButton: "rounded-full! bg-primary! text-primary-foreground!",
           cancelButton:
-            "group-[.toast]:bg-muted group-[.toast]:text-muted-foreground",
+            "rounded-full! bg-secondary! text-secondary-foreground!",
         },
       }}
       {...props}
     />
   );
-};
-
-export { Toaster };
+}

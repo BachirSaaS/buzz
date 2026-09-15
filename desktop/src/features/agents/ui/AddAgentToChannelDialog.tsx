@@ -1,3 +1,5 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { NativeSelect } from "@/shared/blockui/components/native-select";
 import * as React from "react";
 
 import {
@@ -131,10 +133,13 @@ export function AddAgentToChannelDialog({
 
           <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
             <div className="space-y-1.5">
-              <label className="text-sm font-medium" htmlFor="agent-channel-id">
+              <BlockLabel
+                className="text-sm font-medium"
+                htmlFor="agent-channel-id"
+              >
                 Channel
-              </label>
-              <select
+              </BlockLabel>
+              <NativeSelect
                 className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs"
                 disabled={
                   channels.length === 0 || attachAgentMutation.isPending
@@ -151,7 +156,7 @@ export function AddAgentToChannelDialog({
                     {channel.name} · {channel.visibility}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
               <p className="text-xs text-muted-foreground">
                 Only channels accessible to the current desktop user are shown
                 here.
@@ -166,13 +171,13 @@ export function AddAgentToChannelDialog({
             ) : null}
 
             <div className="space-y-1.5">
-              <label
+              <BlockLabel
                 className="text-sm font-medium"
                 htmlFor="agent-channel-role"
               >
                 Role
-              </label>
-              <select
+              </BlockLabel>
+              <NativeSelect
                 className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs"
                 disabled={attachAgentMutation.isPending}
                 id="agent-channel-role"
@@ -185,7 +190,7 @@ export function AddAgentToChannelDialog({
                 <option value="member">member</option>
                 <option value="guest">guest</option>
                 <option value="admin">admin</option>
-              </select>
+              </NativeSelect>
             </div>
 
             <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">

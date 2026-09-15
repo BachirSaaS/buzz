@@ -19,7 +19,7 @@ export function BestieCardBadge({
       role="img"
       title="Bestie"
     >
-      <Star className="h-4 w-4 fill-current" />
+      <Star className="size-4 fill-current" />
     </span>
   );
 }

@@ -1,3 +1,4 @@
+import { Input as BlockInput } from "@/shared/ui/input";
 import * as React from "react";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
@@ -373,7 +374,7 @@ export function NewMessageScreen() {
                     user={user}
                   />
                 ))}
-                <input
+                <BlockInput
                   aria-activedescendant={
                     highlightedRecipient
                       ? `new-dm-option-${highlightedRecipient.pubkey}`

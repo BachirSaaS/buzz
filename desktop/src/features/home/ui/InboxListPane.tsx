@@ -1,3 +1,5 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { Action } from "@/shared/ui/action";
 import {
   AlertCircle,
   Bell,
@@ -94,10 +96,10 @@ function InboxLabel({
         MESSAGE_MARKDOWN_CLASS,
         "mt-0 flex min-h-[var(--inline-chip-min-height)] min-w-0 items-center gap-1.5 text-2xs leading-3 group-hover/inbox-item:pr-[6.75rem] group-focus-within/inbox-item:pr-[6.75rem]",
         isActionRequired && !isDone
-          ? "font-medium text-amber-600/80 dark:text-amber-300/80"
+          ? "font-medium text-warning-foreground dark:text-warning-foreground"
           : isDone
-            ? "font-normal text-muted-foreground/70"
-            : "font-medium text-muted-foreground/80",
+            ? "font-normal text-muted-foreground"
+            : "font-medium text-muted-foreground",
       )}
       data-inbox-type-label=""
     >
@@ -175,7 +177,7 @@ function PersonalItemRow({
   status: string;
 }) {
   return (
-    <button
+    <Action
       aria-current={selected ? "true" : undefined}
       className={cn(
         "flex w-full items-center gap-3 border-b border-border/45 px-4 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-hidden",
@@ -186,7 +188,7 @@ function PersonalItemRow({
       type="button"
     >
       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
-        <Bell className="h-4 w-4" />
+        <Bell className="size-4" />
       </span>
       <span className="min-w-0 flex-1">
         <span className="block text-sm font-semibold text-foreground">
@@ -206,7 +208,7 @@ function PersonalItemRow({
       <span className="shrink-0 text-xs font-medium text-muted-foreground">
         {status}
       </span>
-    </button>
+    </Action>
   );
 }
 
@@ -329,8 +331,8 @@ export function InboxListPane({
       agentPubkeys?.has(normalizePubkey(item.item.pubkey)) === true;
     const profileRole = isSenderAgent ? "bot" : undefined;
     const rowHighlightColor = isSelected
-      ? "color-mix(in srgb, hsl(var(--background)) 70%, hsl(var(--muted)) 30%)"
-      : "color-mix(in srgb, hsl(var(--background)) 75%, hsl(var(--muted)) 25%)";
+      ? "color-mix(in srgb, var(--background) 70%, var(--muted) 30%)"
+      : "color-mix(in srgb, var(--background) 75%, var(--muted) 25%)";
     const handleRowContentClick = (event: React.MouseEvent<HTMLElement>) => {
       const target = event.target;
       if (
@@ -352,7 +354,7 @@ export function InboxListPane({
           } as React.CSSProperties
         }
       >
-        <button
+        <Action
           aria-label={`Open inbox item from ${item.senderLabel}`}
           className="absolute inset-0 z-0 block w-full border-l border-l-transparent text-left"
           onClick={() => onSelect(item.id)}
@@ -367,7 +369,7 @@ export function InboxListPane({
                 : "group-hover/inbox-item:bg-[var(--inbox-row-highlight-bg)] group-focus-within/inbox-item:bg-[var(--inbox-row-highlight-bg)] group-active/inbox-item:bg-muted/40",
             )}
           />
-        </button>
+        </Action>
 
         {/* biome-ignore lint/a11y: The sibling full-row button provides keyboard/screen-reader row activation; this wrapper delegates pointer selection while allowing nested profile triggers. */}
         <div
@@ -421,7 +423,7 @@ export function InboxListPane({
                 </span>
                 <span
                   className={cn(
-                    "flex shrink-0 items-center gap-1.5 text-xs leading-4 text-muted-foreground/70 transition-opacity group-hover/inbox-item:opacity-0 group-focus-within/inbox-item:opacity-0",
+                    "flex shrink-0 items-center gap-1.5 text-xs leading-4 text-muted-foreground transition-opacity group-hover/inbox-item:opacity-0 group-focus-within/inbox-item:opacity-0",
                     isDone ? "font-normal" : "font-medium",
                   )}
                 >
@@ -446,10 +448,10 @@ export function InboxListPane({
               />
               {dueReminder ? (
                 <div
-                  className="mt-1 flex items-center gap-1 text-2xs font-medium text-amber-600/80 dark:text-amber-300/80"
+                  className="mt-1 flex items-center gap-1 text-2xs font-medium text-warning-foreground dark:text-warning-foreground"
                   data-testid="home-inbox-reminder-due"
                 >
-                  <Bell className="h-3 w-3" />
+                  <Bell className="size-3" />
                   Reminder due
                 </div>
               ) : null}
@@ -468,15 +470,15 @@ export function InboxListPane({
                 >
                   {isReopening ? (
                     <>
-                      <LoaderCircle className="h-3 w-3 shrink-0 animate-spin" />
+                      <LoaderCircle className="size-3 shrink-0 animate-spin" />
                       Reopening…
                     </>
                   ) : (
                     <>
-                      <AlertCircle className="h-3 w-3 shrink-0" />
+                      <AlertCircle className="size-3 shrink-0" />
                       Couldn’t reopen
                       {canOpen ? (
-                        <button
+                        <Action
                           className="ml-0.5 rounded font-semibold underline underline-offset-2 hover:no-underline focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
                           data-testid={`home-inbox-reopen-retry-${item.id}`}
                           onClick={(event) => {
@@ -488,7 +490,7 @@ export function InboxListPane({
                           type="button"
                         >
                           Retry
-                        </button>
+                        </Action>
                       ) : null}
                     </>
                   )}
@@ -562,12 +564,12 @@ export function InboxListPane({
         <ContextMenuContent>
           {isDone ? (
             <ContextMenuItem onClick={() => onMarkUnread(item.id)}>
-              <MailOpen className="h-4 w-4" />
+              <MailOpen className="size-4" />
               Mark unread
             </ContextMenuItem>
           ) : (
             <ContextMenuItem onClick={() => onMarkRead(item.id)}>
-              <MailOpen className="h-4 w-4" />
+              <MailOpen className="size-4" />
               Mark as read
             </ContextMenuItem>
           )}
@@ -580,7 +582,7 @@ export function InboxListPane({
               }
             }}
           >
-            <ExternalLink className="h-4 w-4" />
+            <ExternalLink className="size-4" />
             {openLabel}
           </ContextMenuItem>
           <ContextMenuItem
@@ -591,7 +593,7 @@ export function InboxListPane({
               }
             }}
           >
-            <Clock className="h-4 w-4" />
+            <Clock className="size-4" />
             {hasActiveReminder ? "Reminder set" : "Remind me later"}
           </ContextMenuItem>
         </ContextMenuContent>
@@ -612,14 +614,14 @@ export function InboxListPane({
             <div className="order-2 ml-auto flex shrink-0 items-center justify-end">
               <Popover>
                 <PopoverTrigger asChild>
-                  <button
+                  <Action
                     aria-label="Inbox options"
                     className={cn(INBOX_HEADER_ICON_BUTTON_CLASS, "-mr-4")}
                     data-testid="inbox-options-trigger"
                     type="button"
                   >
-                    <Ellipsis className="h-4 w-4" />
-                  </button>
+                    <Ellipsis className="size-4" />
+                  </Action>
                 </PopoverTrigger>
                 <PopoverContent align="end" className="w-60 p-2">
                   <div
@@ -628,12 +630,12 @@ export function InboxListPane({
                       (isReminders || isDrafts) && "opacity-50",
                     )}
                   >
-                    <label
+                    <BlockLabel
                       className="text-sm font-medium text-foreground"
                       htmlFor="inbox-unread-only-switch"
                     >
                       Show unread only
-                    </label>
+                    </BlockLabel>
                     <Switch
                       checked={unreadOnly}
                       className="shadow-none [&>span]:shadow-none"
@@ -644,7 +646,7 @@ export function InboxListPane({
                     />
                   </div>
                   <Separator className="my-1 bg-muted" />
-                  <button
+                  <Action
                     className="flex min-h-9 w-full items-center rounded-lg px-2 py-2 text-left text-sm transition-colors hover:bg-muted/50 disabled:pointer-events-none disabled:opacity-50"
                     disabled={unreadVisibleItemCount === 0}
                     onClick={handleMarkAllRead}
@@ -656,7 +658,7 @@ export function InboxListPane({
                         {unreadVisibleItemCount}
                       </span>
                     ) : null}
-                  </button>
+                  </Action>
                 </PopoverContent>
               </Popover>
             </div>
@@ -784,11 +786,11 @@ function InboxRowActionButton({
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <button
+        <Action
           aria-label={label}
           className={cn(
             "flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40",
-            active && "bg-blue-500/10 text-blue-500 hover:text-blue-500",
+            active && "bg-info text-info-foreground hover:text-info-foreground",
           )}
           disabled={disabled}
           onClick={(event) => {
@@ -802,7 +804,7 @@ function InboxRowActionButton({
           type="button"
         >
           {children}
-        </button>
+        </Action>
       </TooltipTrigger>
       <TooltipContent>{label}</TooltipContent>
     </Tooltip>

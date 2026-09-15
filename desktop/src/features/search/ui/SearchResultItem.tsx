@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import type * as React from "react";
 import {
   ArrowRight,
@@ -114,7 +115,7 @@ export function SearchResultShell({
   testId: string;
 }) {
   return (
-    <button
+    <Action
       className={
         isSelected
           ? "w-full rounded-2xl border border-primary/30 bg-primary/10 px-4 py-4 text-left shadow-xs outline-hidden transition-colors"
@@ -132,9 +133,9 @@ export function SearchResultShell({
 
         {children}
 
-        <ArrowRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" />
+        <ArrowRight className="mt-1 size-4 shrink-0 text-muted-foreground" />
       </div>
-    </button>
+    </Action>
   );
 }
 

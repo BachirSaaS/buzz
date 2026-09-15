@@ -85,7 +85,7 @@ export function RepositoryBranchDropdown({
           <span className="min-w-0 flex-1 truncate text-left">
             {selectedTag ?? branch}
           </span>
-          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="min-w-56">
@@ -102,7 +102,7 @@ export function RepositoryBranchDropdown({
           <DropdownMenuLabel>Branches</DropdownMenuLabel>
           {selectableBranches.map((option) => (
             <DropdownMenuRadioItem key={option} value={`branch:${option}`}>
-              <GitBranch className="mr-1.5 h-3.5 w-3.5 text-muted-foreground" />
+              <GitBranch className="mr-1.5 size-3.5 text-muted-foreground" />
               <span className="min-w-0 flex-1 truncate">{option}</span>
             </DropdownMenuRadioItem>
           ))}
@@ -115,7 +115,7 @@ export function RepositoryBranchDropdown({
                   key={option.name}
                   value={`tag:${option.name}`}
                 >
-                  <Tag className="mr-1.5 h-3.5 w-3.5 text-muted-foreground" />
+                  <Tag className="mr-1.5 size-3.5 text-muted-foreground" />
                   <span className="min-w-0 flex-1 truncate">{option.name}</span>
                   <span className="ml-auto font-mono text-xs text-muted-foreground">
                     {option.commit.slice(0, 7)}
@@ -136,7 +136,7 @@ export function RepositoryBranchDropdown({
                   onSelect={onCreateBranch}
                   title={createBranchTitle}
                 >
-                  <Plus className="h-4 w-4" />
+                  <Plus className="size-4" />
                   Create branch…
                 </DropdownMenuItem>
                 {createBranchDisabled && createBranchTitle ? (
@@ -154,7 +154,7 @@ export function RepositoryBranchDropdown({
                 onSelect={onDeleteBranch}
                 title={deleteBranchTitle}
               >
-                <Trash2 className="h-4 w-4" />
+                <Trash2 className="size-4" />
                 Delete {branch}
               </DropdownMenuItem>
             ) : null}
@@ -257,7 +257,7 @@ export function RepoSourceDropdown({
               </span>
             ) : null}
           </span>
-          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="min-w-40">
@@ -276,7 +276,7 @@ export function RepoSourceDropdown({
               disabled={controls.localDisabled}
               value="local"
             >
-              <HardDrive className="mr-1.5 h-3.5 w-3.5 text-muted-foreground" />
+              <HardDrive className="mr-1.5 size-3.5 text-muted-foreground" />
               <span>{controls.localLabel}</span>
               {shortLocalPath ? (
                 <span
@@ -332,7 +332,7 @@ export function RepoSyncActionButton({
         variant="ghost"
       >
         <a href={externalOpenUrl} rel="noreferrer" target="_blank">
-          <ExternalLink className="h-4 w-4" />
+          <ExternalLink className="size-4" />
           Open
         </a>
       </Button>
@@ -354,9 +354,9 @@ export function RepoSyncActionButton({
         variant="ghost"
       >
         {controls.pullPending ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
+          <Loader2 className="size-4 animate-spin" />
         ) : (
-          <DownloadCloud className="h-4 w-4" />
+          <DownloadCloud className="size-4" />
         )}
         Pull{count > 0 ? ` ${count}` : ""}
       </Button>
@@ -374,9 +374,9 @@ export function RepoSyncActionButton({
         variant="ghost"
       >
         {controls.pushPending ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
+          <Loader2 className="size-4 animate-spin" />
         ) : (
-          <UploadCloud className="h-4 w-4" />
+          <UploadCloud className="size-4" />
         )}
         Push
       </Button>
@@ -394,9 +394,9 @@ export function RepoSyncActionButton({
       variant="ghost"
     >
       {controls.fetchPending ? (
-        <Loader2 className="h-4 w-4 animate-spin" />
+        <Loader2 className="size-4 animate-spin" />
       ) : (
-        <RefreshCw className="h-4 w-4" />
+        <RefreshCw className="size-4" />
       )}
       Fetch
     </Button>

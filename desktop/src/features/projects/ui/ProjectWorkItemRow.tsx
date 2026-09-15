@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import type * as React from "react";
 
 import type { ProjectSelectionItem } from "@/features/projects/lib/projectSelection";
@@ -85,7 +86,7 @@ export function ProjectWorkItemRow({
         ) : null}
       </span>
       {onOpen ? (
-        <button
+        <Action
           className="min-w-0 flex-1 truncate rounded-sm text-left text-sm font-normal text-foreground transition-colors hover:text-primary focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
           data-projects-text-priority="primary"
           onClick={onOpen}
@@ -93,7 +94,7 @@ export function ProjectWorkItemRow({
           type="button"
         >
           {title}
-        </button>
+        </Action>
       ) : (
         <span
           className="min-w-0 flex-1 truncate text-sm font-normal text-foreground"
@@ -103,9 +104,9 @@ export function ProjectWorkItemRow({
         </span>
       )}
       {onOpen ? (
-        <button
+        <Action
           className={cn(
-            "w-[4.75rem] shrink-0 truncate rounded-sm text-left text-xs font-medium tabular-nums text-muted-foreground/55 transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+            "w-[4.75rem] shrink-0 truncate rounded-sm text-left text-xs font-medium tabular-nums text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
             identifierClassName,
           )}
           data-projects-text-priority="secondary"
@@ -115,11 +116,11 @@ export function ProjectWorkItemRow({
           type="button"
         >
           {identifier}
-        </button>
+        </Action>
       ) : (
         <span
           className={cn(
-            "w-[4.75rem] shrink-0 truncate text-xs font-medium tabular-nums text-muted-foreground/55",
+            "w-[4.75rem] shrink-0 truncate text-xs font-medium tabular-nums text-muted-foreground",
             identifierClassName,
           )}
           data-projects-text-priority="secondary"
@@ -130,16 +131,16 @@ export function ProjectWorkItemRow({
       )}
       {metadata ? (
         <div
-          className="hidden min-w-0 shrink items-center gap-1.5 overflow-hidden text-xs text-muted-foreground/60 lg:flex"
+          className="hidden min-w-0 shrink items-center gap-1.5 overflow-hidden text-xs text-muted-foreground lg:flex"
           data-projects-text-priority="secondary"
         >
-          <span className="text-muted-foreground/45">›</span>
+          <span className="text-muted-foreground">›</span>
           {metadata}
         </div>
       ) : null}
       {trailing ? (
         <div
-          className="ml-auto flex shrink-0 items-center gap-2 pl-2 text-muted-foreground/60"
+          className="ml-auto flex shrink-0 items-center gap-2 pl-2 text-muted-foreground"
           data-projects-text-priority="secondary"
         >
           {trailing}

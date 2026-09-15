@@ -719,7 +719,7 @@ function ForumComposerVisit({
                           <Button
                             className={cn(
                               submitMode === "secondary" &&
-                                "border-amber-500/40 text-amber-700 hover:bg-amber-500/10 hover:text-amber-800 dark:text-amber-400 dark:hover:text-amber-300",
+                                "border-warning-foreground/30 text-warning-foreground hover:bg-warning hover:text-warning-foreground dark:text-warning-foreground dark:hover:text-warning-foreground",
                             )}
                             disabled={
                               disabled || isSending || isSubmissionPending
@@ -731,7 +731,7 @@ function ForumComposerVisit({
                             {submitMode === "secondary"
                               ? secondarySubmitLabel
                               : "Comment"}
-                            <ChevronDown className="h-3.5 w-3.5" />
+                            <ChevronDown className="size-3.5" />
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">

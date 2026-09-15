@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { RefreshCcw } from "lucide-react";
 
@@ -596,7 +597,7 @@ export function HomeView({
               {errorMessage ?? "The relay did not return a feed response."}
             </p>
             <Button className="mt-5" onClick={onRefresh} type="button">
-              <RefreshCcw className="h-4 w-4" />
+              <RefreshCcw className="size-4" />
               Try again
             </Button>
           </div>
@@ -756,7 +757,7 @@ export function HomeView({
             />
           ) : null}
 
-          <button
+          <Action
             aria-label="Resize inbox list"
             className={cn(
               "group absolute bottom-0 z-40 w-3 -translate-x-1/2 cursor-col-resize",
@@ -777,7 +778,7 @@ export function HomeView({
             type="button"
           >
             <span className="absolute bottom-0 left-1/2 top-0 w-px -translate-x-1/2 bg-transparent transition-colors group-hover:bg-border/80 group-focus-visible:bg-border/80" />
-          </button>
+          </Action>
 
           {showDetailPane && detailMode === "messages" ? (
             <InboxDetailPane

@@ -1,3 +1,6 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { NativeSelect } from "@/shared/blockui/components/native-select";
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { AlertTriangle, ChevronDown, Search, X } from "lucide-react";
 import {
@@ -187,7 +190,7 @@ export function CreateAgentRespondToField({
     >
       <AlertTriangle
         aria-hidden="true"
-        className="mt-0.5 h-4 w-4 shrink-0 text-warning"
+        className="mt-0.5 size-4 shrink-0 text-warning"
       />
       <p aria-live="polite" className="text-xs leading-5 text-warning">
         {warningText}
@@ -197,7 +200,7 @@ export function CreateAgentRespondToField({
 
   return (
     <div className="space-y-2" data-testid="agent-respond-to">
-      <label
+      <BlockLabel
         className={
           isPersonaVariant
             ? "text-sm font-medium text-foreground"
@@ -206,7 +209,7 @@ export function CreateAgentRespondToField({
         htmlFor="agent-respond-to"
       >
         Who can send instructions
-      </label>
+      </BlockLabel>
       {isPersonaVariant ? (
         <PersonaDropdownField
           disabled={disabled}
@@ -217,7 +220,7 @@ export function CreateAgentRespondToField({
           value={mode}
         />
       ) : (
-        <select
+        <NativeSelect
           className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs"
           data-testid="agent-respond-to-select"
           disabled={disabled}
@@ -230,7 +233,7 @@ export function CreateAgentRespondToField({
               {option.label}
             </option>
           ))}
-        </select>
+        </NativeSelect>
       )}
       {disabledReason ? (
         <p
@@ -361,7 +364,7 @@ function AllowlistPicker({
       ) : null}
       <div className="rounded-lg border border-border/80 bg-background">
         <div className="flex items-center gap-2 px-2.5 py-2">
-          <Search className="h-4 w-4 text-muted-foreground" />
+          <Search className="size-4 text-muted-foreground" />
           <Input
             className="h-auto border-0 px-0 py-0 shadow-none focus-visible:ring-0"
             data-testid="agent-respond-to-search"
@@ -387,15 +390,15 @@ function AllowlistPicker({
                   size="xs"
                 />
                 <PubKey pubkey={pubkey} />
-                <button
+                <Action
                   aria-label={`Remove ${truncateNpub(pubkey)}`}
                   className="text-muted-foreground transition-colors hover:text-foreground"
                   disabled={disabled}
                   onClick={() => onRemove(pubkey)}
                   type="button"
                 >
-                  <X className="h-4 w-4" />
-                </button>
+                  <X className="size-4" />
+                </Action>
               </div>
             ))}
           </div>
@@ -409,7 +412,7 @@ function AllowlistPicker({
             ) : searchResults.length > 0 ? (
               <div className="max-h-44 space-y-1 overflow-y-auto">
                 {searchResults.map((result) => (
-                  <button
+                  <Action
                     className="flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left transition-colors hover:bg-accent hover:text-accent-foreground"
                     data-testid={`agent-respond-to-result-${result.pubkey}`}
                     key={result.pubkey}
@@ -433,11 +436,11 @@ function AllowlistPicker({
                       </div>
                     </div>
                     <span className="text-xs text-muted-foreground">Add</span>
-                  </button>
+                  </Action>
                 ))}
               </div>
             ) : queryIsDirectPubkey ? (
-              <button
+              <Action
                 className="flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left transition-colors hover:bg-accent hover:text-accent-foreground"
                 data-testid="agent-respond-to-add-raw-pubkey"
                 onClick={() => onAddRawPubkey(queryPubkey)}
@@ -459,7 +462,7 @@ function AllowlistPicker({
                   </div>
                 </div>
                 <span className="text-xs text-muted-foreground">Add</span>
-              </button>
+              </Action>
             ) : (
               <p className="px-2 py-1 text-sm text-muted-foreground">
                 No matching users.
@@ -473,7 +476,7 @@ function AllowlistPicker({
       ) : null}
       {!isPersona ? (
         <div className="space-y-2">
-          <button
+          <Action
             aria-controls="agent-respond-to-direct-panel"
             aria-expanded={isDirectEntryOpen}
             className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
@@ -488,7 +491,7 @@ function AllowlistPicker({
               )}
             />
             <span>Paste pubkeys</span>
-          </button>
+          </Action>
           {isDirectEntryOpen ? (
             <div
               className="space-y-2 rounded-lg border border-dashed border-border/80 bg-background/70 p-2.5"
@@ -519,7 +522,7 @@ function AllowlistPicker({
                     ? `${pasteValidCount} valid pubkey${pasteValidCount === 1 ? "" : "s"} ready.`
                     : "No valid pubkeys yet."}
                 </span>
-                <button
+                <Action
                   className="rounded-md border border-border/80 bg-background px-2.5 py-1 text-xs font-medium transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50"
                   data-testid="agent-respond-to-paste-add"
                   disabled={disabled || pasteValidCount === 0}
@@ -527,7 +530,7 @@ function AllowlistPicker({
                   type="button"
                 >
                   Add people
-                </button>
+                </Action>
               </div>
             </div>
           ) : null}

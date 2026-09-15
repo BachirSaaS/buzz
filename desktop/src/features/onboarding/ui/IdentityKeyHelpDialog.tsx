@@ -61,7 +61,7 @@ export function IdentityKeyHelpDialog({
       className={cn(
         inline
           ? "h-auto justify-start p-0 text-left text-foreground underline decoration-foreground/45 underline-offset-4 hover:decoration-foreground"
-          : "text-foreground/70 hover:text-foreground",
+          : "text-foreground hover:text-foreground",
         "transition-opacity duration-300 motion-reduce:transition-none",
         isVisible ? "opacity-100" : "pointer-events-none opacity-0",
       )}
@@ -100,7 +100,6 @@ export function IdentityKeyHelpDialog({
         data-system-color-scheme="light"
         data-testid="identity-key-help-dialog"
         overlayVariant="transparent"
-        surface="textured"
       >
         <div className="mx-auto w-full max-w-[35rem] py-14 text-left max-sm:py-6">
           <DialogTitle className="text-balance pr-8 text-3xl font-normal text-foreground">
@@ -146,7 +145,7 @@ export function IdentityKeyHelpContent() {
         What’s an identity key?
       </h1>
       <div
-        className="mt-2 w-full space-y-4 text-pretty text-base leading-7 text-foreground/80"
+        className="mt-2 w-full space-y-4 text-pretty text-base leading-7 text-foreground"
         data-testid="identity-key-help-body"
       >
         <IdentityKeyHelpBody />

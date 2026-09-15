@@ -1,3 +1,5 @@
+import { Input as BlockInput } from "@/shared/ui/input";
+import { Action } from "@/shared/ui/action";
 import {
   Asterisk,
   Check,
@@ -27,7 +29,7 @@ function ChannelPrivacyIcon({ channel }: { channel: Channel }) {
         : Hash;
 
   return (
-    <Icon aria-hidden className="h-5 w-5 shrink-0 text-muted-foreground/60" />
+    <Icon aria-hidden className="h-5 w-5 shrink-0 text-muted-foreground" />
   );
 }
 
@@ -186,7 +188,7 @@ export function ChannelCombobox({
     return (
       <Tooltip>
         <TooltipTrigger asChild>
-          <button
+          <Action
             aria-disabled="true"
             aria-label={`${ariaLabel}: ${selectedLabel}. Read only.`}
             className={cn(
@@ -202,7 +204,7 @@ export function ChannelCombobox({
               {selected ? <ChannelPrivacyIcon channel={selected} /> : null}
               <span className="truncate">{selectedLabel}</span>
             </span>
-          </button>
+          </Action>
         </TooltipTrigger>
         <TooltipContent side="top">{readOnlyTooltip}</TooltipContent>
       </Tooltip>
@@ -212,7 +214,7 @@ export function ChannelCombobox({
   return (
     <Popover onOpenChange={handleOpenChange} open={open}>
       <PopoverTrigger asChild>
-        <button
+        <Action
           aria-controls={listboxId}
           aria-expanded={open}
           aria-haspopup="listbox"
@@ -240,12 +242,12 @@ export function ChannelCombobox({
             {selected ? (
               <ChannelPrivacyIcon channel={selected} />
             ) : required && !value ? (
-              <Asterisk aria-hidden className="h-5 w-5 shrink-0 text-primary" />
+              <Asterisk aria-hidden className="size-5 shrink-0 text-primary" />
             ) : null}
             <span className="truncate">{selectedLabel}</span>
           </span>
-          <ChevronDown className="ml-1 h-5 w-5 shrink-0 text-muted-foreground opacity-50 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" />
-        </button>
+          <ChevronDown className="ml-1 size-5 shrink-0 text-muted-foreground opacity-50 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" />
+        </Action>
       </PopoverTrigger>
       <PopoverContent
         align="start"
@@ -253,8 +255,8 @@ export function ChannelCombobox({
         portalled={variant === "field"}
       >
         <div className="flex items-center gap-2 border-b border-border px-3 py-2">
-          <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <input
+          <Search className="size-4 shrink-0 text-muted-foreground" />
+          <BlockInput
             aria-activedescendant={highlightedOptionId}
             aria-autocomplete="list"
             aria-controls={listboxId}
@@ -284,7 +286,7 @@ export function ChannelCombobox({
           role="listbox"
         >
           {allowEmpty && !query ? (
-            <button
+            <Action
               aria-selected={!value}
               className={cn(
                 "flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground",
@@ -302,7 +304,7 @@ export function ChannelCombobox({
                   !value ? "opacity-100" : "opacity-0",
                 )}
               />
-            </button>
+            </Action>
           ) : null}
           {filtered.length === 0 ? (
             <p className="px-3 py-4 text-center text-xs text-muted-foreground">
@@ -312,7 +314,7 @@ export function ChannelCombobox({
             filtered.map((channel) => {
               const optionDisabled = isChannelDisabled?.(channel) ?? false;
               return (
-                <button
+                <Action
                   aria-selected={channel.id === value}
                   className={cn(
                     "flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent disabled:hover:text-foreground",
@@ -341,7 +343,7 @@ export function ChannelCombobox({
                       channel.id === value ? "opacity-100" : "opacity-0",
                     )}
                   />
-                </button>
+                </Action>
               );
             })
           )}

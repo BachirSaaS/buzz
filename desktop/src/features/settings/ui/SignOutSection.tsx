@@ -1,3 +1,4 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
 import * as React from "react";
 import { toast } from "sonner";
 
@@ -126,7 +127,7 @@ export function SignOutSection() {
         <SettingsOptionRow>
           <div className="min-w-0">
             <p
-              className="text-sm font-normal text-muted-foreground/70"
+              className="text-sm font-normal text-muted-foreground"
               data-settings-subcopy
             >
               Removes your identity key and all local app data from this device.
@@ -183,7 +184,7 @@ export function SignOutSection() {
             ) : nsec ? (
               <NsecMaskedDisplay nsec={nsec} />
             ) : null}
-            <label
+            <BlockLabel
               className="flex cursor-pointer items-start gap-2.5 text-sm has-[button:disabled]:cursor-not-allowed has-[button:disabled]:opacity-60"
               data-testid="signout-backup-confirm-label"
               htmlFor="signout-backup-confirm"
@@ -202,18 +203,18 @@ export function SignOutSection() {
                 I have tested a key backup or saved this private key somewhere
                 safe.
               </span>
-            </label>
+            </BlockLabel>
           </div>
 
           <div className="space-y-2">
-            <label
+            <BlockLabel
               className="text-sm font-medium"
               htmlFor="signout-confirm-phrase"
             >
               2. Type{" "}
               <span className="font-semibold">"{SIGNOUT_CONFIRM_PHRASE}"</span>{" "}
               to confirm
-            </label>
+            </BlockLabel>
             <Input
               autoComplete="off"
               data-testid="signout-confirm-phrase"

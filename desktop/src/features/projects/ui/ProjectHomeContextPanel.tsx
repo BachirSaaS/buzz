@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import {
   ChevronDown,
   CircleDot,
@@ -51,7 +52,7 @@ function ContextSection({
       {title || headerAction ? (
         <div className="flex h-8 min-w-0 items-center justify-between gap-2 px-2">
           {title && collapsible ? (
-            <button
+            <Action
               aria-expanded={expanded}
               className="group/section-label flex min-w-0 items-center gap-1 text-left text-xs font-medium text-sidebar-foreground/70"
               onClick={() => setExpanded((current) => !current)}
@@ -65,7 +66,7 @@ function ContextSection({
                   expanded ? "rotate-0" : "-rotate-90",
                 )}
               />
-            </button>
+            </Action>
           ) : title ? (
             <h3 className="min-w-0 truncate text-xs font-medium text-sidebar-foreground/70">
               {title}

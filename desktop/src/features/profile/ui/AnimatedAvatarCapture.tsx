@@ -777,7 +777,7 @@ export function AnimatedAvatarCapture({
 
       {phase === "idle" ? (
         <div className="grid h-full w-full place-items-center rounded-full border-2 border-dashed border-border bg-background text-primary shadow-xs">
-          <Camera className="h-10 w-10" />
+          <Camera className="size-10" />
         </div>
       ) : phase === "starting" ? (
         <div className="absolute inset-0 grid place-items-center rounded-full bg-background/70 text-center shadow-inner">

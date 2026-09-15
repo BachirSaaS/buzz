@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { ChevronRight, Maximize2, Minimize2, Plus, X } from "lucide-react";
 
@@ -45,6 +46,8 @@ type TerminalSubstrateProps = {
   bracketedPaste: boolean;
   focusReportingEnabled: boolean;
   enabled?: boolean;
+  /** Fill a side-panel host instead of using a resizable bottom dock. */
+  sidePanel?: boolean;
   mode?: "docked" | "maximized";
   visible?: boolean;
   onHide?: () => void;
@@ -84,6 +87,7 @@ export function TerminalSubstrate({
   bracketedPaste,
   focusReportingEnabled,
   enabled = true,
+  sidePanel = false,
   mode = "docked",
   visible = true,
   onHide = NOOP,
@@ -476,13 +480,17 @@ export function TerminalSubstrate({
   return (
     <section
       aria-label="Buzz Term"
+      inert={!visible}
       className="buzz-terminal-substrate"
       data-terminal-mode={mode}
+      data-terminal-side-panel={sidePanel || undefined}
       data-terminal-owner={owner}
       data-terminal-visible={visible ? "true" : "false"}
       style={{
         ...terminalStyle,
-        ...(mode === "docked" ? { height: dockHeight } : undefined),
+        ...(mode === "docked" && !sidePanel
+          ? { height: dockHeight }
+          : undefined),
       }}
       onWheel={(event) => {
         event.preventDefault();
@@ -503,7 +511,7 @@ export function TerminalSubstrate({
         if (result.lines !== 0) onScroll(result.lines);
       }}
     >
-      {mode === "docked" ? (
+      {mode === "docked" && !sidePanel ? (
         <hr
           aria-label="Resize Buzz Term"
           aria-orientation="horizontal"
@@ -600,7 +608,10 @@ export function TerminalSubstrate({
           tabIndex={0}
         />
       ) : null}
-      <div className="buzz-terminal-contract-bar">
+      <div
+        className={cn("buzz-terminal-contract-bar", sidePanel && "font-sans")}
+        data-testid="terminal-header"
+      >
         <div className="buzz-terminal-tabs" role="tablist">
           {sessions.map((session, index) => (
             <div
@@ -611,7 +622,7 @@ export function TerminalSubstrate({
               key={session.id}
               role="presentation"
             >
-              <button
+              <Action
                 aria-label={`Close ${session.title}`}
                 className="buzz-terminal-close"
                 disabled={session.closing}
@@ -619,8 +630,8 @@ export function TerminalSubstrate({
                 type="button"
               >
                 <X />
-              </button>
-              <button
+              </Action>
+              <Action
                 aria-label={`Terminal ${index + 1}${session.closing ? ", closing" : session.title !== "SHELL" ? `, ${session.title}` : ""}`}
                 aria-selected={session.active}
                 className="buzz-terminal-tab-select"
@@ -642,20 +653,20 @@ export function TerminalSubstrate({
                 {session.closing ? (
                   <span className="buzz-terminal-tab-title">Closing…</span>
                 ) : null}
-              </button>
+              </Action>
             </div>
           ))}
-          <button
+          <Action
             aria-label="New Buzz Term tab"
             className="buzz-terminal-new-tab"
             onClick={() => runTabAction(onNewSession)}
             type="button"
           >
             <Plus />
-          </button>
+          </Action>
         </div>
         <div className="buzz-terminal-readout">
-          <button
+          <Action
             aria-label={
               mode === "maximized" ? "Restore Buzz Term" : "Maximize Buzz Term"
             }
@@ -666,15 +677,15 @@ export function TerminalSubstrate({
             type="button"
           >
             {mode === "maximized" ? <Minimize2 /> : <Maximize2 />}
-          </button>
-          <button
+          </Action>
+          <Action
             aria-label="Hide Buzz Term"
             className="buzz-terminal-window-action"
             onClick={onHide}
             type="button"
           >
             <X />
-          </button>
+          </Action>
         </div>
       </div>
       <div className="buzz-terminal-viewport px-5 pt-2">

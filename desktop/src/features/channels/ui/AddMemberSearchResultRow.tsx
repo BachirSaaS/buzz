@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { AgentManagementMarker } from "@/features/agents/ui/OtherSetupAgentMarker";
 import { Bot } from "lucide-react";
 import type { UserSearchResult } from "@/shared/api/types";
@@ -36,7 +37,7 @@ export function AddMemberSearchResultRow({
       )}
       data-testid={`channel-user-search-result-${user.pubkey}`}
     >
-      <button
+      <Action
         aria-label={`Select ${formatAddCandidateName(user)}`}
         className="absolute inset-0 z-0 cursor-pointer focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
         disabled={disabled}
@@ -58,7 +59,7 @@ export function AddMemberSearchResultRow({
                 {formatAddCandidateName(user)}
               </span>
               <span className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-                <Bot aria-hidden="true" className="h-4 w-4" />
+                <Bot aria-hidden="true" className="size-4" />
                 agent
               </span>
               <AgentManagementMarker

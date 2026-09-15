@@ -1,0 +1,632 @@
+/* Adapted from squareup/blockui-web; see SOURCE.json and README.md. */
+:root {
+  --blockui-text-standard: oklch(0% 0 0);
+  --blockui-text-subtle: oklch(43.86% 0 0);
+  --blockui-text-tertiary: oklch(51.03% 0 0);
+  --blockui-text-inverse: oklch(100% 0 0);
+  --blockui-icon-standard: oklch(0% 0 0);
+  --blockui-icon-subtle: var(--blockui-text-subtle);
+  --blockui-icon-inverse: var(--blockui-text-inverse);
+  --blockui-icon-disabled: var(--blockui-text-disabled);
+  --blockui-surface-app: oklch(100% 0 0);
+  --blockui-surface-prominent: oklch(88.84% 0 0);
+  --blockui-surface-inverse: oklch(0% 0 0);
+  --blockui-border-extra-subtle: oklch(95.51% 0 0);
+  --blockui-fill-primary: oklch(0% 0 0);
+  --blockui-fill-primary-foreground: oklch(100% 0 0);
+  --blockui-fill-secondary: oklch(93.10% 0 0);
+  --blockui-fill-secondary-foreground: oklch(0% 0 0);
+  --blockui-card-foreground: oklch(0% 0 0);
+  --blockui-trend-down: oklch(0% 0 0);
+  --blockui-radius-xs: calc(1rem * 0.375);
+  --blockui-radius-sm: calc(1rem * 0.5);
+  --blockui-radius-12: calc(1rem * 0.75);
+  --blockui-radius-md: calc(1rem * 1);
+  --blockui-radius-lg: calc(1rem * 1.5);
+  --blockui-radius-32: calc(1rem * 2);
+  --blockui-radius-xl: calc(1rem * 2.5);
+  --blockui-radius-pill: calc(1rem * 624.938);
+  --blockui-card-radius-s: var(--radius-xl);
+  --blockui-card-radius-m: var(--radius-2xl);
+  --blockui-card-radius-l: var(--radius-3xl);
+  --blockui-button-radius-pill: var(--radius-4xl);
+  --blockui-button-border-width: var(--border-width-hairline);
+  --blockui-card-border-width: var(--border-width-hairline);
+  --blockui-button-loading-spinner-border-width: var(--border-width-hairline);
+  --blockui-button-focus-ring-width: calc(var(--spacing) * 0.75);
+  --blockui-card-focus-ring-width: calc(var(--spacing) * 0.75);
+  --blockui-font-sans: "Cash Sans";
+  --blockui-font-mono: "Cash Sans Mono";
+  --blockui-font-weight-regular: 400;
+  --blockui-font-weight-medium: 500;
+  --blockui-type-hero-size: calc(var(--buzz-type-rem) * 3.5);
+  --blockui-type-hero-leading: calc(var(--buzz-type-rem) * 3.5);
+  --blockui-type-hero-weight: 400;
+  --blockui-type-hero-tracking: calc(var(--buzz-type-rem) * -0.14);
+  --blockui-type-numeral-large-size: calc(var(--buzz-type-rem) * 3.5);
+  --blockui-type-numeral-large-leading: calc(var(--buzz-type-rem) * 3.5);
+  --blockui-type-numeral-large-weight: 500;
+  --blockui-type-numeral-large-tracking: calc(var(--buzz-type-rem) * 0);
+  --blockui-type-headline-large-size: calc(var(--buzz-type-rem) * 2.75);
+  --blockui-type-headline-large-leading: calc(var(--buzz-type-rem) * 2.75);
+  --blockui-type-headline-large-weight: 400;
+  --blockui-type-headline-large-tracking: calc(
+    var(--buzz-type-rem) *
+    -0.089375
+  );
+  --blockui-type-page-title-size: calc(var(--buzz-type-rem) * 2);
+  --blockui-type-page-title-leading: calc(var(--buzz-type-rem) * 2);
+  --blockui-type-page-title-weight: 500;
+  --blockui-type-page-title-tracking: calc(var(--buzz-type-rem) * -0.03);
+  --blockui-type-headline-small-size: calc(var(--buzz-type-rem) * 2);
+  --blockui-type-headline-small-leading: calc(var(--buzz-type-rem) * 2);
+  --blockui-type-headline-small-weight: 400;
+  --blockui-type-headline-small-tracking: calc(var(--buzz-type-rem) * -0.05);
+  --blockui-type-numeral-small-size: calc(var(--buzz-type-rem) * 2);
+  --blockui-type-numeral-small-leading: calc(var(--buzz-type-rem) * 2);
+  --blockui-type-numeral-small-weight: 500;
+  --blockui-type-numeral-small-tracking: calc(var(--buzz-type-rem) * 0);
+  --blockui-type-section-title-size: calc(var(--buzz-type-rem) * 1.5);
+  --blockui-type-section-title-leading: calc(var(--buzz-type-rem) * 1.5);
+  --blockui-type-section-title-weight: 500;
+  --blockui-type-section-title-tracking: calc(var(--buzz-type-rem) * -0.01125);
+  --blockui-type-body-large-size: calc(var(--buzz-type-rem) * 1.25);
+  --blockui-type-body-large-leading: calc(var(--buzz-type-rem) * 1.75);
+  --blockui-type-body-large-weight: 400;
+  --blockui-type-body-large-tracking: calc(var(--buzz-type-rem) * -0.0125);
+  --blockui-type-label-large-size: calc(var(--buzz-type-rem) * 1.25);
+  --blockui-type-label-large-leading: calc(var(--buzz-type-rem) * 1.75);
+  --blockui-type-label-large-weight: 500;
+  --blockui-type-label-large-tracking: calc(var(--buzz-type-rem) * -0.005);
+  --blockui-type-body-medium-size: calc(var(--buzz-type-rem) * 1);
+  --blockui-type-body-medium-leading: calc(var(--buzz-type-rem) * 1.5);
+  --blockui-type-body-medium-weight: 400;
+  --blockui-type-body-medium-tracking: calc(var(--buzz-type-rem) * -0.005);
+  --blockui-type-label-medium-size: calc(var(--buzz-type-rem) * 1);
+  --blockui-type-label-medium-leading: calc(var(--buzz-type-rem) * 1.5);
+  --blockui-type-label-medium-weight: 500;
+  --blockui-type-label-medium-tracking: calc(var(--buzz-type-rem) * 0);
+  --blockui-type-link-medium-size: calc(var(--buzz-type-rem) * 1);
+  --blockui-type-link-medium-leading: calc(var(--buzz-type-rem) * 1.5);
+  --blockui-type-link-medium-weight: 500;
+  --blockui-type-link-medium-tracking: calc(var(--buzz-type-rem) * 0);
+  --blockui-type-body-small-size: calc(var(--buzz-type-rem) * 0.875);
+  --blockui-type-body-small-leading: calc(var(--buzz-type-rem) * 1.25);
+  --blockui-type-body-small-weight: 400;
+  --blockui-type-body-small-tracking: calc(var(--buzz-type-rem) * -0.0021875);
+  --blockui-type-label-small-size: calc(var(--buzz-type-rem) * 0.875);
+  --blockui-type-label-small-leading: calc(var(--buzz-type-rem) * 1.25);
+  --blockui-type-label-small-weight: 500;
+  --blockui-type-label-small-tracking: calc(var(--buzz-type-rem) * 0.0021875);
+  --blockui-type-link-small-size: calc(var(--buzz-type-rem) * 0.875);
+  --blockui-type-link-small-leading: calc(var(--buzz-type-rem) * 1.25);
+  --blockui-type-link-small-weight: 500;
+  --blockui-type-link-small-tracking: calc(var(--buzz-type-rem) * 0.0021875);
+  --blockui-type-caption-size: calc(var(--buzz-type-rem) * 0.75);
+  --blockui-type-caption-leading: calc(var(--buzz-type-rem) * 1);
+  --blockui-type-caption-weight: 400;
+  --blockui-type-caption-tracking: calc(var(--buzz-type-rem) * 0.01);
+  --blockui-type-body-xsmall-size: calc(var(--buzz-type-rem) * 0.625);
+  --blockui-type-body-xsmall-leading: calc(var(--buzz-type-rem) * 1);
+  --blockui-type-body-xsmall-weight: 400;
+  --blockui-type-body-xsmall-tracking: calc(var(--buzz-type-rem) * 0.01875);
+  --blockui-type-label-xsmall-size: calc(var(--buzz-type-rem) * 0.625);
+  --blockui-type-label-xsmall-leading: calc(var(--buzz-type-rem) * 1);
+  --blockui-type-label-xsmall-weight: 500;
+  --blockui-type-label-xsmall-tracking: calc(var(--buzz-type-rem) * 0.0375);
+  --blockui-type-link-xsmall-size: calc(var(--buzz-type-rem) * 0.625);
+  --blockui-type-link-xsmall-leading: calc(var(--buzz-type-rem) * 1);
+  --blockui-type-link-xsmall-weight: 500;
+  --blockui-type-link-xsmall-tracking: calc(var(--buzz-type-rem) * 0.025);
+  --blockui-button-height-s: calc(var(--spacing) * 8);
+  --blockui-button-height-m: calc(var(--spacing) * 9);
+  --blockui-button-height-l: calc(var(--spacing) * 10);
+  --blockui-button-height-icon: calc(var(--spacing) * 10);
+  --blockui-button-icon-size-s: calc(var(--spacing) * 4);
+  --blockui-button-icon-size-m: calc(var(--spacing) * 4);
+  --blockui-button-icon-size-l: calc(var(--spacing) * 5);
+  --blockui-button-icon-size-icon: calc(var(--spacing) * 5);
+  --blockui-button-loading-spinner-size: calc(var(--spacing) * 4);
+  --blockui-card-icon-size: calc(var(--spacing) * 5);
+  --blockui-button-padding-inline-s: calc(var(--spacing) * 4);
+  --blockui-button-padding-inline-m: calc(var(--spacing) * 5);
+  --blockui-button-padding-inline-l: calc(var(--spacing) * 6);
+  --blockui-button-padding-inline-icon: 0;
+  --blockui-button-padding-block: calc(var(--spacing) * 2);
+  --blockui-button-gap-inline: calc(var(--spacing) * 2);
+  --blockui-card-padding-s: calc(var(--spacing) * 4);
+  --blockui-card-padding-m: calc(var(--spacing) * 6);
+  --blockui-card-padding-l: calc(var(--spacing) * 8);
+  --blockui-card-gap-s: calc(var(--spacing) * 3);
+  --blockui-card-gap-m: calc(var(--spacing) * 5);
+  --blockui-card-gap-l: calc(var(--spacing) * 6);
+  --blockui-managerbot-shell-padding-narrow: calc(var(--spacing) * 6);
+  --blockui-managerbot-shell-padding-wide: calc(var(--spacing) * 12);
+  --blockui-button-disabled-opacity: 0.5;
+  --blockui-button-loading-label-opacity: 0.72;
+  --blockui-card-disabled-opacity: 0.56;
+  --blockui-card-loading-overlay-opacity: 0.72;
+  --blockui-card-shadow-standard: var(--shadow-xs);
+  --blockui-card-shadow-hover: var(--shadow-sm);
+  --blockui-button-pressed-transform: scale(0.98);
+  --blockui-card-pressed-transform: scale(0.995);
+}
+.dark {
+  --blockui-text-standard: oklch(100% 0 0);
+  --blockui-text-subtle: oklch(71.87% 0 0);
+  --blockui-text-tertiary: oklch(59.99% 0 0);
+  --blockui-text-inverse: oklch(0% 0 0);
+  --blockui-icon-standard: oklch(100% 0 0);
+  --blockui-surface-app: oklch(0% 0 0);
+  --blockui-surface-prominent: oklch(25.62% 0 0);
+  --blockui-surface-inverse: oklch(100% 0 0);
+  --blockui-border-extra-subtle: oklch(21.78% 0 0);
+  --blockui-fill-primary: oklch(100% 0 0);
+  --blockui-fill-primary-foreground: oklch(0% 0 0);
+  --blockui-fill-secondary: oklch(25.62% 0 0);
+  --blockui-fill-secondary-foreground: oklch(100% 0 0);
+  --blockui-card-foreground: oklch(100% 0 0);
+  --blockui-trend-down: oklch(100% 0 0);
+}
+:root[data-substrate="managerbot"] {
+  --blockui-content-disabled-model: opacity;
+  --blockui-text-link: var(--blockui-text-standard);
+  --blockui-text-link-visited: var(--blockui-text-link);
+  --blockui-surface-subtle: oklch(98.51% 0 0);
+  --blockui-surface-standard: oklch(91.58% 0 0);
+  --blockui-surface-card: oklch(100% 0 0);
+  --blockui-surface-popover: oklch(100% 0 0);
+  --blockui-border-subtle: oklch(91.58% 0 0);
+  --blockui-border-standard: oklch(94.01% 0 0);
+  --blockui-border-prominent: var(--blockui-border-standard);
+  --blockui-focus-ring: oklch(71.55% 0 0);
+  --blockui-fill-accent: oklch(21.34% 0 0);
+  --blockui-fill-accent-foreground: oklch(95.51% 0 0);
+  --blockui-status-error-text: oklch(50.47% 0.1995 28.44);
+  --blockui-status-error-icon: oklch(50.47% 0.1995 28.44);
+  --blockui-status-error-surface: oklch(50.47% 0.1995 28.44);
+  --blockui-status-error-border: oklch(50.47% 0.1995 28.44);
+  --blockui-status-error-foreground: oklch(95.88% 0.0174 17.46);
+  --blockui-status-error: var(--blockui-status-error-text);
+  --blockui-status-warning-icon: oklch(86.64% 0.1493 90.04);
+  --blockui-status-warning-surface: oklch(86.64% 0.1493 90.04);
+  --blockui-status-warning-border: oklch(86.64% 0.1493 90.04);
+  --blockui-status-warning-foreground: oklch(16.57% 0.0308 93.22);
+  --blockui-status-success-text: oklch(47.52% 0.099 161.34);
+  --blockui-status-success-icon: oklch(47.52% 0.099 161.34);
+  --blockui-status-success-surface: oklch(47.52% 0.099 161.34);
+  --blockui-status-success-border: oklch(47.52% 0.099 161.34);
+  --blockui-status-success-foreground: oklch(94.87% 0.0432 168.95);
+  --blockui-status-success: var(--blockui-status-success-text);
+  --blockui-trend-up: oklch(64.82% 0.1754 131.68);
+  --blockui-trend-flat: oklch(74.12% 0 0);
+}
+:root[data-substrate="managerbot"].dark {
+  --blockui-surface-subtle: oklch(23.93% 0 0);
+  --blockui-surface-standard: oklch(37.15% 0 0);
+  --blockui-surface-card: oklch(21.78% 0 0);
+  --blockui-surface-popover: oklch(26.03% 0 0 / 0.8);
+  --blockui-border-subtle: oklch(100% 0 0 / 0.1);
+  --blockui-border-standard: oklch(100% 0 0 / 0.12);
+  --blockui-focus-ring: oklch(55.55% 0 0);
+  --blockui-fill-accent: oklch(82.97% 0 0);
+  --blockui-fill-accent-foreground: oklch(21.34% 0 0);
+  --blockui-status-error-text: oklch(67.36% 0.1805 23.26);
+  --blockui-status-error-icon: oklch(67.36% 0.1805 23.26);
+  --blockui-status-error-surface: oklch(31.87% 0.1208 27.62);
+  --blockui-status-error-border: oklch(31.87% 0.1208 27.62);
+  --blockui-status-error-foreground: oklch(91.45% 0.0391 17.89);
+  --blockui-status-warning-icon: oklch(30.72% 0.061 91.18);
+  --blockui-status-warning-surface: oklch(30.72% 0.061 91.18);
+  --blockui-status-warning-border: oklch(30.72% 0.061 91.18);
+  --blockui-status-warning-foreground: oklch(91.12% 0.1057 91.86);
+  --blockui-status-success-text: oklch(30.79% 0.0598 163.18);
+  --blockui-status-success-icon: oklch(30.79% 0.0598 163.18);
+  --blockui-status-success-surface: oklch(30.79% 0.0598 163.18);
+  --blockui-status-success-border: oklch(30.79% 0.0598 163.18);
+  --blockui-status-success-foreground: oklch(89.99% 0.0816 168.31);
+  --blockui-trend-up: oklch(76.81% 0.2044 130.85);
+  --blockui-trend-flat: oklch(47.48% 0 0);
+}
+:root[data-substrate="moneybot"],
+:root[data-substrate="arcade"] {
+  --blockui-text-disabled: oklch(66.98% 0 0);
+  --blockui-text-link: oklch(0% 0 0);
+  --blockui-text-link-visited: oklch(39.99% 0.2039 307.82);
+  --blockui-surface-subtle: oklch(95.51% 0 0);
+  --blockui-surface-standard: oklch(93.10% 0 0);
+  --blockui-surface-card: var(--blockui-surface-app);
+  --blockui-surface-popover: var(--blockui-surface-app);
+  --blockui-border-subtle: oklch(93.10% 0 0);
+  --blockui-border-standard: oklch(66.98% 0 0);
+  --blockui-border-prominent: oklch(17.30% 0 0);
+  --blockui-focus-ring: oklch(17.30% 0 0);
+  --blockui-fill-accent: oklch(78.59% 0.2646 142.81);
+  --blockui-fill-accent-foreground: oklch(0% 0 0);
+  --blockui-status-error-text: oklch(54.58% 0.2218 28.21);
+  --blockui-status-error-icon: oklch(54.58% 0.2218 28.21);
+  --blockui-status-error-surface: oklch(54.58% 0.2218 28.21);
+  --blockui-status-error-border: oklch(54.58% 0.2218 28.21);
+  --blockui-status-error-foreground: oklch(100% 0 0);
+  --blockui-status-error: var(--blockui-status-error-text);
+  --blockui-status-warning-text: oklch(58.18% 0.1764 41.39);
+  --blockui-status-warning-icon: oklch(58.18% 0.1764 41.39);
+  --blockui-status-warning-surface: oklch(58.18% 0.1764 41.39);
+  --blockui-status-warning-border: oklch(58.18% 0.1764 41.39);
+  --blockui-status-warning-foreground: oklch(100% 0 0);
+  --blockui-status-warning: var(--blockui-status-warning-text);
+  --blockui-status-success-text: oklch(50.22% 0.1469 147.59);
+  --blockui-status-success-icon: oklch(50.22% 0.1469 147.59);
+  --blockui-status-success-surface: var(--blockui-surface-subtle);
+  --blockui-status-success-border: oklch(50.22% 0.1469 147.59);
+  --blockui-status-success-foreground: oklch(100% 0 0);
+  --blockui-status-success: var(--blockui-status-success-text);
+  --blockui-trend-up: oklch(78.59% 0.2646 142.81);
+  --blockui-trend-flat: var(--blockui-text-subtle);
+}
+:root[data-substrate="moneybot"].dark,
+:root[data-substrate="arcade"].dark {
+  --blockui-text-disabled: oklch(46.40% 0 0);
+  --blockui-text-link: oklch(100% 0 0);
+  --blockui-text-link-visited: oklch(72.12% 0.1615 294.21);
+  --blockui-surface-subtle: oklch(17.30% 0 0);
+  --blockui-surface-standard: oklch(21.78% 0 0);
+  --blockui-border-subtle: oklch(25.62% 0 0);
+  --blockui-border-standard: oklch(46.40% 0 0);
+  --blockui-border-prominent: oklch(100% 0 0);
+  --blockui-focus-ring: oklch(100% 0 0);
+  --blockui-fill-accent: oklch(78.59% 0.2646 142.81);
+  --blockui-fill-accent-foreground: oklch(0% 0 0);
+  --blockui-status-error-text: oklch(65.66% 0.2126 22.08);
+  --blockui-status-error-icon: oklch(65.66% 0.2126 22.08);
+  --blockui-status-error-surface: oklch(65.66% 0.2126 22.08);
+  --blockui-status-error-border: oklch(65.66% 0.2126 22.08);
+  --blockui-status-error-foreground: oklch(100% 0 0);
+  --blockui-status-warning-text: oklch(69.26% 0.1781 40.95);
+  --blockui-status-warning-icon: oklch(69.26% 0.1781 40.95);
+  --blockui-status-warning-surface: oklch(69.26% 0.1781 40.95);
+  --blockui-status-warning-border: oklch(69.26% 0.1781 40.95);
+  --blockui-status-warning-foreground: oklch(100% 0 0);
+  --blockui-status-success-text: oklch(74.93% 0.2259 146.49);
+  --blockui-status-success-icon: oklch(74.93% 0.2259 146.49);
+  --blockui-status-success-border: oklch(74.93% 0.2259 146.49);
+  --blockui-status-success-foreground: oklch(0% 0 0);
+  --blockui-trend-up: oklch(78.59% 0.2646 142.81);
+}
+@theme inline {
+  --color-blockui-text-standard: var(--blockui-text-standard);
+  --color-blockui-text-subtle: var(--blockui-text-subtle);
+  --color-blockui-text-tertiary: var(--blockui-text-tertiary);
+  --color-blockui-text-disabled: var(--blockui-text-disabled);
+  --color-blockui-text-inverse: var(--blockui-text-inverse);
+  --color-blockui-text-link: var(--blockui-text-link);
+  --color-blockui-text-link-visited: var(--blockui-text-link-visited);
+  --color-blockui-icon-standard: var(--blockui-icon-standard);
+  --color-blockui-icon-subtle: var(--blockui-icon-subtle);
+  --color-blockui-icon-disabled: var(--blockui-icon-disabled);
+  --color-blockui-icon-inverse: var(--blockui-icon-inverse);
+  --color-blockui-surface-app: var(--blockui-surface-app);
+  --color-blockui-surface-subtle: var(--blockui-surface-subtle);
+  --color-blockui-surface-standard: var(--blockui-surface-standard);
+  --color-blockui-surface-prominent: var(--blockui-surface-prominent);
+  --color-blockui-surface-inverse: var(--blockui-surface-inverse);
+  --color-blockui-surface-card: var(--blockui-surface-card);
+  --color-blockui-surface-popover: var(--blockui-surface-popover);
+  --color-blockui-border-extra-subtle: var(--blockui-border-extra-subtle);
+  --color-blockui-border-subtle: var(--blockui-border-subtle);
+  --color-blockui-border-standard: var(--blockui-border-standard);
+  --color-blockui-border-prominent: var(--blockui-border-prominent);
+  --color-blockui-focus-ring: var(--blockui-focus-ring);
+  --color-blockui-fill-primary: var(--blockui-fill-primary);
+  --color-blockui-fill-primary-foreground: var(
+    --blockui-fill-primary-foreground
+  );
+  --color-blockui-fill-secondary: var(--blockui-fill-secondary);
+  --color-blockui-fill-secondary-foreground: var(
+    --blockui-fill-secondary-foreground
+  );
+  --color-blockui-fill-accent: var(--blockui-fill-accent);
+  --color-blockui-fill-accent-foreground: var(--blockui-fill-accent-foreground);
+  --color-blockui-card-foreground: var(--blockui-card-foreground);
+  --color-blockui-status-error: var(--blockui-status-error);
+  --color-blockui-status-error-text: var(--blockui-status-error-text);
+  --color-blockui-status-error-icon: var(--blockui-status-error-icon);
+  --color-blockui-status-error-surface: var(--blockui-status-error-surface);
+  --color-blockui-status-error-border: var(--blockui-status-error-border);
+  --color-blockui-status-error-foreground: var(
+    --blockui-status-error-foreground
+  );
+  --color-blockui-status-warning: var(--blockui-status-warning);
+  --color-blockui-status-warning-text: var(--blockui-status-warning-text);
+  --color-blockui-status-warning-icon: var(--blockui-status-warning-icon);
+  --color-blockui-status-warning-surface: var(--blockui-status-warning-surface);
+  --color-blockui-status-warning-border: var(--blockui-status-warning-border);
+  --color-blockui-status-warning-foreground: var(
+    --blockui-status-warning-foreground
+  );
+  --color-blockui-status-success: var(--blockui-status-success);
+  --color-blockui-status-success-text: var(--blockui-status-success-text);
+  --color-blockui-status-success-icon: var(--blockui-status-success-icon);
+  --color-blockui-status-success-surface: var(--blockui-status-success-surface);
+  --color-blockui-status-success-border: var(--blockui-status-success-border);
+  --color-blockui-status-success-foreground: var(
+    --blockui-status-success-foreground
+  );
+  --color-blockui-trend-up: var(--blockui-trend-up);
+  --color-blockui-trend-down: var(--blockui-trend-down);
+  --color-blockui-trend-flat: var(--blockui-trend-flat);
+  --radius-blockui-xs: var(--blockui-radius-xs);
+  --radius-blockui-sm: var(--blockui-radius-sm);
+  --radius-blockui-12: var(--blockui-radius-12);
+  --radius-blockui-md: var(--blockui-radius-md);
+  --radius-blockui-lg: var(--blockui-radius-lg);
+  --radius-blockui-32: var(--blockui-radius-32);
+  --radius-blockui-xl: var(--blockui-radius-xl);
+  --radius-blockui-pill: var(--blockui-radius-pill);
+  --font-blockui-sans: var(--blockui-font-sans);
+  --font-blockui-mono: var(--blockui-font-mono);
+  --text-blockui-hero: var(--blockui-type-hero-size);
+  --text-blockui-hero--line-height: var(--blockui-type-hero-leading);
+  --text-blockui-hero--font-weight: var(--blockui-font-weight-regular);
+  --text-blockui-hero--letter-spacing: var(--blockui-type-hero-tracking);
+  --text-blockui-numeral-large: var(--blockui-type-numeral-large-size);
+  --text-blockui-numeral-large--line-height: var(
+    --blockui-type-numeral-large-leading
+  );
+  --text-blockui-numeral-large--font-weight: var(--blockui-font-weight-medium);
+  --text-blockui-numeral-large--letter-spacing: var(
+    --blockui-type-numeral-large-tracking
+  );
+  --text-blockui-headline-large: var(--blockui-type-headline-large-size);
+  --text-blockui-headline-large--line-height: var(
+    --blockui-type-headline-large-leading
+  );
+  --text-blockui-headline-large--font-weight: var(
+    --blockui-font-weight-regular
+  );
+  --text-blockui-headline-large--letter-spacing: var(
+    --blockui-type-headline-large-tracking
+  );
+  --text-blockui-page-title: var(--blockui-type-page-title-size);
+  --text-blockui-page-title--line-height: var(
+    --blockui-type-page-title-leading
+  );
+  --text-blockui-page-title--font-weight: var(--blockui-font-weight-medium);
+  --text-blockui-page-title--letter-spacing: var(
+    --blockui-type-page-title-tracking
+  );
+  --text-blockui-headline-small: var(--blockui-type-headline-small-size);
+  --text-blockui-headline-small--line-height: var(
+    --blockui-type-headline-small-leading
+  );
+  --text-blockui-headline-small--font-weight: var(
+    --blockui-font-weight-regular
+  );
+  --text-blockui-headline-small--letter-spacing: var(
+    --blockui-type-headline-small-tracking
+  );
+  --text-blockui-numeral-small: var(--blockui-type-numeral-small-size);
+  --text-blockui-numeral-small--line-height: var(
+    --blockui-type-numeral-small-leading
+  );
+  --text-blockui-numeral-small--font-weight: var(--blockui-font-weight-medium);
+  --text-blockui-numeral-small--letter-spacing: var(
+    --blockui-type-numeral-small-tracking
+  );
+  --text-blockui-section-title: var(--blockui-type-section-title-size);
+  --text-blockui-section-title--line-height: var(
+    --blockui-type-section-title-leading
+  );
+  --text-blockui-section-title--font-weight: var(--blockui-font-weight-medium);
+  --text-blockui-section-title--letter-spacing: var(
+    --blockui-type-section-title-tracking
+  );
+  --text-blockui-body-large: var(--blockui-type-body-large-size);
+  --text-blockui-body-large--line-height: var(
+    --blockui-type-body-large-leading
+  );
+  --text-blockui-body-large--font-weight: var(--blockui-font-weight-regular);
+  --text-blockui-body-large--letter-spacing: var(
+    --blockui-type-body-large-tracking
+  );
+  --text-blockui-label-large: var(--blockui-type-label-large-size);
+  --text-blockui-label-large--line-height: var(
+    --blockui-type-label-large-leading
+  );
+  --text-blockui-label-large--font-weight: var(--blockui-font-weight-medium);
+  --text-blockui-label-large--letter-spacing: var(
+    --blockui-type-label-large-tracking
+  );
+  --text-blockui-body-medium: var(--blockui-type-body-medium-size);
+  --text-blockui-body-medium--line-height: var(
+    --blockui-type-body-medium-leading
+  );
+  --text-blockui-body-medium--font-weight: var(--blockui-font-weight-regular);
+  --text-blockui-body-medium--letter-spacing: var(
+    --blockui-type-body-medium-tracking
+  );
+  --text-blockui-label-medium: var(--blockui-type-label-medium-size);
+  --text-blockui-label-medium--line-height: var(
+    --blockui-type-label-medium-leading
+  );
+  --text-blockui-label-medium--font-weight: var(--blockui-font-weight-medium);
+  --text-blockui-label-medium--letter-spacing: var(
+    --blockui-type-label-medium-tracking
+  );
+  --text-blockui-link-medium: var(--blockui-type-link-medium-size);
+  --text-blockui-link-medium--line-height: var(
+    --blockui-type-link-medium-leading
+  );
+  --text-blockui-link-medium--font-weight: var(--blockui-font-weight-medium);
+  --text-blockui-link-medium--letter-spacing: var(
+    --blockui-type-link-medium-tracking
+  );
+  --text-blockui-body-small: var(--blockui-type-body-small-size);
+  --text-blockui-body-small--line-height: var(
+    --blockui-type-body-small-leading
+  );
+  --text-blockui-body-small--font-weight: var(--blockui-font-weight-regular);
+  --text-blockui-body-small--letter-spacing: var(
+    --blockui-type-body-small-tracking
+  );
+  --text-blockui-label-small: var(--blockui-type-label-small-size);
+  --text-blockui-label-small--line-height: var(
+    --blockui-type-label-small-leading
+  );
+  --text-blockui-label-small--font-weight: var(--blockui-font-weight-medium);
+  --text-blockui-label-small--letter-spacing: var(
+    --blockui-type-label-small-tracking
+  );
+  --text-blockui-link-small: var(--blockui-type-link-small-size);
+  --text-blockui-link-small--line-height: var(
+    --blockui-type-link-small-leading
+  );
+  --text-blockui-link-small--font-weight: var(--blockui-font-weight-medium);
+  --text-blockui-link-small--letter-spacing: var(
+    --blockui-type-link-small-tracking
+  );
+  --text-blockui-caption: var(--blockui-type-caption-size);
+  --text-blockui-caption--line-height: var(--blockui-type-caption-leading);
+  --text-blockui-caption--font-weight: var(--blockui-font-weight-regular);
+  --text-blockui-caption--letter-spacing: var(--blockui-type-caption-tracking);
+  --text-blockui-body-xsmall: var(--blockui-type-body-xsmall-size);
+  --text-blockui-body-xsmall--line-height: var(
+    --blockui-type-body-xsmall-leading
+  );
+  --text-blockui-body-xsmall--font-weight: var(--blockui-font-weight-regular);
+  --text-blockui-body-xsmall--letter-spacing: var(
+    --blockui-type-body-xsmall-tracking
+  );
+  --text-blockui-label-xsmall: var(--blockui-type-label-xsmall-size);
+  --text-blockui-label-xsmall--line-height: var(
+    --blockui-type-label-xsmall-leading
+  );
+  --text-blockui-label-xsmall--font-weight: var(--blockui-font-weight-medium);
+  --text-blockui-label-xsmall--letter-spacing: var(
+    --blockui-type-label-xsmall-tracking
+  );
+  --text-blockui-link-xsmall: var(--blockui-type-link-xsmall-size);
+  --text-blockui-link-xsmall--line-height: var(
+    --blockui-type-link-xsmall-leading
+  );
+  --text-blockui-link-xsmall--font-weight: var(--blockui-font-weight-medium);
+  --text-blockui-link-xsmall--letter-spacing: var(
+    --blockui-type-link-xsmall-tracking
+  );
+}
+
+:root:not(
+  [data-substrate="managerbot"],
+  [data-substrate="moneybot"],
+  [data-substrate="arcade"]
+) {
+  --blockui-text-standard: #000000;
+  --blockui-text-subtle: #454545;
+  --blockui-text-tertiary: #7f7f7f;
+  --blockui-text-disabled: #d1d1d1;
+  --blockui-text-inverse: #ffffff;
+  --blockui-text-link: #000000;
+  --blockui-text-link-visited: #7602b1;
+  --blockui-icon-standard: #000000;
+  --blockui-icon-subtle: #454545;
+  --blockui-icon-disabled: #d1d1d1;
+  --blockui-icon-inverse: #ffffff;
+  --blockui-surface-app: #f5f5f5;
+  --blockui-surface-subtle: #d1d1d1;
+  --blockui-surface-standard: #e8e8e8;
+  --blockui-surface-prominent: #000000;
+  --blockui-surface-inverse: #ffffff;
+  --blockui-surface-card: #ffffff;
+  --blockui-surface-popover: rgb(255 255 255 / 0.6399999856948853);
+  --blockui-card-foreground: #000000;
+  --blockui-border-subtle: #e8e8e8;
+  --blockui-border-extra-subtle: #e8e8e8;
+  --blockui-border-standard: #696969;
+  --blockui-border-prominent: #171717;
+  --blockui-focus-ring: #000000;
+  --blockui-fill-primary: #000000;
+  --blockui-fill-primary-foreground: #ffffff;
+  --blockui-fill-accent: #000000;
+  --blockui-fill-accent-foreground: #ffffff;
+  --blockui-fill-secondary: #e8e8e8;
+  --blockui-fill-secondary-foreground: #000000;
+  --blockui-status-error-text: #d3040e;
+  --blockui-status-error-icon: #d3040e;
+  --blockui-status-error-border: #d3040e;
+  --blockui-status-error: #d3040e;
+  --blockui-status-error-surface: #fee2e2;
+  --blockui-status-error-foreground: #d3040e;
+  --blockui-status-success-surface: #d5fce0;
+  --blockui-status-success-text: #03681a;
+  --blockui-status-success-icon: #03681a;
+  --blockui-status-success-border: #03681a;
+  --blockui-status-success: #03681a;
+  --blockui-status-success-foreground: #03681a;
+  --blockui-status-warning-surface: #fef3c7;
+  --blockui-status-warning-icon: #b45309;
+  --blockui-status-warning-text: #b45309;
+  --blockui-status-warning: #b45309;
+  --blockui-status-warning-border: #b45309;
+  --blockui-status-warning-foreground: #b45309;
+  --blockui-trend-up: #000000;
+  --blockui-trend-down: #000000;
+  --blockui-trend-flat: #454545;
+}
+
+:root:not(
+  [data-substrate="managerbot"],
+  [data-substrate="moneybot"],
+  [data-substrate="arcade"]
+).dark {
+  --blockui-text-standard: #ffffff;
+  --blockui-text-subtle: #c7c7c7;
+  --blockui-text-tertiary: #a3a3a3;
+  --blockui-text-disabled: #3b3b3b;
+  --blockui-text-inverse: #000000;
+  --blockui-text-link: #ffffff;
+  --blockui-text-link-visited: #c36eed;
+  --blockui-icon-standard: #ffffff;
+  --blockui-icon-subtle: #c7c7c7;
+  --blockui-icon-disabled: #3b3b3b;
+  --blockui-icon-inverse: #000000;
+  --blockui-surface-app: #000000;
+  --blockui-surface-subtle: #2e2e2e;
+  --blockui-surface-standard: #242424;
+  --blockui-surface-prominent: #ffffff;
+  --blockui-surface-inverse: #000000;
+  --blockui-surface-card: #171717;
+  --blockui-surface-popover: rgb(0 0 0 / 0.6399999856948853);
+  --blockui-card-foreground: #ffffff;
+  --blockui-border-subtle: #242424;
+  --blockui-border-extra-subtle: #242424;
+  --blockui-border-standard: #969696;
+  --blockui-border-prominent: #ffffff;
+  --blockui-focus-ring: #ffffff;
+  --blockui-fill-primary: #ffffff;
+  --blockui-fill-primary-foreground: #000000;
+  --blockui-fill-accent: #ffffff;
+  --blockui-fill-accent-foreground: #000000;
+  --blockui-fill-secondary: #242424;
+  --blockui-fill-secondary-foreground: #ffffff;
+  --blockui-status-error-text: #fca5a5;
+  --blockui-status-error-icon: #fca5a5;
+  --blockui-status-error-border: #f87171;
+  --blockui-status-error: #fca5a5;
+  --blockui-status-error-surface: #7f1d1d;
+  --blockui-status-error-foreground: #fca5a5;
+  --blockui-status-success-surface: #044e19;
+  --blockui-status-success-text: #2bee45;
+  --blockui-status-success-icon: #2bee45;
+  --blockui-status-success-border: #2bee45;
+  --blockui-status-success: #2bee45;
+  --blockui-status-success-foreground: #2bee45;
+  --blockui-status-warning-surface: #78350f;
+  --blockui-status-warning-icon: #fbbf24;
+  --blockui-status-warning-text: #fbbf24;
+  --blockui-status-warning: #fbbf24;
+  --blockui-status-warning-border: #fbbf24;
+  --blockui-status-warning-foreground: #fbbf24;
+  --blockui-trend-up: #ffffff;
+  --blockui-trend-down: #ffffff;
+  --blockui-trend-flat: #c7c7c7;
+}

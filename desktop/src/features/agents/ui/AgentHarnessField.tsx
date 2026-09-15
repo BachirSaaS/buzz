@@ -1,3 +1,4 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
 import type { ReactNode } from "react";
 
 import type { PersonaDropdownOption } from "./agentConfigOptions";
@@ -23,12 +24,12 @@ export function AgentHarnessField({
 }) {
   return (
     <div className="space-y-1.5">
-      <label
+      <BlockLabel
         className="text-sm font-medium text-foreground"
         htmlFor="persona-runtime"
       >
         Agent harness
-      </label>
+      </BlockLabel>
       <PersonaDropdownField
         disabled={disabled}
         id="persona-runtime"

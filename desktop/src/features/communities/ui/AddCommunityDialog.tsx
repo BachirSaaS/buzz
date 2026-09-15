@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { ArrowLeft, ChevronRight, Link2, Plus } from "lucide-react";
 
@@ -107,7 +108,7 @@ export function AddCommunityDialog({
         <DialogHeader className="px-6 pb-3 pt-5 pr-14">
           <div className="flex min-w-0 items-center gap-2">
             {mode !== "choose" ? (
-              <button
+              <Action
                 aria-label="Back to add community options"
                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 ease-out hover:bg-accent hover:text-accent-foreground focus:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
                 data-testid="add-community-back"
@@ -117,8 +118,8 @@ export function AddCommunityDialog({
                 }}
                 type="button"
               >
-                <ArrowLeft className="h-4 w-4" />
-              </button>
+                <ArrowLeft className="size-4" />
+              </Action>
             ) : null}
             <DialogTitle className="truncate">{title}</DialogTitle>
           </div>
@@ -132,14 +133,14 @@ export function AddCommunityDialog({
         <div className="px-6 pb-6 pt-3">
           {mode === "choose" ? (
             <div className="space-y-3">
-              <button
+              <Action
                 className={OPTION_CLASS}
                 data-testid="add-community-create"
                 onClick={() => setMode("create")}
                 type="button"
               >
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                  <Plus className="h-4 w-4" />
+                  <Plus className="size-4" />
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block text-sm font-medium text-foreground">
@@ -149,17 +150,17 @@ export function AddCommunityDialog({
                     Claim a Buzz address for your team.
                   </span>
                 </span>
-                <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/60" />
-              </button>
+                <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+              </Action>
 
-              <button
+              <Action
                 className={OPTION_CLASS}
                 data-testid="add-community-join"
                 onClick={() => setMode("join")}
                 type="button"
               >
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                  <Link2 className="h-4 w-4" />
+                  <Link2 className="size-4" />
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block text-sm font-medium text-foreground">
@@ -169,8 +170,8 @@ export function AddCommunityDialog({
                     Use a community URL or invite link.
                   </span>
                 </span>
-                <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/60" />
-              </button>
+                <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+              </Action>
             </div>
           ) : mode === "join" ? (
             <InviteRedeemForm

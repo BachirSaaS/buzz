@@ -1,3 +1,4 @@
+import { ListChecks } from "lucide-react";
 import { Markdown } from "@/shared/ui/markdown";
 import {
   ActivityRow,
@@ -36,8 +37,12 @@ export function PlanActivity(props: ActivityRenderClassItemProps) {
       testId="transcript-plan-item"
       title={formatTranscriptTimestampTitle(props.item.timestamp)}
     >
+      <ListChecks
+        aria-hidden="true"
+        className="size-4 shrink-0 text-muted-foreground"
+      />
       <ActivityRowLabel object="plan" openToneScope="tool" verb="Updated" />
-      <ActivityRowContent className="pt-1 pb-1.5 text-sm leading-5 text-muted-foreground">
+      <ActivityRowContent className="text-sm leading-5 text-muted-foreground">
         <Markdown
           className="leading-5"
           content={props.item.text.trim() || "No plan details."}

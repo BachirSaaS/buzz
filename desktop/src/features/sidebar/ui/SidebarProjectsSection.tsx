@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { useLocation } from "@tanstack/react-router";
 import {
   ArrowUpDown,
@@ -263,7 +264,7 @@ function SidebarProjectsSectionContent() {
     >
       <div className="relative">
         <SidebarGroupLabel asChild>
-          <button
+          <Action
             aria-controls="sidebar-projects"
             aria-expanded={!collapsed}
             className={SECTION_LABEL_BUTTON_CLASS}
@@ -280,7 +281,7 @@ function SidebarProjectsSectionContent() {
                 )}
               />
             </span>
-          </button>
+          </Action>
         </SidebarGroupLabel>
         <SidebarProjectsHeaderActions
           filter={filter}
@@ -470,7 +471,7 @@ function SidebarProjectsHeaderActions({
 
   return (
     <div className="absolute right-1 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5">
-      <button
+      <Action
         aria-label="Add project"
         className={cn(
           SECTION_ICON_BUTTON_CLASS,
@@ -485,11 +486,11 @@ function SidebarProjectsHeaderActions({
         title="Add project"
         type="button"
       >
-        <Plus className="h-4 w-4" />
-      </button>
+        <Plus className="size-4" />
+      </Action>
       <DropdownMenu onOpenChange={onOpenChange}>
         <DropdownMenuTrigger asChild>
-          <button
+          <Action
             aria-label="More actions for Projects"
             className={cn(
               SECTION_ICON_BUTTON_CLASS,
@@ -501,8 +502,8 @@ function SidebarProjectsHeaderActions({
             ref={actionsTriggerRef}
             type="button"
           >
-            <EllipsisVertical className="h-4 w-4" />
-          </button>
+            <EllipsisVertical className="size-4" />
+          </Action>
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="end"
@@ -513,7 +514,7 @@ function SidebarProjectsHeaderActions({
         >
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>
-              <Folders className="h-4 w-4" />
+              <Folders className="size-4" />
               <span>Show</span>
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
@@ -534,7 +535,7 @@ function SidebarProjectsHeaderActions({
           </DropdownMenuSub>
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>
-              <ArrowUpDown className="h-4 w-4" />
+              <ArrowUpDown className="size-4" />
               <span>Sort</span>
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
@@ -553,7 +554,7 @@ function SidebarProjectsHeaderActions({
           </DropdownMenuSub>
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={() => deferMenuAction(onBrowseAll)}>
-            <Folder className="h-4 w-4" />
+            <Folder className="size-4" />
             <span>Browse all projects</span>
           </DropdownMenuItem>
         </DropdownMenuContent>
@@ -651,7 +652,7 @@ function SidebarProjectRow({
       <ContextMenuContent>
         <ContextMenuItem onSelect={() => deferMenuAction(onRemove)}>
           <ContextMenuIconSlot>
-            <ListMinus className="h-4 w-4" />
+            <ListMinus className="size-4" />
           </ContextMenuIconSlot>
           <span>Remove from sidebar</span>
         </ContextMenuItem>
@@ -666,7 +667,7 @@ function SidebarProjectRow({
               }
             >
               <ContextMenuIconSlot>
-                <Link2 className="h-4 w-4" />
+                <Link2 className="size-4" />
               </ContextMenuIconSlot>
               <span>Copy link</span>
             </ContextMenuItem>
@@ -682,7 +683,7 @@ function SidebarProjectRow({
               onSelect={() => deferMenuAction(onDelete)}
             >
               <ContextMenuIconSlot>
-                <Trash2 className="h-4 w-4" />
+                <Trash2 className="size-4" />
               </ContextMenuIconSlot>
               <span>Delete project</span>
             </ContextMenuItem>

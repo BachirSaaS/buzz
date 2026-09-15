@@ -1,5 +1,6 @@
 import type * as React from "react";
 import * as BuzzTheme from "@/app/BuzzThemeSurfaces";
+import { TerminalSurfaceContext } from "@/features/terminal/TerminalSurfaceContext";
 import { HuddleRoomHeader, HuddleStartingView } from "@/features/huddle";
 import { MainInsetProvider } from "@/shared/layout/MainInsetContext";
 import { chromeCssVarDefaults } from "@/shared/layout/chromeLayout";
@@ -10,6 +11,7 @@ type AppShellChannelSurfaceProps = {
   children: React.ReactNode;
   hasCommunityRail: boolean;
   isHuddleRoom: boolean;
+  isPulse?: boolean;
   isHuddleRoomStarting: boolean;
   mainInsetRef: React.RefObject<HTMLElement | null>;
   terminal?: React.ReactNode;
@@ -19,6 +21,7 @@ export function AppShellChannelSurface({
   children,
   hasCommunityRail,
   isHuddleRoom,
+  isPulse = false,
   isHuddleRoomStarting,
   mainInsetRef,
   terminal,
@@ -26,6 +29,7 @@ export function AppShellChannelSurface({
   const { isMobile, openMobile, state: sidebarState } = useSidebar();
   const hasCollapsedSidebarGutter =
     !isHuddleRoom &&
+    !isPulse &&
     !hasCommunityRail &&
     (isMobile ? !openMobile : sidebarState === "collapsed");
 
@@ -35,7 +39,11 @@ export function AppShellChannelSurface({
         ref={mainInsetRef}
         className={cn(
           "isolate z-0 min-h-0 min-w-0 overflow-hidden",
-          isHuddleRoom ? "bg-background" : "bg-sidebar",
+          isHuddleRoom
+            ? "bg-background"
+            : isPulse
+              ? "bg-(--buzz-window-surface)"
+              : "bg-sidebar",
           hasCollapsedSidebarGutter && "pl-2",
         )}
         data-buzz-content-surface={isHuddleRoom ? true : undefined}
@@ -51,8 +59,14 @@ export function AppShellChannelSurface({
           />
         ) : null}
         {isHuddleRoom && !isHuddleRoomStarting ? <HuddleRoomHeader /> : null}
-        <BuzzTheme.ContentSurface terminal={terminal} unframed={isHuddleRoom}>
-          {isHuddleRoomStarting ? <HuddleStartingView /> : children}
+        <BuzzTheme.ContentSurface
+          terminal={isPulse ? undefined : terminal}
+          unframed={isHuddleRoom}
+          transparent={isPulse}
+        >
+          <TerminalSurfaceContext.Provider value={isPulse ? terminal : null}>
+            {isHuddleRoomStarting ? <HuddleStartingView /> : children}
+          </TerminalSurfaceContext.Provider>
         </BuzzTheme.ContentSurface>
       </SidebarInset>
     </MainInsetProvider>

@@ -31,7 +31,7 @@ export function ComposerReplyEditBanner({
         className={cn(BANNER_CLASS, "items-center")}
         data-testid="edit-target"
       >
-        <Pencil aria-hidden className="h-4 w-4 shrink-0" />
+        <Pencil aria-hidden className="size-4 shrink-0" />
         <div className="min-w-0 flex-1">
           <p className="truncate font-medium text-foreground">
             Editing message
@@ -47,7 +47,7 @@ export function ComposerReplyEditBanner({
             type="button"
             variant="ghost"
           >
-            <X className="h-4 w-4" />
+            <X className="size-4" />
           </Button>
         ) : null}
       </div>
@@ -60,15 +60,13 @@ export function ComposerReplyEditBanner({
         className={cn(BANNER_CLASS, "items-start")}
         data-testid="reply-target"
       >
-        <CornerUpLeft aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
+        <CornerUpLeft aria-hidden className="mt-0.5 size-4 shrink-0" />
         <div className="min-w-0 flex-1">
           <p className="truncate font-medium text-foreground">
             Replying to {replyTarget.author}
           </p>
           {replyTarget.body ? (
-            <p className="truncate text-muted-foreground/80">
-              {replyTarget.body}
-            </p>
+            <p className="truncate text-muted-foreground">{replyTarget.body}</p>
           ) : null}
         </div>
         {onCancelReply ? (
@@ -80,7 +78,7 @@ export function ComposerReplyEditBanner({
             type="button"
             variant="ghost"
           >
-            <X className="h-4 w-4" />
+            <X className="size-4" />
           </Button>
         ) : null}
       </div>

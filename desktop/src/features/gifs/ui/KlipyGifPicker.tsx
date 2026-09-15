@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { useQuery } from "@tanstack/react-query";
 import { LoaderCircle, Search } from "lucide-react";
 import { useReducedMotion } from "motion/react";
@@ -58,7 +59,7 @@ export const KlipyGifPicker = React.memo(function KlipyGifPicker({
         <div className="relative">
           <Search
             aria-hidden
-            className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+            className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
           />
           <Input
             aria-label="Search KLIPY"
@@ -72,7 +73,7 @@ export const KlipyGifPicker = React.memo(function KlipyGifPicker({
           {gifsQuery.isFetching ? (
             <LoaderCircle
               aria-hidden
-              className="absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground"
+              className="absolute right-2.5 top-1/2 size-4 -translate-y-1/2 animate-spin text-muted-foreground"
             />
           ) : null}
         </div>
@@ -94,13 +95,13 @@ export const KlipyGifPicker = React.memo(function KlipyGifPicker({
             <p className="text-sm text-muted-foreground">
               {gifsQuery.error.message}
             </p>
-            <button
+            <Action
               className="text-sm font-medium text-primary hover:underline"
               onClick={() => void gifsQuery.refetch()}
               type="button"
             >
               Try again
-            </button>
+            </Action>
           </div>
         ) : gifsQuery.data.length === 0 ? (
           <div className="flex h-full items-center justify-center px-8 text-center text-sm text-muted-foreground">
@@ -112,7 +113,7 @@ export const KlipyGifPicker = React.memo(function KlipyGifPicker({
               const staticPoster = prefersReducedMotion ? gif.poster : null;
               const showAnimated = !prefersReducedMotion;
               return (
-                <button
+                <Action
                   aria-label={`Choose ${gif.title}`}
                   className="mb-1.5 block w-full break-inside-avoid overflow-hidden rounded-lg bg-muted outline-hidden ring-offset-background transition-[filter,transform] hover:brightness-110 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:scale-[0.98]"
                   key={gif.slug}
@@ -146,7 +147,7 @@ export const KlipyGifPicker = React.memo(function KlipyGifPicker({
                       {gif.title}
                     </span>
                   )}
-                </button>
+                </Action>
               );
             })}
           </div>

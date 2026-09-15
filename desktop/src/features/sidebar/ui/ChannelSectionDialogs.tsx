@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 
 import { X } from "lucide-react";
@@ -107,7 +108,7 @@ function SectionNameDialog({
             <Popover onOpenChange={setPickerOpen} open={pickerOpen}>
               <div className="relative shrink-0">
                 <PopoverTrigger asChild>
-                  <button
+                  <Action
                     aria-label="Choose section icon"
                     className="flex h-9 w-9 items-center justify-center rounded-md border border-input text-lg transition-colors hover:bg-accent"
                     type="button"
@@ -117,10 +118,10 @@ function SectionNameDialog({
                     ) : (
                       <span className="text-sm font-medium">#</span>
                     )}
-                  </button>
+                  </Action>
                 </PopoverTrigger>
                 {icon ? (
-                  <button
+                  <Action
                     aria-label="Clear section icon"
                     className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full border border-background bg-muted text-muted-foreground hover:bg-accent hover:text-foreground"
                     onClick={(event) => {
@@ -129,8 +130,8 @@ function SectionNameDialog({
                     }}
                     type="button"
                   >
-                    <X className="h-3 w-3" />
-                  </button>
+                    <X className="size-3" />
+                  </Action>
                 ) : null}
               </div>
               <PopoverContent

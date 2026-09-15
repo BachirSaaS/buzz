@@ -1,3 +1,4 @@
+import { Brain } from "lucide-react";
 import { Markdown } from "@/shared/ui/markdown";
 import {
   ActivityRow,
@@ -21,8 +22,12 @@ export function ThoughtActivity(props: ActivityRenderClassItemProps) {
       testId="transcript-thought-item"
       title={formatTranscriptTimestampTitle(props.item.timestamp)}
     >
+      <Brain
+        aria-hidden="true"
+        className="size-4 shrink-0 text-muted-foreground"
+      />
       <ActivityRowLabel openToneScope="tool" verb={props.item.title} />
-      <ActivityRowContent className="pt-1 pb-1.5 text-sm leading-5 text-muted-foreground">
+      <ActivityRowContent className="text-sm leading-5 text-muted-foreground">
         <Markdown
           className="leading-5"
           content={props.item.text.trim() || " "}

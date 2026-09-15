@@ -75,7 +75,7 @@ export function SidebarUpdateCompactCard({
         pending ? (
           <Spinner aria-hidden="true" className="h-5 w-5 border-2" />
         ) : (
-          <CircleArrowUp aria-hidden="true" className="h-5 w-5" />
+          <CircleArrowUp aria-hidden="true" className="size-5" />
         )
       }
       iconKey={pending ? "pending" : "idle"}
@@ -101,7 +101,7 @@ export function SidebarUpdateCard({ onDismiss }: SidebarUpdateCardProps) {
         actionTestId="sidebar-update-download-github"
         description={`v${status.version} available — download from GitHub. Switch to AppImage for automatic updates.`}
         dismissLabel="Dismiss update notification"
-        icon={<ExternalLink aria-hidden="true" className="h-5 w-5" />}
+        icon={<ExternalLink aria-hidden="true" className="size-5" />}
         iconKey="manual"
         onAction={() => void openUrl(status.releaseUrl)}
         onDismiss={onDismiss}

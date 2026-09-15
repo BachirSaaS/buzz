@@ -190,7 +190,7 @@ function formatTimestamp(iso: string): string {
 
 const SEVERITY_BADGE: Record<SeverityTier, string> = {
   critical: "bg-destructive/15 text-destructive",
-  high: "bg-amber-500/15 text-amber-600 dark:text-amber-400",
+  high: "bg-warning text-warning-foreground dark:text-warning-foreground",
   normal: "bg-muted text-muted-foreground",
 };
 
@@ -226,10 +226,7 @@ function ReporterLine({
         </span>
       </div>
       {report.note ? (
-        <p
-          className="mt-1 text-xs text-muted-foreground/70"
-          data-settings-subcopy
-        >
+        <p className="mt-1 text-xs text-muted-foreground" data-settings-subcopy>
           {report.note}
         </p>
       ) : null}
@@ -259,7 +256,7 @@ function ResolveMenu({
           type="button"
         >
           Resolve
-          <ChevronDown className="h-4 w-4" />
+          <ChevronDown className="size-4" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-64">
@@ -274,7 +271,7 @@ function ResolveMenu({
             <div className="flex flex-col">
               <span className="text-sm font-medium">{option.label}</span>
               <span
-                className="text-xs text-muted-foreground/70"
+                className="text-xs text-muted-foreground"
                 data-settings-subcopy
               >
                 {option.description}
@@ -315,7 +312,7 @@ function QueueGroupCard({
               )}
             >
               {tier === "critical" ? (
-                <ShieldAlert className="mr-1 h-3 w-3" />
+                <ShieldAlert className="mr-1 size-3" />
               ) : null}
               {reportTypeLabel(topType)}
             </span>
@@ -351,8 +348,8 @@ function QueueGroupCard({
       </div>
 
       {group.priorActions.length > 0 ? (
-        <div className="flex items-start gap-1.5 rounded-md bg-amber-500/10 px-2.5 py-1.5 text-xs text-amber-700 dark:text-amber-300">
-          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <div className="flex items-start gap-1.5 rounded-md bg-warning px-2.5 py-1.5 text-xs text-warning-foreground dark:text-warning-foreground">
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
           <span>
             {group.priorActions.length} prior action
             {group.priorActions.length === 1 ? "" : "s"} against this target
@@ -504,7 +501,7 @@ function AuditRow({
         </span>
       </div>
       {action.publicReason ? (
-        <p className="text-xs text-muted-foreground/70" data-settings-subcopy>
+        <p className="text-xs text-muted-foreground" data-settings-subcopy>
           {action.publicReason}
         </p>
       ) : null}

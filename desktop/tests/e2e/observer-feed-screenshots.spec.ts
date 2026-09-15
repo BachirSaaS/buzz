@@ -1,3 +1,4 @@
+import { waitForAnimations } from "../helpers/animations";
 import { expect, test } from "@playwright/test";
 
 import { installMockBridge, TEST_IDENTITIES } from "../helpers/bridge";
@@ -815,3 +816,136 @@ test.describe("observer feed screenshots", () => {
     });
   });
 });
+
+for (const appearance of ["light", "dark"] as const) {
+  test(`Block UI ${appearance} activity widgets expose outcomes and keyboard disclosures`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 1000 });
+    await page.addInitScript(
+      (value) => localStorage.setItem("buzz-blockui-appearance.v1", value),
+      appearance,
+    );
+    await installMockBridge(page, { managedAgents: MANAGED_AGENTS });
+    const panel = await openObserverFeedPanel(page, OBSERVER_AGENT_PUBKEY);
+    const updates = [
+      {
+        sessionUpdate: "tool_call",
+        toolCallId: "widget-tests",
+        title: "shell",
+        toolName: "shell",
+        status: "completed",
+        rawInput: { command: "pnpm test" },
+        content: { type: "text", text: "18 tests passed" },
+      },
+      {
+        sessionUpdate: "tool_call",
+        toolCallId: "widget-error",
+        title: "shell",
+        toolName: "shell",
+        status: "failed",
+        rawInput: { command: "pnpm build" },
+        content: {
+          type: "text",
+          text: "Build failed: missing export in widget.ts",
+        },
+      },
+      {
+        sessionUpdate: "tool_call",
+        toolCallId: "widget-plan",
+        title: "todo",
+        toolName: "todo",
+        status: "completed",
+        rawInput: {
+          todos: [
+            { text: "Review existing components", status: "completed" },
+            { text: "Verify the new widgets", status: "pending" },
+          ],
+        },
+        content: { type: "text", text: "Plan updated" },
+      },
+    ];
+    await seedObserverEvents(
+      page,
+      OBSERVER_AGENT_PUBKEY,
+      updates.map((update, index) => ({
+        seq: index + 1,
+        timestamp: NOW,
+        kind: "acp_read",
+        agentIndex: 0,
+        channelId: CHANNEL_ID,
+        sessionId: "widget-session",
+        turnId: `widget-turn-${index}`,
+        payload: {
+          method: "session/update",
+          params: { sessionId: "widget-session", update },
+        },
+      })),
+    );
+    const failed = panel.locator(
+      '.activity-widget[data-activity-tone="error"]',
+    );
+    await expect(failed).toBeVisible();
+    await expect(
+      failed.locator('[data-activity-status="failed"]'),
+    ).toBeVisible();
+    await expect(failed).toHaveCSS("border-radius", "24px");
+    await expect(failed).toHaveCSS("padding", "24px");
+    await failed.locator("summary").focus();
+    await page.keyboard.press("Enter");
+    await expect(failed).toHaveAttribute("open", "");
+    await expect(failed).toContainText("Build failed: missing export");
+    const plan = panel
+      .locator(".activity-widget")
+      .filter({ hasText: "1/2 complete" })
+      .last();
+    await expect(plan).toBeVisible();
+    await plan.locator("summary").click();
+    await expect(
+      plan.getByRole("progressbar", { name: "Plan completion" }),
+    ).toHaveAttribute("aria-valuenow", "50");
+    await panel
+      .locator(".overflow-y-auto")
+      .first()
+      .evaluate((el) => el.scrollTo({ top: 0 }));
+    await waitForAnimations(page);
+    await panel.screenshot({
+      path: `test-results/rich-widgets/${appearance}-activity.png`,
+    });
+    // Exercise reported live states through the same ACP ingestion path.
+    await seedObserverEvents(
+      page,
+      OBSERVER_AGENT_PUBKEY,
+      ["pending", "executing"].map((status, index) => ({
+        seq: 10 + index,
+        timestamp: NOW,
+        kind: "acp_read",
+        agentIndex: 0,
+        channelId: CHANNEL_ID,
+        sessionId: "widget-session",
+        turnId: `widget-live-${index}`,
+        payload: {
+          method: "session/update",
+          params: {
+            sessionId: "widget-session",
+            update: {
+              sessionUpdate: "tool_call",
+              toolCallId: `widget-live-${index}`,
+              title: "shell",
+              toolName: "shell",
+              status,
+              rawInput: { command: "pnpm check" },
+            },
+          },
+        },
+      })),
+    );
+    await expect(
+      panel.locator('[data-activity-status="pending"]'),
+    ).toBeVisible();
+    const running = panel.locator('[data-activity-status="running"]');
+    await expect(running).toBeVisible();
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await expect(running.locator("svg")).toHaveCSS("animation-name", "none");
+  });
+}

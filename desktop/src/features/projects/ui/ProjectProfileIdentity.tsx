@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import type * as React from "react";
 
 import { UserProfilePopover } from "@/features/profile/ui/UserProfilePopover";
@@ -80,13 +81,13 @@ export function ProfileIdentityButton({
 
   return (
     <UserProfilePopover pubkey={pubkey} triggerElement="span">
-      <button
+      <Action
         aria-label={showLabel ? undefined : label}
         className={className}
         type="button"
       >
         {inner}
-      </button>
+      </Action>
     </UserProfilePopover>
   );
 }
@@ -104,12 +105,12 @@ export function ProfileAuthorName({
 
   return (
     <UserProfilePopover pubkey={pubkey} triggerElement="span">
-      <button
+      <Action
         className="rounded-md font-semibold text-foreground hover:underline focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
         type="button"
       >
         {children}
-      </button>
+      </Action>
     </UserProfilePopover>
   );
 }

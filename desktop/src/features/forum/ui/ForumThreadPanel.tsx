@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { ArrowLeft, MessageSquare } from "lucide-react";
 import * as React from "react";
 
@@ -96,7 +97,7 @@ function ReplyRow({
           pubkey={reply.pubkey}
           role={replyAuthorIsAgent ? "bot" : undefined}
         >
-          <button
+          <Action
             className="flex items-center gap-2 rounded-lg focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
             type="button"
           >
@@ -110,7 +111,7 @@ function ReplyRow({
             <span className="text-sm font-medium text-foreground hover:underline">
               {replyAuthorLabel}
             </span>
-          </button>
+          </Action>
         </UserProfilePopover>
         <span className="text-xs text-muted-foreground">
           {formatRelativeTime(reply.createdAt)}
@@ -195,7 +196,7 @@ export function ForumThreadPanel({
             size="sm"
             variant="ghost"
           >
-            <ArrowLeft className="h-4 w-4" />
+            <ArrowLeft className="size-4" />
             Back to posts
           </Button>
         </div>
@@ -233,7 +234,7 @@ export function ForumThreadPanel({
           size="sm"
           variant="ghost"
         >
-          <ArrowLeft className="h-4 w-4" />
+          <ArrowLeft className="size-4" />
           Back to posts
         </Button>
       </div>
@@ -256,7 +257,7 @@ export function ForumThreadPanel({
               pubkey={post.pubkey}
               role={postAuthorIsAgent ? "bot" : undefined}
             >
-              <button
+              <Action
                 className="flex items-center gap-2 rounded-xl focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
                 type="button"
               >
@@ -269,7 +270,7 @@ export function ForumThreadPanel({
                 <span className="text-sm font-semibold text-foreground hover:underline">
                   {postAuthorLabel}
                 </span>
-              </button>
+              </Action>
             </UserProfilePopover>
             <span className="text-xs text-muted-foreground">
               {formatRelativeTime(post.createdAt)}
@@ -303,7 +304,7 @@ export function ForumThreadPanel({
         </div>
 
         <div className="flex items-center gap-1.5 border-b border-border/60 px-4 py-2.5 text-sm font-medium text-muted-foreground">
-          <MessageSquare className="h-4 w-4" />
+          <MessageSquare className="size-4" />
           {replies.length} {replies.length === 1 ? "reply" : "replies"}
         </div>
 

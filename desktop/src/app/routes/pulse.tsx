@@ -1,4 +1,9 @@
 import * as React from "react";
+import { parseProjectDetailSearch } from "@/features/projects/lib/projectDetailSearch";
+import {
+  parseWorkflowEditorPane,
+  serializeWorkflowEditorPane,
+} from "@/features/workflows/ui/workflowEditorPane";
 import { createFileRoute } from "@tanstack/react-router";
 
 import {
@@ -15,7 +20,26 @@ const PulseScreen = React.lazy(async () => {
   return { default: module.PulseScreen };
 });
 
-type PulseRouteSearch = {
+type PulseRouteSearch = ReturnType<typeof parseProjectDetailSearch> & {
+  projectId?: string;
+  projectSection?: string;
+  workflowId?: string;
+  profilePersona?: string;
+  agentSection?: "browse";
+  view?: "create" | "edit" | "duplicate";
+  pane?: string;
+  feed?: string;
+  conversation?: string;
+  dm?: string;
+  channel?: string;
+  post?: string;
+  reply?: string;
+  thread?: string;
+  messageId?: string;
+  threadRootId?: string;
+  agentSession?: string;
+  agentSessionChannel?: string;
+  channelManagement?: string;
   profile?: string;
   profileTab?: ProfilePanelTab;
   profileView?: ProfilePanelView;
@@ -24,7 +48,47 @@ type PulseRouteSearch = {
 function validatePulseSearch(
   search: Record<string, unknown>,
 ): PulseRouteSearch {
+  const stringValue = (key: string) =>
+    typeof search[key] === "string" && search[key].length > 0
+      ? search[key]
+      : undefined;
   return {
+    agentSection: search.agentSection === "browse" ? "browse" : undefined,
+    ...parseProjectDetailSearch(search),
+    projectId: stringValue("projectId"),
+    projectSection: stringValue("projectSection"),
+    workflowId: stringValue("workflowId"),
+    profilePersona: stringValue("profilePersona"),
+    view:
+      search.view === "create" ||
+      search.view === "edit" ||
+      search.view === "duplicate"
+        ? search.view
+        : undefined,
+    pane: serializeWorkflowEditorPane(parseWorkflowEditorPane(search.pane)),
+    feed: [
+      "search",
+      "dm",
+      "channel",
+      "agent",
+      "conversation",
+      "projects",
+      "agents",
+      "workflows",
+    ].includes(String(search.feed))
+      ? String(search.feed)
+      : undefined,
+    conversation: stringValue("conversation"),
+    dm: stringValue("dm"),
+    channel: stringValue("channel"),
+    post: stringValue("post"),
+    reply: stringValue("reply"),
+    thread: stringValue("thread"),
+    messageId: stringValue("messageId"),
+    threadRootId: stringValue("threadRootId"),
+    agentSession: stringValue("agentSession"),
+    agentSessionChannel: stringValue("agentSessionChannel"),
+    channelManagement: stringValue("channelManagement"),
     profile:
       typeof search.profile === "string" && search.profile.length > 0
         ? search.profile

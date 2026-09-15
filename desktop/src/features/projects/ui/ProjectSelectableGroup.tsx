@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 
 import type { ProjectSelectionItem } from "@/features/projects/lib/projectSelection";
@@ -88,7 +89,7 @@ export function ProjectSelectableGroup({
             </span>
           ) : null}
         </span>
-        <button
+        <Action
           aria-expanded={expanded}
           className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left"
           onClick={() => setExpanded((current) => !current)}
@@ -104,11 +105,11 @@ export function ProjectSelectableGroup({
             {label}
           </span>
           {!expanded ? (
-            <span className="shrink-0 tabular-nums text-muted-foreground/65">
+            <span className="shrink-0 tabular-nums text-muted-foreground">
               {count}
             </span>
           ) : null}
-        </button>
+        </Action>
       </div>
       {expanded ? (
         <div className={cn("mt-1 space-y-0.5", contentClassName)}>

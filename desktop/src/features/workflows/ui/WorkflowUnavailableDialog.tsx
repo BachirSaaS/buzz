@@ -51,7 +51,7 @@ export function WorkflowUnavailableDialog({
           <DialogFooter>
             <DialogClose asChild>
               <Button type="button" variant="outline">
-                <X className="h-4 w-4" />
+                <X className="size-4" />
                 Close
               </Button>
             </DialogClose>

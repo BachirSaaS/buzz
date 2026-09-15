@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { AlertTriangle, Brain, ChevronDown, RefreshCw } from "lucide-react";
 
@@ -190,7 +191,7 @@ function MemoryErrorState({
       role="alert"
     >
       <div className="flex items-start gap-2">
-        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+        <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
         <div className="space-y-1">
           <div className="font-medium text-destructive">
             Couldn't load memory
@@ -226,15 +227,15 @@ function MemoryStaleErrorBanner({
       )}
       data-testid="agent-memory-stale-error"
     >
-      <AlertTriangle className="h-4 w-4 shrink-0 text-warning" />
+      <AlertTriangle className="size-4 shrink-0 text-warning" />
       <span className="flex-1 text-muted-foreground">Refresh failed.</span>
-      <button
+      <Action
         className="font-medium text-warning hover:underline"
         onClick={onRetry}
         type="button"
       >
         Retry
-      </button>
+      </Action>
     </div>
   );
 }
@@ -262,7 +263,7 @@ function MemoryGraphView({
         className="flex min-h-56 flex-col items-center justify-center px-6 py-10 text-center"
         data-testid="agent-memory-empty"
       >
-        <Brain className="mx-auto h-4 w-4 text-muted-foreground" />
+        <Brain className="mx-auto size-4 text-muted-foreground" />
         <p className="mt-3 text-sm font-medium">Build this agent's memory</p>
         <p className="mt-1 text-sm text-muted-foreground">
           Try telling this agent to remember something for next time.
@@ -327,7 +328,7 @@ function MemoryGraphView({
       ) : null}
 
       {hasMoreEntries && showAllEntries ? (
-        <button
+        <Action
           className={cn(
             "flex w-full justify-center px-4 py-3 text-sm font-medium text-foreground transition-colors hover:bg-muted/50",
             variant === "grouped"
@@ -339,7 +340,7 @@ function MemoryGraphView({
           type="button"
         >
           Show less
-        </button>
+        </Action>
       ) : null}
     </div>
   );
@@ -357,7 +358,7 @@ function MemoryShowMoreButton({
   variant: MemorySectionVariant;
 }) {
   const button = (
-    <button
+    <Action
       className={cn(
         "flex w-full items-center justify-center gap-2 px-4 py-3 text-sm font-medium text-foreground transition-colors hover:bg-muted/50",
         variant === "grouped"
@@ -371,7 +372,7 @@ function MemoryShowMoreButton({
       type="button"
     >
       View all ({count})
-    </button>
+    </Action>
   );
 
   if (!truncated) return button;
@@ -397,7 +398,7 @@ function MemoryTruncatedHint({ variant }: { variant: MemorySectionVariant }) {
           )}
           data-testid="agent-memory-truncated"
         >
-          <AlertTriangle className="h-4 w-4 text-warning" />
+          <AlertTriangle className="size-4 text-warning" />
         </div>
       </TooltipTrigger>
       <TooltipContent className="max-w-xs text-xs" side="top">
@@ -469,9 +470,7 @@ function MemoryDanglingRefsHint({ slugs }: { slugs: string[] }) {
             </React.Fragment>
           ))}
         </p>
-        <p className="mt-0.5 text-foreground/50">
-          {MEMORY_DANGLING_REF_TOOLTIP}
-        </p>
+        <p className="mt-0.5 text-foreground">{MEMORY_DANGLING_REF_TOOLTIP}</p>
       </div>
     </div>
   );
@@ -483,9 +482,7 @@ function MemorySlugTitle({ slug }: { slug: string }) {
 
   if (segments.length === 1) {
     return (
-      <span
-        className={segments[0] === "mem" ? "text-foreground/40" : undefined}
-      >
+      <span className={segments[0] === "mem" ? "text-foreground" : undefined}>
         {segments[0]}
       </span>
     );
@@ -498,11 +495,11 @@ function MemorySlugTitle({ slug }: { slug: string }) {
         return (
           <React.Fragment key={segmentPath}>
             {index > 0 ? (
-              <span className="px-0.5 text-foreground/40">/</span>
+              <span className="px-0.5 text-foreground">/</span>
             ) : null}
             <span
               className={cn(
-                segment === "mem" ? "text-foreground/40" : "text-foreground",
+                segment === "mem" ? "text-foreground" : "text-foreground",
               )}
             >
               {segment}
@@ -576,19 +573,19 @@ function MemoryEntryAccordion({
           ref={titleRef}
         >
           {hasDanglingRefs ? (
-            <AlertTriangle className="mr-1 inline-block h-4 w-4 align-[-2px] text-warning" />
+            <AlertTriangle className="mr-1 inline-block size-4 align-[-2px] text-warning" />
           ) : null}
           <MemorySlugTitle slug={entry.slug} />
         </div>
         <div
           className={cn(
-            "mt-1 text-xs leading-5 text-foreground/70",
+            "mt-1 text-xs leading-5 text-foreground",
             open ? "whitespace-pre-wrap wrap-break-word" : "line-clamp-2",
           )}
           ref={bodyRef}
         >
           {isEmpty ? (
-            <span className="italic text-foreground/50">(empty)</span>
+            <span className="italic text-foreground">(empty)</span>
           ) : (
             <MemoryBodyText body={entry.body} />
           )}
@@ -614,7 +611,7 @@ function MemoryEntryAccordion({
       ref={articleRef}
     >
       {canExpand ? (
-        <button
+        <Action
           aria-expanded={open}
           className="w-full px-4 py-3 text-left transition-colors hover:bg-muted/50"
           onClick={() => setOpen((value) => !value)}
@@ -624,7 +621,7 @@ function MemoryEntryAccordion({
           {hasDanglingRefs && open ? (
             <MemoryDanglingRefsHint slugs={danglingRefsForEntry} />
           ) : null}
-        </button>
+        </Action>
       ) : (
         <div className="flex items-start gap-3 px-4 py-3">{content}</div>
       )}

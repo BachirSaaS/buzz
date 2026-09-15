@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import {
   ArrowDown,
   CalendarClock,
@@ -182,7 +183,7 @@ function InspectorTypeMenu<T extends string>({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button
+        <Action
           aria-label={ariaLabel}
           className="group inline-flex max-w-full items-center gap-1.5 rounded-md py-0.5 text-base font-semibold text-foreground outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
           data-value={value}
@@ -190,8 +191,8 @@ function InspectorTypeMenu<T extends string>({
           type="button"
         >
           <span className="truncate">{labels[value]}</span>
-          <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground opacity-60 transition-opacity group-hover:opacity-100" />
-        </button>
+          <ChevronDown className="size-4 shrink-0 text-muted-foreground opacity-60 transition-opacity group-hover:opacity-100" />
+        </Action>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" sideOffset={8}>
         {options.map((option) => (
@@ -245,7 +246,7 @@ function WorkflowNode({
   return (
     <li className="flex flex-col items-center">
       <div className="group relative isolate w-full after:absolute after:left-full after:top-0 after:z-0 after:h-full after:w-12 after:content-['']">
-        <button
+        <Action
           aria-label={label}
           aria-pressed={selected}
           className={cn(
@@ -274,12 +275,12 @@ function WorkflowNode({
           </span>
           <span className="min-w-0 flex-1">
             {showTitle ? (
-              <span className="block text-2xs font-semibold uppercase tracking-wide text-muted-foreground/70">
+              <span className="block text-2xs font-semibold uppercase tracking-wide text-muted-foreground">
                 {title}
               </span>
             ) : null}
             {subtitle ? (
-              <span className="block truncate text-2xs font-semibold uppercase tracking-wide text-muted-foreground/70">
+              <span className="block truncate text-2xs font-semibold uppercase tracking-wide text-muted-foreground">
                 {subtitle}
               </span>
             ) : null}
@@ -287,7 +288,7 @@ function WorkflowNode({
               {description}
             </span>
           </span>
-        </button>
+        </Action>
 
         {onRemove ? (
           <Button
@@ -299,7 +300,7 @@ function WorkflowNode({
             type="button"
             variant="ghost"
           >
-            <Trash2 className="h-4 w-4" />
+            <Trash2 className="size-4" />
           </Button>
         ) : null}
       </div>
@@ -313,7 +314,7 @@ function WorkflowNode({
         {terminal ? null : (
           <ArrowDown
             aria-hidden="true"
-            className="h-5 w-5 text-muted-foreground transition-opacity duration-200 ease-out group-hover:opacity-10 group-data-[menu-open=true]:opacity-10 group-has-[:focus-visible]:opacity-10 motion-reduce:transition-none"
+            className="size-5 text-muted-foreground transition-opacity duration-200 ease-out group-hover:opacity-10 group-data-[menu-open=true]:opacity-10 group-has-[:focus-visible]:opacity-10 motion-reduce:transition-none"
           />
         )}
         <DropdownMenu onOpenChange={setAddMenuOpen}>
@@ -332,7 +333,7 @@ function WorkflowNode({
               type="button"
               variant="outline"
             >
-              <Plus className="h-3.5 w-3.5" />
+              <Plus className="size-3.5" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="center" side="right" sideOffset={8}>
@@ -884,7 +885,7 @@ export const WorkflowFormBuilder = React.forwardRef<
                                 type="button"
                                 variant="ghost"
                               >
-                                <Trash2 className="h-4 w-4 text-muted-foreground" />
+                                <Trash2 className="size-4 text-muted-foreground" />
                               </Button>
                             ) : null}
                             <Button
@@ -895,7 +896,7 @@ export const WorkflowFormBuilder = React.forwardRef<
                               type="button"
                               variant="ghost"
                             >
-                              <X className="h-4 w-4" />
+                              <X className="size-4" />
                             </Button>
                           </div>
                         </div>

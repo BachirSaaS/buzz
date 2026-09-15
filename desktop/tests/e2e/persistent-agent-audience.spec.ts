@@ -366,7 +366,7 @@ test("keeps the composer and global automatic mention settings synchronized", as
     .getByRole("switch", { name: "Automatically mention agents" });
   await expect(settingsToggle).toHaveAttribute("data-state", "unchecked");
 
-  await page.getByTestId("settings-back-to-app").click();
+  await page.getByTestId("global-back").click();
   await expect(
     composer.getByTestId(`composer-address-lock-${AGENT_A}`),
   ).toHaveCount(0);

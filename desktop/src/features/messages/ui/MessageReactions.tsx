@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { SmilePlus } from "lucide-react";
 import * as React from "react";
 
@@ -22,8 +23,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 
 const REACTION_PILL_BASE_CLASSES =
   "inline-flex h-7 items-center rounded-full border text-xs font-medium leading-none transition-colors";
-const REACTION_CUSTOM_GLYPH_CLASSES = "h-3.5 w-3.5";
-const REACTION_NATIVE_GLYPH_CLASSES = "h-3 w-3 text-xs";
+const REACTION_CUSTOM_GLYPH_CLASSES = "size-3.5";
+const REACTION_NATIVE_GLYPH_CLASSES = "size-3 text-xs";
 const REACTION_COUNT_CLASSES = "text-muted-foreground";
 const REACTION_NATIVE_COUNT_CLASSES =
   "text-muted-foreground translate-y-[0.5px]";
@@ -80,6 +81,7 @@ function EmojiGlyph({
   if (reaction.emojiUrl) {
     return (
       <img
+        data-reaction-glyph="custom"
         alt={reaction.emoji}
         title={displayName}
         src={rewriteRelayUrl(reaction.emojiUrl)}
@@ -93,6 +95,7 @@ function EmojiGlyph({
   }
   return (
     <span
+      data-reaction-glyph="native"
       className={cn(
         "inline-flex items-center justify-center leading-none",
         className,
@@ -122,10 +125,10 @@ function ReactionPopoverContent({ reaction }: { reaction: TimelineReaction }) {
 
   return (
     <div className="flex flex-col items-center text-center">
-      <div className="mb-2 flex h-14 w-14 items-center justify-center">
+      <div className="mb-2 flex size-14 items-center justify-center">
         <EmojiGlyph
           reaction={reaction}
-          className={reaction.emojiUrl ? "h-12 w-12" : "text-4xl"}
+          className={reaction.emojiUrl ? "size-12" : "text-4xl"}
         />
       </div>
       <div className="max-w-[14rem] text-balance text-sm font-semibold leading-snug text-popover-foreground">
@@ -148,6 +151,7 @@ export function MessageReactions({
   pending,
   onSelect,
   className,
+  showPicker = true,
   burstEmojiOnRender = null,
   onBurstEmojiRendered,
 }: {
@@ -157,6 +161,8 @@ export function MessageReactions({
   pending: boolean;
   onSelect: (emoji: string) => void;
   className?: string;
+  /** Omit the inline add button when a nearby action bar owns the picker. */
+  showPicker?: boolean;
   burstEmojiOnRender?: string | null;
   onBurstEmojiRendered?: (emoji: string) => void;
 }) {
@@ -252,24 +258,29 @@ export function MessageReactions({
   }
 
   return (
-    <div
+    <fieldset
       className={cn(
-        "group/reactions mt-1.5 flex flex-wrap items-center gap-1.5",
+        "group/reactions mt-1.5 flex min-w-0 flex-wrap items-center gap-1.5",
         className,
       )}
       data-testid="message-reactions"
+      aria-label="Message reactions"
     >
       {reactions.map((reaction) => (
-        <ReactionPill
+        <span
+          className="reaction-segment contents"
           key={`${messageId}-${reaction.emoji}`}
-          canToggle={canToggle}
-          pending={pending}
-          reaction={reaction}
-          registerPill={registerPill}
-          onSelect={onSelect}
-        />
+        >
+          <ReactionPill
+            canToggle={canToggle}
+            pending={pending}
+            reaction={reaction}
+            registerPill={registerPill}
+            onSelect={onSelect}
+          />
+        </span>
       ))}
-      {canToggle ? (
+      {canToggle && showPicker ? (
         <InlineReactionPicker
           messageId={messageId}
           onSelect={onSelect}
@@ -278,7 +289,7 @@ export function MessageReactions({
           requestBadgeBurst={setPendingBadgeBurstEmoji}
         />
       ) : null}
-    </div>
+    </fieldset>
   );
 }
 
@@ -306,7 +317,7 @@ function InlineReactionPicker({
       <Tooltip>
         <TooltipTrigger asChild>
           <PopoverTrigger asChild>
-            <button
+            <Action
               aria-label="Add reaction"
               className={cn(
                 REACTION_PILL_BASE_CLASSES,
@@ -324,8 +335,8 @@ function InlineReactionPicker({
               disabled={pending}
               type="button"
             >
-              <SmilePlus className="h-4 w-4" />
-            </button>
+              <SmilePlus className="size-4" />
+            </Action>
           </PopoverTrigger>
         </TooltipTrigger>
         <TooltipContent>React</TooltipContent>
@@ -417,7 +428,7 @@ function ReactionPill({
     "min-w-12 justify-center gap-1.5 px-2",
     reaction.reactedByCurrentUser
       ? "border-primary/40 bg-primary/10 text-primary"
-      : "border-border/70 bg-muted/70 text-foreground/90",
+      : "border-border/70 bg-muted/70 text-foreground",
     canToggle
       ? reaction.reactedByCurrentUser
         ? "hover:bg-primary/10 hover:text-primary focus-visible:bg-primary/10 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
@@ -441,7 +452,7 @@ function ReactionPill({
 
   if (reaction.users.length === 0) {
     return (
-      <button
+      <Action
         aria-label={`Toggle ${reaction.emoji} reaction`}
         aria-pressed={reaction.reactedByCurrentUser}
         title={displayName}
@@ -467,7 +478,7 @@ function ReactionPill({
           }
           value={reaction.count}
         />
-      </button>
+      </Action>
     );
   }
 
@@ -482,7 +493,7 @@ function ReactionPill({
           onFocus={handleFocus}
           onBlur={scheduleClose}
         >
-          <button
+          <Action
             aria-label={`Toggle ${reaction.emoji} reaction`}
             aria-pressed={reaction.reactedByCurrentUser}
             title={displayName}
@@ -508,7 +519,7 @@ function ReactionPill({
               }
               value={reaction.count}
             />
-          </button>
+          </Action>
         </span>
       </PopoverTrigger>
       <PopoverContent

@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { FileText, Lock, Pencil, Send, Trash2 } from "lucide-react";
 import * as React from "react";
 
@@ -372,7 +373,7 @@ function DraftRow({
       )}
       data-testid={`home-draft-item-${entry.key}`}
     >
-      <button
+      <Action
         aria-label={`View draft in ${channelLabel}`}
         className="block w-full min-w-0 px-3 py-3 text-left disabled:cursor-default"
         onClick={onSelect}
@@ -380,7 +381,7 @@ function DraftRow({
       >
         <div className="min-w-0 pr-0 transition-[padding] group-hover/draft-row:pr-20 group-focus-within/draft-row:pr-20">
           <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-            {isPrivate ? <Lock className="h-3.5 w-3.5 shrink-0" /> : null}
+            {isPrivate ? <Lock className="size-3.5 shrink-0" /> : null}
             <span
               className={cn(
                 "truncate font-medium",
@@ -390,7 +391,7 @@ function DraftRow({
             >
               {channelLabel}
             </span>
-            <span className="shrink-0 text-muted-foreground/70">
+            <span className="shrink-0 text-muted-foreground">
               {formatDraftCreatedAt(entry.draft)}
             </span>
             {isOrphaned ? (
@@ -410,7 +411,7 @@ function DraftRow({
             />
           </div>
         </div>
-      </button>
+      </Action>
 
       {/* Hover action buttons: edit / delete / send (order per spec) */}
       <div className="pointer-events-none absolute right-2 top-2 flex items-center gap-0.5 rounded-full bg-background/95 p-0.5 opacity-0 shadow-xs ring-1 ring-border/70 transition-opacity group-hover/draft-row:pointer-events-auto group-hover/draft-row:opacity-100 group-focus-within/draft-row:pointer-events-auto group-focus-within/draft-row:opacity-100">
@@ -427,7 +428,7 @@ function DraftRow({
               }
               onClick={() => onOpen(entry)}
             >
-              <Pencil className="h-4 w-4" />
+              <Pencil className="size-4" />
             </DraftRowActionButton>
             <DraftRowActionButton
               disabled={!canSend}
@@ -440,7 +441,7 @@ function DraftRow({
               }
               onClick={() => onSend(entry)}
             >
-              <Send className="h-4 w-4" />
+              <Send className="size-4" />
             </DraftRowActionButton>
           </>
         )}
@@ -448,7 +449,7 @@ function DraftRow({
           label="Delete draft"
           onClick={() => onDelete(entry.key)}
         >
-          <Trash2 className="h-4 w-4" />
+          <Trash2 className="size-4" />
         </DraftRowActionButton>
       </div>
     </div>
@@ -635,7 +636,7 @@ export function DraftsPanel({
   if (items.length === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
-        <FileText className="h-8 w-8 text-muted-foreground/50" />
+        <FileText className="size-8 text-muted-foreground" />
         <p className="text-sm text-muted-foreground">No drafts</p>
       </div>
     );

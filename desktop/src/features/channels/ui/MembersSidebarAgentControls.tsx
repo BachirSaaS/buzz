@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { Ellipsis, Play, Square, Trash2 } from "lucide-react";
 
 import {
@@ -30,13 +31,13 @@ export function MembersSidebarAgentControls({
   return (
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
-        <button
+        <Action
           className="ml-auto flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           data-testid="members-sidebar-agent-controls"
           type="button"
         >
-          <Ellipsis className="h-4 w-4" />
-        </button>
+          <Ellipsis className="size-4" />
+        </Action>
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="end"
@@ -47,7 +48,7 @@ export function MembersSidebarAgentControls({
           disabled={disabled || !canBulkRespawn}
           onClick={onRespawnAll}
         >
-          <Play className="h-4 w-4" />
+          <Play className="size-4" />
           Spawn or respawn all
         </DropdownMenuItem>
         <DropdownMenuItem
@@ -55,7 +56,7 @@ export function MembersSidebarAgentControls({
           disabled={disabled || !canBulkStop}
           onClick={onStopAll}
         >
-          <Square className="h-4 w-4" />
+          <Square className="size-4" />
           Stop all
         </DropdownMenuItem>
         {canBulkRemove ? (
@@ -67,7 +68,7 @@ export function MembersSidebarAgentControls({
               disabled={disabled}
               onClick={onRemoveAll}
             >
-              <Trash2 className="h-4 w-4" />
+              <Trash2 className="size-4" />
               Remove all from channel
             </DropdownMenuItem>
           </>

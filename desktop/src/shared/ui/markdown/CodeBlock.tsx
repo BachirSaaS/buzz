@@ -14,7 +14,6 @@ import { resolveShikiThemeName } from "@/shared/theme/theme-loader";
 import { copyCodeBlockToClipboard } from "@/shared/lib/codeBlockClipboard";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
-import { useSmoothCorners } from "@/shared/ui/smoothCorners";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 
 import { getReactNodeText } from "./utils";
@@ -75,7 +74,6 @@ export function MarkdownCodeBlock({
   const [isCopying, setIsCopying] = React.useState(false);
   const codeBlockRef = React.useRef<HTMLPreElement | null>(null);
   const code = React.useMemo(() => getCodeBlockText(children), [children]);
-  useSmoothCorners(codeBlockRef);
 
   const handleCopy = React.useCallback(
     async (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -97,14 +95,18 @@ export function MarkdownCodeBlock({
   );
 
   return (
-    <div className="group relative" data-code-block="">
+    <div
+      className="group relative flex flex-col overflow-hidden rounded-blockui-lg border border-border bg-muted/40"
+      data-code-block=""
+      data-content-widget=""
+      data-block-media=""
+    >
       <pre
         ref={codeBlockRef}
-        className="max-h-[400px] overflow-x-auto overflow-y-auto rounded-2xl border border-border/70 bg-muted/60 px-3 py-1.5 pr-12 shadow-xs"
-        style={{ borderRadius: "1rem" }}
+        className="max-h-[400px] overflow-x-auto overflow-y-auto bg-transparent p-6 pr-16"
       >
         {language && (
-          <div className="mb-1 text-xs text-muted-foreground/70">
+          <div className="mb-4 text-xs font-medium text-muted-foreground">
             {language}
           </div>
         )}
@@ -114,14 +116,14 @@ export function MarkdownCodeBlock({
         <TooltipTrigger asChild>
           <Button
             aria-label="Copy code block"
-            className="absolute right-2 top-2 h-7 w-7 bg-background/80 text-muted-foreground opacity-0 shadow-xs ring-1 ring-border/60 backdrop-blur-sm transition-opacity hover:bg-background hover:text-foreground hover:opacity-100 focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 disabled:opacity-60"
+            className="absolute right-4 top-4 size-8 bg-background/80 text-muted-foreground opacity-0 shadow-xs ring-1 ring-border/60 backdrop-blur-sm transition-opacity hover:bg-background hover:text-foreground hover:opacity-100 focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 disabled:opacity-60"
             disabled={isCopying}
             onClick={handleCopy}
             size="icon"
             type="button"
             variant="ghost"
           >
-            <Copy className="h-4 w-4" />
+            <Copy className="size-4" />
             <span className="sr-only">Copy code block</span>
           </Button>
         </TooltipTrigger>

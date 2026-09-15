@@ -1,3 +1,4 @@
+import { TableRow as BlockTableRow } from "@/shared/blockui/components/table";
 import type * as React from "react";
 
 import { cn } from "@/shared/lib/cn";
@@ -13,7 +14,7 @@ export function ProjectRepositoryLatestCommitRow({
   onOpen?: () => void;
 }) {
   return (
-    <tr
+    <BlockTableRow
       aria-label={
         commitShortHash ? `Open commit ${commitShortHash}` : undefined
       }
@@ -36,6 +37,6 @@ export function ProjectRepositoryLatestCommitRow({
       tabIndex={onOpen ? 0 : undefined}
     >
       {children}
-    </tr>
+    </BlockTableRow>
   );
 }

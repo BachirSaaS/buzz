@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { Check, Copy } from "lucide-react";
 
@@ -28,7 +29,7 @@ type WelcomeSetupProps = {
 };
 
 const COMMUNITY_OPTION_CARD_CLASS =
-  "w-full max-w-[320px] items-center px-6 py-4 text-center text-sm font-normal leading-6 text-foreground [--buzz-card-textured-min-height:88px] transition-[filter] duration-150 ease-out hover:brightness-[0.98] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-foreground/35";
+  "w-full max-w-[320px] items-center px-6 py-4 text-center text-sm font-normal leading-6 text-foreground transition-[filter] duration-150 ease-out hover:brightness-[0.98] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-foreground/35";
 
 export function WelcomeSetup({
   initialPage = "welcome",
@@ -137,50 +138,38 @@ export function WelcomeSetup({
                 <h1 className="text-title font-normal">
                   Join or create a community
                 </h1>
-                <p className="mt-3 text-sm leading-6 text-foreground/80">
+                <p className="mt-3 text-sm leading-6 text-foreground">
                   Join with an invite, create your own community, or reconnect
                   one you already have.
                 </p>
               </div>
               <div className="flex w-full flex-1 translate-y-16 flex-col items-center justify-center gap-20 py-8">
-                <Card
-                  asChild
-                  className={COMMUNITY_OPTION_CARD_CLASS}
-                  variant="textured"
-                >
-                  <button
+                <Card asChild className={COMMUNITY_OPTION_CARD_CLASS}>
+                  <Action
                     data-testid="community-choice-join"
                     onClick={() => showPage("join")}
                     type="button"
                   >
                     Join a community
-                  </button>
+                  </Action>
                 </Card>
-                <Card
-                  asChild
-                  className={COMMUNITY_OPTION_CARD_CLASS}
-                  variant="textured"
-                >
-                  <button
+                <Card asChild className={COMMUNITY_OPTION_CARD_CLASS}>
+                  <Action
                     data-testid="community-choice-create"
                     onClick={beginHostedCommunity}
                     type="button"
                   >
                     Create a community
-                  </button>
+                  </Action>
                 </Card>
-                <Card
-                  asChild
-                  className={COMMUNITY_OPTION_CARD_CLASS}
-                  variant="textured"
-                >
-                  <button
+                <Card asChild className={COMMUNITY_OPTION_CARD_CLASS}>
+                  <Action
                     data-testid="community-choice-existing"
                     onClick={() => showPage("existing")}
                     type="button"
                   >
                     I already have a community
-                  </button>
+                  </Action>
                 </Card>
               </div>
             </OnboardingSlideTransition>
@@ -195,36 +184,28 @@ export function WelcomeSetup({
                 <h1 className="text-title font-normal">
                   Reconnect to your community
                 </h1>
-                <p className="mt-3 text-sm leading-6 text-foreground/80">
+                <p className="mt-3 text-sm leading-6 text-foreground">
                   Tell us your role so we can find the fastest way back in.
                 </p>
               </div>
               <div className="flex w-full flex-1 translate-y-16 flex-col items-center justify-center gap-20 py-8">
-                <Card
-                  asChild
-                  className={COMMUNITY_OPTION_CARD_CLASS}
-                  variant="textured"
-                >
-                  <button
+                <Card asChild className={COMMUNITY_OPTION_CARD_CLASS}>
+                  <Action
                     data-testid="existing-choice-owner"
                     onClick={beginHostedCommunity}
                     type="button"
                   >
                     I own the community
-                  </button>
+                  </Action>
                 </Card>
-                <Card
-                  asChild
-                  className={COMMUNITY_OPTION_CARD_CLASS}
-                  variant="textured"
-                >
-                  <button
+                <Card asChild className={COMMUNITY_OPTION_CARD_CLASS}>
+                  <Action
                     data-testid="existing-choice-member"
                     onClick={() => showPage("member")}
                     type="button"
                   >
                     I’m a member or admin
-                  </button>
+                  </Action>
                 </Card>
               </div>
             </OnboardingSlideTransition>
@@ -248,7 +229,7 @@ export function WelcomeSetup({
                     ? "Reconnect to your community"
                     : "Join a community"}
                 </h1>
-                <p className="mt-3 text-sm leading-6 text-foreground/80">
+                <p className="mt-3 text-sm leading-6 text-foreground">
                   {page === "member"
                     ? "Enter the community URL or an invite link. Your role will be restored when you connect."
                     : "Enter the invite link or community URL you received."}
@@ -271,14 +252,14 @@ export function WelcomeSetup({
                     <p className="text-sm font-medium text-foreground">
                       Joining a private community?
                     </p>
-                    <p className="mt-2 text-sm leading-6 text-foreground/75">
+                    <p className="mt-2 text-sm leading-6 text-foreground">
                       Some communities need the owner to add you before you can
                       join. Copy your public ID and send it to the community
                       owner.
                     </p>
                     <div className="mt-4 flex items-center gap-3 rounded-xl border border-foreground/10 bg-background/35 px-4 py-3">
                       <code
-                        className="min-w-0 flex-1 truncate font-mono text-xs text-foreground/80"
+                        className="min-w-0 flex-1 truncate font-mono text-xs text-foreground"
                         data-testid="welcome-join-npub"
                       >
                         {npub || "Loading…"}
@@ -298,9 +279,9 @@ export function WelcomeSetup({
                         variant="outline"
                       >
                         {copiedNpub ? (
-                          <Check className="h-4 w-4" aria-hidden="true" />
+                          <Check className="size-4" aria-hidden="true" />
                         ) : (
-                          <Copy className="h-4 w-4" aria-hidden="true" />
+                          <Copy className="size-4" aria-hidden="true" />
                         )}
                         <span>{copiedNpub ? "Copied" : "Copy"}</span>
                       </Button>

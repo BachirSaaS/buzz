@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import {
   CheckCircle2,
   CircleDot,
@@ -114,7 +115,7 @@ function OverviewCreateButton({
       type="button"
       variant="ghost"
     >
-      <Plus className="h-4 w-4" />
+      <Plus className="size-4" />
     </Button>
   );
 }
@@ -131,7 +132,7 @@ function OverviewStatRow({
   onClick: () => void;
 }) {
   return (
-    <button
+    <Action
       className="-mx-2 flex h-7 w-[calc(100%+1rem)] items-center justify-between gap-3 rounded-md px-2 text-left text-sm hover:bg-muted/70 [&_svg]:h-4 [&_svg]:w-4 [&_svg]:shrink-0 [&_svg]:text-muted-foreground"
       data-testid="projects-overview-stat"
       onClick={onClick}
@@ -141,10 +142,10 @@ function OverviewStatRow({
         <Icon className="h-3.5 w-3.5 shrink-0" />
         {label}
       </span>
-      <span className="font-medium tabular-nums text-muted-foreground/65">
+      <span className="font-medium tabular-nums text-muted-foreground">
         {count}
       </span>
-    </button>
+    </Action>
   );
 }
 
@@ -186,9 +187,7 @@ export function ProjectsActivityIntro({
                 ? ", and "
                 : ", "
               : null}
-            <strong className="font-medium text-foreground/90">
-              {highlight}
-            </strong>
+            <strong className="font-medium text-foreground">{highlight}</strong>
           </span>
         ))}
         {digest.suffix}
@@ -263,7 +262,7 @@ export function ProjectsOverviewContextPanel({
         ) : (
           <div className="flex min-w-0 items-center justify-between gap-2">
             <h2
-              className="min-w-0 truncate text-sm font-normal text-muted-foreground/70"
+              className="min-w-0 truncate text-sm font-normal text-muted-foreground"
               data-testid="projects-overview-context-title"
             >
               {context.title}

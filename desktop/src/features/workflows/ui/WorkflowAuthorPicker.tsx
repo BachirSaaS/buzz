@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { Check, LoaderCircle, Search } from "lucide-react";
 import * as React from "react";
 
@@ -145,7 +146,7 @@ export function WorkflowAuthorPicker({
       ref={pickerRef}
     >
       <div className="relative shrink-0 border-b border-border/70">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           aria-activedescendant={
             activeIndex !== null && visibleCandidates[activeIndex]
@@ -254,7 +255,7 @@ export function WorkflowAuthorPicker({
             className="col-span-full flex items-center justify-center gap-2 px-3 py-8 text-sm text-muted-foreground"
             role="status"
           >
-            <LoaderCircle className="h-4 w-4 animate-spin" /> Loading authors…
+            <LoaderCircle className="size-4 animate-spin" /> Loading authors…
           </p>
         ) : visibleCandidates.length === 0 ? (
           <p className="col-span-full px-3 py-8 text-center text-sm text-muted-foreground">
@@ -262,7 +263,7 @@ export function WorkflowAuthorPicker({
           </p>
         ) : null}
         {failed ? (
-          <button
+          <Action
             className="col-span-full rounded-md px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-muted/45 hover:text-foreground"
             onClick={() => {
               void channelMembersQuery.refetch();
@@ -272,10 +273,10 @@ export function WorkflowAuthorPicker({
             type="button"
           >
             Couldn’t load all authors. Retry
-          </button>
+          </Action>
         ) : null}
         {directoryQuery.hasNextPage ? (
-          <button
+          <Action
             className="col-span-full rounded-md px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-muted/45 hover:text-foreground"
             disabled={disabled || directoryQuery.isFetchingNextPage}
             onClick={() => void directoryQuery.fetchNextPage()}
@@ -284,7 +285,7 @@ export function WorkflowAuthorPicker({
             {directoryQuery.isFetchingNextPage
               ? "Loading more…"
               : "Load more authors"}
-          </button>
+          </Action>
         ) : null}
       </div>
     </div>
@@ -322,7 +323,7 @@ function AuthorOption({
     pubkey: candidate.pubkey,
   });
   return (
-    <button
+    <Action
       aria-selected={selected}
       className={cn(
         "relative flex min-h-24 min-w-0 flex-col items-center justify-center gap-2 rounded-lg border bg-muted/20 p-3 text-center transition-colors",
@@ -357,6 +358,6 @@ function AuthorOption({
           !selected && "opacity-0",
         )}
       />
-    </button>
+    </Action>
   );
 }

@@ -81,6 +81,7 @@ before(async () => {
     textBaseline: "",
   });
   dom.window.__TAURI_INTERNALS__ = {
+    metadata: { currentWindow: { label: "main" } },
     invoke(command, args) {
       calls.push({ command, args });
       if (command === "terminal_attach") {

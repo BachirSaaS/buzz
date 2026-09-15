@@ -1,3 +1,5 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { Check, Copy, KeyRound, ShieldX, Ticket } from "lucide-react";
 
@@ -97,16 +99,16 @@ export function MembershipDenied({
 
   return (
     <div
-      className="flex min-h-dvh items-center justify-center bg-[radial-gradient(circle_at_top,hsl(var(--primary)/0.14),transparent_48%),linear-gradient(180deg,hsl(var(--background)),hsl(var(--muted)/0.55))] px-4 py-8"
+      className="flex min-h-dvh items-center justify-center bg-[radial-gradient(circle_at_top,color-mix(in_srgb,_var(--primary)_14.000000000000002%,_transparent),transparent_48%),linear-gradient(180deg,var(--background),color-mix(in_srgb,_var(--muted)_55.00000000000001%,_transparent))] px-4 py-8"
       data-testid="membership-denied"
     >
       <StartupWindowDragRegion />
-      <div className="w-full max-w-md rounded-[28px] border border-border/70 bg-background/92 p-8 shadow-2xl backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-2xl border border-border/70 bg-background/92 p-8 shadow-2xl backdrop-blur-sm">
         <div className="space-y-3">
           <Badge variant="warning">Membership required</Badge>
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-destructive/10">
-              <ShieldX className="h-4 w-4 text-destructive" />
+              <ShieldX className="size-4 text-destructive" />
             </div>
             <h1 className="text-2xl font-semibold tracking-tight text-foreground">
               Not a member yet
@@ -139,9 +141,9 @@ export function MembershipDenied({
                 variant="outline"
               >
                 {copied ? (
-                  <Check className="h-4 w-4 text-emerald-500" />
+                  <Check className="size-4 text-success-foreground" />
                 ) : (
-                  <Copy className="h-4 w-4" />
+                  <Copy className="size-4" />
                 )}
               </Button>
             </div>
@@ -170,12 +172,12 @@ export function MembershipDenied({
               }}
             >
               <div className="space-y-1.5 text-left">
-                <label
+                <BlockLabel
                   className="text-sm font-medium text-foreground"
                   htmlFor="membership-denied-nsec"
                 >
                   Private key
-                </label>
+                </BlockLabel>
                 <Input
                   autoComplete="off"
                   autoCorrect="off"
@@ -198,7 +200,7 @@ export function MembershipDenied({
                   className="flex items-start gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-xs"
                   data-testid="membership-denied-npub-preview"
                 >
-                  <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                  <Check className="mt-0.5 size-4 shrink-0 text-primary" />
                   <div className="min-w-0 space-y-0.5">
                     <p className="font-medium text-foreground">
                       This will use this Nostr identity:
@@ -268,16 +270,16 @@ export function MembershipDenied({
                   Change community
                 </Button>
               </div>
-              <button
+              <Action
                 className="flex w-full items-center justify-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
                 data-testid="membership-denied-redeem-invite"
                 onClick={() => setIsInviteFormOpen(true)}
                 type="button"
               >
-                <Ticket className="h-4 w-4" />
+                <Ticket className="size-4" />
                 Have an invite?
-              </button>
-              <button
+              </Action>
+              <Action
                 className="flex w-full items-center justify-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
                 data-testid="membership-denied-change-key"
                 onClick={() => {
@@ -286,9 +288,9 @@ export function MembershipDenied({
                 }}
                 type="button"
               >
-                <KeyRound className="h-4 w-4" />
+                <KeyRound className="size-4" />
                 Use a different key
-              </button>
+              </Action>
             </>
           )}
         </div>

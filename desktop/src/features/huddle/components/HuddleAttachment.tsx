@@ -285,7 +285,7 @@ export function HuddleAttachment({
             type="button"
             variant="secondary"
           >
-            <Headphones className="h-4 w-4" />
+            <Headphones className="size-4" />
             {isJoining || isStarting ? "Joining" : "Join"}
           </AttachmentAction>
         ) : isCurrentHuddle || displayEnded ? (
@@ -302,7 +302,7 @@ export function HuddleAttachment({
             type="button"
             variant="ghost"
           >
-            <MessageSquareText className="h-4 w-4" />
+            <MessageSquareText className="size-4" />
             View
           </AttachmentAction>
         ) : null}

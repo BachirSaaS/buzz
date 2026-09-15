@@ -22,7 +22,7 @@ export function WorkflowRichTriggerDescription({
         <span className="truncate">{description}</span>
         <LoaderCircle
           aria-label="Loading author"
-          className="h-3.5 w-3.5 shrink-0 animate-spin"
+          className="size-3.5 shrink-0 animate-spin"
           role="status"
         />
       </span>

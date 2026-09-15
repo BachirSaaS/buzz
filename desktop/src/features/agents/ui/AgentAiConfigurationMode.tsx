@@ -15,7 +15,7 @@ export function HarnessModelDefaultNotice({
 }) {
   return (
     <dl
-      className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 text-sm"
+      className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 text-sm"
       data-testid="agent-harness-defaults-notice"
     >
       <dt className="text-muted-foreground">Harness</dt>
@@ -75,7 +75,7 @@ export function AgentAiConfigurationModeField({
   onModeChange: (mode: AgentAiConfigurationMode) => void;
 }) {
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       <p className="text-sm font-medium text-foreground">AI configuration</p>
       <Tabs
         onValueChange={(value) =>

@@ -86,11 +86,11 @@ export function SidebarRelayConnectionCompactCard({
       }
       icon={
         isConnected ? (
-          <Check aria-hidden="true" className="h-5 w-5" />
+          <Check aria-hidden="true" className="size-5" />
         ) : isReconnectPending ? (
           <Spinner aria-hidden="true" className="h-5 w-5 border-2" />
         ) : (
-          <CloudOff aria-hidden="true" className="h-5 w-5" />
+          <CloudOff aria-hidden="true" className="size-5" />
         )
       }
       className={className}

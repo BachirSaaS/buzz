@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import type * as React from "react";
 import { Hash } from "lucide-react";
 
@@ -46,7 +47,7 @@ export function ChannelIntroBlock({
         className="flex h-[60px] w-[60px] items-center justify-center rounded-2xl border border-border/70 bg-muted/40 text-muted-foreground"
         data-testid="message-channel-intro-icon"
       >
-        {intro.icon ?? <Hash aria-hidden className="h-7 w-7" />}
+        {intro.icon ?? <Hash aria-hidden className="size-7" />}
       </div>
       <p className="mt-4 max-w-2xl truncate text-xl font-semibold leading-7 tracking-tight text-foreground">
         #{intro.channelName}
@@ -71,7 +72,7 @@ export function ChannelIntroBlock({
             const hasDescription = Boolean(action.description);
 
             return (
-              <button
+              <Action
                 className={cn(
                   "flex shrink-0 border border-border/70 bg-background/70 text-left transition-colors hover:bg-muted/60 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
                   hasDescription
@@ -118,7 +119,7 @@ export function ChannelIntroBlock({
                     </span>
                   ) : null}
                 </span>
-              </button>
+              </Action>
             );
           })}
         </div>

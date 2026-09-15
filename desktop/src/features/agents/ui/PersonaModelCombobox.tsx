@@ -1,3 +1,5 @@
+import { Input as BlockInput } from "@/shared/ui/input";
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { Check, ChevronDown, Search } from "lucide-react";
 
@@ -117,7 +119,7 @@ export function PersonaModelCombobox({
     <div className={PERSONA_FIELD_SHELL_CLASS}>
       <Popover modal={false} onOpenChange={handleOpenChange} open={open}>
         <PopoverTrigger asChild>
-          <button
+          <Action
             aria-expanded={open}
             className={cn(
               "flex h-11 w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm leading-6",
@@ -132,13 +134,13 @@ export function PersonaModelCombobox({
             <span
               className={cn(
                 "min-w-0 flex-1 truncate",
-                !selectedOption && "text-muted-foreground/55",
+                !selectedOption && "text-muted-foreground",
               )}
             >
               {selectedOption?.label ?? placeholder}
             </span>
-            <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground/60" />
-          </button>
+            <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+          </Action>
         </PopoverTrigger>
         <PopoverContent
           align="start"
@@ -151,13 +153,13 @@ export function PersonaModelCombobox({
           }}
         >
           <div className="group/search flex cursor-text items-center gap-2 border-b border-border/50 px-3 py-2">
-            <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground/55 transition-colors duration-150 ease-out group-focus-within/search:text-foreground" />
-            <input
+            <Search className="size-3.5 shrink-0 text-muted-foreground transition-colors duration-150 ease-out group-focus-within/search:text-foreground" />
+            <BlockInput
               aria-label="Search models"
               autoCapitalize="none"
               autoComplete="off"
               autoCorrect="off"
-              className="block min-w-0 flex-1 border-0 bg-transparent p-0 text-sm leading-5 text-muted-foreground/55 shadow-none outline-none placeholder:text-muted-foreground/55 focus:text-foreground focus:placeholder:text-muted-foreground"
+              className="block min-w-0 flex-1 border-0 bg-transparent p-0 text-sm leading-5 text-muted-foreground shadow-none outline-none placeholder:text-muted-foreground focus:text-foreground focus:placeholder:text-muted-foreground"
               onChange={(event) => setQuery(event.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Search models…"
@@ -176,7 +178,7 @@ export function PersonaModelCombobox({
           >
             {filteredOptions.length > 0 ? (
               filteredOptions.map((option, index) => (
-                <button
+                <Action
                   aria-disabled={option.disabled}
                   className={cn(
                     "relative flex min-h-9 w-full select-none items-center rounded-lg py-2 pl-8 pr-4 text-left text-sm outline-none transition-colors",
@@ -205,10 +207,10 @@ export function PersonaModelCombobox({
                     />
                   </span>
                   <span className="truncate">{option.label}</span>
-                </button>
+                </Action>
               ))
             ) : (
-              <p className="px-3 py-6 text-center text-sm text-muted-foreground/55">
+              <p className="px-3 py-6 text-center text-sm text-muted-foreground">
                 No models match
               </p>
             )}

@@ -1,3 +1,4 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
 import * as React from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { inviteErrorMessage } from "@/shared/api/inviteHelpers";
@@ -198,12 +199,12 @@ export function CommunityEditForm({
       }}
     >
       <div className="space-y-1.5 text-left">
-        <label
+        <BlockLabel
           className="text-sm font-medium text-foreground"
           htmlFor="community-edit-name"
         >
           Community name
-        </label>
+        </BlockLabel>
         <Input
           autoFocus
           className="h-10 bg-background"
@@ -220,12 +221,12 @@ export function CommunityEditForm({
       </div>
 
       <div className="space-y-1.5 text-left">
-        <label
+        <BlockLabel
           className="text-sm font-medium text-foreground"
           htmlFor="community-edit-url"
         >
           Community URL
-        </label>
+        </BlockLabel>
         <Input
           className="h-10 bg-background"
           disabled={isProbing}

@@ -185,7 +185,7 @@ export function PullRequestReviewCard({
           aria-hidden="true"
           className="mt-3.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-background text-muted-foreground ring-1 ring-border/70"
         >
-          <GitPullRequest className="h-3 w-3" />
+          <GitPullRequest className="size-3" />
         </span>
         <div
           className="flex min-w-0 flex-1 flex-wrap items-center justify-start gap-2 rounded-lg border border-border/60 bg-muted/15 p-2"
@@ -193,13 +193,13 @@ export function PullRequestReviewCard({
         >
           {canApprove ? (
             <Button
-              className="h-8 gap-1.5 bg-green-600 px-3.5 text-white shadow-sm hover:bg-green-700"
+              className="h-8 gap-1.5 bg-success px-3.5 text-success-foreground shadow-sm hover:bg-success"
               disabled={reviewDecisionPending}
               onClick={() => setApproveDialogOpen(true)}
               size="xs"
               type="button"
             >
-              <Check className="h-3.5 w-3.5" />
+              <Check className="size-3.5" />
               Approve
             </Button>
           ) : null}
@@ -221,7 +221,7 @@ export function PullRequestReviewCard({
               type="button"
               variant="secondary"
             >
-              <GitPullRequest className="h-3.5 w-3.5" />
+              <GitPullRequest className="size-3.5" />
               Ready for review
             </Button>
           ) : null}
@@ -236,7 +236,7 @@ export function PullRequestReviewCard({
               type="button"
               variant="secondary"
             >
-              <RotateCcw className="h-3.5 w-3.5" />
+              <RotateCcw className="size-3.5" />
               Reopen review
             </Button>
           ) : null}
@@ -251,7 +251,7 @@ export function PullRequestReviewCard({
                   type="button"
                   variant="ghost"
                 >
-                  <MoreHorizontal className="h-4 w-4" />
+                  <MoreHorizontal className="size-4" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
@@ -261,7 +261,7 @@ export function PullRequestReviewCard({
                       void handleStatusChange("draft");
                     }}
                   >
-                    <GitPullRequestDraft className="h-4 w-4" />
+                    <GitPullRequestDraft className="size-4" />
                     Convert to draft
                   </DropdownMenuItem>
                 ) : null}
@@ -272,7 +272,7 @@ export function PullRequestReviewCard({
                       void handleStatusChange("closed");
                     }}
                   >
-                    <X className="h-4 w-4" />
+                    <X className="size-4" />
                     Close review
                   </DropdownMenuItem>
                 ) : null}
@@ -313,14 +313,14 @@ export function PullRequestReviewCard({
               Cancel
             </Button>
             <Button
-              className="bg-green-600 text-white hover:bg-green-700"
+              className="bg-success text-success-foreground hover:bg-success"
               disabled={isApproving}
               onClick={() => {
                 void handleApprove();
               }}
               type="button"
             >
-              <Check className="h-4 w-4" />
+              <Check className="size-4" />
               Approve
             </Button>
           </DialogFooter>

@@ -101,7 +101,7 @@ export function RelayConnectionOverlay({
             data-testid="relay-error-overlay"
             role="alert"
           >
-            <AlertCircle aria-hidden="true" className="h-4 w-4 shrink-0" />
+            <AlertCircle aria-hidden="true" className="size-4 shrink-0" />
             <span className="flex-1">{errorMessage}</span>
           </div>
         </motion.div>

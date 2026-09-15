@@ -88,7 +88,7 @@ export function AppHuddleShell({
                     : "buzz-huddle-app-surface-open"),
               )}
             >
-              <BuzzTheme.GradientLayer />
+              <BuzzTheme.NavigationSurface />
               {children}
             </div>
             {isRoom || !isCompanionOpen ? (

@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 
 import {
@@ -120,7 +121,7 @@ function MessageLinkMetadataTooltip({
             {content}
           </span>
           <span
-            className="mt-1 block max-w-full truncate whitespace-nowrap text-2xs text-secondary-foreground/80"
+            className="mt-1 block max-w-full truncate whitespace-nowrap text-2xs text-background/80"
             data-buzz-tooltip-metadata-type=""
           >
             {footer}
@@ -247,7 +248,7 @@ function MessageLinkPillContents({
   }
 
   return (
-    <button
+    <Action
       type="button"
       data-message-link=""
       data-hovered={isHovered ? "" : undefined}
@@ -279,7 +280,7 @@ function MessageLinkPillContents({
           </span>
         ),
       )}
-    </button>
+    </Action>
   );
 }
 

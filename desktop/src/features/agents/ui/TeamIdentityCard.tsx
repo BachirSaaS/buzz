@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import type { ReactNode } from "react";
 import { Info, Link, Users } from "lucide-react";
 
@@ -51,7 +52,7 @@ export function TeamIdentityCard({
             <Tooltip>
               <TooltipTrigger asChild>
                 <span className="flex h-6 w-6 items-center justify-center rounded-full border border-border/65 bg-background/90 text-muted-foreground shadow-xs">
-                  <Link className="h-3.5 w-3.5" />
+                  <Link className="size-3.5" />
                 </span>
               </TooltipTrigger>
               <TooltipContent side="bottom" className="max-w-xs">
@@ -67,13 +68,13 @@ export function TeamIdentityCard({
           {trimmedDescription ? (
             <Tooltip>
               <TooltipTrigger asChild>
-                <button
+                <Action
                   aria-label={`${teamName} description`}
                   className="flex h-6 w-6 items-center justify-center rounded-full border border-border/65 bg-background/90 text-muted-foreground shadow-xs"
                   type="button"
                 >
-                  <Info className="h-3.5 w-3.5" />
-                </button>
+                  <Info className="size-3.5" />
+                </Action>
               </TooltipTrigger>
               <TooltipContent side="bottom" className="max-w-xs">
                 <p>{trimmedDescription}</p>
@@ -125,7 +126,7 @@ function TeamAvatarRow({
             className="relative z-10 flex h-full w-full items-center justify-center rounded-squircle bg-background/80 text-muted-foreground shadow-xs"
             data-team-empty-avatar="avatar"
           >
-            <Users className="h-9 w-9" />
+            <Users className="size-9" />
           </div>
         </div>
       </div>

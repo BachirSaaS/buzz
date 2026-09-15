@@ -45,7 +45,7 @@ export function TeamShareDialog({
             className="relative flex min-h-16 w-full items-center gap-3 rounded-2xl bg-background px-5 py-4 shadow-2xl"
             data-testid="team-share-catalog"
           >
-            <BookUser className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <BookUser className="size-4 shrink-0 text-muted-foreground" />
             <div className="min-w-0 flex-1">
               <h3 className="text-sm font-medium">
                 {teamCatalogCopy.shareTitle}

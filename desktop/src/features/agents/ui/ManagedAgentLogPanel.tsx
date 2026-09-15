@@ -37,7 +37,7 @@ export function ManagedAgentLogPanel({
         "flex flex-col",
         isInline
           ? "h-full min-h-0"
-          : "rounded-[28px] border border-border/70 bg-card/90 p-5 shadow-xs",
+          : "rounded-2xl border border-border/70 bg-card/90 p-5 shadow-xs",
       )}
     >
       {!selectedAgent ? (
@@ -72,7 +72,7 @@ export function ManagedAgentLogPanel({
           className={cn(
             isBare
               ? "overflow-hidden rounded-2xl bg-muted/20 text-xs text-foreground"
-              : "overflow-hidden rounded-xl border border-border/70 bg-[#17171d] text-xs text-zinc-100",
+              : "overflow-hidden rounded-xl border border-border/70 bg-muted text-xs text-muted-foreground",
             isInline ? "flex min-h-0 flex-1 flex-col" : "mt-4",
           )}
         >
@@ -112,7 +112,7 @@ export function ManagedAgentLogPanel({
           className={cn(
             isBare
               ? "overflow-hidden rounded-2xl bg-muted/20 text-xs text-foreground"
-              : "overflow-hidden rounded-xl border border-border/70 bg-[#17171d] text-xs text-zinc-100",
+              : "overflow-hidden rounded-xl border border-border/70 bg-muted text-xs text-muted-foreground",
             isInline && "flex min-h-0 flex-1 flex-col",
             !isInline && "mt-4",
           )}
@@ -139,7 +139,7 @@ export function ManagedAgentLogPanel({
 
       {error ? (
         <p className="mt-4 inline-flex items-center gap-2 rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          <CircleAlert className="h-4 w-4" />
+          <CircleAlert className="size-4" />
           {error.message}
         </p>
       ) : null}
@@ -161,18 +161,18 @@ function HarnessLogHeader({
   return (
     <div className="flex min-h-12 items-center justify-between gap-3 border-b border-white/10 px-3 py-2">
       <div className="flex min-w-0 flex-col gap-0.5">
-        <span className="min-w-0 truncate text-2xs font-semibold uppercase tracking-wide text-zinc-300">
+        <span className="min-w-0 truncate text-2xs font-semibold uppercase tracking-wide text-muted-foreground">
           Harness Log
         </span>
         <span
-          className="min-w-0 truncate font-mono text-2xs text-zinc-500"
+          className="min-w-0 truncate font-mono text-2xs text-muted-foreground"
           title={fileTitle}
         >
           {selectedAgent.name} · {logFileLabel}
         </span>
       </div>
       <CopyButton
-        className="h-6 rounded-md bg-black/40 px-2 text-zinc-300 hover:bg-black/70 hover:text-white"
+        className="h-6 rounded-md bg-black/40 px-2 text-muted-foreground hover:bg-black/70 hover:text-white"
         label="Copy log"
         size="xs"
         value={logContent}

@@ -1,3 +1,5 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { NativeSelect } from "@/shared/blockui/components/native-select";
 import type {
   ProjectsSort,
   ProjectsViewMode,
@@ -18,9 +20,9 @@ export function ProjectsSortSelect({
   sort: ProjectsSort;
 }) {
   return (
-    <label className="flex items-center gap-2 text-xs text-muted-foreground">
+    <BlockLabel className="flex items-center gap-2 text-xs text-muted-foreground">
       <span className="sr-only">Sort projects</span>
-      <select
+      <NativeSelect
         className="h-8 rounded-md bg-transparent px-2 text-xs text-foreground outline-hidden hover:bg-muted/50 focus:ring-1 focus:ring-ring"
         onChange={(event) => onChange(event.target.value as ProjectsSort)}
         value={sort}
@@ -28,8 +30,8 @@ export function ProjectsSortSelect({
         <option value="updated">Recent activity</option>
         <option value="created">Created date</option>
         <option value="name">Name</option>
-      </select>
-    </label>
+      </NativeSelect>
+    </BlockLabel>
   );
 }
 

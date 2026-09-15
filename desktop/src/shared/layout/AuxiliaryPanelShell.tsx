@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 
 import { useIsAuxiliaryPanelOverlay } from "@/shared/hooks/use-mobile";
@@ -111,7 +112,7 @@ export function AuxiliaryPanel({
     !isOverlay &&
     !isSinglePanelView &&
     onResizeStart != null ? (
-      <button
+      <Action
         aria-label={resizeHandleAriaLabel}
         className="peer/auxiliary-panel-resize group/auxiliary-panel-resize absolute inset-y-0 left-0 z-40 w-3 -translate-x-1/2 cursor-col-resize"
         data-testid={resizeHandleTestId}
@@ -125,7 +126,7 @@ export function AuxiliaryPanel({
         type="button"
       >
         <span className="absolute bottom-0 left-1/2 top-10 w-px -translate-x-1/2 bg-transparent transition-colors group-hover/auxiliary-panel-resize:bg-border/80 group-focus-visible/auxiliary-panel-resize:bg-border/80" />
-      </button>
+      </Action>
     ) : null;
 
   if (isSplitLayout) {

@@ -191,7 +191,7 @@ export function MergePullRequestButton({
           size="xs"
           type="button"
         >
-          <GitMerge className="h-3.5 w-3.5" />
+          <GitMerge className="size-3.5" />
           {publishMergedMutation.isPending
             ? "Publishing…"
             : unpublishedStatusEvent
@@ -229,11 +229,11 @@ export function MergePullRequestButton({
       </AlertDialog>
       {conflictRecovery ? (
         <div
-          className="w-full basis-full space-y-2 rounded-lg border border-amber-500/35 bg-amber-500/10 p-3"
+          className="w-full basis-full space-y-2 rounded-lg border border-warning-foreground/30 bg-warning p-3"
           data-testid="merge-conflict-recovery"
         >
           <div className="flex items-start gap-2">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning-foreground dark:text-warning-foreground" />
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium text-foreground">
                 Resolve conflicts in your local checkout
@@ -264,7 +264,7 @@ export function MergePullRequestButton({
               type="button"
               variant="outline"
             >
-              <SquareTerminal className="h-3.5 w-3.5" />
+              <SquareTerminal className="size-3.5" />
               {isPreparingRecovery ? "Preparing…" : "Resolve in Terminal"}
             </Button>
             <Button
@@ -279,7 +279,7 @@ export function MergePullRequestButton({
               type="button"
               variant="ghost"
             >
-              <Copy className="h-3.5 w-3.5" />
+              <Copy className="size-3.5" />
               Copy commands
             </Button>
           </div>

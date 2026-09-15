@@ -15,6 +15,7 @@ type AppTopChromeProps = {
   onGoBack: () => void;
   onGoForward: () => void;
   hasCommunityRail?: boolean;
+  hideSidebarTrigger?: boolean;
 };
 
 // Fixed px on purpose (button box + glyph): these controls sit beside the
@@ -22,9 +23,9 @@ type AppTopChromeProps = {
 // the row must not grow or shrink with the rem scale. Deliberate exception
 // to the rem-first rule.
 const TOP_CHROME_ICON_BUTTON_CLASS =
-  "h-[28px] w-[28px] rounded-[4px] text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground";
+  "h-[28px] w-[28px] rounded-xs text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground";
 const HISTORY_ICON_BUTTON_CLASS =
-  "h-[28px] w-[24px] rounded-[4px] text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&_svg]:size-[16px]";
+  "h-[28px] w-[24px] rounded-xs text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&_svg]:size-[16px]";
 
 function preventTopChromeWheel(event: WheelEvent) {
   event.preventDefault();
@@ -58,6 +59,7 @@ export function AppTopChrome({
   onGoBack,
   onGoForward,
   hasCommunityRail = false,
+  hideSidebarTrigger = false,
 }: AppTopChromeProps) {
   const topChromeRef = React.useRef<HTMLDivElement>(null);
   const isFullscreen = useIsFullscreen();
@@ -118,7 +120,7 @@ export function AppTopChrome({
     <div
       ref={topChromeRef}
       className={cn(
-        "relative z-45 flex shrink-0 cursor-default select-none items-center bg-sidebar pr-3 text-sidebar-foreground",
+        "relative z-45 flex shrink-0 cursor-default select-none items-center bg-(--buzz-window-surface) pr-3 text-sidebar-foreground",
         topChromeBackdrop.height,
         navRowPaddingClass,
       )}
@@ -131,7 +133,7 @@ export function AppTopChrome({
       }
     >
       <div className={cn("flex items-center gap-0.5", navRowAlignmentClass)}>
-        <TopChromeSidebarTrigger />
+        {!hideSidebarTrigger && <TopChromeSidebarTrigger />}
         <Button
           aria-label="Go back"
           className={HISTORY_ICON_BUTTON_CLASS}

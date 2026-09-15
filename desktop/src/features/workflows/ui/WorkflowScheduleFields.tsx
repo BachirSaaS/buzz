@@ -1,3 +1,5 @@
+import { ChoiceInput } from "@/shared/ui/native-controls";
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
 import { AlertTriangle } from "lucide-react";
 import * as React from "react";
 
@@ -91,7 +93,7 @@ export function WorkflowScheduleFields({
                 )}
                 key={frequency}
               >
-                <input
+                <ChoiceInput
                   checked={schedule.frequency === frequency}
                   className="peer sr-only"
                   disabled={disabled}
@@ -110,7 +112,7 @@ export function WorkflowScheduleFields({
                   type="radio"
                   value={frequency}
                 />
-                <label
+                <BlockLabel
                   className={cn(
                     "flex min-h-12 cursor-pointer items-center justify-center rounded-lg border px-3 py-2 text-center text-sm font-medium",
                     "outline-2 outline-offset-2 outline-transparent transition-[background-color,border-color,color,outline-color]",
@@ -123,7 +125,7 @@ export function WorkflowScheduleFields({
                   htmlFor={id}
                 >
                   {SCHEDULE_FREQUENCY_LABELS[frequency]}
-                </label>
+                </BlockLabel>
               </div>
             );
           })}
@@ -140,7 +142,7 @@ export function WorkflowScheduleFields({
               const id = `wf-trigger-weekday-${value}`;
               return (
                 <div className="relative" key={value}>
-                  <input
+                  <ChoiceInput
                     aria-label={label}
                     checked={selectedWeekdays.has(value)}
                     className="peer sr-only"
@@ -164,7 +166,7 @@ export function WorkflowScheduleFields({
                     type="checkbox"
                     value={value}
                   />
-                  <label
+                  <BlockLabel
                     className={cn(
                       "flex aspect-square cursor-pointer items-center justify-center rounded-full text-xs font-medium transition-colors",
                       "peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-focus-visible:ring-offset-2",
@@ -176,7 +178,7 @@ export function WorkflowScheduleFields({
                     htmlFor={id}
                   >
                     {shortLabel}
-                  </label>
+                  </BlockLabel>
                 </div>
               );
             })}
@@ -204,7 +206,7 @@ export function WorkflowScheduleFields({
               className="flex gap-2 rounded-lg border border-warning/30 bg-warning-bg px-3 py-2"
               role="status"
             >
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
               <p className="text-xs leading-5 text-warning">{warning}</p>
             </div>
           ) : null}

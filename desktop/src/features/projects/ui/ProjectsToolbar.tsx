@@ -49,7 +49,7 @@ export function ProjectsViewModeToggle({
         type="button"
         variant={viewMode === "grid" ? "secondary" : "ghost"}
       >
-        <LayoutGrid className="h-3.5 w-3.5" />
+        <LayoutGrid className="size-4" />
       </Button>
       <Button
         aria-label="List layout"
@@ -60,7 +60,7 @@ export function ProjectsViewModeToggle({
         type="button"
         variant={viewMode === "list" ? "secondary" : "ghost"}
       >
-        <List className="h-3.5 w-3.5" />
+        <List className="size-4" />
       </Button>
     </fieldset>
   );

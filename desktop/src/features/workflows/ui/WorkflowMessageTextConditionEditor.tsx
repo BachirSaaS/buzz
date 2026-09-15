@@ -1,3 +1,6 @@
+import { ChoiceInput } from "@/shared/ui/native-controls";
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { Action } from "@/shared/ui/action";
 import { ChevronRight } from "lucide-react";
 import * as React from "react";
 
@@ -139,7 +142,7 @@ export function WorkflowMessageTextCondition({
             ) : null}
             <div className="divide-y divide-border/50">
               <div className={cn(expanded && "pb-4 last:pb-0")}>
-                <button
+                <Action
                   aria-expanded={expanded}
                   className="flex min-h-12 w-full items-center gap-3 py-3 text-left transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                   disabled={disabled}
@@ -156,11 +159,11 @@ export function WorkflowMessageTextCondition({
                   </span>
                   <ChevronRight
                     className={cn(
-                      "h-4 w-4 shrink-0 text-muted-foreground/70 transition-transform duration-150 motion-reduce:transition-none",
+                      "h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-150 motion-reduce:transition-none",
                       expanded && "rotate-90",
                     )}
                   />
-                </button>
+                </Action>
 
                 {expanded && !hasUnsupportedExpression ? (
                   <div className="animate-in space-y-4 pt-1 fade-in slide-in-from-top-1 duration-150 motion-reduce:animate-none">
@@ -171,7 +174,7 @@ export function WorkflowMessageTextCondition({
                           const id = `wf-trigger-filter-trigger-text-operator-${operator}`;
                           return (
                             <div className="relative" key={operator}>
-                              <input
+                              <ChoiceInput
                                 checked={condition.operator === operator}
                                 className="peer sr-only"
                                 disabled={disabled}
@@ -183,7 +186,7 @@ export function WorkflowMessageTextCondition({
                                 type="radio"
                                 value={operator}
                               />
-                              <label
+                              <BlockLabel
                                 className={cn(
                                   "flex min-h-12 cursor-pointer items-center justify-center rounded-lg border px-3 py-2 text-center text-sm font-medium",
                                   "outline-2 outline-offset-2 outline-transparent transition-[background-color,border-color,color,outline-color]",
@@ -198,7 +201,7 @@ export function WorkflowMessageTextCondition({
                                 {MESSAGE_TEXT_CONDITION_LABELS[
                                   operator
                                 ].toLowerCase()}
-                              </label>
+                              </BlockLabel>
                             </div>
                           );
                         })}

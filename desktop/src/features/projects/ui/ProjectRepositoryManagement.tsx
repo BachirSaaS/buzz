@@ -172,14 +172,14 @@ export function ProjectRepositoryManagement({
               data-testid="create-project-repository"
               onSelect={() => setCreateOpen(true)}
             >
-              <FolderPlus className="h-4 w-4" />
+              <FolderPlus className="size-4" />
               Create new repository
             </DropdownMenuItem>
             <DropdownMenuItem
               data-testid="attach-project-repository"
               onSelect={() => setAttachOpen(true)}
             >
-              <Link className="h-4 w-4" />
+              <Link className="size-4" />
               Select existing repository
             </DropdownMenuItem>
           </DropdownMenuContent>
@@ -238,7 +238,7 @@ export function ProjectRepositoryManagement({
               >
                 <span className="min-w-0 truncate">#{channel.name}</span>
                 {channel.id === repository?.channelId ? (
-                  <Check className="h-4 w-4 shrink-0" />
+                  <Check className="size-4 shrink-0" />
                 ) : null}
               </DropdownMenuItem>
             ))}

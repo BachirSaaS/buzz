@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { invoke } from "@tauri-apps/api/core";
 import { LoaderCircle } from "lucide-react";
 import * as React from "react";
@@ -171,7 +172,7 @@ export function AddAgentDialog({
               const isAdding = adding === agent.pubkey;
               return (
                 <li key={agent.pubkey}>
-                  <button
+                  <Action
                     className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
                     disabled={adding !== null}
                     onClick={() => void handleAdd(agent)}
@@ -189,10 +190,10 @@ export function AddAgentDialog({
                     {isAdding ? (
                       <LoaderCircle
                         aria-label={`Adding ${agent.name}`}
-                        className="h-4 w-4 shrink-0 animate-spin text-muted-foreground"
+                        className="size-4 shrink-0 animate-spin text-muted-foreground"
                       />
                     ) : null}
-                  </button>
+                  </Action>
                 </li>
               );
             })}

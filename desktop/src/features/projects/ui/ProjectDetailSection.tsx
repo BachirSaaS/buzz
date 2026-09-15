@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { ChevronDown } from "lucide-react";
 import * as React from "react";
 
@@ -48,7 +49,7 @@ export function ProjectDetailSection({
       data-open={open ? "true" : "false"}
       data-testid={testId ?? "project-detail-section"}
     >
-      <button
+      <Action
         aria-expanded={open}
         className={cn(
           "flex min-h-10 w-full min-w-0 items-center gap-2 px-6 py-2 text-left text-sm font-medium leading-5 text-foreground transition-colors hover:bg-muted/20",
@@ -71,7 +72,7 @@ export function ProjectDetailSection({
             </span>
           ) : null}
         </span>
-      </button>
+      </Action>
       {open ? (
         <div className={cn("px-6 pb-6 pt-1", contentClassName)}>{children}</div>
       ) : null}

@@ -74,30 +74,14 @@ export async function expectCornerRadiusPx(
   ).toBeCloseTo(expectedRadiusPx, 0);
 }
 
-export async function expectSmoothCorners(
-  locator: Locator,
-  expectedSmoothing = 0.6,
-) {
-  await expect
-    .poll(async () =>
-      locator.evaluate((element, smoothing) => {
-        if (!(element instanceof HTMLElement)) {
-          return false;
-        }
-
-        const clipPath =
-          element.style.clipPath ||
-          element.style.getPropertyValue("-webkit-clip-path");
-
-        return (
-          element.dataset.smoothCorners === "" &&
-          element.dataset.smoothCornersSmoothing === String(smoothing) &&
-          clipPath.startsWith('path("M ') &&
-          clipPath.includes(" a ")
-        );
-      }, expectedSmoothing),
-    )
-    .toBe(true);
+/** Block UI uses discrete CSS radii, without the old squircle clip-path. */
+export async function expectBlockUICorners(locator: Locator) {
+  await expect(locator).toHaveCSS("clip-path", "none");
+  expect(
+    await locator.evaluate((el) =>
+      parseFloat(getComputedStyle(el).borderTopLeftRadius),
+    ),
+  ).toBeGreaterThan(0);
 }
 
 /** Wait for the Buzz overrides to be installed in Emoji Mart's shadow root. */

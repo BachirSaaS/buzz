@@ -1,3 +1,4 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
 import { ChevronDown, MoreVertical } from "lucide-react";
 import * as React from "react";
 
@@ -94,7 +95,7 @@ export function AgentVoiceMenu({
             type="button"
             variant="ghost"
           >
-            <MoreVertical className="h-4 w-4" />
+            <MoreVertical className="size-4" />
           </Button>
         )}
       </PopoverTrigger>
@@ -106,12 +107,12 @@ export function AgentVoiceMenu({
         sideOffset={8}
       >
         <div className="flex items-center justify-between gap-3">
-          <label
+          <BlockLabel
             className="text-sm font-medium"
             htmlFor={`agent-tts-${agentPubkey}`}
           >
             Agent text-to-speech
-          </label>
+          </BlockLabel>
           <Switch
             checked={settings?.enabled ?? true}
             data-testid="huddle-agent-tts-toggle"
@@ -140,7 +141,7 @@ export function AgentVoiceMenu({
                   {selectedVoice
                     ? voiceOptionLabel(selectedVoice, voices)
                     : "Unavailable"}
-                  <ChevronDown aria-hidden="true" className="h-3.5 w-3.5" />
+                  <ChevronDown aria-hidden="true" className="size-4" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent

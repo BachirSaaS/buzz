@@ -53,7 +53,7 @@ export function AnimatedAvatarCameraControls({
           className={cn(
             "h-12 w-full rounded-xl",
             compact &&
-              "bg-[rgb(var(--buzz-onboarding-avatar-accent-bg))] text-[rgb(var(--buzz-onboarding-avatar-accent-fg))] hover:bg-[rgb(var(--buzz-onboarding-avatar-accent-bg))]",
+              "bg-[var(--buzz-onboarding-avatar-accent-bg)] text-[var(--buzz-onboarding-avatar-accent-fg)] hover:bg-[var(--buzz-onboarding-avatar-accent-bg)]",
           )}
           data-testid={`${testIdPrefix}-animated-retry`}
           disabled={disabled}
@@ -67,7 +67,7 @@ export function AnimatedAvatarCameraControls({
           asChild
           className={cn(
             compact
-              ? "h-[2.375rem] rounded-full bg-[rgb(var(--buzz-onboarding-avatar-action-bg))] px-6 text-sm font-medium text-[rgb(var(--buzz-onboarding-avatar-action-fg))] hover:bg-[color:rgb(var(--buzz-onboarding-avatar-action-bg)_/_0.9)]"
+              ? "h-[2.375rem] rounded-full bg-[var(--buzz-onboarding-avatar-action-bg)] px-6 text-sm font-medium text-[var(--buzz-onboarding-avatar-action-fg)] hover:bg-[color:color-mix(in_srgb,var(--buzz-onboarding-avatar-action-bg)_90%,transparent)]"
               : "h-12 w-full rounded-xl",
           )}
           data-testid={`${testIdPrefix}-animated-record`}
@@ -80,7 +80,7 @@ export function AnimatedAvatarCameraControls({
             initial={{ opacity: 0 }}
             transition={ENTRANCE_TRANSITION}
           >
-            <Video aria-hidden="true" className="mr-2 h-4 w-4" />
+            <Video aria-hidden="true" className="mr-2 size-4" />
             Capture {RECORD_SECONDS} sec video
           </motion.button>
         </Button>

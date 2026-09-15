@@ -51,7 +51,7 @@ export function ProjectSectionHeader({
           title={action.title ?? action.label}
           variant="ghost"
         >
-          <Plus className="h-4 w-4" />
+          <Plus className="size-4" />
         </Button>
       ) : null}
       {trailing}

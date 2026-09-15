@@ -38,7 +38,7 @@ export function LinkPreviewControls({
   placement = "right",
 }: {
   onRemove?: () => void;
-  placement?: "left" | "right";
+  placement?: "left" | "right" | "inline";
 }) {
   const style = useLinkPreviewStyle();
   const { onOpenSettings } = useAppShell();
@@ -70,15 +70,24 @@ export function LinkPreviewControls({
   return (
     <div
       className={cn(
-        "absolute top-0 z-20 flex flex-col",
-        placement === "left" ? "right-full" : "left-full ml-1",
+        "z-20 flex shrink-0 flex-col",
+        placement === "inline" ? "relative" : "absolute top-0",
+        placement === "inline"
+          ? null
+          : placement === "left"
+            ? "right-full"
+            : "left-full ml-1",
       )}
     >
       <DropdownMenu modal={false}>
         <DropdownMenuTrigger asChild>
           <Button
             aria-label="Link display settings"
-            className={CONTROL_BUTTON_CLASS}
+            className={
+              placement === "inline"
+                ? "size-8 rounded-blockui-sm text-muted-foreground hover:bg-muted"
+                : CONTROL_BUTTON_CLASS
+            }
             size="icon-xs"
             title="Link display settings"
             type="button"

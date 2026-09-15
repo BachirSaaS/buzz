@@ -1,3 +1,5 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { NativeSelect } from "@/shared/blockui/components/native-select";
 import * as React from "react";
 import { toast } from "sonner";
 
@@ -177,9 +179,9 @@ export function CreatePullRequestDialog({
       titlePlaceholder="Describe the change"
     >
       <div className="grid gap-3 rounded-xl border border-border/60 bg-muted/25 p-3 sm:grid-cols-2">
-        <label className="space-y-1.5 text-sm font-medium sm:col-span-2">
+        <BlockLabel className="space-y-1.5 text-sm font-medium sm:col-span-2">
           <span>Repository</span>
-          <select
+          <NativeSelect
             className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm font-normal outline-hidden focus:ring-1 focus:ring-ring"
             data-testid="create-pull-request-repository"
             disabled={createMutation.isPending}
@@ -196,11 +198,11 @@ export function CreatePullRequestDialog({
                   : candidate.project.name}
               </option>
             ))}
-          </select>
-        </label>
-        <label className="space-y-1.5 text-sm font-medium">
+          </NativeSelect>
+        </BlockLabel>
+        <BlockLabel className="space-y-1.5 text-sm font-medium">
           <span>Base</span>
-          <select
+          <NativeSelect
             className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm font-normal outline-hidden focus:ring-1 focus:ring-ring"
             data-testid="create-pull-request-base-branch"
             disabled={createMutation.isPending}
@@ -212,11 +214,11 @@ export function CreatePullRequestDialog({
                 {branch}
               </option>
             ))}
-          </select>
-        </label>
-        <label className="space-y-1.5 text-sm font-medium">
+          </NativeSelect>
+        </BlockLabel>
+        <BlockLabel className="space-y-1.5 text-sm font-medium">
           <span>Compare</span>
-          <select
+          <NativeSelect
             className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm font-normal outline-hidden focus:ring-1 focus:ring-ring"
             data-testid="create-pull-request-compare-branch"
             disabled={createMutation.isPending}
@@ -231,8 +233,8 @@ export function CreatePullRequestDialog({
                 {branch}
               </option>
             ))}
-          </select>
-        </label>
+          </NativeSelect>
+        </BlockLabel>
         {selectionError ? (
           <p className="text-xs text-muted-foreground sm:col-span-2">
             {selectionError}

@@ -1,3 +1,5 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { Input as BlockInput } from "@/shared/ui/input";
 import * as React from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
@@ -240,7 +242,7 @@ export function ProfileStep({
       </div>
 
       {cardLayout ? (
-        <label
+        <BlockLabel
           className="mt-8 block w-full text-sm font-medium text-foreground"
           htmlFor="onboarding-display-name"
         >
@@ -265,9 +267,9 @@ export function ProfileStep({
             spellCheck={false}
             value={displayNameDraft}
           />
-        </label>
+        </BlockLabel>
       ) : (
-        <label
+        <BlockLabel
           className="mt-12 flex w-full cursor-text flex-col items-center"
           htmlFor="onboarding-display-name"
         >
@@ -278,7 +280,7 @@ export function ProfileStep({
                 aria-hidden="true"
                 className="pointer-events-none absolute inset-0 flex select-none items-center justify-center"
               >
-                <span className="relative inline-flex select-none items-center gap-0 text-4xl font-semibold text-muted-foreground/35 sm:text-5xl">
+                <span className="relative inline-flex select-none items-center gap-0 text-4xl font-semibold text-muted-foreground sm:text-5xl">
                   <span
                     aria-hidden="true"
                     className="buzz-onboarding-name-placeholder-caret h-[0.9em] w-0.5 rounded-full bg-primary"
@@ -287,7 +289,7 @@ export function ProfileStep({
                 </span>
               </div>
             ) : null}
-            <input
+            <BlockInput
               aria-label="Name"
               autoCapitalize="none"
               autoComplete="off"
@@ -311,7 +313,7 @@ export function ProfileStep({
               value={displayNameDraft}
             />
           </div>
-        </label>
+        </BlockLabel>
       )}
 
       {saveRecovery.errorMessage ? (

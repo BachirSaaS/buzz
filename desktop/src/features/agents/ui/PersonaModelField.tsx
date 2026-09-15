@@ -1,3 +1,4 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
 import type * as React from "react";
 import { motion } from "motion/react";
 
@@ -49,7 +50,7 @@ export function PersonaModelField({
       transition={transition}
     >
       <div className="space-y-1.5">
-        <label
+        <BlockLabel
           className="text-sm font-medium text-foreground"
           htmlFor="persona-model"
         >
@@ -57,7 +58,7 @@ export function PersonaModelField({
           {!isExplicitModelRequired ? (
             <span className={PERSONA_LABEL_OPTIONAL_CLASS}>Optional</span>
           ) : null}
-        </label>
+        </BlockLabel>
         <PersonaModelCombobox
           disabled={disabled}
           id="persona-model"

@@ -1,3 +1,5 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Plus, Users } from "lucide-react";
@@ -89,7 +91,7 @@ function AvatarCircle({
     avatarUrl.trim().length > 0 && presentation?.state !== "failed";
 
   return (
-    <button
+    <Action
       aria-label={hasAvatar ? "Change your avatar" : "Add an avatar"}
       className="group block shrink-0 rounded-full"
       data-testid="community-avatar-open"
@@ -122,15 +124,15 @@ function AvatarCircle({
           className={cn(
             "flex items-center justify-center rounded-full text-[var(--buzz-onboarding-backup-ink)] transition-colors",
             cardLayout
-              ? "size-28 border border-[#e2e2e2] bg-[#f9f9f9] group-hover:bg-[#f3f3f3] min-[44rem]:size-36"
+              ? "size-28 border border-border bg-muted group-hover:bg-muted min-[44rem]:size-36"
               : "size-36 bg-white/30 group-hover:bg-white/40",
           )}
           data-testid="community-avatar-empty"
         >
-          <Plus className="h-7 w-7" aria-hidden="true" />
+          <Plus className="size-7" aria-hidden="true" />
         </span>
       )}
-    </button>
+    </Action>
   );
 }
 
@@ -528,11 +530,11 @@ export function CommunityOnboardingFlow({
             {transaction.stage === "claiming" ||
             transaction.stage === "connecting" ? (
               <>
-                <Users className="mx-auto h-10 w-10" />
+                <Users className="mx-auto size-10" />
                 <h1 className="mt-5 text-title font-normal">
                   Joining {transaction.communityName}
                 </h1>
-                <p className="mt-3 text-sm text-foreground/80">
+                <p className="mt-3 text-sm text-foreground">
                   {transaction.error ??
                     (transaction.stage === "claiming"
                       ? "Accepting your invite…"
@@ -567,7 +569,7 @@ export function CommunityOnboardingFlow({
                     <h1 className="text-title font-normal">
                       Build your profile
                     </h1>
-                    <p className="mx-auto mt-3 max-w-[380px] text-sm leading-6 text-foreground/80">
+                    <p className="mx-auto mt-3 max-w-[380px] text-sm leading-6 text-foreground">
                       Add a name and avatar. They’ll show up on your messages,
                       reactions, and agent handoffs.
                     </p>
@@ -579,7 +581,7 @@ export function CommunityOnboardingFlow({
                       previewName={displayName.trim() || "Your profile"}
                       triggerRef={avatarTriggerRef}
                     />
-                    <label
+                    <BlockLabel
                       className="mt-4 block w-full max-w-[412px] text-left"
                       htmlFor="community-display-name"
                     >
@@ -601,7 +603,7 @@ export function CommunityOnboardingFlow({
                         type="text"
                         value={displayName}
                       />
-                    </label>
+                    </BlockLabel>
                   </div>
                   {transaction.error ? (
                     <p className="mt-4 text-sm text-destructive">
@@ -633,8 +635,8 @@ export function CommunityOnboardingFlow({
                   open={isAvatarEditorOpen}
                 >
                   <DialogContent
-                    className="buzz-onboarding-neutral-theme w-[min(calc(100vw-2rem),920px)] max-w-[920px] gap-0 overflow-hidden rounded-[18px] bg-[rgb(var(--buzz-onboarding-avatar-dialog-bg))] px-8 pb-6 pt-10 text-sm text-foreground shadow-[0_28px_90px_rgb(var(--buzz-onboarding-avatar-dialog-shadow)_/_0.28),0_8px_28px_rgb(var(--buzz-onboarding-avatar-dialog-shadow)_/_0.18)] transition-[height] duration-[250ms] ease-out"
-                    closeButtonClassName="right-6 top-6 h-10 w-10 rounded-full bg-[rgb(var(--buzz-onboarding-avatar-action-bg))] text-[rgb(var(--buzz-onboarding-avatar-action-fg))] hover:bg-[rgb(var(--buzz-onboarding-avatar-action-bg)/0.9)] hover:text-[rgb(var(--buzz-onboarding-avatar-action-fg))]"
+                    className="buzz-onboarding-neutral-theme w-[min(calc(100vw-2rem),920px)] max-w-[920px] gap-0 overflow-hidden rounded-xl bg-[var(--buzz-onboarding-avatar-dialog-bg)] px-8 pb-6 pt-10 text-sm text-foreground shadow-[0_28px_90px_rgb(var(--buzz-onboarding-avatar-dialog-shadow)_/_0.28),0_8px_28px_rgb(var(--buzz-onboarding-avatar-dialog-shadow)_/_0.18)] transition-[height] duration-[250ms] ease-out"
+                    closeButtonClassName="right-6 top-6 h-10 w-10 rounded-full bg-[var(--buzz-onboarding-avatar-action-bg)] text-[var(--buzz-onboarding-avatar-action-fg)] hover:bg-[color-mix(in_srgb,_var(--buzz-onboarding-avatar-action-bg)_90.0%,_transparent)] hover:text-[var(--buzz-onboarding-avatar-action-fg)]"
                     data-system-color-scheme="light"
                     data-testid="community-avatar-editor-key-frame"
                     onCloseAutoFocus={(event) => {
@@ -752,7 +754,7 @@ export function CommunityOnboardingFlow({
                 <h1 className="text-title font-normal">
                   Meet your starter team
                 </h1>
-                <p className="mx-auto mt-3 max-w-[400px] text-sm leading-6 text-foreground/80">
+                <p className="mx-auto mt-3 max-w-[400px] text-sm leading-6 text-foreground">
                   Buzz lets you bring multiple agents into the same workspace.
                   Your team will help you get started using Buzz.
                 </p>

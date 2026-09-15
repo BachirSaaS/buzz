@@ -107,7 +107,7 @@ export function ChannelScreenHeader({
           size="sm"
           variant="default"
         >
-          <LogIn className="mr-1.5 h-4 w-4" />
+          <LogIn className="mr-1.5 size-4" />
           {isJoining ? "Joining…" : "Join"}
         </Button>
         {headerEndActions}
@@ -129,7 +129,7 @@ export function ChannelScreenHeader({
   );
   const actions =
     terminalButton || channelActions ? (
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1" data-conversation-header-actions>
         {terminalButton}
         {channelActions}
       </div>
@@ -162,9 +162,9 @@ export function ChannelScreenHeader({
               <ProfileAvatarWithStatus
                 avatarClassName="text-xs"
                 avatarUrl={activeDmAvatarUrl}
-                className="mr-1.5 h-8 w-8"
+                className="mr-1.5 size-8"
                 geometry={DM_HEADER_AVATAR_STATUS_GEOMETRY}
-                iconClassName="h-4 w-4"
+                iconClassName="size-4"
                 label={activeChannelTitle}
                 shape={activeDmParticipant.isAgent ? "squircle" : "circle"}
                 size={DM_HEADER_AVATAR_SIZE}
@@ -177,9 +177,9 @@ export function ChannelScreenHeader({
             <ProfileAvatarWithStatus
               avatarClassName="text-xs"
               avatarUrl={activeDmAvatarUrl}
-              className="mr-1.5 h-8 w-8"
+              className="mr-1.5 size-8"
               geometry={DM_HEADER_AVATAR_STATUS_GEOMETRY}
-              iconClassName="h-4 w-4"
+              iconClassName="size-4"
               label={activeChannelTitle}
               shape="circle"
               size={DM_HEADER_AVATAR_SIZE}
@@ -191,7 +191,7 @@ export function ChannelScreenHeader({
         ) : activeChannel ? (
           <ChannelGlyph
             channel={activeChannel}
-            className="h-4 w-4 translate-y-px text-muted-foreground"
+            className="size-4 translate-y-px text-muted-foreground"
           />
         ) : undefined
       }
@@ -256,8 +256,8 @@ function DmHeaderParticipantStack({
               avatarUrl={participant.avatarUrl}
               className={
                 index < stackItemCount - 1
-                  ? "h-8 w-8 text-xs ring-2 ring-background"
-                  : "h-8 w-8 text-xs"
+                  ? "size-8 text-xs ring-2 ring-background"
+                  : "size-8 text-xs"
               }
               displayName={participant.displayName}
               shape={participant.isAgent ? "squircle" : "circle"}
@@ -272,7 +272,7 @@ function DmHeaderParticipantStack({
           data-testid="chat-header-dm-avatar-stack-more"
           style={{ zIndex: stackItemCount }}
         >
-          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary font-semibold text-secondary-foreground shadow-xs">
+          <span className="flex size-8 items-center justify-center rounded-full bg-secondary font-semibold text-secondary-foreground shadow-xs">
             <span className="text-2xs leading-none">+{hiddenCount}</span>
           </span>
         </div>

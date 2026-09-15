@@ -152,6 +152,7 @@ let CommunitiesProvider;
 let TooltipProvider;
 let ThemeProvider;
 let CommunityCatalogDialog;
+let AgentCatalogGrid;
 
 before(async () => {
   ({ default: React, act } = await import("react"));
@@ -165,6 +166,7 @@ before(async () => {
   ({ TooltipProvider } = await import("@/shared/ui/tooltip.tsx"));
   ({ ThemeProvider } = await import("@/shared/theme/ThemeProvider.tsx"));
   ({ CommunityCatalogDialog } = await import("./CommunityCatalogDialog.tsx"));
+  ({ AgentCatalogGrid } = await import("./AgentCatalogGrid.tsx"));
 });
 
 afterEach(() => {
@@ -229,6 +231,32 @@ function catalogTeam() {
   };
 }
 
+function CatalogHarness(props) {
+  const [selection, setSelection] = React.useState(undefined);
+  return React.createElement(
+    React.Fragment,
+    null,
+    React.createElement(AgentCatalogGrid, {
+      personas: props.personas,
+      teams: props.teams,
+      personasLoading: false,
+      teamsLoading: false,
+      personasError: null,
+      teamsError: null,
+      onRetryPersonas() {},
+      onRetryTeams() {},
+      onSelect: setSelection,
+    }),
+    selection
+      ? React.createElement(CommunityCatalogDialog, {
+          ...props,
+          selection,
+          onOpenChange: () => setSelection(undefined),
+        })
+      : null,
+  );
+}
+
 async function mountDialog() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
@@ -250,7 +278,7 @@ async function mountDialog() {
           React.createElement(
             TooltipProvider,
             null,
-            React.createElement(CommunityCatalogDialog, {
+            React.createElement(CatalogHarness, {
               createContent: () => React.createElement("div", null, "create"),
               onImportFile: () => {},
               personas: [catalogPersona()],
@@ -267,9 +295,6 @@ async function mountDialog() {
               teamsAdding: false,
               onAddTeam: () => {},
               open: true,
-              // "agents" so the dialog does not auto-select the first team; the
-              // test drives each selection explicitly.
-              preferSection: "agents",
               onOpenChange: () => {},
             }),
           ),
@@ -290,7 +315,10 @@ async function clickTestId(testId) {
   const el = dom.window.document.querySelector(`[data-testid="${testId}"]`);
   assert.ok(el, `expected element ${testId}`);
   await act(async () => {
-    el.dispatchEvent(
+    (el.matches("button")
+      ? el
+      : (el.querySelector("button") ?? el)
+    ).dispatchEvent(
       new dom.window.MouseEvent("click", { bubbles: true, cancelable: true }),
     );
     await new Promise((r) => setTimeout(r, 0));
@@ -300,23 +328,45 @@ async function clickTestId(testId) {
 test("catalog browse fires no publisher image request across all three avatar sites", async () => {
   const { root, container, client } = await mountDialog();
 
-  // Site 1 — persona sidebar row is rendered on open.
+  // Site 1 — the Browse grid renders the untrusted catalog avatar.
   assert.deepEqual(
     networkAssignments(),
     [],
-    "persona sidebar avatar leaked a network request",
+    "persona grid avatar leaked a network request",
   );
 
   // Site 2 — persona detail header.
   await clickTestId("community-catalog-agent-persona-1");
+  assert.ok(
+    dom.window.document.querySelector(
+      '[data-testid="persona-catalog-exact-instructions"]',
+    ),
+    "persona review must actually open",
+  );
   assert.deepEqual(
     networkAssignments(),
     [],
     "persona detail avatar leaked a network request",
   );
 
+  await act(async () => {
+    [
+      ...dom.window.document.querySelectorAll(
+        '[data-testid="community-catalog-dialog"] button',
+      ),
+    ]
+      .find((el) => el.textContent === "Close")
+      ?.click();
+  });
+
   // Site 3 — team member row (avatar is in the always-visible expander button).
   await clickTestId(`community-catalog-team-${"b".repeat(64)}:crew`);
+  assert.ok(
+    dom.window.document.querySelector(
+      '[data-testid="community-catalog-member-m-1"]',
+    ),
+    "team review must actually open",
+  );
   assert.deepEqual(
     networkAssignments(),
     [],

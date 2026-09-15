@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import {
   Check,
   History,
@@ -228,7 +229,7 @@ export function PullRequestReviewersRow({
           </DialogDescription>
         </DialogHeader>
         <div className="flex items-center gap-2 border-b border-border/60 px-6 py-3">
-          <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <Search className="size-3.5 shrink-0 text-muted-foreground" />
           <Input
             autoFocus
             className="h-8 border-0 px-0 text-sm shadow-none focus-visible:ring-0"
@@ -247,7 +248,7 @@ export function PullRequestReviewersRow({
             candidates.map((candidate) => {
               const label = reviewerSearchLabel(candidate);
               return (
-                <button
+                <Action
                   className="flex w-full min-w-0 items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
                   data-testid={`project-reviewer-result-${candidate.pubkey}`}
                   disabled={requestReviewMutation.isPending}
@@ -273,7 +274,7 @@ export function PullRequestReviewersRow({
                       {truncateNpub(candidate.pubkey)}
                     </span>
                   </span>
-                </button>
+                </Action>
               );
             })
           ) : (
@@ -324,7 +325,7 @@ export function PullRequestReviewersRow({
                 {index > 0 ? (
                   <span
                     aria-hidden="true"
-                    className="shrink-0 text-muted-foreground/50"
+                    className="shrink-0 text-muted-foreground"
                   >
                     ·
                   </span>
@@ -332,8 +333,10 @@ export function PullRequestReviewersRow({
                 <span
                   className={cn(
                     "flex min-w-0 shrink items-center gap-1 text-sm",
-                    hasApproved && "text-green-600 dark:text-green-400",
-                    hasRequestedChanges && "text-amber-600 dark:text-amber-400",
+                    hasApproved &&
+                      "text-success-foreground dark:text-success-foreground",
+                    hasRequestedChanges &&
+                      "text-warning-foreground dark:text-warning-foreground",
                     !hasApproved &&
                       !hasRequestedChanges &&
                       "text-muted-foreground",
@@ -360,8 +363,8 @@ export function PullRequestReviewersRow({
             );
           })}
           {hasHistoricalDecision ? (
-            <span className="flex min-w-0 items-center gap-1 truncate text-xs text-amber-600 dark:text-amber-400">
-              <History className="h-3.5 w-3.5 shrink-0" />
+            <span className="flex min-w-0 items-center gap-1 truncate text-xs text-warning-foreground dark:text-warning-foreground">
+              <History className="size-3.5 shrink-0" />
               Earlier decision applies to another commit
             </span>
           ) : null}

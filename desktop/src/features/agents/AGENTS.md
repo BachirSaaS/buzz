@@ -282,7 +282,7 @@ with a TypeScript lookup table or an id comparison in a component.
    authored description as its second line, falling back to the model label
    when none exists (`UnifiedAgentsSection.tsx` composes it;
    `AgentIdentityCard` takes a presentational `subtitle`). The community catalog
-   shows the same authored description before consent: a clamped two-line list
+   shows the same authored description before consent: a clamped two-line Browse-grid
    subtitle for scanning and the full safely wrapped value in persona detail.
    The dialog field
    lives in `ui/AgentDescriptionField.tsx` (`AgentIdentityFields`), not

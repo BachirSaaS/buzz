@@ -28,10 +28,10 @@ export function AgentDefinitionDialogShell({
         className="relative flex min-h-0 min-w-0 flex-1 flex-col"
         data-testid="persona-dialog"
       >
-        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-5 pb-20 pt-5">
+        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-6">
           {children}
         </div>
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-end bg-linear-to-t from-background via-background/95 to-transparent px-4 pb-3 pt-10 [&_button]:pointer-events-auto">
+        <div className="flex shrink-0 justify-end border-t border-border bg-card p-6">
           {footer}
         </div>
       </div>
@@ -41,13 +41,13 @@ export function AgentDefinitionDialogShell({
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
       <ChooserDialogContent
-        className="max-w-3xl border-0"
-        contentClassName="pt-3"
+        className="max-w-3xl rounded-blockui-lg border border-border bg-card"
+        contentClassName="py-6"
         data-testid="persona-dialog"
         description={description}
         footer={footer}
-        footerClassName="border-t-0 pt-0"
-        headerClassName="pb-2"
+        footerClassName="p-6"
+        headerClassName="p-6 pr-16 [&_h2]:text-base [&_h2]:font-semibold"
         title={title}
       >
         {children}

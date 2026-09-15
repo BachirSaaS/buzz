@@ -38,7 +38,7 @@ export function ToolDetailBlocks({
   const showParameters = hasArgs && !showFileContent;
 
   return (
-    <div className="space-y-4 py-2 text-popover-foreground outline-hidden">
+    <div className="mt-4 space-y-4 border-t border-border pt-4 text-popover-foreground outline-hidden">
       {description ? (
         <p className="max-w-2xl text-xs leading-5 text-muted-foreground">
           {description}
@@ -78,7 +78,7 @@ export function ToolDetailBlocks({
         )
       ) : null}
       {!showShellCommand && !showParameters && !hasResult ? (
-        <p className="text-sm text-muted-foreground/80">
+        <p className="text-sm text-muted-foreground">
           Waiting for tool details.
         </p>
       ) : null}
@@ -97,12 +97,10 @@ function ToolCodeBlock({
 }) {
   return (
     <div className="space-y-2 overflow-hidden">
-      <h4 className="text-2xs font-semibold uppercase tracking-wide text-muted-foreground">
-        {label}
-      </h4>
+      <h4 className="text-xs font-medium text-muted-foreground">{label}</h4>
       <pre
         className={cn(
-          "max-h-64 overflow-auto whitespace-pre-wrap wrap-break-word rounded-md px-3 py-2 font-mono text-xs leading-5",
+          "max-h-64 overflow-auto whitespace-pre-wrap wrap-break-word rounded-blockui-md p-4 font-mono text-xs leading-5",
           tone === "error"
             ? "bg-destructive/10 text-destructive"
             : "bg-muted/50 text-foreground",

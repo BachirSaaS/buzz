@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import {
   Check,
   ChevronDown,
@@ -77,8 +78,8 @@ function labelForPubkey(pubkey: string, profiles?: UserProfileLookup) {
 function pullRequestStatusClassName(status: ProjectPullRequest["status"]) {
   if (status === "Closed") return "text-destructive";
   if (status === "Draft") return "text-muted-foreground";
-  if (status === "Merged") return "text-purple-400";
-  return "text-green-500";
+  if (status === "Merged") return "text-info-foreground";
+  return "text-success-foreground";
 }
 
 const PULL_REQUEST_STATUS_ORDER: readonly ProjectPullRequest["status"][] = [
@@ -167,14 +168,14 @@ function CommitHashChip({
     );
   }
   return (
-    <button
+    <Action
       aria-label={`View commit ${short}`}
       className="shrink-0 rounded-md bg-background/55 px-2 py-1 font-mono text-xs text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground hover:underline focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
       onClick={() => onOpenCommit(hash)}
       type="button"
     >
       {short}
-    </button>
+    </Action>
   );
 }
 
@@ -219,7 +220,7 @@ function PullRequestCommitRow({
           </span>
           {branch ? (
             <span className="inline-flex min-w-0 items-center gap-1 rounded-full border border-border/60 px-1.5 py-0.5 font-mono text-2xs">
-              <GitBranch className="h-3 w-3 shrink-0" />
+              <GitBranch className="size-3 shrink-0" />
               <span className="truncate">{branch}</span>
             </span>
           ) : null}
@@ -291,7 +292,7 @@ function PullRequestRow({
       metadata={
         pullRequest.branchName ? (
           <span className="inline-flex min-w-0 items-center gap-1">
-            <GitBranch className="h-3 w-3 shrink-0" />
+            <GitBranch className="size-3 shrink-0" />
             <span className="truncate">{pullRequest.branchName}</span>
           </span>
         ) : undefined
@@ -313,7 +314,7 @@ function PullRequestRow({
       trailing={
         <>
           <span className="flex w-8 shrink-0 justify-end">
-            <button
+            <Action
               aria-label={
                 pullRequest.comments.length > 0
                   ? `View ${pullRequest.comments.length} comments`
@@ -321,16 +322,16 @@ function PullRequestRow({
               }
               className={`flex items-center gap-1 rounded-md text-xs hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring ${
                 pullRequest.comments.length > 0
-                  ? "text-muted-foreground/60"
-                  : "text-muted-foreground/45"
+                  ? "text-muted-foreground"
+                  : "text-muted-foreground"
               }`}
               data-testid="project-pull-request-comments"
               onClick={onOpen}
               type="button"
             >
-              <MessageSquare className="h-3.5 w-3.5" />
+              <MessageSquare className="size-3.5" />
               {pullRequest.comments.length}
-            </button>
+            </Action>
           </span>
           <ProfileIdentityButton
             avatarClassName="shrink-0"
@@ -342,7 +343,7 @@ function PullRequestRow({
             showLabel={false}
           />
           <span
-            className="hidden w-20 shrink-0 text-right text-xs text-muted-foreground/55 sm:block"
+            className="hidden w-20 shrink-0 text-right text-xs text-muted-foreground sm:block"
             data-testid="project-pull-request-row-date"
             title={formatExactTimestamp(pullRequest.createdAt)}
           >
@@ -631,7 +632,7 @@ export function ProjectPullRequestDetail({
           />
           <div className="group/timeline -mx-6 overflow-hidden">
             {reviewHistory.length > 0 ? (
-              <button
+              <Action
                 aria-expanded={!reviewHistoryCollapsed}
                 className="flex min-h-10 w-full items-center gap-2 px-3 py-2.5 text-sm font-semibold text-muted-foreground transition-colors hover:text-foreground"
                 data-testid="project-pull-request-review-history-toggle"
@@ -655,7 +656,7 @@ export function ProjectPullRequestDetail({
                     <span className="absolute top-2.5 -bottom-[1.875rem] w-px bg-border/80" />
                   )}
                   <span className="relative z-10 flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-primary ring-1 ring-primary/35">
-                    <History className="h-3 w-3" />
+                    <History className="size-3" />
                   </span>
                 </span>
                 <span className="flex min-h-5 min-w-0 flex-1 items-center text-left">
@@ -666,16 +667,16 @@ export function ProjectPullRequestDetail({
                     : "Collapse review history"}
                 </span>
                 {reviewHistoryCollapsed ? (
-                  <ChevronDown className="mt-0.5 h-3.5 w-3.5" />
+                  <ChevronDown className="mt-0.5 size-3.5" />
                 ) : (
-                  <ChevronUp className="mt-0.5 h-3.5 w-3.5" />
+                  <ChevronUp className="mt-0.5 size-3.5" />
                 )}
-              </button>
+              </Action>
             ) : null}
             {!reviewHistoryCollapsed &&
             earlierReviewHistoryCount > 0 &&
             !reviewHistoryExpanded ? (
-              <button
+              <Action
                 className="flex min-h-10 w-full items-center gap-2 px-3 py-2.5 text-sm font-semibold text-muted-foreground transition-colors hover:text-foreground"
                 data-testid="project-pull-request-earlier-activities"
                 onClick={() => {
@@ -690,14 +691,14 @@ export function ProjectPullRequestDetail({
                 <span className="relative flex w-5 shrink-0 justify-center self-stretch">
                   <span className="absolute top-2.5 -bottom-[1.875rem] w-px bg-border/80" />
                   <span className="relative z-10 flex h-5 w-5 items-center justify-center rounded-full bg-background ring-1 ring-border/70">
-                    <ChevronDown className="h-3 w-3" />
+                    <ChevronDown className="size-3" />
                   </span>
                 </span>
                 <span className="min-w-0 flex-1 text-left">
                   Show {earlierReviewHistoryCount} earlier{" "}
                   {earlierReviewHistoryCount === 1 ? "activity" : "activities"}
                 </span>
-              </button>
+              </Action>
             ) : null}
             {displayedReviewHistory.map(({ item, timelineKind }, index) => {
               const isHistoricalDecision =
@@ -731,7 +732,7 @@ export function ProjectPullRequestDetail({
                           className={`h-3 w-3 ${
                             isHistoricalDecision
                               ? "text-muted-foreground"
-                              : "text-green-600 dark:text-green-500"
+                              : "text-success-foreground dark:text-success-foreground"
                           }`}
                         />
                       ) : timelineKind === "changes-requested" ? (
@@ -739,13 +740,13 @@ export function ProjectPullRequestDetail({
                           className={`h-3 w-3 ${
                             isHistoricalDecision
                               ? "text-muted-foreground"
-                              : "text-amber-600 dark:text-amber-400"
+                              : "text-warning-foreground dark:text-warning-foreground"
                           }`}
                         />
                       ) : timelineKind === "review-request" ? (
-                        <UserPlus className="h-3 w-3" />
+                        <UserPlus className="size-3" />
                       ) : (
-                        <MessageSquare className="h-3 w-3" />
+                        <MessageSquare className="size-3" />
                       )}
                     </span>
                   </div>
@@ -771,7 +772,7 @@ export function ProjectPullRequestDetail({
                         ) : null}
                       </span>
                       <span
-                        className="ml-auto w-20 shrink-0 text-right text-xs text-muted-foreground/70"
+                        className="ml-auto w-20 shrink-0 text-right text-xs text-muted-foreground"
                         title={formatExactTimestamp(item.createdAt)}
                       >
                         {relativeTime(item.createdAt)}
@@ -779,13 +780,13 @@ export function ProjectPullRequestDetail({
                     </div>
                     {activityContent ? (
                       <ProjectRichContent
-                        className="mt-1 text-sm text-foreground/90"
+                        className="mt-1 text-sm text-foreground"
                         content={activityContent}
                         tags={item.tags}
                       />
                     ) : null}
                     {item.anchor ? (
-                      <button
+                      <Action
                         aria-label={`Open ${item.anchor.path} ${item.anchor.side} line ${item.anchor.line} in Files changed`}
                         className="mt-1 inline-flex min-w-0 items-center gap-1 rounded-md bg-muted/65 px-1.5 py-0.5 font-mono text-2xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                         onClick={() => {
@@ -793,7 +794,7 @@ export function ProjectPullRequestDetail({
                         }}
                         type="button"
                       >
-                        <FileCode2 className="h-3 w-3 shrink-0" />
+                        <FileCode2 className="size-3 shrink-0" />
                         <span className="truncate">{item.anchor.path}</span>
                         <span className="shrink-0">
                           {item.anchor.side === "new" ? "+" : "-"}
@@ -804,7 +805,7 @@ export function ProjectPullRequestDetail({
                             Outdated
                           </span>
                         ) : null}
-                      </button>
+                      </Action>
                     ) : null}
                   </div>
                 </div>

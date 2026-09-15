@@ -1,3 +1,4 @@
+import { Input as BlockInput } from "@/shared/ui/input";
 import type * as React from "react";
 
 import { cn } from "@/shared/lib/cn";
@@ -29,5 +30,5 @@ export function MarkdownInput({
     );
   }
 
-  return <input {...props} className={className} type={type} />;
+  return <BlockInput {...props} className={className} type={type} />;
 }

@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import {
   Check,
   ChevronDown,
@@ -232,7 +233,7 @@ export function CommunitySwitcher({
         {activeCommunity?.name ?? "No community"}
       </span>
       {variant === "profile-menu" ? (
-        <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
       ) : (
         <ChevronDown
           className={
@@ -249,7 +250,7 @@ export function CommunitySwitcher({
     variant === "profile-menu" ? (
       <Popover open={dropdownOpen} onOpenChange={handleProfileMenuOpenChange}>
         <PopoverTrigger asChild>
-          <button
+          <Action
             aria-expanded={dropdownOpen}
             aria-haspopup="menu"
             aria-label={
@@ -265,7 +266,7 @@ export function CommunitySwitcher({
             type="button"
           >
             {triggerContent}
-          </button>
+          </Action>
         </PopoverTrigger>
         <PopoverContent
           align="end"
@@ -283,7 +284,7 @@ export function CommunitySwitcher({
           >
             {activeCommunity ? (
               <>
-                <button
+                <Action
                   className="flex min-h-9 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm outline-hidden transition-colors hover:bg-muted/50 focus:bg-muted/50 focus:outline-none focus-visible:bg-muted/50 focus-visible:outline-none"
                   onClick={() => {
                     setDropdownOpen(false);
@@ -292,11 +293,11 @@ export function CommunitySwitcher({
                   role="menuitem"
                   type="button"
                 >
-                  <Link2 className="h-4 w-4" />
+                  <Link2 className="size-4" />
                   <span>Copy community URL</span>
-                </button>
+                </Action>
                 {canInvite && onInvite ? (
-                  <button
+                  <Action
                     className="flex min-h-9 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm outline-hidden transition-colors hover:bg-muted/50 focus:bg-muted/50 focus:outline-none focus-visible:bg-muted/50 focus-visible:outline-none"
                     onClick={() => {
                       setDropdownOpen(false);
@@ -305,11 +306,11 @@ export function CommunitySwitcher({
                     role="menuitem"
                     type="button"
                   >
-                    <Ticket className="h-4 w-4" />
+                    <Ticket className="size-4" />
                     <span>Invite to community</span>
-                  </button>
+                  </Action>
                 ) : null}
-                <button
+                <Action
                   className="flex min-h-9 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm outline-hidden transition-colors hover:bg-muted/50 focus:bg-muted/50 focus:outline-none focus-visible:bg-muted/50 focus-visible:outline-none"
                   onClick={() => {
                     setDropdownOpen(false);
@@ -318,19 +319,19 @@ export function CommunitySwitcher({
                   role="menuitem"
                   type="button"
                 >
-                  <Settings2 className="h-4 w-4" />
+                  <Settings2 className="size-4" />
                   <span>Community settings</span>
-                </button>
-                <button
+                </Action>
+                <Action
                   className="flex min-h-9 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-destructive outline-hidden transition-colors hover:bg-destructive/10 focus:bg-destructive/10 focus:outline-none focus-visible:bg-destructive/10 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
                   disabled={isLeaving}
                   onClick={() => void handleLeaveCommunity()}
                   role="menuitem"
                   type="button"
                 >
-                  <LogOut className="h-4 w-4" />
+                  <LogOut className="size-4" />
                   <span>{isLeaving ? "Leaving…" : "Leave community"}</span>
-                </button>
+                </Action>
                 {leaveError ? (
                   <p
                     className="px-3 py-1 text-xs text-destructive"
@@ -342,7 +343,7 @@ export function CommunitySwitcher({
                 <hr className="-mx-1 my-1 h-px border-0 bg-muted" />
               </>
             ) : null}
-            <button
+            <Action
               className="flex min-h-9 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm outline-hidden transition-colors hover:bg-muted/50 focus:bg-muted/50 focus:outline-none focus-visible:bg-muted/50 focus-visible:outline-none"
               onClick={() => {
                 setDropdownOpen(false);
@@ -351,9 +352,9 @@ export function CommunitySwitcher({
               role="menuitem"
               type="button"
             >
-              <Plus className="h-4 w-4" />
+              <Plus className="size-4" />
               <span>Add a community</span>
-            </button>
+            </Action>
           </div>
         </PopoverContent>
       </Popover>
@@ -367,7 +368,7 @@ export function CommunitySwitcher({
     >
       <DropdownMenuTrigger asChild>
         {variant === "profile" ? (
-          <button
+          <Action
             aria-label={
               degraded
                 ? `${activeCommunity?.name ?? "Community"} — ${connectionLabel}`
@@ -378,7 +379,7 @@ export function CommunitySwitcher({
             type="button"
           >
             {triggerContent}
-          </button>
+          </Action>
         ) : (
           <SidebarMenuButton
             aria-label={
@@ -411,11 +412,11 @@ export function CommunitySwitcher({
           >
             <span className="flex h-4 w-4 shrink-0 items-center justify-center">
               {activeCommunity?.id === community.id ? (
-                <Check className="h-4 w-4 text-primary" />
+                <Check className="size-4 text-primary" />
               ) : null}
             </span>
             <span className="min-w-0 flex-1 truncate">{community.name}</span>
-            <button
+            <Action
               aria-label={`Edit ${community.name}`}
               className="flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-0 hover:bg-accent group-hover:opacity-100 group-focus:opacity-100"
               onClick={(e) => {
@@ -426,13 +427,13 @@ export function CommunitySwitcher({
               }}
               type="button"
             >
-              <MoreHorizontal className="h-4 w-4" />
-            </button>
+              <MoreHorizontal className="size-4" />
+            </Action>
           </DropdownMenuItem>
         ))}
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={onAddCommunity}>
-          <Plus className="h-4 w-4" />
+          <Plus className="size-4" />
           <span>Add a community</span>
         </DropdownMenuItem>
       </DropdownMenuContent>

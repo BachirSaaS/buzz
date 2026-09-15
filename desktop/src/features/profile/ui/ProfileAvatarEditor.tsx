@@ -1,3 +1,5 @@
+import { Input as BlockInput } from "@/shared/ui/input";
+import { Action } from "@/shared/ui/action";
 import emojiData from "@emoji-mart/data";
 import Picker from "@emoji-mart/react";
 import { Link2, UploadCloud } from "lucide-react";
@@ -642,17 +644,17 @@ export function ProfileAvatarEditor({
                       "h-full grid-rows-[minmax(0,1fr)_4rem]",
                   )}
                 >
-                  <button
+                  <Action
                     className={cn(
                       isOnboardingModal
-                        ? "relative flex h-32 flex-col items-center justify-center overflow-hidden rounded-lg border border-dashed border-[color:rgb(var(--buzz-onboarding-avatar-control-fg)_/_0.7)] bg-transparent text-[rgb(var(--buzz-onboarding-avatar-control-fg))] transition-[background-color,border-color,box-shadow,color] duration-[250ms] ease-out hover:bg-[color:rgb(var(--buzz-onboarding-avatar-accent-bg)_/_0.18)] disabled:opacity-60"
+                        ? "relative flex h-32 flex-col items-center justify-center overflow-hidden rounded-lg border border-dashed border-[color:color-mix(in_srgb,var(--buzz-onboarding-avatar-control-fg)_70%,transparent)] bg-transparent text-[var(--buzz-onboarding-avatar-control-fg)] transition-[background-color,border-color,box-shadow,color] duration-[250ms] ease-out hover:bg-[color:color-mix(in_srgb,var(--buzz-onboarding-avatar-accent-bg)_18%,transparent)] disabled:opacity-60"
                         : cn(
                             "relative flex flex-col items-center justify-center gap-3 overflow-hidden rounded-xl border border-transparent bg-muted text-foreground transition-[background-color,border-color,box-shadow,color] duration-[250ms] ease-out hover:bg-muted/80 disabled:opacity-60",
                             isOnboardingInline ? "h-full" : "h-[120px]",
                           ),
                       isImageDropActive &&
                         (isOnboardingModal
-                          ? "border-[rgb(var(--buzz-onboarding-avatar-control-fg))] bg-[color:rgb(var(--buzz-onboarding-avatar-accent-bg)_/_0.24)]"
+                          ? "border-[var(--buzz-onboarding-avatar-control-fg)] bg-[color:color-mix(in_srgb,var(--buzz-onboarding-avatar-accent-bg)_24%,transparent)]"
                           : "border-primary bg-primary/10 text-primary ring-1 ring-primary/35 hover:bg-primary/10"),
                     )}
                     data-dragging={isImageDropActive ? "true" : undefined}
@@ -686,11 +688,11 @@ export function ProfileAvatarEditor({
                       className={cn(
                         "relative transition-colors duration-[250ms] ease-out",
                         isOnboardingModal
-                          ? "text-sm font-normal text-[rgb(var(--buzz-onboarding-avatar-control-fg))]"
+                          ? "text-sm font-normal text-[var(--buzz-onboarding-avatar-control-fg)]"
                           : "text-sm font-medium text-muted-foreground",
                         isImageDropActive &&
                           (isOnboardingModal
-                            ? "text-[rgb(var(--buzz-onboarding-avatar-control-fg))]"
+                            ? "text-[var(--buzz-onboarding-avatar-control-fg)]"
                             : "text-primary"),
                       )}
                     >
@@ -709,26 +711,26 @@ export function ProfileAvatarEditor({
                         </>
                       )}
                     </span>
-                  </button>
+                  </Action>
 
                   <div
                     className={cn(
                       "flex items-center transition-colors duration-[250ms] ease-out",
                       isOnboardingModal
-                        ? "h-[52px] rounded-lg border border-[color:rgb(var(--buzz-onboarding-avatar-control-fg)_/_0.45)] bg-transparent px-5 focus-within:border-[rgb(var(--buzz-onboarding-avatar-control-fg))]"
+                        ? "h-[52px] rounded-lg border border-[color:color-mix(in_srgb,var(--buzz-onboarding-avatar-control-fg)_45%,transparent)] bg-transparent px-5 focus-within:border-[var(--buzz-onboarding-avatar-control-fg)]"
                         : "h-16 gap-3 rounded-xl bg-muted px-5 focus-within:bg-muted/80",
                     )}
                   >
                     {isOnboardingModal ? null : (
-                      <Link2 className="h-4 w-4 text-muted-foreground" />
+                      <Link2 className="size-4 text-muted-foreground" />
                     )}
-                    <input
+                    <BlockInput
                       autoCapitalize="none"
                       autoCorrect="off"
                       className={cn(
                         "min-w-0 flex-1 bg-transparent outline-none",
                         isOnboardingModal
-                          ? "text-center text-sm font-normal text-foreground placeholder:text-[color:rgb(var(--buzz-onboarding-avatar-control-fg)_/_0.55)]"
+                          ? "text-center text-sm font-normal text-foreground placeholder:text-[color:color-mix(in_srgb,var(--buzz-onboarding-avatar-control-fg)_55%,transparent)]"
                           : "text-sm font-medium text-foreground placeholder:text-muted-foreground",
                       )}
                       data-testid={`${testIdPrefix}-url`}
@@ -899,7 +901,7 @@ export function ProfileAvatarEditor({
                             selectedColor.toUpperCase();
 
                         return (
-                          <button
+                          <Action
                             aria-label={
                               isCustomSwatch
                                 ? selectedEmoji
@@ -951,7 +953,7 @@ export function ProfileAvatarEditor({
                                 }}
                               />
                             ) : null}
-                          </button>
+                          </Action>
                         );
                       })}
                     </div>
@@ -983,7 +985,7 @@ export function ProfileAvatarEditor({
                 asChild
                 className={cn(
                   isOnboardingModal
-                    ? "mx-auto mt-0 h-[2.375rem] min-w-24 rounded-full bg-[rgb(var(--buzz-onboarding-avatar-action-bg))] px-6 text-sm font-medium text-[rgb(var(--buzz-onboarding-avatar-action-fg))] hover:bg-[color:rgb(var(--buzz-onboarding-avatar-action-bg)_/_0.9)]"
+                    ? "mx-auto mt-0 h-[2.375rem] min-w-24 rounded-full bg-[var(--buzz-onboarding-avatar-action-bg)] px-6 text-sm font-medium text-[var(--buzz-onboarding-avatar-action-fg)] hover:bg-[color:color-mix(in_srgb,var(--buzz-onboarding-avatar-action-bg)_90%,transparent)]"
                     : "mt-2 h-12 w-full rounded-xl",
                 )}
               >

@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { ArrowUpRight, CircleAlert, UserPlus } from "lucide-react";
 
 import { MemorySection } from "@/features/agent-memory/ui/MemorySection";
@@ -82,7 +83,7 @@ export function ChannelsFocusedView({
             )}
             data-testid="user-profile-channels-empty"
           >
-            <UserPlus className="mx-auto h-4 w-4 text-muted-foreground" />
+            <UserPlus className="mx-auto size-4 text-muted-foreground" />
             <p className="mt-3 text-sm font-medium">
               {canAddToChannel
                 ? "Add this agent to a channel"
@@ -101,7 +102,7 @@ export function ChannelsFocusedView({
           >
             {channels.map((channel) => (
               <li key={channel.id}>
-                <button
+                <Action
                   aria-label={`Open #${channel.name}`}
                   className="group flex min-h-16 w-full items-center gap-3 px-4 py-3 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted/40"
                   data-testid={`user-profile-channel-link-${channel.name}`}
@@ -113,9 +114,9 @@ export function ChannelsFocusedView({
                   </span>
                   <ArrowUpRight
                     aria-hidden="true"
-                    className="h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground"
+                    className="size-4 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground"
                   />
-                </button>
+                </Action>
               </li>
             ))}
           </ul>
@@ -174,7 +175,7 @@ export function DiagnosticsFocusedView({
           data-testid={lastErrorField.testId}
           variant="destructive"
         >
-          <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+          <CircleAlert className="mt-0.5 size-4 shrink-0 text-destructive" />
           <div className="min-w-0">
             <AlertTitle>Last error</AlertTitle>
             <AlertDescription className="wrap-break-word">

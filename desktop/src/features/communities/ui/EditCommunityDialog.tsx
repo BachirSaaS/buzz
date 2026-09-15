@@ -1,3 +1,4 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
 import * as React from "react";
 
 import { CommunityIconSettingsCard } from "@/features/communities/ui/CommunityIconSettingsCard";
@@ -147,12 +148,12 @@ export function EditCommunityDialog({
             </div>
           ) : null}
           <div className="flex flex-col gap-1.5">
-            <label
+            <BlockLabel
               className="text-sm font-medium text-foreground"
               htmlFor="edit-ws-name"
             >
               Name
-            </label>
+            </BlockLabel>
             <Input
               autoFocus
               id="edit-ws-name"
@@ -163,12 +164,12 @@ export function EditCommunityDialog({
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <label
+            <BlockLabel
               className="text-sm font-medium text-foreground"
               htmlFor="edit-ws-relay-url"
             >
               Relay URL
-            </label>
+            </BlockLabel>
             <Input
               id="edit-ws-relay-url"
               onChange={(e) => setRelayUrl(e.target.value)}
@@ -178,7 +179,7 @@ export function EditCommunityDialog({
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <label
+            <BlockLabel
               className="text-sm font-medium text-foreground"
               htmlFor="edit-ws-token"
             >
@@ -186,7 +187,7 @@ export function EditCommunityDialog({
               <span className="ml-1 text-xs font-normal text-muted-foreground">
                 (optional)
               </span>
-            </label>
+            </BlockLabel>
             <Input
               id="edit-ws-token"
               onChange={(e) => setToken(e.target.value)}
@@ -196,7 +197,7 @@ export function EditCommunityDialog({
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <label
+            <BlockLabel
               className="text-sm font-medium text-foreground"
               htmlFor="edit-ws-repos-dir"
             >
@@ -204,7 +205,7 @@ export function EditCommunityDialog({
               <span className="ml-1 text-xs font-normal text-muted-foreground">
                 (optional)
               </span>
-            </label>
+            </BlockLabel>
             <Input
               id="edit-ws-repos-dir"
               onChange={(e) => {

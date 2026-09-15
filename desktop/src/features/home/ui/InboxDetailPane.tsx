@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import {
   AlertCircle,
   ArrowLeft,
@@ -440,7 +441,7 @@ function InboxMessageDetailPane({
       >
         <div className="max-w-sm">
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-muted text-muted-foreground">
-            <Mail className="h-6 w-6" />
+            <Mail className="size-6" />
           </div>
           <p className="mt-4 text-base font-semibold">Select a message</p>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -566,7 +567,7 @@ function InboxMessageDetailPane({
                 <div className="min-w-0">
                   {canOpenChannel && contextChannelId ? (
                     <h2 className="min-w-0">
-                      <button
+                      <Action
                         className="block min-w-0 max-w-full text-left text-sm font-semibold leading-5 tracking-tight text-foreground hover:underline focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                         data-testid="home-inbox-context-title"
                         onClick={() =>
@@ -582,7 +583,7 @@ function InboxMessageDetailPane({
                         <span className="block min-w-0 translate-y-px truncate">
                           {contextLabel}
                         </span>
-                      </button>
+                      </Action>
                     </h2>
                   ) : (
                     <h2
@@ -614,15 +615,15 @@ function InboxMessageDetailPane({
                     >
                       {reopenPending ? (
                         <>
-                          <LoaderCircle className="h-3.5 w-3.5 shrink-0 animate-spin" />
+                          <LoaderCircle className="size-3.5 shrink-0 animate-spin" />
                           <span>Reopening…</span>
                         </>
                       ) : (
                         <>
-                          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                          <AlertCircle className="size-3.5 shrink-0" />
                           <span>Couldn’t reopen</span>
                           {contextChannelId ? (
-                            <button
+                            <Action
                               className="ml-0.5 rounded font-semibold underline underline-offset-2 hover:no-underline focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
                               data-testid="home-inbox-reopen-retry"
                               onClick={() =>
@@ -635,7 +636,7 @@ function InboxMessageDetailPane({
                               type="button"
                             >
                               Retry
-                            </button>
+                            </Action>
                           ) : null}
                         </>
                       )}
@@ -709,7 +710,7 @@ function InboxMessageDetailPane({
                 className="mx-4 mb-2 flex items-center gap-2 rounded-md bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
                 data-testid="home-inbox-context-loading"
               >
-                <LoaderCircle className="h-4 w-4 shrink-0 animate-spin" />
+                <LoaderCircle className="size-4 shrink-0 animate-spin" />
                 <span>Loading surrounding context...</span>
               </div>
             ) : null}
@@ -718,7 +719,7 @@ function InboxMessageDetailPane({
                 className="mx-4 mb-2 flex items-center gap-2 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
                 data-testid="home-inbox-context-error"
               >
-                <AlertCircle className="h-4 w-4 shrink-0" />
+                <AlertCircle className="size-4 shrink-0" />
                 <span>Some message context could not be loaded.</span>
               </div>
             ) : null}
@@ -932,7 +933,7 @@ function HeaderMoreMenu({
           disabled={isDeletingMessage}
           onClick={onDelete}
         >
-          <Trash2 className="h-4 w-4" />
+          <Trash2 className="size-4" />
           Delete message
         </DropdownMenuItem>
       </DropdownMenuContent>

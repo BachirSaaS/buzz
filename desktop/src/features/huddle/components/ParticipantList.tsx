@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { X } from "lucide-react";
 import * as React from "react";
 
@@ -249,7 +250,7 @@ export function HuddleParticipantsControl({
     >
       <div className="mb-3 flex items-center justify-between gap-3">
         <h2 className="text-sm font-medium">Participants</h2>
-        <span className="shrink-0 text-xs text-foreground/60">
+        <span className="shrink-0 text-xs text-foreground">
           {participantLabel}
         </span>
       </div>
@@ -274,7 +275,7 @@ export function HuddleParticipantsControl({
                 <div className="truncate text-sm font-medium">
                   {displayName}
                 </div>
-                <div className="truncate text-xs text-foreground/60">
+                <div className="truncate text-xs text-foreground">
                   {isActive ? "Speaking" : isAgent ? "Agent" : "In huddle"}
                 </div>
               </div>
@@ -282,13 +283,13 @@ export function HuddleParticipantsControl({
               {isAgent && onRemoveAgent && (
                 <Button
                   aria-label={`Remove ${displayName} from huddle`}
-                  className="h-7 w-7 shrink-0 text-foreground/65 hover:bg-destructive/15 hover:text-destructive"
+                  className="h-7 w-7 shrink-0 text-foreground hover:bg-destructive/15 hover:text-destructive"
                   onClick={() => void onRemoveAgent(pubkey)}
                   size="icon"
                   type="button"
                   variant="ghost"
                 >
-                  <X className="h-4 w-4" />
+                  <X className="size-4" />
                 </Button>
               )}
             </li>
@@ -352,7 +353,7 @@ export function HuddleParticipantsControl({
                   Stop
                 </Button>
               ) : (
-                <span className="w-full truncate text-center text-xs font-medium leading-none text-foreground/80">
+                <span className="w-full truncate text-center text-xs font-medium leading-none text-foreground">
                   {participant.displayName}
                 </span>
               )}
@@ -380,14 +381,14 @@ export function HuddleParticipantsControl({
             registry={voiceRegistry}
             settings={resolvedAgentVoiceSettings[participant.pubkey]}
             trigger={
-              <button
+              <Action
                 aria-label={`Voice settings for ${participant.displayName}`}
                 className="inline-flex shrink-0 cursor-pointer rounded-[30%] outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-black"
                 data-testid="huddle-agent-voice-menu-trigger"
                 type="button"
               >
                 <ParticipantAvatar participant={participant} size="bar" />
-              </button>
+              </Action>
             }
           />
         ) : (
@@ -410,7 +411,7 @@ export function HuddleParticipantsControl({
             className={cn(
               "relative z-10 shrink-0 px-1 text-2xs font-semibold shadow-none tabular-nums",
               appearance === "room"
-                ? "buzz-huddle-participant-tile min-h-[6.375rem] min-w-28 rounded-xl border border-border/70 bg-muted/45 text-foreground/70 hover:bg-muted/65 hover:text-foreground"
+                ? "buzz-huddle-participant-tile min-h-[6.375rem] min-w-28 rounded-xl border border-border/70 bg-muted/45 text-foreground hover:bg-muted/65 hover:text-foreground"
                 : "h-9 min-w-9 rounded-full border-2 border-black bg-white/15 text-white hover:bg-white/25 hover:text-white",
             )}
             type="button"
@@ -464,7 +465,7 @@ function ParticipantAvatar({
       {participant.isAgent ? (
         <svg
           aria-hidden="true"
-          className="buzz-huddle-speaking-squircle pointer-events-none absolute inset-0 h-full w-full overflow-visible text-[hsl(142_71%_45%)]"
+          className="buzz-huddle-speaking-squircle pointer-events-none absolute inset-0 h-full w-full overflow-visible text-success-foreground"
           data-testid="huddle-agent-speaking-ring"
           focusable="false"
           viewBox="0 0 1 1"

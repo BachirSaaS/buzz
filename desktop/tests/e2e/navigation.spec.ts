@@ -60,7 +60,7 @@ async function createWorkflow(
 
   await dialog.getByRole("button", { name: "Add step", exact: true }).click();
   await page.getByRole("menuitem", { name: "Send Message" }).click();
-  await dialog.getByLabel("Message text").fill("Workflow notification");
+  await dialog.locator("#wf-step-0-text").fill("Workflow notification");
   await dialog.getByRole("button", { name: "Create" }).click();
   const activationConfirmation = page.getByRole("alertdialog", {
     name: "This workflow may run often",
@@ -343,7 +343,7 @@ test("settings is a route: section survives reload, closing returns to the previ
   await expect(page.getByTestId("settings-view")).toBeVisible();
   await expect(page).toHaveURL(/section=notifications/);
 
-  await page.getByTestId("settings-back-to-app").click();
+  await page.getByTestId("global-back").click();
   await expect.poll(() => page.url()).toBe(channelUrl);
   await expect(page.getByTestId("chat-title")).toHaveText("general");
   await expect(threadPanel).toBeVisible();
@@ -382,7 +382,7 @@ test("settings shortcut returns without opening search dialog", async ({
   );
 
   await expect(page).toHaveURL(/#\/settings/);
-  await page.getByTestId("settings-back-to-app").click();
+  await page.getByTestId("global-back").click();
 
   await expect.poll(() => page.url()).toBe(channelUrl);
   await expect(page.getByTestId("chat-title")).toHaveText("general");

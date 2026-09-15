@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Check, ChevronRight, ExternalLink } from "lucide-react";
@@ -105,9 +106,8 @@ function RuntimeReadinessIndicator({
       data-testid={`onboarding-runtime-check-${runtime.id}`}
     >
       <Check
-        className="h-4 w-4 text-foreground"
+        className="size-4 text-foreground"
         data-testid={`onboarding-runtime-checkmark-${runtime.id}`}
-        strokeWidth={3}
       />
     </span>
   );
@@ -175,7 +175,7 @@ function RuntimeStatus({
     if (!prominent) {
       return (
         <span
-          className="inline-flex h-5 cursor-default items-center rounded-md bg-[#EBEFEF] px-2.5 text-xs font-medium text-foreground/70"
+          className="inline-flex h-5 cursor-default items-center rounded-md bg-muted px-2.5 text-xs font-medium text-foreground"
           data-testid={`onboarding-runtime-sign-in-required-${runtime.id}`}
         >
           Sign in required
@@ -241,7 +241,7 @@ function RuntimeStatus({
     return (
       <div
         aria-label={`Installing ${runtime.label}`}
-        className="flex h-5 items-center gap-2 rounded-md bg-white/60 px-2.5 text-xs font-medium text-foreground/70"
+        className="flex h-5 items-center gap-2 rounded-md bg-white/60 px-2.5 text-xs font-medium text-foreground"
         role="status"
       >
         <Spinner className="h-3 w-3 border-2 text-foreground" />
@@ -461,7 +461,7 @@ function RuntimeCard({
           {detailCopy?.title ?? getRuntimeDisplayLabel(runtime)}
         </span>
         {detailCopy ? (
-          <span className="mt-0.5 block text-xs leading-5 text-foreground/70">
+          <span className="mt-0.5 block text-xs leading-5 text-foreground">
             {detailCopy.description}
           </span>
         ) : null}
@@ -504,7 +504,7 @@ function RuntimeCard({
       <div
         className={cn(
           "group relative flex min-h-14 w-full items-center rounded-xl px-2 py-2 text-left text-sm text-foreground",
-          detailCopy && "bg-[#e2e2e2]/30 px-4 py-4",
+          detailCopy && "bg-muted px-4 py-4",
           onOpenDetails &&
             "transition-colors duration-150 ease-out hover:bg-foreground/[0.04] motion-reduce:transition-none",
           installError && "ring-1 ring-destructive/40",
@@ -513,7 +513,7 @@ function RuntimeCard({
         data-testid={`onboarding-runtime-${runtime.id}`}
       >
         {onOpenDetails ? (
-          <button
+          <Action
             aria-label={`Open ${getRuntimeDisplayLabel(runtime)} setup`}
             className="absolute inset-0 rounded-xl focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-foreground/20"
             data-testid={`onboarding-runtime-details-${runtime.id}`}
@@ -523,7 +523,7 @@ function RuntimeCard({
             <span className="sr-only">
               Open {getRuntimeDisplayLabel(runtime)} setup
             </span>
-          </button>
+          </Action>
         ) : null}
         <div className="pointer-events-none relative z-10 flex min-w-0 w-full items-center gap-3">
           {runtimeIdentity}
@@ -590,7 +590,6 @@ function RuntimeCard({
       )}
       data-ready={isReady ? "true" : "false"}
       data-testid={`onboarding-runtime-${runtime.id}`}
-      variant="textured"
     >
       <RuntimeReadinessIndicator ready={isReady} runtime={runtime} />
 
@@ -725,7 +724,7 @@ function RuntimeProvidersSection({
         </h1>
         <p
           className={cn(
-            "max-w-[760px] leading-6 text-foreground/90",
+            "max-w-[760px] leading-6 text-foreground",
             cardLayout ? "mt-2 text-base" : "mx-auto mt-3 text-sm",
           )}
         >
@@ -873,20 +872,20 @@ function RuntimeSetupGuide({
         <h1 className="text-title font-normal text-foreground">
           Set up {label}
         </h1>
-        <p className="mt-2 w-full text-base leading-6 text-foreground/80">
+        <p className="mt-2 w-full text-base leading-6 text-foreground">
           Follow the setup guide to install {label}. When you’re done, come back
           and check again.
         </p>
 
         <div className="mt-8 flex min-h-0 flex-1 flex-col">
           <div
-            className="flex items-center gap-3 rounded-xl bg-[#e2e2e2]/30 px-4 py-4"
+            className="flex items-center gap-3 rounded-xl bg-muted px-4 py-4"
             data-testid="onboarding-harness-setup-guide-card"
           >
             <RuntimeIcon className="size-9 shrink-0" runtime={runtime} />
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium text-foreground">{label}</p>
-              <p className="mt-0.5 text-xs leading-5 text-foreground/70">
+              <p className="mt-0.5 text-xs leading-5 text-foreground">
                 {runtimeUnavailableDescription(runtime)}
               </p>
             </div>
@@ -926,16 +925,14 @@ function RuntimeSetupGuide({
         <h1 className="text-title font-normal text-foreground">
           Connect {label}
         </h1>
-        <p className="mt-2 w-full text-base leading-6 text-foreground/80">
+        <p className="mt-2 w-full text-base leading-6 text-foreground">
           Sign in to connect {label}. You can change this anytime.
         </p>
       </div>
 
       <div className="mt-8 flex min-h-0 flex-1 flex-col">
         <div
-          className={cn(
-            !subscriptionDetail && "rounded-xl bg-[#e2e2e2]/30 px-2 py-2",
-          )}
+          className={cn(!subscriptionDetail && "rounded-xl bg-muted px-2 py-2")}
         >
           <RuntimeCard
             detailCopy={subscriptionDetail}

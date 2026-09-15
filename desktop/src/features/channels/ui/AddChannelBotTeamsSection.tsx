@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { Check, Users } from "lucide-react";
 import type * as React from "react";
 
@@ -28,7 +29,7 @@ function SelectionChipButton({
   children,
 }: SelectionChipButtonProps) {
   return (
-    <button
+    <Action
       aria-pressed={selected}
       className={cn(
         "inline-flex min-h-9 items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
@@ -42,7 +43,7 @@ function SelectionChipButton({
       type="button"
     >
       {children}
-    </button>
+    </Action>
   );
 }
 
@@ -130,7 +131,7 @@ export function AddChannelBotTeamsSection({
                               : "bg-muted/60 text-muted-foreground",
                           )}
                         >
-                          <Check className="h-4 w-4" />
+                          <Check className="size-4" />
                           {allInChannel
                             ? "All in channel"
                             : `${inChannelCount} in channel`}
@@ -143,7 +144,7 @@ export function AddChannelBotTeamsSection({
                   <div className="space-y-1.5">
                     <p className="font-medium">{team.name}</p>
                     {team.description ? (
-                      <p className="text-2xs text-secondary-foreground/80">
+                      <p className="text-2xs text-background/80">
                         {team.description}
                       </p>
                     ) : null}
@@ -153,22 +154,22 @@ export function AddChannelBotTeamsSection({
                           inChannelPersonaIds?.has(persona.id) ?? false;
                         return (
                           <div
-                            className="flex items-center gap-1 rounded-full bg-secondary-foreground/10 px-1.5 py-0.5"
+                            className="flex items-center gap-1 rounded-full bg-background/10 px-1.5 py-0.5"
                             data-testid="team-tooltip-persona-chip"
                             key={persona.id}
                           >
                             <ProfileAvatar
                               avatarUrl={persona.avatarUrl}
-                              className="h-4 w-4 text-3xs bg-secondary-foreground/20 text-secondary-foreground"
+                              className="h-4 w-4 text-3xs bg-background/20 text-background"
                               label={persona.displayName}
                               shape="squircle"
                               testId="team-tooltip-persona-avatar"
                             />
-                            <span className="text-2xs text-secondary-foreground">
+                            <span className="text-2xs text-background">
                               {persona.displayName}
                             </span>
                             {personaInChannel ? (
-                              <Check className="h-4 w-4 text-emerald-300" />
+                              <Check className="size-4 text-success-foreground" />
                             ) : null}
                           </div>
                         );

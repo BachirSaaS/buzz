@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { AgentManagementMarker } from "@/features/agents/ui/OtherSetupAgentMarker";
 import { Bot } from "lucide-react";
 
@@ -94,7 +95,7 @@ export function NewMessageResultRow({
       className={cn("relative", RESULT_ROW_INSET_DIVIDER_CLASS)}
       data-keyboard-highlighted={isKeyboardHighlighted ? "true" : undefined}
     >
-      <button
+      <Action
         aria-label={`${isAlreadySelected ? "Already added" : "Add"} ${name}`}
         aria-selected={isAlreadySelected || isKeyboardHighlighted}
         className={cn(
@@ -129,7 +130,7 @@ export function NewMessageResultRow({
                 <span className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
                   <Bot
                     aria-hidden="true"
-                    className="h-3 w-3"
+                    className="size-3"
                     data-testid="new-dm-agent-icon"
                   />
                   agent
@@ -149,7 +150,7 @@ export function NewMessageResultRow({
             <HoverRecipientIdentity displayName={name} pubkey={user.pubkey} />
           )}
         </div>
-      </button>
+      </Action>
     </div>
   );
 }

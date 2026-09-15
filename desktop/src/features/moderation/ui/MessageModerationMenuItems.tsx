@@ -117,7 +117,7 @@ export function MessageModerationMenuItems({
             )
           }
         >
-          <ShieldCheck className="h-4 w-4" />
+          <ShieldCheck className="size-4" />
           Lift timeout
         </DropdownMenuItem>
       ) : (
@@ -126,7 +126,7 @@ export function MessageModerationMenuItems({
             data-testid={`message-timeout-${message.id}`}
             disabled={isPending}
           >
-            <Clock className="h-4 w-4" />
+            <Clock className="size-4" />
             Time out author
           </DropdownMenuSubTrigger>
           <DropdownMenuSubContent>
@@ -166,7 +166,7 @@ export function MessageModerationMenuItems({
             )
           }
         >
-          <UserMinus className="h-4 w-4" />
+          <UserMinus className="size-4" />
           Kick from channel
         </DropdownMenuItem>
       ) : null}
@@ -182,7 +182,7 @@ export function MessageModerationMenuItems({
             )
           }
         >
-          <CircleSlash className="h-4 w-4" />
+          <CircleSlash className="size-4" />
           Lift ban
         </DropdownMenuItem>
       ) : (
@@ -197,7 +197,7 @@ export function MessageModerationMenuItems({
             )
           }
         >
-          <Ban className="h-4 w-4" />
+          <Ban className="size-4" />
           Ban author from community
         </DropdownMenuItem>
       )}

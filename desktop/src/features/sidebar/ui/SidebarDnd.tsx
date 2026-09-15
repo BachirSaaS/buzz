@@ -158,7 +158,7 @@ export function DragOverlayChannel({ name }: { name: string }) {
       data-sidebar-drag-overlay
       data-testid="sidebar-channel-drag-overlay"
     >
-      <Hash className="h-4 w-4 shrink-0 text-sidebar-foreground/60" />
+      <Hash className="size-4 shrink-0 text-sidebar-foreground/60" />
       <span className="truncate">{name}</span>
     </div>
   );

@@ -7,7 +7,7 @@
 .image-zoom-slider:focus-visible {
   outline: none;
   border-radius: 9999px;
-  box-shadow: 0 0 0 2px hsl(var(--ring) / 0.7);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 70.0%, transparent);
 }
 
 .image-zoom-slider::-webkit-slider-runnable-track {
@@ -33,7 +33,7 @@
 
 .image-zoom-slider:focus-visible::-webkit-slider-thumb {
   box-shadow:
-    0 0 0 3px hsl(var(--ring) / 0.25),
+    0 0 0 3px color-mix(in srgb, var(--ring) 25.0%, transparent),
     0 1px 3px rgb(0 0 0 / 0.3);
 }
 
@@ -60,6 +60,6 @@
 
 .image-zoom-slider:focus-visible::-moz-range-thumb {
   box-shadow:
-    0 0 0 3px hsl(var(--ring) / 0.25),
+    0 0 0 3px color-mix(in srgb, var(--ring) 25.0%, transparent),
     0 1px 3px rgb(0 0 0 / 0.3);
 }

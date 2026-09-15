@@ -26,10 +26,7 @@ export const Route = createFileRoute("/settings")({
   component: SettingsRouteComponent,
 });
 
-// Settings renders at the AppShell level (it replaces the sidebar, top
-// chrome, and router outlet wholesale), keyed off this route's presence —
-// see AppShell. The outlet is unmounted while settings is open, so this
-// component never actually renders.
+// AppShell renders Settings inside the shared dock workspace.
 function SettingsRouteComponent() {
   return null;
 }

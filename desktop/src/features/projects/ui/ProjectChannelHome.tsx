@@ -68,7 +68,7 @@ function ProjectHomeHeaderToggle({
         <Button
           aria-label={open ? `Hide ${label}` : `Show ${label}`}
           aria-pressed={open}
-          className="h-7 w-7 text-sidebar-foreground hover:bg-sidebar-accent"
+          className="size-7 text-sidebar-foreground hover:bg-sidebar-accent"
           data-testid={testId}
           onClick={onClick}
           size="icon"
@@ -85,6 +85,7 @@ function ProjectHomeHeaderToggle({
 }
 
 export function ProjectChannelHome({
+  initialPanelCollapsed = false,
   allowRepositoryHealing,
   autoSendDraftKey,
   project,
@@ -92,6 +93,7 @@ export function ProjectChannelHome({
   targetMessageEvents = EMPTY_TARGET_MESSAGE_EVENTS,
   targetMessageId,
 }: {
+  initialPanelCollapsed?: boolean;
   allowRepositoryHealing: boolean;
   autoSendDraftKey?: string | null;
   project: Project;
@@ -108,7 +110,7 @@ export function ProjectChannelHome({
     autoSend?: string;
     messageId?: string;
   };
-  const [summaryOpen, setSummaryOpen] = React.useState(true);
+  const [summaryOpen, setSummaryOpen] = React.useState(!initialPanelCollapsed);
   const [addRepositoryOpen, setAddRepositoryOpen] = React.useState(false);
   const [workspaceSheetTab, setWorkspaceSheetTab] =
     React.useState<ProjectHomeWorkspaceSheetTab | null>(null);
@@ -323,7 +325,7 @@ export function ProjectChannelHome({
                           <TooltipTrigger asChild>
                             <Button
                               aria-label={workspaceCreateAction.label}
-                              className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
+                              className="size-7 shrink-0 text-muted-foreground hover:text-foreground"
                               data-testid="project-home-workspace-sheet-create"
                               disabled={workspaceCreateAction.disabled}
                               onClick={workspaceCreateAction.onClick}
@@ -335,7 +337,7 @@ export function ProjectChannelHome({
                               type="button"
                               variant="ghost"
                             >
-                              <Plus className="h-4 w-4" />
+                              <Plus className="size-4" />
                             </Button>
                           </TooltipTrigger>
                           <TooltipContent>

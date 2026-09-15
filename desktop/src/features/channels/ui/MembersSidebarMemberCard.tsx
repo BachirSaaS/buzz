@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { agentPresenceStartBlockReason } from "@/features/agents/lib/useAgentAvailability";
 import {
   Activity,
@@ -189,7 +190,7 @@ export function MembersSidebarMemberCard({
                   {memberLabel}
                 </span>
                 <span className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-                  <Bot aria-hidden="true" className="h-4 w-4" />
+                  <Bot aria-hidden="true" className="size-4" />
                   {roleLabel}
                 </span>
               </div>
@@ -262,7 +263,7 @@ export function MembersSidebarMemberCard({
       data-testid={`sidebar-member-${member.pubkey}`}
     >
       {onOpenProfile ? (
-        <button
+        <Action
           aria-label={`Open profile for ${memberLabel}`}
           className="absolute inset-0 z-0 cursor-pointer focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
           data-testid={`sidebar-member-open-profile-${member.pubkey}`}
@@ -361,13 +362,13 @@ function MemberActionsMenu({
   return (
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
-        <button
+        <Action
           className="invisible relative z-20 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground group-hover/member:visible hover:bg-muted hover:text-foreground data-[state=open]:visible"
           data-testid={`sidebar-member-menu-${member.pubkey}`}
           type="button"
         >
-          <Ellipsis className="h-4 w-4" />
-        </button>
+          <Ellipsis className="size-4" />
+        </Action>
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="end"
@@ -378,7 +379,7 @@ function MemberActionsMenu({
             data-testid={`sidebar-view-activity-${member.pubkey}`}
             onClick={() => onViewActivity?.(member.pubkey)}
           >
-            <Activity className="h-4 w-4" />
+            <Activity className="size-4" />
             View activity
           </DropdownMenuItem>
         ) : null}
@@ -406,7 +407,7 @@ function MemberActionsMenu({
                 disabled={disabled}
                 onClick={() => onEditRespondTo(managedAgent)}
               >
-                <Pencil className="h-4 w-4" />
+                <Pencil className="size-4" />
                 Manage agent access...
               </DropdownMenuItem>
             ) : null}
@@ -421,7 +422,7 @@ function MemberActionsMenu({
               data-testid={`sidebar-change-role-${member.pubkey}`}
               disabled={disabled}
             >
-              <Shield className="h-4 w-4" />
+              <Shield className="size-4" />
               Change role
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
@@ -449,7 +450,7 @@ function MemberActionsMenu({
               disabled={disabled}
               onClick={() => onRemoveMember(member)}
             >
-              <Trash2 className="h-4 w-4" />
+              <Trash2 className="size-4" />
               Remove from channel
             </DropdownMenuItem>
           </>
@@ -465,7 +466,7 @@ function MemberActionsMenu({
                 disabled={disabled}
                 onClick={() => onUntimeout(member)}
               >
-                <ShieldCheck className="h-4 w-4" />
+                <ShieldCheck className="size-4" />
                 Lift timeout
               </DropdownMenuItem>
             ) : (
@@ -474,7 +475,7 @@ function MemberActionsMenu({
                   data-testid={`sidebar-timeout-${member.pubkey}`}
                   disabled={disabled}
                 >
-                  <Clock className="h-4 w-4" />
+                  <Clock className="size-4" />
                   Time out
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent>
@@ -502,7 +503,7 @@ function MemberActionsMenu({
                 disabled={disabled}
                 onClick={() => onUnban(member)}
               >
-                <CircleSlash className="h-4 w-4" />
+                <CircleSlash className="size-4" />
                 Lift ban
               </DropdownMenuItem>
             ) : (
@@ -512,7 +513,7 @@ function MemberActionsMenu({
                 disabled={disabled}
                 onClick={() => onBan(member)}
               >
-                <Ban className="h-4 w-4" />
+                <Ban className="size-4" />
                 Ban from community
               </DropdownMenuItem>
             )}
@@ -524,19 +525,19 @@ function MemberActionsMenu({
 }
 
 function getPairActionIcon(action: ManagedAgentPairAction) {
-  if (action === "stop") return <Square className="h-4 w-4" />;
-  if (action === "restart") return <RotateCcw className="h-4 w-4" />;
-  return <Play className="h-4 w-4" />;
+  if (action === "stop") return <Square className="size-4" />;
+  if (action === "restart") return <RotateCcw className="size-4" />;
+  return <Play className="size-4" />;
 }
 
 function getManagedAgentActionIcon(agent: ManagedAgent) {
   if (isManagedAgentActive(agent)) {
-    return <Square className="h-4 w-4" />;
+    return <Square className="size-4" />;
   }
 
   if (agent.backend.type === "local" && agent.status === "stopped") {
-    return <RotateCcw className="h-4 w-4" />;
+    return <RotateCcw className="size-4" />;
   }
 
-  return <Play className="h-4 w-4" />;
+  return <Play className="size-4" />;
 }

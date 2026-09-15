@@ -1,3 +1,4 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
 import {
   Archive,
   ArchiveRestore,
@@ -494,12 +495,12 @@ export function ChannelManagementSheet({
               <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-6 py-5">
                 <div className="space-y-5">
                   <div className="space-y-1.5">
-                    <label
+                    <BlockLabel
                       className="text-sm font-medium text-foreground"
                       htmlFor="channel-name"
                     >
                       Name
-                    </label>
+                    </BlockLabel>
                     <div
                       className={cn(
                         "flex min-h-11 items-center px-3",
@@ -523,12 +524,12 @@ export function ChannelManagementSheet({
                     </div>
                   </div>
                   <div className="space-y-1.5">
-                    <label
+                    <BlockLabel
                       className="text-sm font-medium text-foreground"
                       htmlFor="channel-description"
                     >
                       Description
-                    </label>
+                    </BlockLabel>
                     <div className={CHANNEL_FORM_FIELD_SHELL_CLASS}>
                       <Textarea
                         className={cn(

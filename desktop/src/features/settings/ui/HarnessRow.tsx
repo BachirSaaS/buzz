@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { EllipsisVertical, ExternalLink } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -110,14 +111,14 @@ function RuntimeOverflowMenu({
   return (
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
-        <button
+        <Action
           aria-label={`Open actions for ${runtime.label}`}
           className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           data-testid={`doctor-runtime-menu-${runtime.id}`}
           type="button"
         >
-          <EllipsisVertical className="h-4 w-4" />
-        </button>
+          <EllipsisVertical className="size-4" />
+        </Action>
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="end"
@@ -137,7 +138,7 @@ function RuntimeOverflowMenu({
         ))}
         {runtime.nodeRequired ? (
           <DropdownMenuItem onSelect={() => void openUrl("https://nodejs.org")}>
-            <ExternalLink className="h-4 w-4" />
+            <ExternalLink className="size-4" />
             Install Node.js
           </DropdownMenuItem>
         ) : null}
@@ -145,7 +146,7 @@ function RuntimeOverflowMenu({
           <DropdownMenuItem
             onSelect={() => void openUrl(runtime.installInstructionsUrl)}
           >
-            <ExternalLink className="h-4 w-4" />
+            <ExternalLink className="size-4" />
             {runtimeInstallGuideLabel(runtime)}
           </DropdownMenuItem>
         ) : null}
@@ -223,7 +224,7 @@ function RuntimeActions({
       ) : isAvailable ? (
         isAuthNeeded ? null : ( // Signed-out rows carry the amber status chip instead; never Install.
           <span
-            className="inline-flex shrink-0 items-center rounded-md bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400"
+            className="inline-flex shrink-0 items-center rounded-md bg-success px-2 py-0.5 text-xs font-medium text-success-foreground dark:text-success-foreground"
             data-testid={`doctor-runtime-ready-${runtime.id}`}
           >
             Ready
@@ -267,7 +268,7 @@ function RuntimeStatusChip({ runtime }: { runtime: AcpRuntimeCatalogEntry }) {
 
   return (
     <>
-      <span aria-hidden="true" className="text-muted-foreground/50">
+      <span aria-hidden="true" className="text-muted-foreground">
         ·
       </span>
       <span
@@ -276,7 +277,7 @@ function RuntimeStatusChip({ runtime }: { runtime: AcpRuntimeCatalogEntry }) {
           isConfigError
             ? "bg-destructive/10 text-destructive"
             : isAuthNeeded
-              ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+              ? "bg-warning text-warning-foreground dark:text-warning-foreground"
               : "bg-muted text-muted-foreground",
         )}
         data-testid={`doctor-runtime-status-${runtime.id}`}
@@ -504,7 +505,7 @@ export function HarnessRow({
         {confirmingDelete ? (
           <div className="mt-2 space-y-2">
             <p
-              className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-sm text-amber-600 dark:text-amber-400"
+              className="rounded-lg border border-warning-foreground/30 bg-warning px-3 py-1.5 text-sm text-warning-foreground dark:text-warning-foreground"
               data-testid={`custom-harness-delete-warning-${runtime.id}`}
             >
               {confirmState.message}

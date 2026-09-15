@@ -18,8 +18,7 @@ import {
   replaceCommunityDestinationRoute,
 } from "@/app/communityViewTransition";
 import { deriveShellRoute } from "@/app/AppShell.helpers";
-import { ThemeGrainientBackground } from "@/app/ThemeGrainientBackground";
-import { CommunityThemeController } from "@/shared/theme/CommunityThemeController";
+import { BlockUIBackground } from "@/app/BlockUIBackground";
 import { useReloadShortcut } from "@/app/useReloadShortcut";
 import { useCloseWindowShortcut } from "@/app/useCloseWindowShortcut";
 import { KnownAgentPubkeysProvider } from "@/features/agents/useKnownAgentPubkeys";
@@ -72,9 +71,7 @@ import {
   listenForDeepLinks,
 } from "@/shared/deep-link";
 import { cn } from "@/shared/lib/cn";
-import { BuzzMark } from "@/shared/ui/buzz-logo/BuzzMark";
-import { FlappingBee } from "@/shared/ui/buzz-logo/FlappingBee";
-import { FuzzyLogo } from "@/shared/ui/buzz-logo/FuzzyLogo";
+import { Spinner } from "@/shared/ui/spinner";
 import { StartupWindowDragRegion } from "@/shared/ui/StartupWindowDragRegion";
 
 const LOADING_TEXT = "Setting up your community...";
@@ -138,38 +135,30 @@ function useBootSplashHold(): BootSplashPhase {
   return phase;
 }
 
-// Animated Buzz mark for the loading gates. The static BuzzMark renders in
-// normal flow and sizes the box — it's plain SVG (no JS/SMIL), so it paints on
-// the very first frame even before scripting starts, avoiding a blank flash on
-// hard reload. The animated FuzzyLogo is layered on top and takes over once it
-// begins playing.
-function BeeLoader({
+/** Source Block UI progress indicator for delayed community switches. */
+function BlockUILoader({
   ariaLabel,
   className,
-  tintClassName = "text-foreground",
+  tintClassName = "text-muted-foreground",
 }: {
   ariaLabel: string;
   className?: string;
   tintClassName?: string;
 }) {
   return (
-    <div className={cn("relative", tintClassName, className)}>
-      <BuzzMark className="block h-auto w-full" />
-      <FuzzyLogo
-        ariaLabel={ariaLabel}
-        className="absolute inset-0 h-full! w-full! [&>svg]:h-full [&>svg]:w-full [&>svg]:max-w-full"
-        fuzz
-        loop
-        loopRestSeconds={0}
-      />
+    <div
+      className={cn(
+        "flex items-center justify-center",
+        tintClassName,
+        className,
+      )}
+    >
+      <Spinner aria-label={ariaLabel} className="size-8" />
     </div>
   );
 }
 
-// Cold boot gate: the theme-adaptive grainient background with a single
-// centered Buzz bee flying over it — the same static mark as before, now with
-// its wings flapping (ported from the Buzz website's wing-flap). Replaces the
-// old "Setting up your community" text, which stays as an sr-only caption.
+// Cold boot gate with Block UI progress on the app surface.
 function AppLoadingGate() {
   return (
     <div
@@ -178,9 +167,13 @@ function AppLoadingGate() {
       role="status"
     >
       <StartupWindowDragRegion />
-      <ThemeGrainientBackground />
+      <BlockUIBackground />
       <span className="sr-only">{LOADING_TEXT}</span>
-      <FlappingBee className="relative z-10 h-auto w-28" />
+      <Spinner
+        aria-hidden="true"
+        role="presentation"
+        className="relative z-10 size-8"
+      />
     </div>
   );
 }
@@ -204,7 +197,7 @@ function CommunitySwitchGate() {
       <StartupWindowDragRegion />
       <span className="sr-only">Switching community…</span>
       {showSpinner ? (
-        <BeeLoader
+        <BlockUILoader
           ariaLabel="Switching community…"
           className="h-auto w-20"
           tintClassName="text-muted-foreground"
@@ -644,7 +637,6 @@ function CommunityApp({
         <CommunityIdentityReplacementSentinel
           onIdentityReplaced={bumpSignerEpoch}
         />
-        <CommunityThemeController />
         <AppReady
           continueOnboarding={isContinuingOnboarding}
           isCommunitySwitch={isCommunitySwitch}

@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { ChevronDown } from "lucide-react";
 
 import type { InboxFilter } from "@/features/home/lib/inbox";
@@ -56,7 +57,7 @@ export function InboxFilterMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button
+        <Action
           aria-label={`Filter inbox: ${activeFilter?.label ?? "All"}${statusLabel ? `. ${statusLabel}` : ""}`}
           className={cn(TRIGGER_CLASS)}
           data-testid="inbox-filter-trigger"
@@ -64,7 +65,7 @@ export function InboxFilterMenu({
         >
           <span>{activeFilter?.label ?? "All"}</span>
           <ChevronDown className="text-muted-foreground" />
-        </button>
+        </Action>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-52">
         <DropdownMenuRadioGroup

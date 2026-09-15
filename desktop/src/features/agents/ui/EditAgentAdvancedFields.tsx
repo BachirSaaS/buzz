@@ -1,3 +1,5 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { ChoiceInput } from "@/shared/ui/native-controls";
 import * as React from "react";
 import { cn } from "@/shared/lib/cn";
 import { Input } from "@/shared/ui/input";
@@ -152,11 +154,11 @@ export function EditAgentAdvancedFields({
       {/* Inherit runtime from template */}
       {linkedPersona ? (
         <div className="space-y-1.5">
-          <label
+          <BlockLabel
             className="flex items-center gap-2 text-sm font-medium"
             htmlFor="edit-agent-inherit-harness"
           >
-            <input
+            <ChoiceInput
               checked={inheritHarness}
               disabled={disabled}
               id="edit-agent-inherit-harness"
@@ -164,7 +166,7 @@ export function EditAgentAdvancedFields({
               type="checkbox"
             />
             Inherit runtime from template
-          </label>
+          </BlockLabel>
           <p className="text-xs text-muted-foreground">
             {inheritHarness
               ? `Uses the ${linkedPersona.displayName} template's runtime${
@@ -177,11 +179,11 @@ export function EditAgentAdvancedFields({
 
       {/* Auto-restart on config change (Chunk F) */}
       <div className="space-y-1.5">
-        <label
+        <BlockLabel
           className="flex items-center gap-2 text-sm font-medium"
           htmlFor="edit-agent-auto-restart"
         >
-          <input
+          <ChoiceInput
             checked={autoRestartOnConfigChange}
             disabled={disabled}
             id="edit-agent-auto-restart"
@@ -189,7 +191,7 @@ export function EditAgentAdvancedFields({
             type="checkbox"
           />
           Auto-restart on config change
-        </label>
+        </BlockLabel>
         <p className="text-xs text-muted-foreground">
           {autoRestartOnConfigChange
             ? "Restarts this agent automatically when its configuration changes, once it is idle and connected."
@@ -199,13 +201,13 @@ export function EditAgentAdvancedFields({
 
       {/* Agent runtime args */}
       <div className="space-y-1.5">
-        <label
+        <BlockLabel
           className="text-sm font-medium text-foreground"
           htmlFor="edit-agent-args"
         >
           Agent runtime args
           <span className={PERSONA_LABEL_OPTIONAL_CLASS}>Optional</span>
-        </label>
+        </BlockLabel>
         <div
           className={cn(
             "flex min-h-11 items-center px-3",
@@ -229,12 +231,12 @@ export function EditAgentAdvancedFields({
 
       {/* Parallelism */}
       <div className="space-y-1.5">
-        <label
+        <BlockLabel
           className="text-sm font-medium text-foreground"
           htmlFor="edit-agent-parallelism"
         >
           Parallelism
-        </label>
+        </BlockLabel>
         <div
           className={cn(
             "flex min-h-11 items-center px-3",
@@ -260,7 +262,7 @@ export function EditAgentAdvancedFields({
           {EDIT_AGENT_PARALLELISM_HELP}
         </p>
         {parallelismHint !== null ? (
-          <p className="text-xs text-amber-600 dark:text-amber-400">
+          <p className="text-xs text-warning-foreground dark:text-warning-foreground">
             {parallelismHint}
           </p>
         ) : null}
@@ -273,12 +275,12 @@ export function EditAgentAdvancedFields({
 
       {/* ACP command */}
       <div className="space-y-1.5">
-        <label
+        <BlockLabel
           className="text-sm font-medium text-foreground"
           htmlFor="edit-agent-acp-command"
         >
           ACP command
-        </label>
+        </BlockLabel>
         <div
           className={cn(
             "flex min-h-11 items-center px-3",
@@ -303,13 +305,13 @@ export function EditAgentAdvancedFields({
           definition is authoritative and the backend will reject any override. */}
       {linkedPersona == null && (
         <div className="space-y-1.5">
-          <label
+          <BlockLabel
             className="text-sm font-medium text-foreground"
             htmlFor="edit-agent-system-prompt"
           >
             System prompt override
             <span className={PERSONA_LABEL_OPTIONAL_CLASS}>Optional</span>
-          </label>
+          </BlockLabel>
           <div className={PERSONA_FIELD_SHELL_CLASS}>
             <Textarea
               className={cn(

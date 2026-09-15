@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 
 import {
@@ -53,7 +54,7 @@ export function InlineEmojiPopover({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button
+        <Action
           type="button"
           className="inline-flex border-0 bg-transparent p-0 align-middle text-inherit"
           aria-label={label}
@@ -71,7 +72,7 @@ export function InlineEmojiPopover({
             draggable={false}
             onContextMenu={(e) => e.preventDefault()}
           />
-        </button>
+        </Action>
       </PopoverTrigger>
       <PopoverContent
         align="center"

@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { Plus, Workflow as WorkflowIcon } from "lucide-react";
 
 import type { Workflow } from "@/shared/api/types";
@@ -35,7 +36,7 @@ export function ChannelWorkflowsSection({
       ) : workflows.length > 0 ? (
         <FieldGroup testId="channel-workflows-list">
           {workflows.map((workflow) => (
-            <button
+            <Action
               className="flex min-h-16 w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
               data-testid={`channel-workflow-${workflow.id}`}
               key={workflow.id}
@@ -43,7 +44,7 @@ export function ChannelWorkflowsSection({
               type="button"
             >
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-muted text-muted-foreground">
-                <WorkflowIcon className="h-4 w-4" />
+                <WorkflowIcon className="size-4" />
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-medium text-foreground">
@@ -53,7 +54,7 @@ export function ChannelWorkflowsSection({
                   {workflow.status}
                 </span>
               </span>
-            </button>
+            </Action>
           ))}
         </FieldGroup>
       ) : (

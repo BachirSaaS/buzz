@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import {
   CircleAlert,
   CloudOff,
@@ -100,14 +101,14 @@ function AccessRestrictedDescription({
   return (
     <>
       Repository access is granted through{" "}
-      <button
+      <Action
         aria-label={`Open repository access channel #${channel.name}`}
         className="font-medium text-foreground underline-offset-2 hover:underline"
         onClick={() => void goChannel(channel.id)}
         type="button"
       >
         #{channel.name}
-      </button>
+      </Action>
       , and you’re not a member. Join the channel or ask{" "}
       <RepositoryOwnerReference
         ownerAvatarUrl={ownerAvatarUrl}
@@ -173,16 +174,16 @@ export function ProjectRepositoryUnavailableState({
             variant="outline"
           >
             {retryPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <Loader2 className="size-4 animate-spin" />
             ) : (
-              <RefreshCw className="h-4 w-4" />
+              <RefreshCw className="size-4" />
             )}
             {retryPending ? "Retrying…" : "Retry"}
           </Button>
         ) : null}
         {reason === "access" && onAskForAccess ? (
           <Button onClick={onAskForAccess} size="sm">
-            <MessageCircle className="h-4 w-4" />
+            <MessageCircle className="size-4" />
             Ask for access
           </Button>
         ) : null}

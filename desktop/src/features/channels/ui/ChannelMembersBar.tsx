@@ -191,7 +191,7 @@ export function ChannelMembersBar({
 
   const controls =
     variant === "compact" ? (
-      <div className="flex items-center gap-[6px]">
+      <div className="flex items-center gap-1.5" data-channel-header-controls>
         <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
             <Button
@@ -209,7 +209,7 @@ export function ChannelMembersBar({
               data-testid="channel-members-trigger"
               onSelect={onToggleMembers}
             >
-              <Users />
+              <Users aria-hidden="true" className="size-4" />
               <span>Members</span>
               <span className="ml-auto text-xs text-muted-foreground">
                 {memberCount}
@@ -228,18 +228,19 @@ export function ChannelMembersBar({
         {endActions}
       </div>
     ) : (
-      <div className="flex items-center gap-[6px]">
+      <div className="flex items-center gap-1.5" data-channel-header-controls>
         <Tooltip disableHoverableContent>
           <TooltipTrigger asChild>
             <Button
               aria-label={`View channel members (${memberCount})`}
-              className="h-8 px-2.5"
+              className="px-2.5"
+              size="sm"
               data-testid="channel-members-trigger"
               onClick={onToggleMembers}
               type="button"
               variant="outline"
             >
-              <Users />
+              <Users aria-hidden="true" className="size-4" />
               <span className="min-w-[1ch] text-sm font-medium tabular-nums">
                 {memberCount}
               </span>

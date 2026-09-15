@@ -1,3 +1,4 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
 import { ChevronDown, Plus } from "lucide-react";
 import * as React from "react";
 
@@ -25,7 +26,7 @@ import { ChannelTypeSettings } from "@/features/channels/ui/ChannelTypeSettings"
 import type { CreateChannelFormState } from "@/features/sidebar/lib/useCreateChannelForm";
 
 const CREATE_LABEL_OPTIONAL_CLASS =
-  "ml-1 text-xs font-normal text-muted-foreground/50";
+  "ml-1 text-xs font-normal text-muted-foreground";
 const NO_TEMPLATE_VALUE = "__no-template__";
 
 export const CREATE_CHANNEL_FORM_ID = "create-channel-form";
@@ -67,12 +68,12 @@ export function CreateChannelFormFields({
   return (
     <div className="space-y-5">
       <div className="space-y-1.5">
-        <label
+        <BlockLabel
           className="text-sm font-medium text-foreground"
           htmlFor="create-channel-name"
         >
           Name
-        </label>
+        </BlockLabel>
         <div
           className={cn(
             "flex min-h-11 items-center px-3",
@@ -102,13 +103,13 @@ export function CreateChannelFormFields({
       </div>
 
       <div className="space-y-1.5">
-        <label
+        <BlockLabel
           className="text-sm font-medium text-foreground"
           htmlFor="create-channel-description"
         >
           Description
           <span className={CREATE_LABEL_OPTIONAL_CLASS}>Optional</span>
-        </label>
+        </BlockLabel>
         <div className={CHANNEL_FORM_FIELD_SHELL_CLASS}>
           <Textarea
             className={cn(
@@ -172,7 +173,7 @@ export function CreateChannelFormFields({
               <span className="truncate text-right">
                 {selectedTemplate?.name ?? "None"}
               </span>
-              <ChevronDown className="size-4 shrink-0 text-muted-foreground/70" />
+              <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent

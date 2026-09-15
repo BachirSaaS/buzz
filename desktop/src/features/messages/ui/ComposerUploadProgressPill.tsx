@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import {
@@ -154,7 +155,7 @@ export function ComposerUploadProgressPill({
                 </span>
               </span>
               {canCancel ? (
-                <button
+                <Action
                   className={cn(
                     "shrink-0 rounded-full bg-transparent px-2 py-1 text-sm font-semibold text-primary-foreground",
                     "transition-colors hover:bg-primary-foreground/20 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary-foreground",
@@ -164,7 +165,7 @@ export function ComposerUploadProgressPill({
                   type="button"
                 >
                   {actionLabel}
-                </button>
+                </Action>
               ) : null}
             </div>
           </div>

@@ -76,11 +76,11 @@ export function ProjectHomeCommitsPanel({
     <div className="space-y-3">
       {failed.length > 0 ? (
         <div
-          className="mx-4 flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm"
+          className="mx-4 flex items-start gap-2 rounded-md border border-warning-foreground/30 bg-warning px-3 py-2 text-sm"
           data-testid="project-home-commits-degraded"
           role="status"
         >
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning-foreground" />
           <p>
             Showing commits from {loaded.length} of {results.length}{" "}
             repositories. {failed.length}{" "}

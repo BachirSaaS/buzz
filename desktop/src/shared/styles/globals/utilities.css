@@ -53,61 +53,36 @@
   }
 
   .buzz-huddle-tooltip {
-    background: hsl(
-      var(--huddle-tooltip-surface, var(--huddle-control-surface, 0 0% 20%))
-    );
-    border: 1px solid
-      hsl(
-        var(
-          --huddle-control-chevron-hover-surface,
-          var(--huddle-control-chevron-surface, 0 0% 22%)
-        ) /
-        0.72
-      );
-    box-shadow: 0 10px 22px rgb(0 0 0 / 35%);
-    color: hsl(
-      var(
-        --huddle-tooltip-foreground,
-        var(--huddle-control-foreground, 0 0% 98%)
-      )
-    );
+    background: var(--huddle-tooltip-surface);
+    color: var(--huddle-tooltip-foreground);
+    border: 1px solid var(--border);
   }
 
   .buzz-huddle-drawer .buzz-huddle-control-button,
   .buzz-huddle-drawer .buzz-huddle-split-main {
-    background: hsl(var(--huddle-control-surface, var(--secondary)));
+    background: var(--huddle-control-surface, var(--secondary));
   }
 
   .buzz-huddle-drawer .buzz-huddle-control-button:hover,
   .buzz-huddle-drawer .buzz-huddle-split-main:hover {
-    background: hsl(
-      var(
-        --huddle-control-hover-surface,
-        var(--huddle-control-surface, var(--secondary))
-      )
-    );
+    background: var(--huddle-control-hover-surface);
   }
 
   .buzz-huddle-drawer .buzz-huddle-control-button[aria-pressed="true"] {
-    background: hsl(var(--primary));
-    color: hsl(var(--primary-foreground));
+    background: var(--primary);
+    color: var(--primary-foreground);
   }
 
   .buzz-huddle-drawer .buzz-huddle-control-button[aria-pressed="true"]:hover {
-    background: hsl(var(--primary) / 90%);
+    background: color-mix(in srgb, var(--primary) 90%, transparent);
   }
 
   .buzz-huddle-drawer .buzz-huddle-split-chevron {
-    background: hsl(var(--huddle-control-chevron-surface, var(--secondary)));
+    background: var(--huddle-control-chevron-surface, var(--secondary));
   }
 
   .buzz-huddle-drawer .buzz-huddle-split-chevron:hover {
-    background: hsl(
-      var(
-        --huddle-control-chevron-hover-surface,
-        var(--huddle-control-chevron-surface, var(--secondary))
-      )
-    );
+    background: var(--huddle-control-chevron-hover-surface);
   }
 
   /*

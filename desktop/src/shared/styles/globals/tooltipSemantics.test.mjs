@@ -14,11 +14,11 @@ test("huddle tooltips consume their dedicated semantic tokens", () => {
   assert.ok(huddleTooltipRule, "missing .buzz-huddle-tooltip rule");
   assert.match(
     huddleTooltipRule,
-    /background:\s*hsl\(\s*var\(--huddle-tooltip-surface,/,
+    /background:\s*var\(--huddle-tooltip-surface\)/,
   );
   assert.match(
     huddleTooltipRule,
-    /color:\s*hsl\(\s*var\(\s*--huddle-tooltip-foreground,/,
+    /color:\s*var\(--huddle-tooltip-foreground\)/,
   );
   assert.doesNotMatch(
     huddleTooltipRule,

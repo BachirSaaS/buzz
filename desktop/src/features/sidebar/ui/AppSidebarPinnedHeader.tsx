@@ -115,7 +115,7 @@ export function AppSidebarPrimaryMenu({
               tooltip="Inbox"
               type="button"
             >
-              <Inbox className="h-4 w-4" />
+              <Inbox className="size-4" />
               <SidebarMenuLabel>Inbox</SidebarMenuLabel>
             </SidebarMenuButton>
             {homeBadgeCount > 0 ? (
@@ -136,7 +136,7 @@ export function AppSidebarPrimaryMenu({
                 tooltip="Pulse"
                 type="button"
               >
-                <Activity className="h-4 w-4" />
+                <Activity className="size-4" />
                 <SidebarMenuLabel>Pulse</SidebarMenuLabel>
               </SidebarMenuButton>
             </SidebarMenuItem>
@@ -150,7 +150,7 @@ export function AppSidebarPrimaryMenu({
                 tooltip="Projects"
                 type="button"
               >
-                <Folders className="h-4 w-4" />
+                <Folders className="size-4" />
                 <SidebarMenuLabel>Projects</SidebarMenuLabel>
               </SidebarMenuButton>
             </SidebarMenuItem>
@@ -164,7 +164,7 @@ export function AppSidebarPrimaryMenu({
               tooltip="Agents"
               type="button"
             >
-              <Bot className="h-4 w-4" />
+              <Bot className="size-4" />
               <SidebarMenuLabel>Agents</SidebarMenuLabel>
             </SidebarMenuButton>
           </SidebarMenuItem>
@@ -178,7 +178,7 @@ export function AppSidebarPrimaryMenu({
                 tooltip="Workflows"
                 type="button"
               >
-                <Zap className="h-4 w-4" />
+                <Zap className="size-4" />
                 <SidebarMenuLabel>Workflows</SidebarMenuLabel>
               </SidebarMenuButton>
             </SidebarMenuItem>

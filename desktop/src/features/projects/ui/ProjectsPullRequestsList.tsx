@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { FolderKanban, GitPullRequest } from "lucide-react";
 import * as React from "react";
 
@@ -81,13 +82,13 @@ const PullRequestGridCard = React.memo(function PullRequestGridCard({
       className="group relative flex min-h-32 flex-col overflow-hidden border-border/60 bg-transparent p-4 shadow-none transition-colors duration-150 hover:bg-muted/20"
       data-projects-grid-card
     >
-      <button
+      <Action
         className="absolute inset-0"
         onClick={() => onOpen(project, repository, pullRequest)}
         type="button"
       >
         <span className="sr-only">View review {pullRequest.title}</span>
-      </button>
+      </Action>
       <div className="flex min-h-0 flex-1 flex-col gap-2">
         <h3
           className="truncate text-sm font-semibold leading-5 text-foreground"
@@ -186,7 +187,7 @@ const PullRequestListRow = React.memo(function PullRequestListRow({
           <DropdownMenuItem
             onSelect={() => onOpen(project, repository, pullRequest)}
           >
-            <GitPullRequest className="h-4 w-4" />
+            <GitPullRequest className="size-4" />
             {nextStepLabel(pullRequest.status)}
           </DropdownMenuItem>
           <CopyShareLinkMenuItem
@@ -330,7 +331,7 @@ export function ProjectsPullRequestsList({
               groupKey={group.project.id}
               headerClassName="mx-0 gap-3 px-4"
               headerTestId="projects-review-project-group-header"
-              icon={<FolderKanban className="h-4 w-4" />}
+              icon={<FolderKanban className="size-4" />}
               items={groupSelectionItems}
               key={group.project.id}
               label={group.project.name}

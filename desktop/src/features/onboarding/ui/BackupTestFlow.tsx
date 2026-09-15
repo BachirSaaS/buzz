@@ -408,7 +408,7 @@ export function BackupTestFlow({
               : { type: "spring", stiffness: 380, damping: 18 }
           }
         >
-          <Check aria-hidden="true" className="h-8 w-8" strokeWidth={3} />
+          <Check aria-hidden="true" className="size-8" />
         </motion.div>
         <motion.div
           animate={cardLayout ? { opacity: 1 } : { opacity: 1, y: 0 }}
@@ -623,12 +623,7 @@ export function BackupTestFlow({
                 if (file) void handleFile(file);
               }}
             >
-              <Card
-                className="flex-row items-center gap-2 px-10 py-8 text-sm font-semibold text-foreground"
-                textureSize="compact"
-                textureTone="dark"
-                variant="textured"
-              >
+              <Card className="flex-row items-center gap-2 px-10 py-8 text-sm font-semibold text-foreground">
                 <FileUp aria-hidden="true" className="size-4" />
                 <span>Drop your backup file here</span>
               </Card>
@@ -687,7 +682,7 @@ export function BackupTestFlow({
                 <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-foreground/10">
                   <FileKey2
                     aria-hidden="true"
-                    className="size-5 text-foreground/80"
+                    className="size-5 text-foreground"
                   />
                 </span>
                 <span className="max-w-70 truncate font-mono text-sm">
@@ -735,9 +730,9 @@ export function BackupTestFlow({
                   variant="ghost"
                 >
                   {isRevealed ? (
-                    <EyeOff aria-hidden="true" className="h-4 w-4" />
+                    <EyeOff aria-hidden="true" className="size-4" />
                   ) : (
-                    <Eye aria-hidden="true" className="h-4 w-4" />
+                    <Eye aria-hidden="true" className="size-4" />
                   )}
                 </Button>
                 {error ? (
@@ -766,7 +761,7 @@ export function BackupTestFlow({
               <div className="flex w-full flex-col items-center">
                 <CircleHelp
                   aria-hidden="true"
-                  className="size-10 text-foreground/85"
+                  className="size-10 text-foreground"
                 />
                 <VerificationConnector
                   delayOffset={VERIFICATION_CONNECTOR_DOTS.length}

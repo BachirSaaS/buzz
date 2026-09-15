@@ -202,7 +202,7 @@ export function ContributorsPanel({
                 : pluralize(row.commitCount, "commit")
             }
           >
-            <GitCommitHorizontal className="h-3.5 w-3.5" />
+            <GitCommitHorizontal className="size-3.5" />
             {row.commitCount ?? 0}
           </span>
           <span
@@ -214,7 +214,7 @@ export function ContributorsPanel({
                 : pluralize(row.reviewCount, "review")
             }
           >
-            <GitPullRequest className="h-3.5 w-3.5" />
+            <GitPullRequest className="size-3.5" />
             {row.reviewCount ?? 0}
           </span>
           <span
@@ -226,7 +226,7 @@ export function ContributorsPanel({
                 : pluralize(row.taskCount, "task")
             }
           >
-            <CircleDot className="h-3.5 w-3.5" />
+            <CircleDot className="size-3.5" />
             {row.taskCount ?? 0}
           </span>
         </div>
@@ -361,12 +361,12 @@ export function ActivityPanel({
                   <span className="inline-flex min-w-0 items-center gap-1">
                     {showRepositoryName ? (
                       <>
-                        <FolderGit2 className="h-3 w-3 shrink-0" />
+                        <FolderGit2 className="size-3 shrink-0" />
                         <span className="truncate">{item.project.name}</span>
                       </>
                     ) : (
                       <>
-                        <GitBranch className="h-3 w-3 shrink-0" />
+                        <GitBranch className="size-3 shrink-0" />
                         <span className="truncate">{item.branch}</span>
                       </>
                     )}
@@ -388,7 +388,7 @@ export function ActivityPanel({
                 rangeItems,
               }}
               statusIcon={
-                <GitCommitHorizontal className="h-3.5 w-3.5 text-muted-foreground/70" />
+                <GitCommitHorizontal className="size-3.5 text-muted-foreground" />
               }
               testId="project-activity-feed-item"
               title={item.commit.subject}
@@ -417,11 +417,11 @@ export function ActivityPanel({
                     />
                   </span>
                   <CopyCommitHashButton
-                    className="h-5 w-5 shrink-0 text-muted-foreground/60"
+                    className="h-5 w-5 shrink-0 text-muted-foreground"
                     hash={item.commit.hash}
                   />
                   <span
-                    className="hidden w-20 shrink-0 whitespace-nowrap text-right text-xs text-muted-foreground/55 sm:block"
+                    className="hidden w-20 shrink-0 whitespace-nowrap text-right text-xs text-muted-foreground sm:block"
                     data-testid="project-commit-row-date"
                     title={new Date(
                       item.commit.timestamp * 1_000,

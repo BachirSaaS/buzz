@@ -1,3 +1,5 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { Action } from "@/shared/ui/action";
 import * as React from "react";
 import { Camera, Link2, Upload, X } from "lucide-react";
 
@@ -81,7 +83,7 @@ export function AvatarUpload({
             badge={
               showClear ? null : (
                 <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                  <Camera className="h-4 w-4" />
+                  <Camera className="size-4" />
                 </div>
               )
             }
@@ -99,18 +101,18 @@ export function AvatarUpload({
             />
           </MaskedAvatarBadgeFrame>
           {showClear && onClear ? (
-            <button
+            <Action
               className="absolute -right-1 -top-1 flex h-6 w-6 items-center justify-center rounded-full border border-background bg-destructive text-destructive-foreground shadow-xs transition-colors hover:bg-destructive/80"
               data-testid={`${testIdPrefix}-clear`}
               onClick={onClear}
               title="Remove photo"
               type="button"
             >
-              <X className="h-4 w-4" />
-            </button>
+              <X className="size-4" />
+            </Action>
           ) : null}
         </div>
-        <button
+        <Action
           className={`flex flex-1 cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed bg-transparent px-4 py-5 transition-colors ${
             isDragging
               ? "border-primary bg-primary/5"
@@ -144,7 +146,7 @@ export function AvatarUpload({
               className="h-4 w-4 border-2 text-muted-foreground"
             />
           ) : (
-            <Upload className="h-4 w-4 text-muted-foreground" />
+            <Upload className="size-4 text-muted-foreground" />
           )}
           <span className="text-xs text-muted-foreground">
             {isUploading ? (
@@ -158,7 +160,7 @@ export function AvatarUpload({
               </>
             )}
           </span>
-        </button>
+        </Action>
         <input
           accept="image/gif,image/jpeg,image/png,image/webp"
           className="hidden"
@@ -175,11 +177,14 @@ export function AvatarUpload({
       ) : null}
 
       <div className="space-y-1.5">
-        <label className="text-sm font-medium" htmlFor={`${testIdPrefix}-url`}>
+        <BlockLabel
+          className="text-sm font-medium"
+          htmlFor={`${testIdPrefix}-url`}
+        >
           Avatar URL
-        </label>
+        </BlockLabel>
         <div className="relative min-w-0">
-          <Link2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Link2 className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             className="pl-9"
             data-testid={`${testIdPrefix}-url`}

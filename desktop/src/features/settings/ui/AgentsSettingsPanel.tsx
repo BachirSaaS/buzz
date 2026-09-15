@@ -1,3 +1,4 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
 import { AgentDefaultsSettingsCard } from "./AgentDefaultsSettingsCard";
 import {
   setKeepMentionedAgentsPinned,
@@ -27,14 +28,14 @@ export function AgentsSettingsPanel() {
         <SettingsOptionGroup title="Conversations">
           <SettingsOptionRow data-testid="settings-automatic-agent-mentions">
             <div className="min-w-0">
-              <label
+              <BlockLabel
                 className="font-medium text-foreground"
                 htmlFor="settings-automatic-agent-mentions-switch"
               >
                 Automatically mention agents
-              </label>
+              </BlockLabel>
               <p
-                className="mt-0.5 text-sm text-muted-foreground/70"
+                className="mt-0.5 text-sm text-muted-foreground"
                 data-settings-subcopy
               >
                 Address selected agents in thread replies

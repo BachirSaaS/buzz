@@ -1,3 +1,6 @@
+import { Label as BlockLabel } from "@/shared/blockui/components/label";
+import { NativeSelect } from "@/shared/blockui/components/native-select";
+import { Action } from "@/shared/ui/action";
 import { Search, UserPlus, X } from "lucide-react";
 import * as React from "react";
 
@@ -169,7 +172,7 @@ export function ChannelMemberInviteCard({
     >
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-sm font-medium">
-          <UserPlus className="h-4 w-4" />
+          <UserPlus className="size-4" />
           <span>Add members</span>
         </div>
         {inviteTargets.length > 0 ? (
@@ -179,12 +182,15 @@ export function ChannelMemberInviteCard({
         ) : null}
       </div>
       <div className="space-y-2">
-        <label className="sr-only" htmlFor="channel-management-search-users">
+        <BlockLabel
+          className="sr-only"
+          htmlFor="channel-management-search-users"
+        >
           Search people
-        </label>
+        </BlockLabel>
         <div className="rounded-lg border border-border/80 bg-background">
           <div className="flex items-center gap-2 px-2.5 py-2">
-            <Search className="h-4 w-4 text-muted-foreground" />
+            <Search className="size-4 text-muted-foreground" />
             <Input
               className="h-auto border-0 px-0 py-0 shadow-none focus-visible:ring-0"
               data-testid="channel-management-search-users"
@@ -212,7 +218,7 @@ export function ChannelMemberInviteCard({
                   <span className="font-medium">
                     {formatSearchUserName(invitee)}
                   </span>
-                  <button
+                  <Action
                     aria-label={`Remove ${formatSearchUserName(invitee)}`}
                     className="text-muted-foreground transition-colors hover:text-foreground"
                     onClick={() => {
@@ -224,8 +230,8 @@ export function ChannelMemberInviteCard({
                     }}
                     type="button"
                   >
-                    <X className="h-4 w-4" />
-                  </button>
+                    <X className="size-4" />
+                  </Action>
                 </div>
               ))}
             </div>
@@ -255,7 +261,7 @@ export function ChannelMemberInviteCard({
               ) : inviteSearchResults.length > 0 || directInvitee ? (
                 <div className="max-h-44 space-y-1 overflow-y-auto">
                   {directInvitee ? (
-                    <button
+                    <Action
                       className="flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left transition-colors hover:bg-accent hover:text-accent-foreground"
                       data-testid={`channel-direct-invite-${directInvitee.pubkey}`}
                       onClick={() => {
@@ -281,10 +287,10 @@ export function ChannelMemberInviteCard({
                         </span>
                       </div>
                       <span className="text-xs text-muted-foreground">Add</span>
-                    </button>
+                    </Action>
                   ) : null}
                   {inviteSearchResults.map((result) => (
-                    <button
+                    <Action
                       className="flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left transition-colors hover:bg-accent hover:text-accent-foreground"
                       data-testid={`channel-user-search-result-${result.pubkey}`}
                       key={result.pubkey}
@@ -311,7 +317,7 @@ export function ChannelMemberInviteCard({
                         ) : null}
                       </div>
                       <span className="text-xs text-muted-foreground">Add</span>
-                    </button>
+                    </Action>
                   ))}
                 </div>
               ) : (
@@ -329,12 +335,12 @@ export function ChannelMemberInviteCard({
         ) : null}
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <label className="sr-only" htmlFor="channel-member-role">
+        <BlockLabel className="sr-only" htmlFor="channel-member-role">
           Role
-        </label>
+        </BlockLabel>
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">Role</span>
-          <select
+          <NativeSelect
             className="h-8 rounded-md border border-input bg-background px-2.5 text-sm"
             data-testid="channel-management-add-role"
             disabled={isPending}
@@ -351,7 +357,7 @@ export function ChannelMemberInviteCard({
                 {role}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </div>
         <Button
           className="min-w-24"

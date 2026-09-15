@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { Loader2, Sparkles, X } from "lucide-react";
 
 import {
@@ -30,7 +31,7 @@ export function CardMintComposerChip() {
               data-testid="card-mint-status-minting"
               key={job.jobId}
             >
-              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin opacity-70" />
+              <Loader2 className="size-3.5 shrink-0 animate-spin opacity-70" />
               <Shimmer className="-my-px truncate py-px">
                 {`Minting ${job.input.agentName}’s card… (takes a few minutes)`}
               </Shimmer>
@@ -39,18 +40,18 @@ export function CardMintComposerChip() {
         }
         if (job.phase === "done") {
           return (
-            <button
+            <Action
               className="flex min-w-0 items-center gap-1.5 text-xs text-primary hover:underline"
               data-testid="card-mint-status-done"
               key={job.jobId}
               onClick={() => viewMintedCardJob(job.jobId)}
               type="button"
             >
-              <Sparkles className="h-3.5 w-3.5 shrink-0" />
+              <Sparkles className="size-3.5 shrink-0" />
               <span className="truncate">
                 {`${job.input.agentName}’s card is ready — view it`}
               </span>
-            </button>
+            </Action>
           );
         }
         return (
@@ -62,14 +63,14 @@ export function CardMintComposerChip() {
             <span className="truncate">
               {`Minting ${job.input.agentName}’s card failed`}
             </span>
-            <button
+            <Action
               aria-label="Dismiss failed mint"
               className="shrink-0 opacity-70 hover:opacity-100"
               onClick={() => dismissCardMintJob(job.jobId)}
               type="button"
             >
-              <X className="h-3.5 w-3.5" />
-            </button>
+              <X className="size-3.5" />
+            </Action>
           </span>
         );
       })}

@@ -35,8 +35,8 @@ function FileChangeBadge({
       className={cn(
         "rounded-md px-1.5 py-0.5 font-mono text-2xs font-semibold",
         tone === "positive"
-          ? "bg-emerald-500/10 text-status-added"
-          : "bg-rose-500/10 text-status-deleted",
+          ? "bg-success text-status-added"
+          : "bg-danger text-status-deleted",
       )}
     >
       {value}
@@ -112,7 +112,7 @@ export function DiffViewer({
             >
               {showFileHeader ? (
                 <div className="flex items-center gap-2 border-b border-border/60 bg-muted/35 px-3 py-2">
-                  <span className="truncate font-mono text-2xs text-foreground/85">
+                  <span className="truncate font-mono text-2xs text-foreground">
                     {label}
                   </span>
                   <span className="rounded-md border border-border/60 px-1.5 py-0.5 text-2xs uppercase tracking-[0.14em] text-muted-foreground">

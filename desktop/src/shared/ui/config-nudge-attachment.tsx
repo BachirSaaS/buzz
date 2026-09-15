@@ -1,3 +1,4 @@
+import { Action } from "@/shared/ui/action";
 import { AlertTriangle } from "lucide-react";
 
 import {
@@ -264,7 +265,7 @@ export function ConfigNudgeCard({
       state="error"
     >
       <AttachmentMedia className="text-destructive">
-        <AlertTriangle aria-hidden="true" className="h-4 w-4" />
+        <AlertTriangle aria-hidden="true" className="size-4" />
       </AttachmentMedia>
       <AttachmentContent>
         <AttachmentTitle className="whitespace-normal text-destructive line-clamp-2">
@@ -332,7 +333,7 @@ function RequirementRow({
             in Edit Agent → Environment variables
           </span>
           {!allCliLogin && (
-            <button
+            <Action
               className="relative z-20 shrink-0 font-medium text-muted-foreground hover:underline"
               onClick={(e) =>
                 onOpenEditAgent(e, focusTargetForRequirement(requirement))
@@ -340,7 +341,7 @@ function RequirementRow({
               type="button"
             >
               Edit Agent →
-            </button>
+            </Action>
           )}
         </div>
       );
@@ -352,7 +353,7 @@ function RequirementRow({
             dropdowns
           </span>
           {!allCliLogin && (
-            <button
+            <Action
               className="relative z-20 shrink-0 font-medium text-muted-foreground hover:underline"
               onClick={(e) =>
                 onOpenEditAgent(e, focusTargetForRequirement(requirement))
@@ -360,7 +361,7 @@ function RequirementRow({
               type="button"
             >
               Edit Agent →
-            </button>
+            </Action>
           )}
         </div>
       );
@@ -379,13 +380,13 @@ function RequirementRow({
               stopPropagation prevents double-fire on mixed cards where both
               card and row CTAs are visible. */}
           {!allCliLogin && requirement.availability !== "available" && (
-            <button
+            <Action
               className="relative z-20 shrink-0 font-medium text-muted-foreground hover:underline"
               onClick={onOpenDoctor}
               type="button"
             >
               Open Agent runtimes →
-            </button>
+            </Action>
           )}
         </div>
       );

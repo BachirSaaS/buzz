@@ -65,7 +65,7 @@ export function useChannelIntro({
 
       if (onCreateChannel) {
         actions.push({
-          icon: <Plus aria-hidden className="h-6 w-6" />,
+          icon: <Plus aria-hidden className="size-6" />,
           label: "Create a channel",
           onClick: onCreateChannel,
           testId: "welcome-intro-action-create-channel",
@@ -74,7 +74,7 @@ export function useChannelIntro({
 
       if (onWelcomeAddAgent) {
         actions.push({
-          icon: <Bot aria-hidden className="h-6 w-6" />,
+          icon: <Bot aria-hidden className="size-6" />,
           label: "Create an agent",
           onClick: onWelcomeAddAgent,
           testId: "welcome-intro-action-create-agent",
@@ -90,7 +90,7 @@ export function useChannelIntro({
         description: isWelcomeChannel(activeChannel)
           ? null
           : getChannelIntroDescription(activeChannel),
-        icon: <Sparkles aria-hidden className="h-7 w-7" />,
+        icon: <Sparkles aria-hidden className="size-7" />,
       };
     }
 
@@ -98,7 +98,7 @@ export function useChannelIntro({
       if (onAddFiles) {
         actions.push({
           description: "Add a repo.",
-          icon: <FolderPlus aria-hidden className="h-5 w-5" />,
+          icon: <FolderPlus aria-hidden className="size-5" />,
           label: "Add files",
           onClick: onAddFiles,
           testId: "channel-intro-action-add-files",
@@ -108,7 +108,7 @@ export function useChannelIntro({
       if (onAddAgent) {
         actions.push({
           description: "Add an agent here.",
-          icon: <Bot aria-hidden className="h-5 w-5" />,
+          icon: <Bot aria-hidden className="size-5" />,
           label: "Add agent",
           onClick: onAddAgent,
           testId: "channel-intro-action-create-agent",
@@ -118,7 +118,7 @@ export function useChannelIntro({
       if (onOpenMembers) {
         actions.push({
           description: "Invite members.",
-          icon: <UserPlus aria-hidden className="h-5 w-5" />,
+          icon: <UserPlus aria-hidden className="size-5" />,
           label: "Add people",
           onClick: onOpenMembers,
           testId: "channel-intro-action-add-people",
