@@ -87,6 +87,7 @@ class _FakeAudioPlayerBackend implements VoiceNoteAudioPlayerBackend {
   bool delayPathLoads = false;
   bool delayUrlLoads = false;
   bool delayPlay = false;
+  bool delaySpeedChanges = false;
   bool _playing = false;
   int playCount = 0;
   int pauseCount = 0;
@@ -94,6 +95,7 @@ class _FakeAudioPlayerBackend implements VoiceNoteAudioPlayerBackend {
   bool resetPositionOnSpeedChange = false;
   Duration? lastSeekPosition;
   double speed = 1;
+  final speedChanges = <Completer<void>>[];
   final loadedPaths = <String>[];
   final loadedUrls = <String>[];
   final loadedUrlHeaders = <Map<String, String>?>[];
@@ -170,6 +172,12 @@ class _FakeAudioPlayerBackend implements VoiceNoteAudioPlayerBackend {
   Future<void> setSpeed(double value) async {
     speed = value;
     if (resetPositionOnSpeedChange) positions.add(Duration.zero);
+    if (delaySpeedChanges) {
+      final change = Completer<void>();
+      speedChanges.add(change);
+      await change.future;
+      speedChanges.remove(change);
+    }
   }
 
   @override
@@ -960,6 +968,111 @@ void main() {
     expect(audioPlayer.speed, 1.5);
     expect(audioPlayer.lastSeekPosition, const Duration(milliseconds: 3250));
     expect(player.state.position, const Duration(milliseconds: 3250));
+  });
+
+  test('a pending speed change cannot restart playback after pause', () async {
+    final audioPlayer = _FakeAudioPlayerBackend()
+      ..delaySpeedChanges = true
+      ..resetPositionOnSpeedChange = true;
+    final player = DeviceVoiceNotePlayerController(
+      coordinator: VoiceNotePlaybackCoordinator(),
+      client: _SequencedHttpClient(),
+      requiresAuthenticatedLocalFile: false,
+      player: audioPlayer,
+    );
+    addTearDown(player.dispose);
+    await player.loadLocal(
+      '/tmp/voice-note.m4a',
+      fallbackDuration: const Duration(seconds: 7),
+    );
+    await player.toggle();
+    audioPlayer.positions.add(const Duration(seconds: 3));
+    await Future<void>.delayed(Duration.zero);
+
+    final speedChange = player.setSpeed(1.5);
+    await Future<void>.delayed(Duration.zero);
+    await player.pause();
+    audioPlayer.speedChanges.single.complete();
+    await speedChange;
+    await Future<void>.delayed(Duration.zero);
+
+    expect(audioPlayer.playCount, 1);
+    expect(audioPlayer.playing, isFalse);
+    expect(audioPlayer.lastSeekPosition, isNull);
+  });
+
+  test('a pending speed change cannot overwrite a later seek', () async {
+    final audioPlayer = _FakeAudioPlayerBackend()
+      ..delaySpeedChanges = true
+      ..resetPositionOnSpeedChange = true;
+    final player = DeviceVoiceNotePlayerController(
+      coordinator: VoiceNotePlaybackCoordinator(),
+      client: _SequencedHttpClient(),
+      requiresAuthenticatedLocalFile: false,
+      player: audioPlayer,
+    );
+    addTearDown(player.dispose);
+    await player.loadLocal(
+      '/tmp/voice-note.m4a',
+      fallbackDuration: const Duration(seconds: 7),
+    );
+    audioPlayer.positions.add(const Duration(seconds: 3));
+    await Future<void>.delayed(Duration.zero);
+
+    final speedChange = player.setSpeed(1.5);
+    await Future<void>.delayed(Duration.zero);
+    await player.seek(const Duration(seconds: 1));
+    audioPlayer.speedChanges.single.complete();
+    await speedChange;
+    await Future<void>.delayed(Duration.zero);
+
+    expect(audioPlayer.lastSeekPosition, const Duration(seconds: 1));
+    expect(player.state.position, const Duration(seconds: 1));
+  });
+
+  test('a pending speed change cannot reclaim playback ownership', () async {
+    final coordinator = VoiceNotePlaybackCoordinator();
+    final firstBackend = _FakeAudioPlayerBackend()
+      ..delaySpeedChanges = true
+      ..resetPositionOnSpeedChange = true;
+    final secondBackend = _FakeAudioPlayerBackend();
+    final first = DeviceVoiceNotePlayerController(
+      coordinator: coordinator,
+      client: _SequencedHttpClient(),
+      requiresAuthenticatedLocalFile: false,
+      player: firstBackend,
+    );
+    final second = DeviceVoiceNotePlayerController(
+      coordinator: coordinator,
+      client: _SequencedHttpClient(),
+      requiresAuthenticatedLocalFile: false,
+      player: secondBackend,
+    );
+    addTearDown(first.dispose);
+    addTearDown(second.dispose);
+    await first.loadLocal(
+      '/tmp/first.m4a',
+      fallbackDuration: const Duration(seconds: 7),
+    );
+    await second.loadLocal(
+      '/tmp/second.m4a',
+      fallbackDuration: const Duration(seconds: 7),
+    );
+    await first.toggle();
+    firstBackend.positions.add(const Duration(seconds: 3));
+    await Future<void>.delayed(Duration.zero);
+
+    final speedChange = first.setSpeed(1.5);
+    await Future<void>.delayed(Duration.zero);
+    await second.toggle();
+    firstBackend.speedChanges.single.complete();
+    await speedChange;
+    await Future<void>.delayed(Duration.zero);
+
+    expect(firstBackend.playCount, 1);
+    expect(firstBackend.playing, isFalse);
+    expect(firstBackend.lastSeekPosition, isNull);
+    expect(secondBackend.playing, isTrue);
   });
 
   test(
