@@ -270,7 +270,12 @@ pub(super) async fn fetch_blob_bytes_with_cap(
     // contract (the token never leaves the relay origin).
     let relay_base = relay_api_base_url_with_override(state);
     if let Some(auth) = mint_media_get_auth(state, &relay_base) {
-        req = req.header("authorization", auth);
+        req = crate::federated_identity::authorize(
+            state,
+            req.header("authorization", &auth),
+            url,
+            &auth,
+        )?;
     }
 
     let request = req.send();

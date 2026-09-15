@@ -376,9 +376,10 @@ pub async fn query_relay_at(
         serde_json::to_vec(filters).map_err(|e| format!("filter serialization failed: {e}"))?;
     let auth = build_nip98_auth_header(&Method::POST, &url, &body_bytes, state)?;
     send_query_request(
-        &state.http_client,
+        &state.media_fetch_client,
         &url,
         &auth,
+        crate::federated_identity::http_header(state, &url, &auth)?,
         None,
         body_bytes,
         QUERY_REQUEST_TIMEOUT,
@@ -399,9 +400,10 @@ pub async fn query_relay_at_with_keys(
         serde_json::to_vec(filters).map_err(|e| format!("filter serialization failed: {e}"))?;
     let auth = build_nip98_auth_header_for_keys(keys, &Method::POST, &url, &body_bytes)?;
     send_query_request(
-        &state.http_client,
+        &state.media_fetch_client,
         &url,
         &auth,
+        crate::federated_identity::http_header(state, &url, &auth)?,
         auth_tag,
         body_bytes,
         QUERY_REQUEST_TIMEOUT,
@@ -421,6 +423,7 @@ async fn send_query_request(
     http_client: &reqwest::Client,
     url: &str,
     auth: &str,
+    identity: Option<reqwest::header::HeaderValue>,
     auth_tag: Option<&str>,
     body_bytes: Vec<u8>,
     timeout: std::time::Duration,
@@ -430,6 +433,12 @@ async fn send_query_request(
         .header("Authorization", auth)
         .header("Content-Type", "application/json")
         .timeout(timeout);
+    if let Some(identity) = identity {
+        request = request.header(
+            buzz_ws_client_pkg::federated_identity::IDENTITY_HEADER,
+            identity,
+        );
+    }
     if let Some(tag) = auth_tag {
         request = request.header("x-auth-tag", tag);
     }
@@ -533,11 +542,16 @@ pub async fn sync_managed_agent_profile(
     let url = format!("{}/events", relay_http_base_url(relay_url));
     let auth = build_nip98_auth_header_for_keys(agent_keys, &Method::POST, &url, &body_bytes)?;
 
-    let mut request = state
-        .http_client
-        .post(&url)
-        .header("Authorization", auth)
-        .header("Content-Type", "application/json");
+    let mut request = crate::federated_identity::authorize(
+        state,
+        state
+            .media_fetch_client
+            .post(&url)
+            .header("Authorization", &auth)
+            .header("Content-Type", "application/json"),
+        &url,
+        &auth,
+    )?;
     if let Some(tag) = auth_tag {
         request = request.header("x-auth-tag", tag);
     }
@@ -659,11 +673,16 @@ pub async fn submit_signed_event_with_keys(
     crate::egress_guard::assert_no_key_backup_bytes(&body_bytes, "signed event submit (keys)")?;
     let auth_header = build_nip98_auth_header_for_keys(keys, &Method::POST, &url, &body_bytes)?;
 
-    let mut request = state
-        .http_client
-        .post(&url)
-        .header("Authorization", auth_header)
-        .header("Content-Type", "application/json");
+    let mut request = crate::federated_identity::authorize(
+        state,
+        state
+            .media_fetch_client
+            .post(&url)
+            .header("Authorization", &auth_header)
+            .header("Content-Type", "application/json"),
+        &url,
+        &auth_header,
+    )?;
     if let Some(tag) = auth_tag {
         request = request.header("x-auth-tag", tag);
     }

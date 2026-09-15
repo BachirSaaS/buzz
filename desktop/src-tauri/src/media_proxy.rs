@@ -22,7 +22,6 @@ const MAX_PROXY_RESPONSE: u64 = 20 * 1024 * 1024;
 
 #[derive(Clone)]
 struct ProxyState {
-    client: reqwest::Client,
     app_handle: tauri::AppHandle,
 }
 
@@ -52,15 +51,29 @@ async fn proxy_handler(AxumState(state): AxumState<ProxyState>, req: Request) ->
 
     let has_range = req.headers().contains_key("range");
 
-    let mut upstream = state
-        .client
+    let mut upstream = app_state
+        .media_fetch_client
         .get(&upstream_url)
         .timeout(std::time::Duration::from_secs(120));
 
     // `upstream_url` is always `{relay base}{path}`, so the token can't reach
     // a third-party origin (mint_media_get_auth safety contract).
     if let Some(auth) = mint_media_get_auth(&app_state, &base_url) {
-        upstream = upstream.header("authorization", auth);
+        upstream = match crate::federated_identity::authorize(
+            &app_state,
+            upstream.header("authorization", &auth),
+            &upstream_url,
+            &auth,
+        ) {
+            Ok(request) => request,
+            Err(_) => {
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    "enterprise authentication required",
+                )
+                    .into_response()
+            }
+        };
     }
 
     if let Some(range) = req.headers().get("range") {
@@ -127,11 +140,8 @@ async fn proxy_handler(AxumState(state): AxumState<ProxyState>, req: Request) ->
 /// Spawn a localhost HTTP proxy that streams media via reqwest, avoiding the
 /// Tauri protocol handler's requirement to buffer the entire response into
 /// `Vec<u8>`. Returns the OS-assigned port.
-pub async fn spawn_media_proxy(http_client: reqwest::Client, app_handle: tauri::AppHandle) -> u16 {
-    let proxy_state = ProxyState {
-        client: http_client,
-        app_handle,
-    };
+pub async fn spawn_media_proxy(_http_client: reqwest::Client, app_handle: tauri::AppHandle) -> u16 {
+    let proxy_state = ProxyState { app_handle };
 
     let app = Router::new()
         .route("/media/{*path}", get(proxy_handler))
@@ -181,14 +191,22 @@ pub async fn handle_buzz_media(
 
     // Forward Range header if present — enables video seeking through the proxy.
     let mut upstream = state
-        .http_client
+        .media_fetch_client
         .get(&upstream_url)
         .timeout(std::time::Duration::from_secs(60));
 
     // `upstream_url` is always `{relay base}{path}`, so the token can't reach
     // a third-party origin (mint_media_get_auth safety contract).
     if let Some(auth) = mint_media_get_auth(&state, &base) {
-        upstream = upstream.header("authorization", auth);
+        upstream = match crate::federated_identity::authorize(
+            &state,
+            upstream.header("authorization", &auth),
+            &upstream_url,
+            &auth,
+        ) {
+            Ok(request) => request,
+            Err(_) => return error_response(401, "enterprise authentication required"),
+        };
     }
 
     if let Some(range) = request.headers().get("range") {

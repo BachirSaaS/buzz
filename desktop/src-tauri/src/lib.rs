@@ -10,6 +10,7 @@ mod deep_link;
 mod egress_guard;
 mod event_sync;
 mod events;
+mod federated_identity;
 mod huddle;
 mod identity_storage;
 mod initial_window;
@@ -213,6 +214,9 @@ pub fn run() {
     } else {
         builder.plugin(tauri_plugin_updater::Builder::new().build())
     };
+    let app_state = build_app_state();
+    let native_relay =
+        native_relay_client::NativeRelayClient::with_identity(app_state.federated_identity.clone());
     let app = app_menu::install(builder)
         .register_asynchronous_uri_scheme_protocol("buzz-media", |ctx, request, responder| {
             let app = ctx.app_handle().clone();
@@ -221,7 +225,7 @@ pub fn run() {
                 responder.respond(response);
             });
         })
-        .manage(build_app_state())
+        .manage(app_state)
         .manage(ClipboardState::new())
         .manage(PendingCommunityDeepLinks::default())
         .manage(PendingNavigationDeepLinks::default())
@@ -231,7 +235,7 @@ pub fn run() {
         .manage(commands::pairing::PairingHandle::new())
         .manage(terminal_runtime::TerminalSessions::default())
         .manage(archive::sync::ArchiveSyncState::default())
-        .manage(native_relay_client::NativeRelayClient::default())
+        .manage(native_relay)
         .manage(observed_unread::ObservedUnreadStore::default())
         .manage(channel_head_cache::ChannelHeadCacheStore::default())
         .setup(move |app| {
@@ -538,6 +542,7 @@ pub fn run() {
             take_pending_entity_deep_link,
             acknowledge_pending_entity_deep_link,
             start_builderlab_login,
+            federated_identity::acquire_federated_assertion,
             cancel_builderlab_login,
             get_builderlab_auth,
             clear_builderlab_auth,

@@ -637,7 +637,8 @@ pub(crate) fn spawn_transcription_task(
     // Capture the current generation at spawn time.
     let spawned_gen = session_generation.load(Ordering::Acquire);
 
-    let http_client = state.http_client.clone();
+    let http_client = state.media_fetch_client.clone();
+    let identity = state.federated_identity.clone();
     let keys = match state.keys.lock() {
         Ok(k) => k.clone(),
         Err(_) => return,
@@ -709,14 +710,36 @@ pub(crate) fn spawn_transcription_task(
                 }
             };
 
+            let identity_header =
+                match identity
+                    .as_ref()
+                    .map_err(Clone::clone)
+                    .and_then(|identity| {
+                        identity
+                            .header(&url, keys.public_key(), crate::federated_identity::now()?)
+                            .map_err(|e| e.to_string())
+                    }) {
+                    Ok(header) => header,
+                    Err(error) => {
+                        eprintln!("buzz-desktop: STT enterprise admission: {error}");
+                        break;
+                    }
+                };
             let response = {
-                http_client
+                let request = http_client
                     .post(&url)
                     .header("Authorization", auth_header)
                     .header("Content-Type", "application/json")
-                    .body(body_bytes)
-                    .send()
-                    .await
+                    .body(body_bytes);
+                let request = if let Some(header) = identity_header {
+                    request.header(
+                        buzz_ws_client_pkg::federated_identity::IDENTITY_HEADER,
+                        header,
+                    )
+                } else {
+                    request
+                };
+                request.send().await
             };
 
             match response {

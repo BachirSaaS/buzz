@@ -82,12 +82,17 @@ pub(super) async fn send_upload_attempt(
         progress,
         cancellation,
     } = attempt;
-    let req = state
-        .http_client
-        .put(url)
-        .header("Authorization", auth_header)
-        .header("Content-Type", mime)
-        .header("X-SHA-256", sha256);
+    let req = crate::federated_identity::authorize(
+        state,
+        state
+            .media_fetch_client
+            .put(&url)
+            .header("Authorization", auth_header)
+            .header("Content-Type", mime)
+            .header("X-SHA-256", sha256),
+        &url,
+        auth_header,
+    )?;
 
     let response = if let Some((app, progress_id)) = progress {
         let app = app.clone();

@@ -10,6 +10,8 @@ use tauri::{
 
 use crate::native_websocket_batch::{is_auth_challenge, FrameBatch, BATCH_MAX_SERIALIZED_BYTES};
 use tokio::sync::{mpsc, oneshot, Mutex};
+#[cfg(test)]
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::{
     connect_async,
     tungstenite::protocol::{frame::coding::CloseCode, CloseFrame, Message},
@@ -127,15 +129,30 @@ impl WebSocketManager {
     }
 }
 
+#[cfg(test)]
 async fn open_connection(
     manager: &WebSocketManager,
     url: &str,
     on_message: Channel<InvokeResponseBody>,
 ) -> Result<Id, String> {
+    open_connection_request(
+        manager,
+        url.into_client_request()
+            .map_err(|_| "invalid WebSocket URL")?,
+        on_message,
+    )
+    .await
+}
+
+async fn open_connection_request(
+    manager: &WebSocketManager,
+    request: tokio_tungstenite::tungstenite::http::Request<()>,
+    on_message: Channel<InvokeResponseBody>,
+) -> Result<Id, String> {
     let connect_cancel = manager.connect_cancel.lock().await.clone();
     let (socket, _) = tokio::select! {
         _ = connect_cancel.cancelled() => return Err("WebSocket connection cancelled".to_string()),
-        result = tokio::time::timeout(CONNECT_TIMEOUT, connect_async(url)) => result
+        result = tokio::time::timeout(CONNECT_TIMEOUT, connect_async(request)) => result
             .map_err(|_| "WebSocket connection timed out".to_string())?
             .map_err(|error| error.to_string())?,
     };
@@ -180,12 +197,20 @@ async fn open_connection(
 
 #[tauri::command]
 async fn connect(
+    state: tauri::State<'_, crate::app_state::AppState>,
     manager: tauri::State<'_, WebSocketManager>,
     url: String,
     on_message: Channel<InvokeResponseBody>,
     _config: Option<serde_json::Value>,
 ) -> Result<Id, String> {
-    open_connection(manager.inner(), &url, on_message).await
+    let request = crate::federated_identity::session(&state)?
+        .websocket_request(
+            &url,
+            state.signing_keys()?.public_key(),
+            crate::federated_identity::now()?,
+        )
+        .map_err(|e| e.to_string())?;
+    open_connection_request(manager.inner(), request, on_message).await
 }
 
 pub(crate) async fn send_message(

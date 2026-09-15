@@ -5,6 +5,7 @@ use futures_util::{SinkExt, StreamExt};
 use nostr::{Event, Keys, Tag};
 use serde_json::{json, Value};
 use tokio::time::timeout;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 use tracing::debug;
 
@@ -50,7 +51,23 @@ impl NostrWsConnection {
             .parse::<url::Url>()
             .map_err(|e| WsClientError::Url(e.to_string()))?;
 
-        let (ws, _response) = connect_async(parsed.as_str())
+        Self::connect_request(
+            url,
+            parsed
+                .as_str()
+                .into_client_request()
+                .map_err(WsClientError::WebSocket)?,
+        )
+        .await
+    }
+
+    /// Open a native upgrade carrying a scoped NIP-FI assertion.
+    /// Caller must still authenticate with the same proof key.
+    pub async fn connect_request(
+        url: &str,
+        request: tokio_tungstenite::tungstenite::http::Request<()>,
+    ) -> Result<Self, WsClientError> {
+        let (ws, _response) = connect_async(request)
             .await
             .map_err(WsClientError::WebSocket)?;
 

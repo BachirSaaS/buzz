@@ -142,6 +142,17 @@ const AUTH_COMPLETE_HTML: &str = r#"<!doctype html>
 #[derive(Default)]
 pub(crate) struct BuilderlabSession(Mutex<Option<StoredSession>>);
 
+impl BuilderlabSession {
+    pub(crate) fn credential_for_federated_identity(&self) -> Result<String, String> {
+        self.0
+            .lock()
+            .map_err(|_| "login session unavailable")?
+            .as_ref()
+            .map(|session| session.credential.clone())
+            .ok_or("Sign in first".into())
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct BuilderlabLogin(Mutex<Option<PendingLogin>>);
 
@@ -254,6 +265,9 @@ pub(crate) async fn start_builderlab_login(
     session: tauri::State<'_, BuilderlabSession>,
     login: tauri::State<'_, BuilderlabLogin>,
 ) -> Result<BuilderlabAuthInfo, String> {
+    crate::federated_identity::session(&app_state)?
+        .invalidate()
+        .map_err(|e| e.to_string())?;
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .map_err(|error| format!("could not start local authentication callback: {error}"))?;
@@ -406,8 +420,12 @@ pub(crate) fn cancel_builderlab_login(
 
 #[tauri::command]
 pub(crate) fn clear_builderlab_auth(
+    app_state: tauri::State<'_, crate::app_state::AppState>,
     session: tauri::State<'_, BuilderlabSession>,
 ) -> Result<(), String> {
+    crate::federated_identity::session(&app_state)?
+        .invalidate()
+        .map_err(|e| e.to_string())?;
     *session.0.lock().map_err(|error| error.to_string())? = None;
     Ok(())
 }
