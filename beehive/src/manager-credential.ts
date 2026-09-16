@@ -1,3 +1,4 @@
+import { buzzOwnerKeyErrors } from './buzz-owner-key.ts';
 import { databricksNative } from './databricks.ts';
 import { fork } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -22,7 +23,8 @@ export function managerCredential(input: object, signal: AbortSignal, helper = n
     child.once('message', value => { result = value; });
     child.once('close', code => {
       clearTimeout(timer); signal.removeEventListener('abort', cancel);
-      if (code !== 0 || failed || signal.aborted || !result?.ok) reject(Error('Could not complete key access. It may have been cancelled, timed out, denied, or unavailable. The key may not match. Changes may already be saved. Inspect before you try again. No key was reset or saved as plain text.'));
+      if (request.action === 'signin-buzz' && (code !== 0 || failed || signal.aborted || !result?.ok)) reject(Error(buzzOwnerKeyErrors[code === 0 && !failed && !signal.aborted ? result?.reason : 'access'] ?? buzzOwnerKeyErrors.access));
+      else if (code !== 0 || failed || signal.aborted || !result?.ok) reject(Error('Could not complete key access. It may have been cancelled, timed out, denied, or unavailable. The key may not match. Changes may already be saved. Inspect before you try again. No key was reset or saved as plain text.'));
       else resolve(result);
     });
     child.send(input, error => { if (error) cancel(); });

@@ -158,7 +158,7 @@ export class OpenTuiScreen {
   private relayFooter = 'Relay: Not configured · disconnected';
   setRelay(url?: string, state = 'unknown', name?: string) { this.relayFooter = url ? `Relay: ${name ? `${clean(name)} · ` : ''}${clean(url)} · ${state}` : 'Relay: Not configured · disconnected'; this.resize(); }
   private heading() { this.header.content = `${this.renderer.width < 56 ? '' : 'BEEHIVE '}${managerSections.map((name, index) => this.scope === index ? `[${name}]` : name).join(this.renderer.width < 56 ? ' ' : ' | ')}\n${clean(this.owner)}`; }
-  setOwner(publicSuffix?: string) { this.owner = publicSuffix ? `${publicSuffix} · signed in · key saved here` : 'signed out'; this.heading(); }
+  setOwner(publicSuffix?: string) { this.owner = publicSuffix ? `${publicSuffix} · signed in` : 'signed out'; this.heading(); }
   private switchScope(scope: number) {
     if (this.modal || this.busy || this.small.visible || this.closed) return;
     // A section change must present its own details from the top even when the

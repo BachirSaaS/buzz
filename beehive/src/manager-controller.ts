@@ -146,6 +146,8 @@ export class ManagerController {
   private profileRead: typeof fetchAgentProfile;
   private offers = new Map<string, Message>();
   private owner?: string;
+  // Explicit Buzz sign-in only; no durable copy and never part of a snapshot.
+  private buzzSessionSecret?: string;
   private generation = 0;
   private active?: AbortController;
   private continuation?: { enroll?: boolean; token: string; agent: string; target: string; revision: number; settingsRevision: number; owner: string };
@@ -298,7 +300,7 @@ A Stop result is not a recent host report that confirms the agent is stopped.` }
     }
   }
   cancel() { this.continuation = undefined; this.generation++; this.active?.abort(); }
-  close() { this.closed = true; this.cancel(); this.relayNamePending?.abort.abort(); this.client?.close(); this.client = undefined; this.owner = undefined; this.directory = []; }
+  close() { this.closed = true; this.cancel(); this.relayNamePending?.abort.abort(); this.client?.close(); this.client = undefined; this.owner = undefined; this.buzzSessionSecret = undefined; this.directory = []; }
   async request(request: ManagerRequest): Promise<ManagerResult> {
     if (this.closed || request.id <= this.lastId || this.active) return { state: 'ignored', reason: 'Request is closed, duplicate, or busy.' };
     this.lastId = request.id;
@@ -435,18 +437,24 @@ A Stop result is not a recent host report that confirms the agent is stopped.` }
       } else if (request.action === 'provision') {
         await this.credential({ action: 'provision', directory: this.hostDirectory, binding: v.binding, genesis: v.genesis, secret: v.secret }, abort.signal);
         check(); this.status = 'Local agent added and stopped. Nothing was started or published to the relay.';
-      } else if (request.action === 'signin') {
+      } else if (request.action === 'signin' || request.action === 'signin-buzz') {
         const retained = readControllerConfig(this.ownerDirectory);
         const owner = retained?.owner ?? ownerPublicInput(v.owner ?? '');
         const relay = retained?.relay ?? v.relay ?? '';
         if (!/^(wss|ws):\/\//.test(relay)) throw plain('Enter a relay URL that starts with ws:// or wss://.');
-        const result = await this.credential({ action: 'signin', owner, ...(v.secret ? { secret: v.secret.toLowerCase() } : {}) }, abort.signal);
+        const result = await this.credential({ action: request.action, owner, ...(request.action === 'signin' && v.secret ? { secret: v.secret.toLowerCase() } : {}) }, abort.signal);
         delete v.secret; check();
+        if (request.action === 'signin-buzz') {
+          let matches = false;
+          try { matches = typeof result.secret === 'string' && publicKey(result.secret) === owner; } catch { /* Untrusted helper result: never expose its bytes. */ }
+          if (!matches) throw plain('Buzz key is unavailable, malformed, or does not match the configured Beehive owner. No owner or relay was changed.');
+        }
         if (result.secret === null) throw plain('No saved owner key. Choose Import matching owner key and sign in. Enter the matching private key with 64 hex characters.');
         if (!retained) createControllerConfig(this.ownerDirectory, owner, relay);
         this.client?.close(); this.inventory.clear(); this.offers.clear(); this.directory = [];
         this.directoryState = 'Loading relay directory…';
         this.owner = owner;
+        this.buzzSessionSecret = request.action === 'signin-buzz' ? result.secret : undefined;
         const client = this.connect(join(this.ownerDirectory, 'management-intents'), relay, result.secret, m => {
           if (this.client !== client || this.closed) return;
           const map = m.type === 'availability' ? this.offers : m.type === 'inventory' ? this.inventory : undefined;
@@ -458,7 +466,7 @@ A Stop result is not a recent host report that confirms the agent is stopped.` }
           this.refresh();
         }, () => this.refresh(), { catalog: { version: 1, owner, relay, registrations: [] } });
         const directorySecret = result.secret; result.secret = undefined; this.client = client;
-        abort.signal.addEventListener('abort', () => client.close(), { once: true });
+        abort.signal.addEventListener('abort', () => { client.close(); if (this.client === client) this.buzzSessionSecret = undefined; }, { once: true });
         await client.ready; check();
         try { const directory = await this.directoryRead(relay,directorySecret,abort.signal); check(); this.directory = directory; this.directoryState = `Relay directory: ${this.directory.length} agents.`; }
         catch (error) { check(); this.directory = []; this.directoryState = 'Relay directory unavailable. Sign in again to retry.'; throw error; }
@@ -469,7 +477,7 @@ A Stop result is not a recent host report that confirms the agent is stopped.` }
         this.continuation = undefined;
         this.directoryState = 'Refreshing relay directory…'; this.refresh();
         try {
-          const credential = await this.credential({action:'signin',owner},abort.signal); check();
+          const credential = this.buzzSessionSecret ? {secret:this.buzzSessionSecret} : await this.credential({action:'signin',owner},abort.signal); check();
           if (!credential.secret) throw plain('Saved owner key unavailable. Sign in again.');
           const secret = credential.secret; credential.secret = undefined;
           const directory = await this.directoryRead(routing.relay,secret,abort.signal); check();
@@ -482,8 +490,8 @@ A Stop result is not a recent host report that confirms the agent is stopped.` }
         }
       } else if (request.action === 'signout') {
         this.continuation = undefined;
-        this.client?.close(); this.client = undefined; this.owner = undefined; this.inventory.clear(); this.offers.clear(); this.directory = [];
-        this.status = 'Signed out. The owner key is still saved on this computer. Hosts and agents were not stopped.';
+        this.client?.close(); this.client = undefined; this.owner = undefined; this.buzzSessionSecret = undefined; this.inventory.clear(); this.offers.clear(); this.directory = [];
+        this.status = 'Signed out. Session key released; saved keys were not changed. Hosts and agents were not stopped.';
       } else if (request.action === 'draft') {
         await editProfileDraft(profileDrafts(this.ownerDirectory), async prompt => prompt.startsWith('Profile') ? v.name ?? '' : v.instructions ?? '');
         this.status = 'Private instructions draft saved on this computer. Not published or used by an agent. To resume, use beehive drafts ~/.beehive/owner or beehive tui.';

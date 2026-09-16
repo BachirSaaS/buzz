@@ -7,7 +7,7 @@ import { ownerPublicInput } from './host-setup.ts';
 export type ControllerConfig = { version: 1; owner: string; relay: string };
 const file = (directory: string) => join(directory, 'controller.json');
 
-/** Read public controller routing only. The owner signer remains in OS credentials. */
+/** Read public controller routing only. The owner signer stays outside public routing (OS custody or an explicit volatile session). */
 export function readControllerConfig(directory: string): ControllerConfig | undefined {
   if (!existsSync(file(directory))) return undefined;
   const value = object(readPrivate(file(directory)));

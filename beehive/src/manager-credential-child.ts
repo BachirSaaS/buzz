@@ -1,3 +1,4 @@
+import { readBuzzOwnerKey } from './buzz-owner-key.ts';
 import { provisionCredentialSlot } from './credential-slots.ts';
 import { validateSetup } from './host.ts';
 import { validateGenesis } from './assignment.ts';
@@ -44,6 +45,8 @@ process.once('message', async (input: any) => {
       if (!secret) throw Error('Missing provider credential');
       const options = await providerModelOptions(provider, secret, AbortSignal.timeout(7000));
       process.send?.({ ok: true, models:options.map(v=>v.id), modelLabels:Object.fromEntries(options.map(v=>[v.id,v.name])) });
+    } else if (input.action === 'signin-buzz') {
+      process.send?.(readBuzzOwnerKey(input.owner));
     } else if (input.action === 'signin') {
       const ref = credentialReference('owner', input.owner);
       if (input.secret !== undefined) {

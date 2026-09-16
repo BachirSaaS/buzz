@@ -1,3 +1,5 @@
+import { readBuzzOwnerKey, buzzOwnerKeyErrors } from '../src/buzz-owner-key.ts';
+import { nip19 } from 'nostr-tools';
 import { registerAgent, agentNsec, addOpenAI, addProvider } from '../src/settings-credentials.ts';
 import type { CredentialReference } from '../src/credential-store.ts';
 import { bootstrapHostIdentity } from '../src/host-identity.ts';
@@ -18,6 +20,12 @@ export async function fixtureCredential(input: any, signal: AbortSignal) {
   if (input.action === 'add-openai') { addOpenAI(input.directory,input.name,input.secret,{ read: r => backend.read(r as unknown as CredentialReference), create: (r,s) => backend.create(r as unknown as CredentialReference,s) }); return { ok: true }; }
   if (input.action === 'add-provider') { addProvider(input.directory,input.name,input.secret,{read:r=>backend.read(r as unknown as CredentialReference),create:(r,s)=>backend.create(r as unknown as CredentialReference,s)},input.type,input.endpoint,input.wire); return {ok:true}; }
   if (input.action === 'models') return { ok: true, models: ['fixture-model'] };
+  if (input.action === 'signin-buzz') {
+    const key = backend.read(credentialReference('owner', input.owner));
+    const result = readBuzzOwnerKey(input.owner, () => key === null ? null : JSON.stringify({identity:nip19.nsecEncode(Buffer.from(key,'hex'))}));
+    if (!result.ok) throw Error(buzzOwnerKeyErrors[result.reason]);
+    return result;
+  }
   if (input.action !== 'signin') throw Error('Unsupported installed fixture action');
   if (input.secret) {
     if (publicKey(input.secret) !== input.owner) throw Error('Wrong fixture owner');
