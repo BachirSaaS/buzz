@@ -118,7 +118,7 @@ owner MAY commit while the claim and generation remain valid. If the deployment
 cannot accept that commit, its semantics are materially different and require a
 new stable ID. Deployment order, binary age, and metadata MUST NOT act as fences.
 
-Claims choose the compatible worker that may act. Generations reject stale
+An exclusive claim authorizes one compatible worker. Generations reject stale
 owners. These mechanisms MUST NOT establish definition precedence.
 
 ## Lifecycle and operator actions
@@ -143,7 +143,7 @@ The supported operator actions are:
 | `pause` | From `running` or `validating`, atomically enter `paused`, advance the generation, and invalidate the claim. |
 | `resume` | From `paused`, enter `running`, or `validating` when no admitted work remains. |
 | `retry` | From `blocked` or `failed`, continue at the existing bound and checkpoint. |
-| `validate` | On any initiated or completed row, run the read-only validation contract described below. |
+| `validate` | For `pending`, return `current-state`. For any other row, use the read-only validation contract below. |
 
 Repeated `pause` and `resume` requests MUST converge on the requested state.
 Neither action changes the bound or checkpoint. There is no separate retrying
@@ -155,9 +155,9 @@ and rolls back. Previously committed batches remain committed.
 
 ### Retry, blockage, and failure
 
-The engine MUST durably classify an execution error before reporting the
-attempt as handled. Retryable errors remain `running` without a claim until
-bounded backoff permits another attempt. Automatic attempts MUST be bounded and
+The engine MUST durably classify an execution error before reporting it as
+handled. Retryable errors remain `running` without a claim until bounded
+backoff permits another claim. Automatic retries MUST be bounded and
 end in a terminal `failed` or `blocked` disposition instead of a hot loop.
 
 An unmet prerequisite or data invariant enters `blocked` with a bounded,
@@ -175,10 +175,10 @@ Reaching the upper bound MUST enter `validating`, not `completed`. Validation
 MUST read authoritative PostgreSQL state, cover the postcondition through the
 bound, and be safe to repeat after a crash.
 
-Only successful validation MAY enter `completed`. The completion transaction
-MUST verify the lifecycle and generation so a stale validator cannot complete a
-paused or retried run. Operators cannot select `completed`, and completed state
-MUST remain immutable.
+Only successful validation MAY transition the row to `completed`. The
+completion transaction MUST verify the lifecycle and generation so a stale
+validator cannot complete a paused or retried run. Operators cannot select
+`completed`, and completed state MUST remain immutable.
 
 ## Execution safety
 
@@ -344,7 +344,7 @@ separate specification.
 `validate` requests definition-owned, read-only validation against PostgreSQL.
 It is not a second lifecycle or an operator-selected completion transition.
 
-The API MUST return one of these typed outcomes:
+The API MUST return exactly one of these typed outcomes:
 
 | Outcome | Meaning |
 |---|---|
@@ -352,8 +352,8 @@ The API MUST return one of these typed outcomes:
 | `failure` | Validation ran and rejected the state, with a bounded diagnostic. |
 | `current-state` | Validation did not run or has no result yet; the response includes the lifecycle and reason without implying success or failure. |
 
-A `pending` row MUST return `current-state` without running validation. An
-initiated or completed row MAY be validated. When the row is `validating` and
+A `pending` row MUST return `current-state` without running validation. Any
+other row MAY be validated. When the row is `validating` and
 completion preconditions hold, the request MAY drive the same generation-fenced
 completion transition used by the lifecycle. In every other state, validation
 is diagnostic and MUST NOT change the lifecycle, bound, checkpoint, generation,
@@ -366,7 +366,8 @@ Only one validation invocation per stable ID MAY run at a time. Duplicate
 delivery of one logical request MUST return its original bounded outcome or a
 correlated `current-state` result. Concurrent requests MUST join the active
 invocation or return `current-state`. After a lost response, retrying the same
-request MUST recover the outcome; the client MUST NOT infer it.
+request MUST recover the outcome. The client MUST retry or refresh; it MUST NOT
+infer the outcome.
 
 Accepted, rejected, coalesced, and completed validation requests MUST be audited
 with request correlation, actor, stable ID, evaluated lifecycle, and bounded
@@ -430,8 +431,9 @@ At minimum, the suite covers:
 6. **Rolling deployment.** Two compatible processes register the same stable ID
    in either order and retain one row and readiness obligation. Either MAY win
    an exclusive claim. After takeover, generation fencing rejects the prior
-   owner's writes. The test MUST NOT choose by registration order or metadata,
-   or assert definition precedence.
+   owner's writes. A process that does not know the stable ID cannot claim. The
+   test MUST NOT choose by registration order or metadata, or assert definition
+   precedence.
 7. **Validation.** Reaching the bound cannot complete without validation.
    Failure is durable and repeatable; only success reaches immutable completion.
 8. **Bounded failure.** Persistent errors reach `failed` or `blocked` instead of
@@ -442,11 +444,11 @@ At minimum, the suite covers:
     not duplicate starts, reuse generations, or recapture bounds. Conflicts
     return current state.
 11. **Explicit validation.** The production API and client render all typed
-    outcomes for initiated and completed rows. Unauthorized, duplicate,
-    concurrent, and lost-response requests follow the contract above. Failed
-    post-completion validation is audited and displayed without changing target
-    data or immutable state. Removing the read-only or immutable-state guard
-    fails the test.
+    outcomes for non-`pending` rows, including `completed`. Unauthorized,
+    duplicate, concurrent, and lost-response requests follow the contract above.
+    Failed post-completion validation is audited and displayed without changing
+    target data or immutable state. Removing the read-only or immutable-state
+    guard fails the test.
 12. **Client projection.** The UI preserves unknown and failure states and sends
     only supported controls.
 13. **Configuration matrix.** All four configurations run through real startup
