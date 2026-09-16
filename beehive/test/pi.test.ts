@@ -42,7 +42,7 @@ test('actual runtime form offers Pi both providers, retains custom names, submit
   const model=type==='openai'?'gpt-5':'databricks-gpt-5-4';
   const snapshot:ManagerSnapshot={local:[],agents:[],status:'fixture',harnesses:[{id:'pi',label:'Pi',executable:'/fake',cli:'/fake-pi',state:'available',providers:['openai','databricks_v2'],reason:'synthetic'}],models:[model],settings:{version:1,revision:1,agents:[],runtimes:[],providers:[{id:'p',name:'Saved',type,endpoint:type==='openai'?'https://api.openai.com/v1':'https://pi-workspace.example',key}]}};
   const choices=['Pi · Available','Saved · p',model,'high'];const calls:any[]=[];
-  await runtimeForm({async choose(_label,options){const value=choices.shift();assert.ok(options.includes(value!));return value;},async input(){return 'My Pi';},async confirm(){return true;},notice(){throw Error('unexpected notice');}},()=>snapshot,async(action,values)=>{calls.push({action,values});});
-  assert.deepEqual(calls.at(-1),{action:'add-runtime',values:{name:'My Pi',model,provider:'p',harness:'pi',effort:'high'}});
+  await runtimeForm({async choose(_label,options){const value=choices.shift();assert.ok(options.includes(value!));return value;},async input(label){return label.startsWith('Environment') ? '{}' : 'My Pi';},async confirm(){return true;},notice(){throw Error('unexpected notice');}},()=>snapshot,async(action,values)=>{calls.push({action,values});return {state:"completed"};});
+  assert.deepEqual(calls.at(-1),{action:'add-runtime',values:{name:'My Pi',model,environment:'{}',provider:'p',harness:'pi',effort:'high'}});
  }
 });

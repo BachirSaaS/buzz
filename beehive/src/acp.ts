@@ -1,3 +1,4 @@
+import { runtimeEnvironment } from './runtime-environment.ts';
 import { prepareCodexHome } from './codex-home.ts';
 import { PI_ADAPTER, piEnvironment, piConfigEvidence } from './pi.ts';
 import { fileURLToPath } from 'node:url';
@@ -12,7 +13,7 @@ import { createHash } from 'node:crypto';
 import { spawnOwned, type OwnedProcess } from './owned.ts';
 
 /** Host-prepared launch: executable/provider binding stays local; instructions are a validated public snapshot. Never accept remote env/argv. */
-export type AgentLaunch = Readonly<{ resolvedProviderKey?: string; buzzProvider?: BuzzProvider; custom?: CustomAcp; executable: string; args: readonly string[]; workspace: string; home: string; configDirectory: string; databricksHost: string; harness?: 'goose' | 'claude' | 'codex' | 'pi'; piCli?: string; codex?: CodexSetup; claude?: ClaudeSetup; provider?: string; model: string; instructions?: string }>;
+export type AgentLaunch = Readonly<{ environment?: Record<string, string>; resolvedProviderKey?: string; buzzProvider?: BuzzProvider; custom?: CustomAcp; executable: string; args: readonly string[]; workspace: string; home: string; configDirectory: string; databricksHost: string; harness?: 'goose' | 'claude' | 'codex' | 'pi'; piCli?: string; codex?: CodexSetup; claude?: ClaudeSetup; provider?: string; model: string; instructions?: string }>;
 /** ACP catalogs can be fallback data; even a nonempty result is NOT auth evidence. */
 export type Catalog = { state: 'reported' | 'empty' | 'filtered'; models: string[]; authentication: 'unverified' };
 /** Same child/session acknowledgement plus completed text response, not provider attestation. */
@@ -28,7 +29,8 @@ const identifier = (v: unknown): string => {
 };
 /** Validate and snapshot local launch settings. No ambient provider credentials inherited. */
 export function prepareAgent(input: AgentLaunch) {
-  const plan = Object.freeze({ ...input, args: Object.freeze([...input.args]) });
+  const environment = Object.freeze(runtimeEnvironment(input.environment ?? {}));
+  const plan = Object.freeze({ ...input, ...(input.environment ? { environment } : {}), args: Object.freeze([...input.args]) });
   if (plan.harness === 'codex' && plan.codex?.managedHome) prepareCodexHome(plan.codex.managedHome, plan.home, plan.configDirectory);
   for (const p of [plan.executable, plan.workspace, plan.home, plan.configDirectory]) {
     if (!isAbsolute(p) || realpathSync(p) !== p) throw Error('Harness setup requires canonical absolute paths');
@@ -41,31 +43,31 @@ export function prepareAgent(input: AgentLaunch) {
   }
   if (plan.harness === 'pi') {
     if (plan.args.length || !plan.piCli || !plan.buzzProvider) throw Error('Invalid Pi launch');
-    return Object.freeze({ plan, executableHash: hash(readFileSync(plan.executable)), env: Object.freeze(piEnvironment(plan.piCli, plan.buzzProvider, plan.home, plan.model, plan.resolvedProviderKey)), cliExecutableHash: hash(readFileSync(plan.piCli)) });
+    return Object.freeze({ plan, executableHash: hash(readFileSync(plan.executable)), env: Object.freeze({ ...environment, ...piEnvironment(plan.piCli, plan.buzzProvider, plan.home, plan.model, plan.resolvedProviderKey) }), cliExecutableHash: hash(readFileSync(plan.piCli)) });
   }
   if (plan.harness === 'codex') {
     identifier(plan.model);
     if (plan.args.length || !plan.codex || !plan.codex.models.includes(plan.model) || plan.home === plan.configDirectory) throw Error('Codex requires zero-argument adapter, approved model and distinct HOME/CODEX_HOME');
-    return Object.freeze({ plan, executableHash: hash(readFileSync(plan.executable)), env: Object.freeze(codexEnvironment(plan.codex, plan.home, plan.configDirectory, plan.model, plan.resolvedProviderKey)), cliExecutableHash: hash(readFileSync(plan.codex.cli)) });
+    return Object.freeze({ plan, executableHash: hash(readFileSync(plan.executable)), env: Object.freeze({ ...environment, ...codexEnvironment(plan.codex, plan.home, plan.configDirectory, plan.model, plan.resolvedProviderKey) }), cliExecutableHash: hash(readFileSync(plan.codex.cli)) });
   }
   if (plan.harness === 'claude') {
     identifier(plan.model);
     if (plan.args.length || !plan.claude) throw Error('Claude requires a zero-argument ACP adapter and local CLI/key binding');
-    return Object.freeze({ plan, executableHash: hash(readFileSync(plan.executable)), env: Object.freeze(claudeEnvironment(plan.claude, plan.home, plan.model)), cliExecutableHash: hash(readFileSync(plan.claude.cli)) });
+    return Object.freeze({ plan, executableHash: hash(readFileSync(plan.executable)), env: Object.freeze({ ...environment, ...claudeEnvironment(plan.claude, plan.home, plan.model) }), cliExecutableHash: hash(readFileSync(plan.claude.cli)) });
   }
   if (plan.harness === 'goose') {
     identifier(plan.provider);
     identifier(plan.model);
-    return Object.freeze({ plan, executableHash: hash(readFileSync(plan.executable)), env: Object.freeze<Record<string, string>>({ ...plan.custom?.env, PATH: '/usr/bin:/bin', HOME: plan.home, GOOSE_PROVIDER: plan.provider!, GOOSE_MODEL: plan.model, GOOSE_MODE: 'auto' }) });
+    return Object.freeze({ plan, executableHash: hash(readFileSync(plan.executable)), env: Object.freeze<Record<string, string>>({ ...environment, ...plan.custom?.env, PATH: '/usr/bin:/bin', HOME: plan.home, GOOSE_PROVIDER: plan.provider!, GOOSE_MODEL: plan.model, GOOSE_MODE: 'auto' }) });
   }
   if (plan.buzzProvider) {
     if (plan.args.length || plan.harness || plan.databricksHost) throw Error('Mixed Buzz Agent provider launch contract');
-    return Object.freeze({ plan, executableHash: hash(readFileSync(plan.executable)), env: Object.freeze<Record<string, string>>({ ...buzzProviderEnvironment(plan.buzzProvider, plan.home, plan.configDirectory, plan.model, plan.resolvedProviderKey), ...(plan.instructions === undefined ? {} : { BUZZ_AGENT_SYSTEM_PROMPT: plan.instructions }) }) });
+    return Object.freeze({ plan, executableHash: hash(readFileSync(plan.executable)), env: Object.freeze<Record<string, string>>({ ...environment, ...buzzProviderEnvironment(plan.buzzProvider, plan.home, plan.configDirectory, plan.model, plan.resolvedProviderKey), ...(plan.instructions === undefined ? {} : { BUZZ_AGENT_SYSTEM_PROMPT: plan.instructions }) }) });
   }
   const url = new URL(plan.databricksHost);
   if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || url.pathname !== '/') throw Error('Databricks workspace must be an HTTPS origin');
   identifier(plan.model);
-  return Object.freeze({ plan, executableHash: hash(readFileSync(plan.executable)), env: Object.freeze<Record<string, string>>({ PATH: '/usr/bin:/bin', HOME: plan.home, BUZZ_AGENT_CONFIG_DIR: plan.configDirectory, BUZZ_AGENT_PROVIDER: 'databricks_v2', DATABRICKS_HOST: url.origin, BUZZ_AGENT_MODEL: plan.model, ...(plan.instructions === undefined ? {} : { BUZZ_AGENT_SYSTEM_PROMPT: plan.instructions }) }) });
+  return Object.freeze({ plan, executableHash: hash(readFileSync(plan.executable)), env: Object.freeze<Record<string, string>>({ ...environment, PATH: '/usr/bin:/bin', HOME: plan.home, BUZZ_AGENT_CONFIG_DIR: plan.configDirectory, BUZZ_AGENT_PROVIDER: 'databricks_v2', DATABRICKS_HOST: url.origin, BUZZ_AGENT_MODEL: plan.model, ...(plan.instructions === undefined ? {} : { BUZZ_AGENT_SYSTEM_PROMPT: plan.instructions }) }) });
 }
 
 /** Spawn-fixed Goose model evidence from native ACP configOptions, not set_model.

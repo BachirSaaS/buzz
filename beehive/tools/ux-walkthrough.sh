@@ -1,6 +1,27 @@
 #!/bin/sh
 # Synthetic UI only: fresh file credentials and explicitly blocked external seams.
 set -eu
+if [ "${1:-}" = --help ]; then
+  cat <<'HELP'
+Synthetic manager walkthrough (100x30 terminal recommended).
+Run without arguments; every invocation creates a fresh isolated HOME.
+
+Right/Left: Host / Agents / Harnesses / Providers. a: controls. Tab: list.
+Harnesses: Add runtime -> Buzz Agent -> Review OpenAI -> fixture-model ->
+  Environment JSON (e.g. {"REVIEW_MODE":"synthetic"}) -> Runtime name -> yes.
+  Escape at Environment cancels without saving. Select the saved runtime to
+  inspect harness/provider/model/effort/environment names. Save affects new runs.
+Providers: Add provider or Models; synthetic keys only. Escape cancels.
+Agents: Register opens hidden nsec entry; Escape cancels.
+Ctrl-Q: exit even inside a form.
+
+This fixture blocks external credentials, network, browser and service actions.
+It does NOT demonstrate registration-first execution or authenticated Move.
+Use the committed runtime-environment and host-settings tests for synthetic
+owned-process environment and Save/Start/Stop evidence, not this UI fixture.
+HELP
+  exit 0
+fi
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 NODE=${BEEHIVE_REVIEW_NODE:-/Users/loganj/Library/Caches/hermit/pkg/node-24.15.0/bin/node}
 BUN=${BEEHIVE_REVIEW_BUN:-/Users/loganj/.buzz/artifacts/beehive-opentui-57f9c8fa/runtime/bun-darwin-aarch64/bun}

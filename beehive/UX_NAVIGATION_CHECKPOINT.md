@@ -157,3 +157,107 @@ cd beehive
 "$BUN" test ./test/opentui-screen.bun.ts
 "$NODE" --test test/*.test.ts
 ```
+
+## Continuation b3d1e450 — environment and typed completion slice
+
+This continuation remains **incomplete**, not a functional UX handback. No push,
+export, installation or native change. The earlier missing-work list still applies
+except that runtime environment configuration is now implemented. The earlier
+navigation and Restart evidence remains valid for its stated scope.
+
+Implemented in this slice:
+
+- Node `ManagerController.request` returns `ManagerResult`: completed, submitted
+  (with operation ID), failed, cancelled or ignored. `manager-entry.ts` carries
+  that exact completion across IPC; `manager-view.ts` cannot treat a failed or
+  cancelled profile lookup as success. Old preview data is cleared before nsec
+  validation. Runtime discovery failure and model-query cancellation exit the
+  form. Submitted is **not** a host receipt or successful execution.
+- Runtime setup includes a JSON name/value environment field before the name and
+  confirmation. Validation is shared between form, controller, settings, local
+  setup and launch. It permits at most 32 entries, 2048 UTF-8 bytes/value and 8192
+  serialized bytes; blocks controls, identity/provider/harness configuration,
+  loader hooks and secret-bearing names. These are **nonsecret user-supplied
+  values**, not an OS credential editor; naming rules cannot detect a secret
+  disguised as an ordinary value. Provider/model/effort remain separate fields.
+- The append-only settings snapshot includes environment; binding fingerprints
+  therefore include it. `settings-runtime.ts` projects it only into the selected
+  local binding; `host.ts` passes it into `prepareAgent`. `acp.ts` copies/freezes
+  it and overlays authoritative managed environment. Save never mutates a prior
+  definition or active run. Selected runtime detail lists variable names only.
+
+Source-grounded limits / next edits (do not repeat broad discovery):
+
+1. **Private Move is not an available existing manager operation.** There are
+   three separate refusals: `intents.ts` submit's `privateHosts` allowlist,
+   `catalog-transport.ts` send allowlist, and `host-transport.ts` authenticated
+   receive allowlist. Host Move prepare/grant messages also currently have no
+   private host-to-host authenticated routing. Legacy `move.test.ts` is necessary
+   but insufficient. Implement authenticated source/destination grant transport
+   and ownership verification before enabling the manager action. Do not merely
+   remove these allowlists or chain Stop/Start. Native sources were not needed
+   or changed in this slice.
+2. **Directory still missing.** Current Desktop
+   `commands/agent_discovery/relay_directory.rs:list_relay_agents_for_selection`
+   first obtains relay-self identity, paginates kind39002 authored by that relay
+   and scoped to viewer `#p`, and owner kind30177 coordinates; then exact-agent
+   kind10100/kind0, verified profile owners and exact-owner `#d=agent` policy.
+   It retains membership-visible or viewer-owned agents. This is not kind0
+   enumeration and is not signed Beehive assignment authority. Add a bounded,
+   cancellable Node adapter and explicit synthetic query transport; wire rows
+   separately from `ManagerController.inventory` (still private reports).
+3. **Registration-first continuation still missing.** `ManagerResult` is now the
+   executable completion seam, not the requested governing registration/lifecycle
+   state machine. `registerAgent` remains identity-only. Next introduce one
+   captured operation state with exact agent/target/revisions and saved runtime;
+   extend the credential operation atomically with that runtime association;
+   continue only after verified registration and fresh assignment authority.
+   Retained key read-back and public-only assignment journals remain unchanged.
+   Do not manufacture genesis from nsec possession. Cancellation must discard
+   the captured continuation without claiming OS rollback.
+4. **Desktop provider/discovery parity still missing.** Bounded current consumer
+   inspection: `AgentConfigFields.tsx:advancedEditorBlock` passes `config.env_vars`
+   into `EnvVarsEditor`, excluding API key and structured keys; the latter keeps
+   required/file-satisfied/hidden rows separate. `agentConfigCore.ts` owns runtime
+   descriptors and dependent resets. Beehive's new nonsecret local JSON subset
+   is intentionally more restrictive, not full Desktop parity; no historical
+   harness-contract pin was updated. Current provider catalog/auth/model consumer
+   alignment and remaining concise-copy cleanup still need implementation.
+
+ACP failure investigation: saved prior `full-suite.log:266–272` identifies the
+external ACP boundary test and `AgentSession`'s per-RPC timeout, but contains no
+fixture mode or method. The a83a47b diff changed only manager/navigation/rendering,
+their tests/docs and walkthrough; it did not change ACP/host launch paths. This
+excludes a direct ACP edit in that commit, **not** contention or an unrelated bug.
+The cause remains unestablished. This slice adds a test-only wrapper identifying
+fixture mode while preserving the original error as `cause`, timeout, assertions
+and production behavior. Focused ACP passed; that is not a diagnosis or waiver.
+
+Evidence: `/Users/loganj/.buzz/artifacts/beehive-ux-b3d1e450/`
+
+- `focused.log`: 34/34 controller, runtime integration, Pi, environment and ACP.
+- `host-environment.log`: 11/11. Actual host Save/Start/Stop through synthetic
+  transport and owned Buzz/OpenAI, Buzz/Databricks and Codex-shaped processes
+  assert environment received, old active run unchanged, OS provider seams
+  synthetic, and exact wire/inventory limits unchanged. Environment test also
+  observes an actual owned ACP child's environment and immutable launch copy.
+- `typecheck-final.log`: strict passed. `renderer.log`: Bun 1.4.2 renderer 4/4.
+- `pty-final.log`, `walkthrough.json`: real 100x30 Node/Bun UI. Registration and
+  environment cancellation preserve settings; environment Save persists exact
+  `REVIEW_MODE=synthetic`, selecting runtime shows corresponding details; provider
+  cancellation/save/models and four sections work; hidden keys absent; exit 0.
+  `11-environment-entered`, `12-runtime-confirmation`, `14-runtime-selected`
+  have both ANSI streams and reconstructed plain frames. `pty-walkthrough.py`
+  contains exact key interactions. First successful PTY evidence is retained
+  separately in sibling `beehive-ux-b3d1e450-first-pty/`.
+- Package-wide suite was **not rerun**: requested functional scope is unfinished.
+  Prior 202 pass / 4 fail / 19 skip remains the last full-suite result, including
+  all four unclassified failures. No timeout/concurrency/assertion relaxation.
+  Native unchanged: reuse historical 700/0/1 evidence, not a new run.
+
+Reviewer entry for this slice only: `sh beehive/tools/ux-walkthrough.sh --help`,
+then run without arguments. Add runtime -> harness -> provider -> model ->
+Environment `{ "REVIEW_MODE": "synthetic" }` -> name -> yes. Select that runtime.
+The fixture still deliberately blocks external service, relay and OS operations;
+it does not establish registration-first or Move. Final independent UX acceptance
+should wait for those implementation tasks, not treat this as completion.

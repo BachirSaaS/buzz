@@ -1,3 +1,4 @@
+import { runtimeEnvironment } from './runtime-environment.ts';
 import { codexHomeIdentity, codexHomePaths } from './codex-home.ts';
 import { publicKey } from './protocol.ts';
 import { readSettings, validateSettings, type Settings } from './settings.ts';
@@ -17,6 +18,7 @@ export function runtimeBindings(base: Setup, settings: Settings, agent = base.ag
     const paths = managedHome ? codexHomePaths(managedHome) : undefined;
     return [`runtime:${runtime.id}`, validateSetup({
       host: base.host, ownerPublic: base.ownerPublic, ...(base.ownerSecret ? { ownerSecret: base.ownerSecret } : {}), ...(base.agentSecret ? { agentSecret: base.agentSecret } : {}),
+      ...(runtime.environment ? { environment: runtimeEnvironment(runtime.environment) } : {}),
       runner: runtime.executable, args: [], workspace: base.workspace, allowedWorkspaces: base.allowedWorkspaces,
       serviceHome: paths?.home ?? base.serviceHome, configDirectory: paths?.config ?? base.configDirectory,
       ...(base.conversation ? { conversation: base.conversation } : {}), ...(runtime.harness === 'codex' ? { mode: 'codex', codex: { ...(managedHome ? { managedHome } : {}), cli: runtime.cli!, credential: provider.key, models: [runtime.model] } } : { mode: runtime.harness === 'pi' ? 'pi' : 'buzz-agent-api-key', ...(runtime.harness === 'pi' ? { piCli: runtime.cli } : {}),

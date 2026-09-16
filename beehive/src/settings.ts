@@ -1,3 +1,4 @@
+import { runtimeEnvironment } from './runtime-environment.ts';
 import { piEfforts } from './pi.ts';
 import { validateRuntimeEffort } from './runtime-effort.ts';
 import { databricksHost } from './databricks.ts';
@@ -12,7 +13,7 @@ export type RegisteredAgent = { publicKey: string; key: CredentialReference; pro
 /** Each provider version owns an exact immutable OS credential entry. */
 export type ProviderReference = { service: 'beehive'; account: string };
 export type SavedProvider = { id: string; name: string; type: 'openai' | 'databricks_v2'; endpoint: string; key: ProviderReference };
-export type SavedRuntime = { id: string; name: string; harness: 'buzz-agent' | 'codex' | 'pi'; cli?: string; executable: string; providerId: string; model: string; effort?: string };
+export type SavedRuntime = { environment?: Record<string, string>; id: string; name: string; harness: 'buzz-agent' | 'codex' | 'pi'; cli?: string; executable: string; providerId: string; model: string; effort?: string };
 export type Settings = { version: 1; revision: number; agents: RegisteredAgent[]; providers: SavedProvider[]; runtimes: SavedRuntime[] };
 const path = (directory: string) => join(directory, 'settings.json');
 const label = (s: unknown) => typeof s === 'string' && s.length > 0 && s.length <= 128 && !/[\x00-\x1f\x7f]/.test(s);
@@ -29,6 +30,7 @@ export function validateSettings(value: Settings): Settings {
   for (const p of value.providers) if (!label(p.name) || !label(p.id) || !['openai','databricks_v2'].includes(p.type) || (p.type === 'openai' ? p.endpoint !== 'https://api.openai.com/v1' : databricksHost(p.endpoint) !== p.endpoint) || p.key?.service !== 'beehive' || !/^provider:[0-9a-f-]{36}$/.test(p.key.account)) throw Error('Invalid saved provider');
   for (const r of value.runtimes) if (!label(r.id) || !label(r.name) || !['buzz-agent','codex','pi'].includes(r.harness) || !isAbsolute(r.executable) || !/^[a-zA-Z0-9_.:/-]{1,200}$/.test(r.model) || !value.providers.some(p => p.id === r.providerId)) throw Error('Invalid saved runtime');
   for (const r of value.runtimes) {
+    if (r.environment !== undefined) runtimeEnvironment(r.environment);
     if (r.harness === 'codex' ? !r.cli || !isAbsolute(r.cli) || r.effort !== undefined || value.providers.find(p => p.id === r.providerId)?.type !== 'openai' : r.harness === 'pi' ? !r.cli || !isAbsolute(r.cli) || r.effort !== undefined && !piEfforts(value.providers.find(p => p.id === r.providerId)!.type, r.model).includes(r.effort) : r.cli !== undefined) throw Error('Unsupported runtime provider/CLI/effort combination');
   }
   for (const r of value.runtimes) validateRuntimeEffort(value.providers.find(p => p.id === r.providerId)!.type, r.model, r.effort);
@@ -37,7 +39,7 @@ export function validateSettings(value: Settings): Settings {
   fields(value, ['version','revision','agents','providers','runtimes']);
   for (const a of value.agents) { fields(a, ['publicKey','key','profile','profileState']); if (a.profile) fields(a.profile, ['relay','name','picture','about']); }
   for (const p of value.providers) { fields(p, ['id','name','type','endpoint','key']); fields(p.key, ['service','account']); }
-  for (const r of value.runtimes) fields(r, ['id','name','harness','executable','providerId','model','effort','cli']);
+  for (const r of value.runtimes) fields(r, ['id','name','harness','executable','providerId','model','effort','cli','environment']);
   return structuredClone(value);
 }
 /** Absent settings means an empty catalog, never reconstructed credentials. */

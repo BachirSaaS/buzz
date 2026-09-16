@@ -95,7 +95,7 @@ for (const providerType of ['openai','databricks_v2','codex-openai'] as const) t
   const prior = readSettings(root), id = settingsId();
   const model = codex ? 'custom-codex-model' : providerType === 'openai' ? 'gpt-5' : 'databricks-gpt-5-4';
   const executable = join(root,'fixture-buzz-agent');
-  writeFileSync(executable,`#!/bin/sh\n[ \"$BUZZ_AGENT_THINKING_EFFORT\" = high ] || exit 9\nexec '${process.execPath}' '${fileURLToPath(new URL('./acp-fixture.ts',import.meta.url))}' ${providerType === 'openai' ? 'openai' : 'databricks-os'}\n`,{mode:0o700});
+  writeFileSync(executable,`#!/bin/sh\n[ \"$REVIEW_MODE\" = synthetic ] || exit 10\n[ \"$BUZZ_AGENT_THINKING_EFFORT\" = high ] || exit 9\nexec '${process.execPath}' '${fileURLToPath(new URL('./acp-fixture.ts',import.meta.url))}' ${providerType === 'openai' ? 'openai' : 'databricks-os'}\n`,{mode:0o700});
   let requests = 0;
   if (codex) {
     const server = createServer(async (req,res) => {
@@ -110,12 +110,13 @@ for (const providerType of ['openai','databricks_v2','codex-openai'] as const) t
     const endpoint = `http://127.0.0.1:${(server.address() as any).port}/v1/responses`;
     writeFileSync(join(root,'mode'),'ok');
     writeFileSync(executable,`#!${process.execPath}
+if (process.env.REVIEW_MODE !== 'synthetic') throw Error('Missing selected runtime environment');
 const response = await fetch(${JSON.stringify(endpoint)}, {method:'POST',headers:{authorization:'Bearer '+process.env.OPENAI_API_KEY},body:JSON.stringify({model:JSON.parse(process.env.CODEX_CONFIG).model})});
 if (!response.ok) throw Error('Synthetic provider rejected');
 await import(${JSON.stringify(new URL('./conversation-harness-fixture.ts',import.meta.url).href)});
 `,{mode:0o700});
   }
-  saveSettings(root,{ ...prior, runtimes: [{ id, name: 'Future', harness: codex ? 'codex' : 'buzz-agent', executable, providerId: prior.providers[0]!.id, model, ...(codex ? {cli:realpathSync(process.execPath)} : {effort:'high'}) }] },prior.revision);
+  saveSettings(root,{ ...prior, runtimes: [{ id, name: 'Future', environment: {REVIEW_MODE:'synthetic'}, harness: codex ? 'codex' : 'buzz-agent', executable, providerId: prior.providers[0]!.id, model, ...(codex ? {cli:realpathSync(process.execPath)} : {effort:'high'}) }] },prior.revision);
   const projected = runtimeBindings(setup,readSettings(root))[`runtime:${id}`]!;
   if (codex) { assert.notEqual(projected.serviceHome,root); assert.equal(existsSync(projected.serviceHome!),false); }
   await wait(() => running.settingsRevision === 2);

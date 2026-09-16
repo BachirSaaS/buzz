@@ -149,3 +149,26 @@ test('manager presentation preserves raw evidence, unknown states and literal co
     assert.match(f.snapshot.agents.find(r => r.id === 'host:host-b')!.detail, /Host configuration: Host name: Host B/);
   } finally { f.cleanup(); }
 });
+
+test('typed completion separates submitted intent from failures, cancellation and ignored requests', async () => {
+  const f = fixture();
+  try {
+    assert.equal((await f.controller.request({id:1,action:'start'})).state,'failed');
+    assert.equal((await f.controller.request({id:1,action:'start'})).state,'ignored');
+    assert.equal((await f.controller.request({id:2,action:'signin',values:{owner,relay:'wss://example.invalid',secret}})).state,'completed');
+    f.receive(message('inventory','host-a','agent-a',3,{observedAt:Date.now(),phase:'stopped',actualRun:null,assignedHost:'host-a'}));
+    const result = await f.controller.request({id:3,action:'start',target:JSON.stringify(['host-a','agent-a']),revision:3});
+    assert.equal(result.state,'submitted');
+    if (result.state === 'submitted') assert.equal(result.operationId,f.submitted[0]!.id);
+    assert.equal((await f.controller.request({id:4,action:'start',target:JSON.stringify(['host-a','agent-a']),revision:2})).state,'failed');
+  } finally {f.cleanup();}
+  const home = mkdtempSync(join(tmpdir(),'beehive-manager-'));
+  let finish!: (v:any)=>void;
+  const c = new ManagerController(home,()=>{},()=>new Promise(resolve=>{finish=resolve;}),undefined,async()=>undefined);
+  try {
+    const pending = c.request({id:1,action:'signin',values:{owner,relay:'wss://example.invalid'}});
+    c.cancel(); finish({ok:true,secret});
+    assert.equal((await pending).state,'cancelled');
+    assert.equal(c.snapshot().owner,undefined);
+  } finally {c.close();rmSync(home,{recursive:true,force:true});}
+});

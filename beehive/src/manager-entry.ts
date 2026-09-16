@@ -23,7 +23,7 @@ input.on('line', line => {
     const value = JSON.parse(line);
     if (value.quit) controller.close();
     else if (value.cancel) controller.cancel();
-    else void controller.request(value).then(() => send({ complete: value.id }));
+    else void controller.request(value).then(result => send({ complete: value.id, result }));
   } catch { controller.cancel(); }
 });
 const refresh = setInterval(() => controller.refresh(), 2000);

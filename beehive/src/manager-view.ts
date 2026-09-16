@@ -4,7 +4,7 @@ import { createCliRenderer } from '@opentui/core';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { OpenTuiScreen, type ManagerAction } from './opentui-screen.ts';
-import type { ManagerRequest, ManagerSnapshot } from './manager-controller.ts';
+import type { ManagerRequest, ManagerSnapshot, ManagerResult } from './manager-controller.ts';
 
 const renderer = await createCliRenderer({ exitOnCtrlC: false });
 const screen = new OpenTuiScreen(renderer);
@@ -12,11 +12,11 @@ const output = createWriteStream('', { fd: 4 });
 let snapshot: ManagerSnapshot = { local: [], agents: [], status: 'Connecting to Beehive…' };
 const navigation = new ManagerNavigation();
 let scope = 0, selected = '', sequence = 0, lastStatus = '';
-let pending: { id: number; resolve: () => void } | undefined;
+let pending: { id: number; resolve: (result: ManagerResult) => void } | undefined;
 function request(action: string, values?: Record<string,string>, target?: string, revision?: number) {
-  if (pending) return Promise.resolve();
+  if (pending) return Promise.resolve<ManagerResult>({ state: 'ignored', reason: 'An operation is pending.' });
   const id = ++sequence;
-  const completion = new Promise<void>(resolve => { pending = { id, resolve }; });
+  const completion = new Promise<ManagerResult>(resolve => { pending = { id, resolve }; });
   const message: ManagerRequest = { id, action, values, target, revision };
   screen.setPending(true); screen.notice(action === 'add-databricks' ? 'Signing in through your browser… Esc cancels the native helper. An OS credential write or browser window may remain; cancelled sign-in will not save a provider.' : 'Working… Esc stops waiting. Remote work and saved changes are not cancelled. Inspect before you try again.');
   output.write(JSON.stringify(message) + '\n');
@@ -62,7 +62,8 @@ function render() {
       if (!configured) { await routing('configure'); return; }
       let secret = await screen.input('Register agent\nAgent nsec private key. Hidden. Saved only in Beehive’s OS credential store.', '', true);
       if (secret === undefined) return;
-      await request('profile-preview', { secret });
+      const result = await request('profile-preview', { secret });
+      if (result.state !== 'completed') { secret = ''; return; }
       const preview = snapshot.profilePreview;
       if (!preview) { secret = ''; return; }
       if (await screen.confirm(`Register agent\n${preview.profile?.name ?? 'Name unavailable'}\n${preview.publicKey}\n${preview.profileState === 'unavailable' ? 'Relay unavailable. Register without a profile?' : preview.profileState === 'none' ? 'No profile found.' : preview.profile?.about ?? ''}\nThis does not authorize or start an agent. Save?`)) await request('register-agent',{ secret });
@@ -139,7 +140,7 @@ input.on('line', line => {
   try {
     const value = JSON.parse(line);
     if (value.snapshot) { snapshot = value.snapshot; render(); }
-    if (value.complete === pending?.id) { const old = pending; pending = undefined; screen.setPending(false); old?.resolve(); }
+    if (value.complete === pending?.id) { const old = pending; pending = undefined; screen.setPending(false); old?.resolve(value.result ?? { state: 'failed', reason: 'Missing controller result.' }); }
   } catch { screen.notice('Beehive could not read the response. Quit and inspect saved operation records before you try again.'); }
 });
 input.on('close', () => screen.close());

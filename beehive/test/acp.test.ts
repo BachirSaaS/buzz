@@ -44,7 +44,7 @@ test('external ACP boundary: snapshot, catalog provenance, exact-model same-sess
           assert.match(evidence.responseHash, /^[0-9a-f]{64}$/);
           assert.equal(evidence.executableHash, s.prepared.executableHash);
         }
-      } finally { await cleanup(s); }
+      } catch (error) { throw new Error(`ACP fixture mode ${mode} failed`, { cause: error }); } finally { await cleanup(s); }
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

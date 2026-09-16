@@ -1,9 +1,10 @@
 import { RGBA, BoxRenderable, InputRenderable, ScrollBoxRenderable, SelectRenderable, TextRenderable, TextareaRenderable, type CliRenderer, type KeyEvent } from '@opentui/core';
+import type { ManagerResult } from './manager-controller.ts';
 import { managerSections } from './manager-navigation.ts';
 import { stripVTControlCharacters } from 'node:util';
 
 export type ManagerRow = { id: string; label: string; detail: string; evidence?: string };
-export type ManagerAction = { label: string; disabled?: string; run: () => void | Promise<void> };
+export type ManagerAction = { label: string; disabled?: string; run: () => void | Promise<void | ManagerResult> };
 const fg = RGBA.defaultForeground(), bg = RGBA.defaultBackground();
 const clean = (value: string) => stripVTControlCharacters(value).replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '');
 

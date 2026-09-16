@@ -10,7 +10,7 @@ export function sectionRows(snapshot: ManagerSnapshot, section: number): Manager
   if (section === 1) return snapshot.agents;
   if (section === 2) return [
     ...(snapshot.harnesses ?? []).map(h => ({ id: `harness:${h.id}`, label: `${h.label} · ${h.state}`, detail: `Harness: ${h.label}\nState: ${h.state}\nExecutable: ${h.executable ?? '—'}\nCLI: ${h.cli ?? '—'}` })),
-    ...(settings?.runtimes ?? []).map(r => ({ id: `runtime:${r.id}`, label: r.name, detail: `Runtime: ${r.name}\nHarness: ${r.harness}\nProvider: ${settings?.providers.find(p => p.id === r.providerId)?.name ?? '—'}\nModel: ${r.model}\nEffort: ${r.effort ?? 'Inherit'}` })),
+    ...(settings?.runtimes ?? []).map(r => ({ id: `runtime:${r.id}`, label: r.name, detail: `Runtime: ${r.name}\nHarness: ${r.harness}\nProvider: ${settings?.providers.find(p => p.id === r.providerId)?.name ?? '—'}\nModel: ${r.model}\nEffort: ${r.effort ?? 'Inherit'}\nEnvironment: ${Object.keys(r.environment ?? {}).join(', ') || 'None'}` })),
   ];
   if (section === 3) return (settings?.providers ?? []).map(p => ({ id: p.id, label: p.name, detail: `Provider: ${p.name}\nType: ${p.type}\nEndpoint: ${p.endpoint}` }));
   return [];

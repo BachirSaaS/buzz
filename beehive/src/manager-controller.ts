@@ -1,3 +1,4 @@
+import { runtimeEnvironment } from './runtime-environment.ts';
 import { addDatabricks, databricksNative } from './databricks.ts';
 import { existsSync } from 'node:fs';
 import { readSettings, saveSettings, settingsId, type Settings, type RegisteredAgent } from './settings.ts';
@@ -17,6 +18,12 @@ import { managementClient } from './intents.ts';
 import { fetchRelayName } from './relay-name.ts';
 import { message, type Message } from './protocol.ts';
 import { profileDrafts, editProfileDraft } from './profile-drafts.ts';
+
+/** Controller completion is not a host receipt: submitted work remains pending. */
+export type ManagerResult =
+  | { state: 'completed' }
+  | { state: 'submitted'; operationId: string }
+  | { state: 'failed' | 'cancelled' | 'ignored'; reason: string };
 
 export type ManagerRequest = { id: number; action: string; values?: Record<string, string>; target?: string; revision?: number };
 export type ManagerItem = { id: string; label: string; detail: string; evidence?: string; disabled?: Record<string, string> };
@@ -236,18 +243,19 @@ A Stop result is not a recent host report that confirms the agent is stopped.` }
   }
   cancel() { this.generation++; this.active?.abort(); }
   close() { this.closed = true; this.cancel(); this.relayNamePending?.abort.abort(); this.client?.close(); this.client = undefined; this.owner = undefined; }
-  async request(request: ManagerRequest) {
-    if (this.closed || request.id <= this.lastId || this.active) return;
+  async request(request: ManagerRequest): Promise<ManagerResult> {
+    if (this.closed || request.id <= this.lastId || this.active) return { state: 'ignored', reason: 'Request is closed, duplicate, or busy.' };
     this.lastId = request.id;
     const abort = new AbortController(); this.active = abort;
     const generation = ++this.generation;
     const check = () => { abort.signal.throwIfAborted(); if (this.closed || generation !== this.generation) throw plain('Stopped waiting. Changes may already be saved or submitted. Inspect before you try again.'); };
     const v = request.values ?? {};
+    let result: ManagerResult = { state: 'completed' };
     try {
       if (request.action === 'profile-preview') {
+        this.profilePreview = undefined;
         const identity = readHostIdentityPublic(this.hostDirectory);
         const key = publicKey(agentNsec(v.secret ?? ''));
-        this.profilePreview = undefined;
         const profile = await fetchAgentProfile(identity.pairing.relay,key,abort.signal); check();
         this.profilePreview = { publicKey: key, key: { service: 'beehive', role: 'agent', publicKey: key }, ...profile };
         this.status = profile.profileState === 'found' ? 'Signed public profile found.' : profile.profileState === 'none' ? 'No profile found. You can register with the public key.' : 'Profile lookup unavailable. You can register without a profile.';
@@ -277,7 +285,7 @@ A Stop result is not a recent host report that confirms the agent is stopped.` }
         const previous = readSettings(this.hostDirectory);
         const provider = previous.providers.find(p => p.id === v.provider);
         if (!selected?.executable || !provider || !selected.providers.includes(provider.type) || !['buzz-agent','codex','pi'].includes(selected.id)) throw plain('No supported executable/provider combination found.');
-        saveSettings(this.hostDirectory,{ ...previous, runtimes: [...previous.runtimes,{ id: settingsId(), name: v.name ?? '', harness: selected.id as 'buzz-agent' | 'codex' | 'pi', executable: selected.executable, ...(['codex','pi'].includes(selected.id) ? { cli: selected.cli } : {}), providerId: v.provider ?? '', model: v.model ?? '', ...(v.effort ? { effort: v.effort } : {}) }] },previous.revision);
+        saveSettings(this.hostDirectory,{ ...previous, runtimes: [...previous.runtimes,{ id: settingsId(), name: v.name ?? '', harness: selected.id as 'buzz-agent' | 'codex' | 'pi', executable: selected.executable, ...(['codex','pi'].includes(selected.id) ? { cli: selected.cli } : {}), providerId: v.provider ?? '', model: v.model ?? '', ...(v.environment ? { environment: runtimeEnvironment(JSON.parse(v.environment)) } : {}), ...(v.effort ? { effort: v.effort } : {}) }] },previous.revision);
         this.status = 'Runtime saved for new runs. Running agents did not change. Host loading is reported separately.';
       } else if (request.action === 'host-start') {
         this.service = await startService(this.hostDirectory); check(); this.status = 'Host running. Registration and settings do not start agents.';
@@ -334,9 +342,11 @@ A Stop result is not a recent host report that confirms the agent is stopped.` }
         if (this.client.status().some(o => o.request.host === current.host && o.request.agent === current.agent && !['completed','failed'].includes(o.state))) throw plain('An operation has no confirmed result. Inspect operations and check operation results before you act again.');
         const operation = message(request.action === 'select-config' ? 'save' : request.action as 'start' | 'stop' | 'restart', current.host, current.agent, current.revision, request.action === 'select-config' ? { configurationAction: 'select', name: v.name } : {});
         this.client.submit(operation);
+        result = { state: 'submitted', operationId: operation.id };
         this.status = `Operation ${operation.id}: ${plainOperationType(operation)} saved and pending.\nHost: ${current.host}\nAgent: ${current.agent}\nRelay publication does not confirm host acceptance. Inspect operations. Unknown does not mean stopped.`;
       } else if (request.action !== 'refresh') throw plain('Not available in this build');
-    } catch (error) { if (!this.closed) this.status = error instanceof PlainStatus ? error.message : abort.signal.aborted && error === abort.signal.reason ? 'Stopped waiting. Changes may already be saved or submitted. Inspect before you try again.' : error instanceof Error ? plainBackendMessage(error.message) : `Could not complete the operation: ${String(error)}`; }
+    } catch (error) { result = { state: abort.signal.aborted || generation !== this.generation ? 'cancelled' : 'failed', reason: 'Operation did not complete; inspect status before retrying.' }; if (!this.closed) this.status = error instanceof PlainStatus ? error.message : abort.signal.aborted && error === abort.signal.reason ? 'Stopped waiting. Changes may already be saved or submitted. Inspect before you try again.' : error instanceof Error ? plainBackendMessage(error.message) : `Could not complete the operation: ${String(error)}`; }
     finally { delete v.secret; this.active = undefined; this.refresh(); }
+    return result;
   }
 }
