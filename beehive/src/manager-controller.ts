@@ -1,3 +1,6 @@
+import { randomUUID } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
+import { fetchRelayDirectory, type DirectoryAgent } from './relay-directory.ts';
 import { runtimeEnvironment } from './runtime-environment.ts';
 import { addDatabricks, databricksNative } from './databricks.ts';
 import { existsSync } from 'node:fs';
@@ -23,11 +26,12 @@ import { profileDrafts, editProfileDraft } from './profile-drafts.ts';
 export type ManagerResult =
   | { state: 'completed' }
   | { state: 'submitted'; operationId: string }
+  | { state: 'registration-required'; continuation: string; agent: string }
   | { state: 'failed' | 'cancelled' | 'ignored'; reason: string };
 
 export type ManagerRequest = { id: number; action: string; values?: Record<string, string>; target?: string; revision?: number };
-export type ManagerItem = { id: string; label: string; detail: string; evidence?: string; disabled?: Record<string, string> };
-export type ManagerSnapshot = { local: ManagerItem[]; agents: (ManagerItem & { revision: number; configurations: string[] })[]; routing?: { owner: string; relay: string }; owner?: string; status: string; settings?: Settings; service?: ServiceStatus; hostRelay?: string; relayName?: string; profilePreview?: RegisteredAgent; models?: string[]; runtimeExecutable?: string; harnesses?: DetectedHarness[]; databricksHost?: string };
+export type ManagerItem = { target?: string; id: string; label: string; detail: string; evidence?: string; disabled?: Record<string, string> };
+export type ManagerSnapshot = { managementRelay?: 'connected' | 'disconnected'; diagnostics?: ManagerItem[]; local: ManagerItem[]; agents: (ManagerItem & { revision: number; configurations: string[] })[]; routing?: { owner: string; relay: string }; owner?: string; status: string; settings?: Settings; service?: ServiceStatus; hostRelay?: string; relayName?: string; profilePreview?: RegisteredAgent; models?: string[]; runtimeExecutable?: string; harnesses?: DetectedHarness[]; databricksHost?: string };
 const short = (s: string) => s.length > 22 ? `${s.slice(0,8)}…${s.slice(-6)}` : s;
 
 /** Final plain display text thrown by this boundary; never rewrapped or retranslated. */
@@ -134,10 +138,15 @@ const describe = (v: unknown, labels: Record<string, string> = {}, path = ''): s
 export class ManagerController {
   private client?: ReturnType<typeof managementClient>;
   private inventory = new Map<string, Message>();
+  private directory: DirectoryAgent[] = [];
+  private directoryState = 'Sign in to load the relay directory.';
+  private directoryRead: typeof fetchRelayDirectory;
+  private profileRead: typeof fetchAgentProfile;
   private offers = new Map<string, Message>();
   private owner?: string;
   private generation = 0;
   private active?: AbortController;
+  private continuation?: { token: string; agent: string; target: string; revision: number; settingsRevision: number; owner: string };
   private closed = false;
   private service: ServiceStatus = { state: 'unknown' };
   private probing = false;
@@ -156,8 +165,8 @@ export class ManagerController {
   private connect: typeof managementClient;
   private fetchName: typeof fetchRelayName;
   constructor(home: string, changed: (snapshot: ManagerSnapshot) => void,
-    credential = managerCredential, connect = managementClient, fetchName = fetchRelayName) {
-    this.home = home; this.changed = changed; this.credential = credential; this.connect = connect; this.fetchName = fetchName;
+    credential = managerCredential, connect = managementClient, fetchName = fetchRelayName, directoryRead = fetchRelayDirectory, profileRead = fetchAgentProfile) {
+    this.home = home; this.changed = changed; this.credential = credential; this.connect = connect; this.fetchName = fetchName; this.directoryRead = directoryRead; this.profileRead = profileRead;
   }
   private get hostDirectory() { return join(this.home, '.beehive', 'host'); }
   private get ownerDirectory() { return join(this.home, '.beehive', 'owner'); }
@@ -169,7 +178,7 @@ export class ManagerController {
         local.push({ id: 'host', label: identity.pairing.label, detail: 'Host configured. Agent registration is not execution authority.' });
       } else local.push({ id: 'missing', label: 'Configure this computer', detail: 'No local host configuration. Save the owner’s public key and relay URL. Beehive creates a host identity in the secure credential store. No owner sign-in is needed. This does not create an agent or start a host.' });
     } catch (error) { local.push({ id: 'error', label: 'Saved configuration needs attention', detail: (error instanceof Error ? backendMessages[error.message] ?? `Could not read saved configuration: ${error.message}` : `Could not read saved configuration: ${String(error)}`) + '\nSaved data has not been reset.' }); }
-    const agents: ManagerSnapshot['agents'] = [...this.inventory].map(([id, m]) => {
+    const reports: ManagerSnapshot['agents'] = [...this.inventory].map(([id, m]) => {
       const fresh = this.fresh(m);
       const blocked = !fresh ? 'The host report is old or the host cannot be reached. Wait for a recent report before you act.' : this.client?.status().some(o => o.request.host === m.host && o.request.agent === m.agent && !['completed','failed'].includes(o.state)) ? 'An operation has no confirmed result. Inspect operations before you act.' : '';
       return { id, label: `Agent ${short(m.agent)} · ${fresh ? m.body.phase : 'Unknown'}`, revision: m.revision, configurations: Object.keys((m.body.configurations ?? {}) as object),
@@ -187,12 +196,27 @@ Configuration for next start
 ${describe(m.body.selectedNext, selectionLabels)}
 This choice does not change the current run.` };
     });
-    for (const [id, m] of this.offers) agents.push({ id: `host:${id}`, label: `Host ${short(id)}`, revision: m.revision, configurations: [], evidence: JSON.stringify(m, null, 2), detail: `Host report
+    const agents: ManagerSnapshot['agents'] = this.directory.map(agent => {
+      const report = this.agentReport(agent.publicKey);
+      const shown = report ? reports.find(row => row.id === JSON.stringify([report.host,report.agent])) : undefined;
+      let registered = false;
+      try { registered = readSettings(this.hostDirectory).agents.some(a => a.publicKey === agent.publicKey); } catch { /* Configuration error is shown in Local Host. */ }
+      const unavailable = 'No unique assigned host report. Execution authority is unknown.';
+      return { id:agent.publicKey,target:shown?.id,label:`${agent.name} · ${shown ? this.fresh(report!) ? report!.body.phase : 'Unknown' : 'Unknown'}`,revision:shown?.revision ?? -1,configurations:shown?.configurations ?? [],disabled:shown?.disabled ?? { start:unavailable,stop:unavailable,restart:unavailable,'select-config':unavailable },evidence:JSON.stringify({ discovery:agent,report },null,2),detail:`${agent.name}
+Agent: ${agent.publicKey}
+Registered here: ${registered ? 'Yes' : 'No'}
+Relay presence: ${agent.status} (discovery only)
+Profile owner: ${agent.owner ?? 'Unknown'}
+${shown?.detail ?? 'Host: Unknown\nRunning state: Unknown'}
+Relay metadata is not execution authority.` };
+    });
+    const diagnostics: ManagerItem[] = [];
+    for (const [id, m] of this.offers) diagnostics.push({ id: `host:${id}`, label: `Host ${short(id)}`, evidence: JSON.stringify(m, null, 2), detail: `Host report
 Host ${short(id)}
 ${this.fresh(m) ? 'Recent host report' : 'Current status unknown. The report is old or the host cannot be reached.'}
 ${describe(m.body, availabilityLabels)}
 A host report does not grant permission to start an agent.` });
-    for (const operation of this.client?.status() ?? []) agents.push({ id: `operation:${operation.request.id}`, label: `${plainOperationType(operation.request)} · ${plainStates[operation.state] ?? operation.state} · ${operation.request.id.slice(0,8)}`, revision: operation.request.revision, configurations: [], evidence: JSON.stringify(operation, null, 2), detail: `Operation: ${plainOperationType(operation.request)}
+    for (const operation of this.client?.status() ?? []) diagnostics.push({ id: `operation:${operation.request.id}`, label: `${plainOperationType(operation.request)} · ${plainStates[operation.state] ?? operation.state} · ${operation.request.id.slice(0,8)}`, evidence: JSON.stringify(operation, null, 2), detail: `Operation: ${plainOperationType(operation.request)}
 State: ${plainStates[operation.state] ?? operation.state}
 Host: ${short(operation.request.host)}
 Agent: ${short(operation.request.agent)}
@@ -209,9 +233,13 @@ A Stop result is not a recent host report that confirms the agent is stopped.` }
     try { settings = readSettings(this.hostDirectory); if (existsSync(join(this.hostDirectory,'host-identity.json'))) hostRelay = readHostIdentityPublic(this.hostDirectory).pairing.relay; } catch { /* Existing error row remains actionable; never reset settings. */ }
     const footerRelay = hostRelay ?? routing?.relay;
     this.observeRelayName(footerRelay);
-    return { settings, service: this.service, hostRelay, relayName: this.relayName && this.relayName.relay === footerRelay ? this.relayName.name : undefined, profilePreview: this.profilePreview, models: this.models, runtimeExecutable: this.runtimeExecutable, harnesses: this.harnesses, databricksHost: this.databricksHost, local, agents, routing: routing ? { owner: routing.owner, relay: routing.relay } : undefined, owner: this.owner, status: this.status };
+    return { managementRelay:this.owner ? this.client?.connected ? 'connected' : 'disconnected' : undefined, settings, service: this.service, hostRelay, relayName: this.relayName && this.relayName.relay === footerRelay ? this.relayName.name : undefined, profilePreview: this.profilePreview, models: this.models, runtimeExecutable: this.runtimeExecutable, harnesses: this.harnesses, databricksHost: this.databricksHost, local, agents, diagnostics, routing: routing ? { owner: routing.owner, relay: routing.relay } : undefined, owner: this.owner, status: this.status + (this.owner ? `\n${this.directoryState}` : '') };
   }
 
+  private agentReport(agent: string) {
+    const rows = [...this.inventory.values()].filter(m => m.agent === agent && m.body.assignedHost === m.host);
+    return rows.length === 1 ? rows[0] : undefined;
+  }
   private fresh(m: Message) { return Boolean(this.client?.connected && Date.now() - Number(m.body.observedAt) <= 6000); }
   /** Optional bounded footer relay name. One attempt per configured relay URL; absence,
    * failure or cancellation only omits the name. It never changes the reported
@@ -241,8 +269,8 @@ A Stop result is not a recent host report that confirms the agent is stopped.` }
       void serviceStatus(this.hostDirectory).then(status => { this.service = status; if (!this.closed) this.changed(this.snapshot()); }).finally(() => { this.probing = false; });
     }
   }
-  cancel() { this.generation++; this.active?.abort(); }
-  close() { this.closed = true; this.cancel(); this.relayNamePending?.abort.abort(); this.client?.close(); this.client = undefined; this.owner = undefined; }
+  cancel() { this.continuation = undefined; this.generation++; this.active?.abort(); }
+  close() { this.closed = true; this.cancel(); this.relayNamePending?.abort.abort(); this.client?.close(); this.client = undefined; this.owner = undefined; this.directory = []; }
   async request(request: ManagerRequest): Promise<ManagerResult> {
     if (this.closed || request.id <= this.lastId || this.active) return { state: 'ignored', reason: 'Request is closed, duplicate, or busy.' };
     this.lastId = request.id;
@@ -252,19 +280,79 @@ A Stop result is not a recent host report that confirms the agent is stopped.` }
     const v = request.values ?? {};
     let result: ManagerResult = { state: 'completed' };
     try {
-      if (request.action === 'profile-preview') {
+      if (request.action === 'retire-continuation') {
+        this.continuation = undefined; this.profilePreview = undefined; this.status = 'Start cancelled. Saved credentials, if any, remain retained.';
+      } else if (request.action === 'profile-preview') {
         this.profilePreview = undefined;
         const identity = readHostIdentityPublic(this.hostDirectory);
         const key = publicKey(agentNsec(v.secret ?? ''));
-        const profile = await fetchAgentProfile(identity.pairing.relay,key,abort.signal); check();
+        if ((this.continuation || v.continuation) && (this.continuation?.token !== v.continuation || this.continuation?.agent !== key)) throw plain('The key does not match the selected agent. Start cancelled.');
+        const profile = await this.profileRead(identity.pairing.relay,key,abort.signal); check();
         this.profilePreview = { publicKey: key, key: { service: 'beehive', role: 'agent', publicKey: key }, ...profile };
         this.status = profile.profileState === 'found' ? 'Signed public profile found.' : profile.profileState === 'none' ? 'No profile found. You can register with the public key.' : 'Profile lookup unavailable. You can register without a profile.';
       } else if (request.action === 'register-agent') {
         const key = publicKey(agentNsec(v.secret ?? ''));
+        const pending = this.continuation;
+        if ((pending || v.continuation) && (!pending || pending.token !== v.continuation || pending.agent !== key)) throw plain('Start selection changed. No operation was sent.');
         if (this.profilePreview?.publicKey !== key) throw plain('Confirm the public key first.');
+        const settings = readSettings(this.hostDirectory), runtime = settings.runtimes.find(r => r.id === v.runtime);
+        if (!runtime) throw plain('Select a saved runtime.');
+        if (pending) {
+          const report = this.agentReport(key);
+          if (settings.revision !== pending.settingsRevision || !report || !this.fresh(report) || JSON.stringify([report.host,report.agent]) !== pending.target || report.revision !== pending.revision || report.body.phase !== 'stopped' || report.body.actualRun) throw plain('Settings or host selection changed. Start again.');
+        }
         const { profile, profileState } = this.profilePreview;
-        await this.credential({ action: 'register-agent', directory: this.hostDirectory, secret: v.secret, profile: { profile, profileState } },abort.signal); check();
-        this.profilePreview = undefined; this.status = 'Agent registered. Not assigned or started.';
+        await this.credential({ action: 'register-agent', directory: this.hostDirectory, secret: v.secret, profile: { profile, profileState }, runtimeId:runtime.id, expectedRevision:settings.revision },abort.signal); check();
+        this.profilePreview = undefined;
+        if (!pending) this.status = 'Agent and runtime registered. Not assigned or started.';
+        else {
+          const guard = () => {
+            check();
+            if (this.continuation !== pending || this.owner !== pending.owner || !this.directory.some(a => a.publicKey === pending.agent)) throw plain('Start selection changed. Inspect saved registration.');
+            const registered = readSettings(this.hostDirectory).agents.find(a => a.publicKey === pending.agent);
+            if (!registered) throw plain('Registration was not verified. No Start sent.');
+          };
+          const current = () => { guard(); const m = this.agentReport(pending.agent); if (!m || JSON.stringify([m.host,m.agent]) !== pending.target || !this.fresh(m) || m.body.phase !== 'stopped' || m.body.actualRun) throw plain('Host assignment or running state changed. No Start sent.'); return m; };
+          let report = current();
+          if (report.revision !== pending.revision) throw plain('Host revision changed. No Start sent.');
+          let binding: { id: string; fingerprint: string } | undefined;
+          // Local catalog loading is not assumed from an OS key write or Save.
+          for (let n=0;n<100;n++) {
+            report = current(); if (report.revision !== pending.revision) throw plain('Host revision changed. No Start sent.');
+            binding = (report.body.harnessSetups as {id:string;fingerprint:string}[] | undefined)?.find(b => b.id === `runtime:${runtime.id}`);
+            if (binding) break;
+            await delay(100,undefined,{signal:abort.signal});
+          }
+          if (!binding) throw plain('Runtime is saved but not loaded by the host. No Start sent.');
+          const noPending = () => { if (this.client!.status().some(o => o.request.host === report.host && o.request.agent === report.agent && !['completed','failed'].includes(o.state))) throw plain('Another operation has no confirmed result. No Start sent.'); };
+          noPending();
+          const selected = report.body.selectedNext as Record<string,unknown>;
+          const save = message('save',report.host,report.agent,report.revision,{ ...selected, model:runtime.model, harnessSetup:{id:binding.id,fingerprint:binding.fingerprint} });
+          this.client!.submit(save);
+          result = {state:'submitted',operationId:save.id};
+          let applied = false;
+          for (let n=0;n<100;n++) {
+            guard();
+            const operation = this.client!.status().find(o => o.request.id === save.id);
+            if (!operation || ['failed','unknown'].includes(operation.state)) throw plain('Runtime selection failed or is unknown. No Start sent. Inspect operations.');
+            report = current();
+            if (operation.state === 'completed' && report.revision === pending.revision+1) {
+              const selection = report.body.selectedNext as {model?:string;harnessSetup?:{id?:string;fingerprint?:string}};
+              if (selection.model !== runtime.model || selection.harnessSetup?.id !== binding.id || selection.harnessSetup.fingerprint !== binding.fingerprint) throw plain('Selected runtime changed. No Start sent.');
+              applied = true; break;
+            }
+            if (report.revision > pending.revision+1) throw plain('Host revision changed. No Start sent.');
+            await delay(100,undefined,{signal:abort.signal});
+          }
+          if (!applied) this.status = `Runtime selection submitted (${save.id}). Start was not sent. Inspect operations.`;
+          else {
+            guard(); report = current(); noPending();
+            if (report.revision !== pending.revision+1) throw plain('Host revision changed. No Start sent.');
+            const start = message('start',report.host,report.agent,report.revision);
+            this.client!.submit(start); result = {state:'submitted',operationId:start.id};
+            this.status = `Start submitted (${start.id}). Registration and runtime selection verified. Running state awaits a host report.`;
+          }
+        }
       } else if (request.action === 'provider-form') {
         this.databricksHost = process.env.DATABRICKS_HOST ?? ''; this.status = 'Provider credentials stay in Beehive’s OS store.';
       } else if (request.action === 'add-databricks') {
@@ -309,7 +397,8 @@ A Stop result is not a recent host report that confirms the agent is stopped.` }
         delete v.secret; check();
         if (result.secret === null) throw plain('No saved owner key. Choose Import matching owner key and sign in. Enter the matching private key with 64 hex characters.');
         if (!retained) createControllerConfig(this.ownerDirectory, owner, relay);
-        this.client?.close(); this.inventory.clear(); this.offers.clear();
+        this.client?.close(); this.inventory.clear(); this.offers.clear(); this.directory = [];
+        this.directoryState = 'Loading relay directory…';
         this.owner = owner;
         const client = this.connect(join(this.ownerDirectory, 'management-intents'), relay, result.secret, m => {
           if (this.client !== client || this.closed) return;
@@ -321,11 +410,32 @@ A Stop result is not a recent host report that confirms the agent is stopped.` }
           }
           this.refresh();
         }, () => this.refresh(), { catalog: { version: 1, owner, relay, registrations: [] } });
-        result.secret = undefined; this.client = client;
+        const directorySecret = result.secret; result.secret = undefined; this.client = client;
         abort.signal.addEventListener('abort', () => client.close(), { once: true });
-        await client.ready; check(); this.status = 'Owner signed in. This list shows private host reports and their agents. It is not a separate agent directory.';
+        await client.ready; check();
+        try { const directory = await this.directoryRead(relay,directorySecret,abort.signal); check(); this.directory = directory; this.directoryState = `Relay directory: ${this.directory.length} agents.`; }
+        catch (error) { check(); this.directory = []; this.directoryState = 'Relay directory unavailable. Sign in again to retry.'; throw error; }
+        this.status = 'Owner signed in. Relay discovery is separate from host execution authority.';
+      } else if (request.action === 'directory-refresh') {
+        const owner = this.owner, client = this.client, routing = readControllerConfig(this.ownerDirectory);
+        if (!owner || !client || !routing || routing.owner !== owner) throw plain('Owner sign-in required');
+        this.continuation = undefined;
+        this.directoryState = 'Refreshing relay directory…'; this.refresh();
+        try {
+          const credential = await this.credential({action:'signin',owner},abort.signal); check();
+          if (!credential.secret) throw plain('Saved owner key unavailable. Sign in again.');
+          const secret = credential.secret; credential.secret = undefined;
+          const directory = await this.directoryRead(routing.relay,secret,abort.signal); check();
+          if (this.owner !== owner || this.client !== client) throw plain('Owner connection changed.');
+          this.directory = directory;
+          this.directoryState = `Relay directory: ${directory.length} agents.`;
+        } catch (error) {
+          this.directoryState = 'Directory refresh incomplete. Previous results retained; Refresh to retry.';
+          throw error;
+        }
       } else if (request.action === 'signout') {
-        this.client?.close(); this.client = undefined; this.owner = undefined; this.inventory.clear(); this.offers.clear();
+        this.continuation = undefined;
+        this.client?.close(); this.client = undefined; this.owner = undefined; this.inventory.clear(); this.offers.clear(); this.directory = [];
         this.status = 'Signed out. The owner key is still saved on this computer. Hosts and agents were not stopped.';
       } else if (request.action === 'draft') {
         await editProfileDraft(profileDrafts(this.ownerDirectory), async prompt => prompt.startsWith('Profile') ? v.name ?? '' : v.instructions ?? '');
@@ -333,20 +443,41 @@ A Stop result is not a recent host report that confirms the agent is stopped.` }
       } else if (request.action === 'reconcile') { this.client?.reconcile(); this.status = 'Checking operation results. Operations blocked by relay policy will not be retried.';
       } else if (request.action === 'operations') {
         this.status = this.client?.status().map(o => `${o.request.id} · ${o.request.host}/${o.request.agent} · ${plainOperationType(o.request)} · ${plainStates[o.state] ?? o.state}: ${operationText(o.result ?? o.publication)}`).join('\n') || 'No saved operations.';
-      } else if (['start', 'stop', 'restart', 'select-config'].includes(request.action)) {
+      } else if (['start', 'stop', 'restart', 'select-config', 'select-runtime'].includes(request.action)) {
         if (!this.owner || !this.client) throw plain('Owner sign-in required');
-        const current = this.inventory.get(request.target ?? '');
+        const candidate = this.inventory.get(request.target ?? '');
+        const current = candidate && this.directory.some(a => a.publicKey === candidate.agent) && this.agentReport(candidate.agent) === candidate ? candidate : undefined;
         if (!current || !this.fresh(current) || current.revision !== request.revision) throw plain('The selection changed, or the host report is old or unavailable. Select an agent with a recent report. No request was sent.');
         if (request.action === 'restart' && (current.body.assignedHost !== current.host || !['stopped', 'running'].includes(String(current.body.phase)))) throw plain('Restart requires a recent report from the assigned host.');
         if (request.action === 'start' && (current.body.phase !== 'stopped' || current.body.actualRun || current.body.assignedHost !== current.host)) throw plain('Start requires a recent report from the assigned host. It must report the agent stopped with no current run.');
         if (this.client.status().some(o => o.request.host === current.host && o.request.agent === current.agent && !['completed','failed'].includes(o.state))) throw plain('An operation has no confirmed result. Inspect operations and check operation results before you act again.');
+        if (request.action === 'start' && existsSync(join(this.hostDirectory,'host-identity.json')) && readHostIdentityPublic(this.hostDirectory).pairing.host === current.host) {
+          const settings = readSettings(this.hostDirectory);
+          const registered = settings.agents.find(a => a.publicKey === current.agent);
+          const selected = current.body.selectedNext as {harnessSetup?:{id?:string}};
+          if (!registered || !settings.runtimes.some(r => selected?.harnessSetup?.id === `runtime:${r.id}`)) {
+            this.continuation = {token:randomUUID(),agent:current.agent,target:request.target!,revision:current.revision,settingsRevision:settings.revision,owner:this.owner};
+            this.status = 'Confirm registration and select a runtime before Start.';
+            return {state:'registration-required',continuation:this.continuation.token,agent:current.agent};
+          }
+        }
+        if (request.action === 'select-runtime') {
+          if (!existsSync(join(this.hostDirectory,'host-identity.json')) || readHostIdentityPublic(this.hostDirectory).pairing.host !== current.host) throw plain('Select a runtime on its local host.');
+          const runtime = readSettings(this.hostDirectory).runtimes.find(r => r.id === v.runtime);
+          const binding = (current.body.harnessSetups as {id:string;fingerprint:string}[] | undefined)?.find(b => b.id === `runtime:${runtime?.id}`);
+          if (!runtime || !binding) throw plain('Runtime is not loaded by this host. Refresh and try again.');
+          const save = message('save',current.host,current.agent,current.revision,{ ...(current.body.selectedNext as Record<string,unknown>),model:runtime.model,harnessSetup:{id:binding.id,fingerprint:binding.fingerprint} });
+          this.client.submit(save);
+          this.status = `Runtime Save submitted (${save.id}). Current run unchanged; inspect the host result before Start.`;
+          return {state:'submitted',operationId:save.id};
+        }
         const operation = message(request.action === 'select-config' ? 'save' : request.action as 'start' | 'stop' | 'restart', current.host, current.agent, current.revision, request.action === 'select-config' ? { configurationAction: 'select', name: v.name } : {});
         this.client.submit(operation);
         result = { state: 'submitted', operationId: operation.id };
         this.status = `Operation ${operation.id}: ${plainOperationType(operation)} saved and pending.\nHost: ${current.host}\nAgent: ${current.agent}\nRelay publication does not confirm host acceptance. Inspect operations. Unknown does not mean stopped.`;
       } else if (request.action !== 'refresh') throw plain('Not available in this build');
-    } catch (error) { result = { state: abort.signal.aborted || generation !== this.generation ? 'cancelled' : 'failed', reason: 'Operation did not complete; inspect status before retrying.' }; if (!this.closed) this.status = error instanceof PlainStatus ? error.message : abort.signal.aborted && error === abort.signal.reason ? 'Stopped waiting. Changes may already be saved or submitted. Inspect before you try again.' : error instanceof Error ? plainBackendMessage(error.message) : `Could not complete the operation: ${String(error)}`; }
-    finally { delete v.secret; this.active = undefined; this.refresh(); }
+    } catch (error) { this.continuation = undefined; result = { state: abort.signal.aborted || generation !== this.generation ? 'cancelled' : 'failed', reason: 'Operation did not complete; inspect status before retrying.' }; if (!this.closed) this.status = error instanceof PlainStatus ? error.message : abort.signal.aborted && error === abort.signal.reason ? 'Stopped waiting. Changes may already be saved or submitted. Inspect before you try again.' : error instanceof Error ? plainBackendMessage(error.message) : `Could not complete the operation: ${String(error)}`; }
+    finally { if (request.action === 'register-agent') this.continuation = undefined; delete v.secret; this.active = undefined; this.refresh(); }
     return result;
   }
 }

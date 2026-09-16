@@ -25,7 +25,7 @@ process.once('message', async (input: any) => {
       process.send?.({ ok: true });
     } else if (input.action === 'register-agent') {
       const secret = agentNsec(input.secret);
-      registerAgent(input.directory, secret, systemCredentials, input.profile);
+      registerAgent(input.directory, secret, systemCredentials, input.profile, input.runtimeId, input.expectedRevision);
       process.send?.({ ok: true });
     } else if (input.action === 'add-openai') {
       addOpenAI(input.directory,input.name,input.secret,providerCredentials());

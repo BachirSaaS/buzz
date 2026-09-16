@@ -112,7 +112,7 @@ function managerFixture(fetchName: (relay: string, signal: AbortSignal) => Promi
     if (input.action === 'configure') { bootstrapHostIdentity(input.directory, input.label ?? 'fixture', input.owner, input.relay, backend); return { ok: true }; }
     return { ok: true, secret: null };
   };
-  const controller = new ManagerController(home, s => { snapshots.push(s); }, credential, (() => client) as any, fetchName);
+  const controller = new ManagerController(home, s => { snapshots.push(s); }, credential, (() => client) as any, fetchName, async () => []);
   return { controller, home, snapshots, get snapshot() { return snapshots.at(-1)!; }, cleanup() { controller.close(); rmSync(home, { recursive: true, force: true }); } };
 }
 

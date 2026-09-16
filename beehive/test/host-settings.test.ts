@@ -195,3 +195,17 @@ test('shared management serializer preserves the exact UTF-8 wire limit for both
   assert.throws(() => seal(m,secret),/bounded wire size/);
   assert.throws(() => wrapManagement(m,Buffer.from(secret,'hex'),publicKey(recipient)),/bounded wire size/);
 });
+
+test('legacy registration gains one runtime link without replacing identity or definitions',t=>{
+  const root=fixture(t),credentials=isolatedFileCredentials(join(root,'keys.json')),secret=newKey();
+  let providerSecret:string|null=null;
+  addOpenAI(root,'Fixture','synthetic',{read:()=>providerSecret,create:(_r,v)=>{providerSecret=v;}});
+  const prior=readSettings(root),runtime={id:'runtime-one',name:'Runtime',harness:'buzz-agent' as const,executable:process.execPath,providerId:prior.providers[0]!.id,model:'gpt-5'};
+  saveSettings(root,{...prior,runtimes:[runtime,{...runtime,id:'runtime-two'}]},prior.revision);
+  const original=registerAgent(root,secret,credentials,{profileState:'none'}),before=readSettings(root);
+  const linked=registerAgent(root,secret,credentials,{profileState:'unavailable'},runtime.id,before.revision);
+  assert.deepEqual(linked,{...original,runtimeId:runtime.id});assert.deepEqual(readSettings(root).runtimes,before.runtimes);
+  assert.deepEqual(registerAgent(root,secret,credentials,{profileState:'none'},'runtime-two'),linked,'registration retains identity and initial choice; host Save owns runtime changes');
+  assert.throws(()=>registerAgent(root,secret,credentials,{profileState:'none'},runtime.id,before.revision),/changed/);
+  assert.equal(readSettings(root).revision,before.revision+1);
+});

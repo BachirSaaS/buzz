@@ -45,6 +45,23 @@ async function routing(action: string, secret = false) {
   if (!await screen.confirm(action === 'configure' ? `Configure this computer · 3 of 3\nOwner: ${owner}\nRelay: ${relay}\nCreate a host identity in this computer’s secure credential store? This does not create an agent or start a host.` : `Owner: ${owner}\nRelay: ${relay}\n${retained ? 'Saved owner and relay cannot change here.\n' : ''}Access the owner key in this computer’s secure credential store? The system may ask for permission. An imported key must match the owner.`)) { delete values.secret; return; }
   await request(action, values); delete values.secret;
 }
+async function registerForm(continuation?: string, agent?: string) {
+  let secret = '', settled = false;
+  try {
+    const runtimes = snapshot.settings?.runtimes ?? [];
+    if (!runtimes.length) { screen.notice('Add a provider and runtime in Harnesses, then Start again.'); return; }
+    const labels = runtimes.map(r => `${r.name} · ${r.model} · ${r.id}`);
+    const choice = await screen.choose('Runtime',labels); if (choice === undefined) return;
+    const runtime = runtimes[labels.indexOf(choice)]; if (!runtime) return;
+    const answer = await screen.input(`Register agent${agent ? `\n${agent}` : ''}\nMatching nsec. Hidden. Saved in Beehive’s OS credential store.`, '', true);
+    if (answer === undefined) return; secret = answer;
+    const result = await request('profile-preview',{secret,...(continuation ? {continuation} : {})});
+    if (result.state !== 'completed') { settled = true; return; }
+    const preview = snapshot.profilePreview; if (!preview) return;
+    if (!await screen.confirm(`Register agent\n${preview.profile?.name ?? 'Name unavailable'}\n${preview.publicKey}\n${preview.profileState === 'unavailable' ? 'Profile unavailable; public key verified locally.' : preview.profileState === 'none' ? 'No relay profile found.' : ''}\nRuntime: ${runtime.name}\nHarness: ${runtime.harness} · Model: ${runtime.model}\nProvider: ${snapshot.settings?.providers.find(p => p.id === runtime.providerId)?.name ?? 'Unknown'}\nEffort: ${runtime.effort ?? 'Inherit'} · Environment: ${Object.keys(runtime.environment ?? {}).join(', ') || 'None'}\n${continuation ? 'Register and continue Start on the selected host?' : 'Save registration? This does not assign or start the agent.'}`)) return;
+    await request('register-agent',{secret,runtime:runtime.id,...(continuation ? {continuation} : {})}); settled = true;
+  } finally { secret = ''; if (continuation && !settled) await request('retire-continuation'); }
+}
 function eligibility(action: string) {
   const row = snapshot.agents.find(r => r.id === selected);
   if (!snapshot.owner) return 'Owner sign-in required.';
@@ -56,18 +73,12 @@ function render() {
   const rows = sectionRows(snapshot, scope);
   selected = navigation.selection(rows);
   const vanished = !!selected && !rows.some(row => row.id === selected);
-  screen.setRelay(snapshot.hostRelay ?? snapshot.routing?.relay, snapshot.service?.relay ?? 'unknown', snapshot.relayName);
+  const ownerRelay = scope === 1 && snapshot.owner ? snapshot.routing?.relay : undefined;
+  screen.setRelay(ownerRelay ?? snapshot.hostRelay ?? snapshot.routing?.relay, ownerRelay ? snapshot.managementRelay ?? 'unknown' : snapshot.service?.relay ?? 'unknown', ownerRelay && snapshot.hostRelay && ownerRelay !== snapshot.hostRelay ? undefined : snapshot.relayName);
   const configured = snapshot.local.some(r => r.id === 'host');
   const registerAction: ManagerAction = { label: 'Register agent', run: async () => {
       if (!configured) { await routing('configure'); return; }
-      let secret = await screen.input('Register agent\nAgent nsec private key. Hidden. Saved only in Beehive’s OS credential store.', '', true);
-      if (secret === undefined) return;
-      const result = await request('profile-preview', { secret });
-      if (result.state !== 'completed') { secret = ''; return; }
-      const preview = snapshot.profilePreview;
-      if (!preview) { secret = ''; return; }
-      if (await screen.confirm(`Register agent\n${preview.profile?.name ?? 'Name unavailable'}\n${preview.publicKey}\n${preview.profileState === 'unavailable' ? 'Relay unavailable. Register without a profile?' : preview.profileState === 'none' ? 'No profile found.' : preview.profile?.about ?? ''}\nThis does not authorize or start an agent. Save?`)) await request('register-agent',{ secret });
-      secret = '';
+      await registerForm();
     } };
   let actions: ManagerAction[] = scope !== 1 ? [
     { label: 'Add provider', run: async () => {
@@ -94,21 +105,31 @@ function render() {
       if (await screen.confirm('Stop this host and its running agents?')) await request('host-stop',{ instance });
     } },
   ] : snapshot.owner ? [
+    { label: 'Refresh agents', run: () => request('directory-refresh') },
+    { label: 'Choose runtime…', disabled: eligibility('select-config'), run: async () => {
+      const row = snapshot.agents.find(r => r.id === selected); if (!row) return;
+      const runtimes = snapshot.settings?.runtimes ?? [];
+      const labels = runtimes.map(r => `${r.name} · ${r.model} · ${r.id}`);
+      const choice = await screen.choose('Runtime for next start',labels); if (choice === undefined) return;
+      const runtime = runtimes[labels.indexOf(choice)]; if (!runtime) return;
+      if (await screen.confirm(`Save ${runtime.name} for next Start? Current run is unchanged.`)) await request('select-runtime',{runtime:runtime.id},row.target,row.revision);
+    } },
     { label: 'Choose configuration…', disabled: eligibility('select-config'), run: async () => {
       const row = snapshot.agents.find(r => r.id === selected); if (!row) return;
       const name = await screen.choose('Configuration for next start', row.configurations); if (name === undefined) return;
-      if (!await screen.confirm(`Use ${name} for the next start?\nHost and agent: ${row.id}\nRevision: ${row.revision}\nThis does not change the current run.`)) return;
-      await request('select-config', { name }, row.id, row.revision);
+      if (!await screen.confirm(`Use ${name} for the next start?\nHost and agent: ${row.target ?? 'Unknown'}\nRevision: ${row.revision}\nThis does not change the current run.`)) return;
+      await request('select-config', { name }, row.target, row.revision);
     } },
     ...(['start','stop','restart'] as const).map(action => ({ label: action[0]!.toUpperCase() + action.slice(1), disabled: eligibility(action), run: async () => {
       const row = snapshot.agents.find(r => r.id === selected); if (!row) return;
-      if (!await screen.confirm(`${action[0]!.toUpperCase() + action.slice(1)} agent?\nHost and agent: ${row.id}\nRevision: ${row.revision}`)) return;
-      await request(action, undefined, row.id, row.revision);
+      if (!await screen.confirm(`${action[0]!.toUpperCase() + action.slice(1)} agent?\nHost and agent: ${row.target ?? 'Unknown'}\nRevision: ${row.revision}`)) return;
+      const result = await request(action, undefined, row.target, row.revision);
+      if (result.state === 'registration-required') await registerForm(result.continuation,result.agent);
     } })),
     { label: 'Inspect operations', run: () => request('operations') },
     { label: 'Check operation results', run: () => request('reconcile') },
     { label: 'Sign out', run: () => request('signout') },
-    { label: 'Publish profile or instructions', run: () => screen.notice('Publication forms are unavailable. Use the CLI:\nbeehive drafts ~/.beehive/owner\nbeehive tui discover <relay> ~/.beehive/owner\nThis build cannot generate owner keys or list agents independently of hosts.') },
+    { label: 'Publish profile or instructions', run: () => screen.notice('Publication forms are unavailable. Use the CLI:\nbeehive drafts ~/.beehive/owner\nbeehive tui discover <relay> ~/.beehive/owner\nThis build cannot generate owner keys.') },
   ] : [
     { label: 'Sign in with saved owner key', run: () => routing('signin') },
     { label: 'Import matching owner key and sign in', run: () => routing('signin', true) },

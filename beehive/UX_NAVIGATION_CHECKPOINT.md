@@ -261,3 +261,150 @@ Environment `{ "REVIEW_MODE": "synthetic" }` -> name -> yes. Select that runtime
 The fixture still deliberately blocks external service, relay and OS operations;
 it does not establish registration-first or Move. Final independent UX acceptance
 should wait for those implementation tasks, not treat this as completion.
+
+## Directory / registration continuation c34a8d5b + 00bf38b9 — still incomplete
+
+This section supersedes earlier statements that directory integration and typed
+registration continuation are wholly absent. **Not ready for independent UX
+acceptance:** first placement for an initially unassigned owned directory agent
+is still missing. No Move/provider-parity acceptance, push, export, installation,
+or native rebuild. Installed both-machine `176497874` remains untouched.
+
+### Implemented and corrected
+
+- `relay-directory.ts` follows current Desktop's relay-self/viewer-scoped signed
+  39002 membership, owner 30177 coordinates, exact 10100/0 queries and NIP-OA
+  profile ownership. Pagination, signature/query scope, response sizes, request
+  counts and 30-second operation budget are bounded. No broad kind-0 scan.
+- Agents are exact-key directory rows. Private reports supply execution evidence
+  only; a unique assigned report and freshness are still required. Host/operation
+  diagnostics no longer masquerade as discovered agents. Footer uses the owner
+  management connection in Agents rather than the local service connection.
+- For an **already provisioned/assigned local slot**, Start captures identity,
+  target, revision and settings generation; matching hidden nsec plus saved
+  runtime registers custody; loaded binding -> authenticated Save receipt ->
+  fresh exact selection -> explicit Start. Cancellation and stale revisions retire
+  continuation without claiming credential rollback. Registration alone does not
+  create a journal or placement.
+- Corrected the first-runtime freeze. `RegisteredAgent.runtimeId` is retained
+  **initial-registration metadata only**, not selected-next authority. Credential,
+  profile and identity bytes remain immutable. Registering an existing identity
+  does not overwrite that record. `Choose runtime…` sends the existing signed Save
+  operation with the selected local binding's exact id/fingerprint and model.
+  Subsequent Start accepts any saved runtime selected by the host; it does not
+  revert to the initial link or require another nsec. Active snapshots remain
+  immutable. Named configuration selection continues using the same host Save.
+- `Refresh agents` is explicit, not a background timer: one bounded canonical
+  rebuild per action, authenticated through the existing credential boundary;
+  management connection is reused, not duplicated. Failure/cancellation retains
+  previous rows with an incomplete-refresh status; success replaces the directory
+  (including removals). Generation/cancel/close and exact owner/client fences
+  prevent late results from replacing current state. It does not auto-retry.
+
+### First-use placement: exact remaining seam, not a fixture workaround
+
+`registration-start.test.ts` now exercises an **initially unassigned owned** agent
+against the real synthetic relay/private host. Signed directory discovery works;
+registration saves identity/runtime; no setup manifest is created; Start refuses.
+This is a regression documenting the gap, **not a passed first-use journey**.
+
+The missing product operation is owner-authorized **initial placement/enrollment
+of this existing identity**, with pinned genesis and host-local slot activation.
+`assignment.ts:createGenesis` currently restricts roots to new identity creation
+or verified one-time legacy enrollment. `credential-slots.ts` supplies
+`provisionCredentialSlot`/`addCredentialSlot` and explicit partial reconciliation;
+these hold `host.lock` and must not reset any retained journal. `host.ts:host`
+hydrates `entries` once before connecting; settings reload only adds bindings to
+those entries, never new slots. Thus merely calling registration, or adding a
+slot fixture before host startup, cannot implement the requested flow.
+
+Existing user actions: `cli.ts:provision-agent` consumes an already supplied public
+genesis and local binding with the matching key, while the host is stopped;
+`reconcile-provision` recovers its exact inert partial attempt. `export-genesis`,
+standby import and existing Move can preserve a known holder's authority; they
+are not a way to mint fresh authority for an unassigned relay identity. There is
+currently **no manager user action completing first placement**. This is unfinished
+implementation, not evidence that the authenticated owner's explicit Start could
+never authorize enrollment. Next work must integrate that explicit operation at
+the owner/host authority boundary, handle inactive/live host slot activation and
+partial/retry records, and prove no competing genesis can duplicate a retained
+holder. Do not infer execution rights merely from directory ownership or custody.
+
+### Precise subsequent work
+
+1. Finish the placement flow above and replace the documented refusal with a
+   production-path first-use Start acceptance and foreign-owner/retained-holder/
+   partial/cancel negatives. Keep the unassigned fixture option; do not pre-seed
+   authority to make the acceptance pass.
+2. Private Move remains blocked in `intents.ts` submit's `privateHosts` allowlist,
+   `catalog-transport.ts` send allowlist and `host-transport.ts` authenticated
+   receive allowlist. Implement authenticated source/destination host-to-host
+   prepare/grant routing and exact owner verification before removing refusals.
+   Registration/placement must finish before source consumption. Legacy
+   `move.test.ts`, named-Move and recovery tests are necessary, not sufficient.
+3. Current Desktop parity source map remains
+   `managed_agents/discovery/{catalog,runtime_metadata}.rs`,
+   `AgentConfigFields.tsx`, `EnvVarsEditor`, `agentConfigCore.ts` and provider
+   auth/model consumers. Beehive's `harness-discovery.ts`, `harness-contract.json`,
+   `runtime-form.ts`, `settings-credentials.ts`, `settings-runtime.ts` and native
+   helper still use their documented subset/historical pin. Preserve Pi/Codex
+   capability policies; do not represent this as refreshed Desktop parity.
+4. UI still contains legacy explanatory/status prose and publication affordances.
+   Final concise selection-driven copy and independent walkthrough remain gates.
+
+### Validation and surviving artifacts
+
+Previous run `/Users/loganj/.buzz/artifacts/beehive-ux-c34a8d5b/`:
+`focused-final.log` 42/42, strict typecheck, renderer 4/4, real PTY registered
+pre-provisioned slot -> actual gpt-5 -> Stop -> exit 0. Its footer/retry-fence deltas
+postdated that PTY. All earlier failed attempts remain in that directory.
+
+Current artifacts: `/Users/loganj/.buzz/artifacts/beehive-ux-00bf38b9/`.
+
+- `focused-final.log`: **46 passed, 0 failed**. Includes private owner/host + owned
+  ACP initial registration, second runtime Save while active remains byte-equal,
+  Stop/next Start with `runtime:second-runtime`, unchanged identity catalog;
+  initially-unassigned refusal; refresh removals/failure/cancel/one connection;
+  directory signatures/pagination; existing runtime/provider/environment fences.
+- `typecheck-final-corrected.log`: passed. `renderer-final.log`: Bun 1.4.2 **4/4**.
+- `pty.log`, `walkthrough.json`, `01-host` through `07-stopped` and
+  `02-refreshed` `.ansi`/`.txt`: final real 100x30 PTY, explicit refresh,
+  registration cancellation preserving settings, pre-provisioned registration,
+  actual gpt-5 run, awaited Stop, hidden nsec absent, exit 0. `pty-walkthrough.py`
+  preserves commands; `frames.py` reconstructs plain frames from raw bytes.
+- Failed attempts retained: `focused-first.log` 29/31 exposed the obsolete
+  immutable-runtime exception assertion and an overbroad harness inventory object
+  sent as a Save binding. Fixed to exact `{id,fingerprint}`; no host assertion or
+  timeout relaxed. `registration-second.log` 8/8. `typecheck-final.log` preserves
+  an optional-property test error; corrected with an explicit non-null assertion.
+- Full suite **not rerun** because functional scope remains incomplete. Last
+  full result remains **202 pass / 4 fail / 19 skip**, including unestablished ACP
+  timeout, admission elapsed bound, broker response timeout, missing resistant
+  readiness. Native unchanged historical **700 pass / 0 fail / 1 ignored** reused.
+  No repository-wide CI or live provider/relay/OS-store proof.
+
+Reproduce from package CWD using Node 24.15.0:
+
+```sh
+NODE=/Users/loganj/Library/Caches/hermit/pkg/node-24.15.0/bin/node
+"$NODE" --test test/registration-start.test.ts test/host-settings.test.ts \
+  test/manager-controller.test.ts test/relay-directory.test.ts \
+  test/manager-navigation.test.ts test/relay-name.test.ts \
+  test/runtime-environment.test.ts test/settings-credentials.test.ts
+"$NODE" node_modules/typescript/bin/tsc --noEmit
+/Users/loganj/.buzz/artifacts/beehive-opentui-57f9c8fa/runtime/bun-darwin-aarch64/bun \
+  test ./test/opentui-screen.bun.ts
+```
+
+Reviewer: `sh beehive/tools/ux-walkthrough.sh --help`, then without arguments.
+The runnable script uses fresh `beehive-pairing-cli-ux-` HOME **and** explicit
+`BEEHIVE_TEST_CREDENTIAL_FILE`/`NODE_OPTIONS --import` loader; installed service,
+external provider/harness/auth/relay seams remain fenced. The pre-provisioned
+assignment limitation is printed in help. Do not use real credentials.
+
+Partial implementation checkpoint (0605ceff): global and effective author and
+committer verified as Logan Johnson `<loganj@squareup.com>`. Preserve configured
+Git behavior and use `git commit -s` for DCO; absent GPG configuration is not a
+blocker and no Git configuration is changed. This checkpoints the reviewed
+surviving directory/registration/runtime delta, not completed first enrollment.
+The 46-test evidence above remains scoped to that partial implementation.

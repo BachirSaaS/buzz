@@ -1,6 +1,6 @@
 import { runtimeEnvironment } from './runtime-environment.ts';
 import { validatePi } from './pi.ts';
-import { readSettings } from './settings.ts';
+import { readSettings, retainedSettingsRow } from './settings.ts';
 import { runtimeBindings } from './settings-runtime.ts';
 import { managerCredential } from './manager-credential.ts';
 import { publicMetadata, metadataRevision, metadataAuthorization, publishPublicMetadata } from './public-metadata.ts';
@@ -634,7 +634,7 @@ export async function host(directory: string, url: string, signal?: AbortSignal,
     signal?.addEventListener('abort', abort, { once: true });
     const applySettings = (candidate: typeof effectiveSettings) => {
       if (candidate.revision < effectiveSettings.revision) throw Error('Settings revision regressed');
-      for (const collection of ['agents','providers','runtimes'] as const) for (const row of effectiveSettings[collection]) if (!candidate[collection].some(n => JSON.stringify(n) === JSON.stringify(row))) throw Error('Retained settings changed');
+      for (const collection of ['agents','providers','runtimes'] as const) for (const row of effectiveSettings[collection]) if (!candidate[collection].some(n => retainedSettingsRow(row,n,collection))) throw Error('Retained settings changed');
       const additions = entries.map(entry => runtimeBindings(entry.setup,candidate,entry.agent));
       // All slots must fit before mutating ANY effective binding map/revision.
       for (const [index, entry] of entries.entries()) slots.get(entry.agent)!.validateBindings({ ...entry.bindings, ...additions[index] });

@@ -13,12 +13,15 @@ export function agentNsec(input: string): string {
   try { const value = nip19.decode(input.trim()); if (value.type !== 'nsec') throw Error(); const secret = Buffer.from(value.data).toString('hex'); publicKey(secret); return secret; }
   catch { throw Error('Enter a valid nsec private key'); }
 }
-/** Identity-only import. A retained reference is verified, never reset or repaired. */
-export function registerAgent(directory: string, secret: string, credentials: CredentialBackend, profile: Pick<RegisteredAgent, 'profile' | 'profileState'>): RegisteredAgent {
+/** Verify custody and commit identity plus selected immutable runtime in one public
+ * snapshot. Legacy identity-only callers remain supported; references are never repaired. */
+export function registerAgent(directory: string, secret: string, credentials: CredentialBackend, profile: Pick<RegisteredAgent, 'profile' | 'profileState'>, runtimeId?: string, expectedRevision?: number): RegisteredAgent {
   const key = credentialReference('agent', publicKey(secret));
   // This outer operation cannot nest saveSettings's lock. The credential import is
   // serialized separately; public CAS catches competing catalog saves afterwards.
   const previous = readSettings(directory);
+  if (expectedRevision !== undefined && previous.revision !== expectedRevision) throw Error('Settings changed. Open the form again.');
+  if (runtimeId !== undefined && !previous.runtimes.some(r => r.id === runtimeId)) throw Error('Select a saved runtime');
   const retained = previous.agents.find(a => a.publicKey === key.publicKey);
   const retainedSlot = existsSync(join(directory,'setup.json')) ? readCredentialManifest(directory).agents[key.publicKey] : undefined;
   settingsLock(directory, () => {
@@ -26,9 +29,9 @@ export function registerAgent(directory: string, secret: string, credentials: Cr
     else if (credentials.read(key) !== null) { if (readCredential(key, credentials) !== secret) throw Error('Existing key mismatch'); }
     else { retainCredentialAttempt(directory,key); createCredential('agent', secret, credentials); }
   });
-  if (retained) return retained;
-  const row: RegisteredAgent = { publicKey: key.publicKey, key, ...profile };
-  saveSettings(directory, { ...previous, agents: [...previous.agents, row] }, previous.revision);
+  if (retained && (!runtimeId || retained.runtimeId)) return retained;
+  const row: RegisteredAgent = { ...(retained ?? { publicKey: key.publicKey, key, ...profile }), ...(runtimeId ? { runtimeId } : {}) };
+  saveSettings(directory, { ...previous, agents: retained ? previous.agents.map(a => a.publicKey === key.publicKey ? row : a) : [...previous.agents, row] }, previous.revision);
   return row;
 }
 /** Exact-entry provider backend. No Desktop account, enumeration, cache or fallback. */

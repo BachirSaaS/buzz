@@ -14,7 +14,7 @@ export async function fixtureCredential(input: any, signal: AbortSignal) {
     bootstrapHostIdentity(input.directory,input.label,input.owner,input.relay,backend);
     return { ok: true };
   }
-  if (input.action === 'register-agent') { registerAgent(input.directory,agentNsec(input.secret),backend,input.profile); return { ok: true }; }
+  if (input.action === 'register-agent') { registerAgent(input.directory,agentNsec(input.secret),backend,input.profile,input.runtimeId,input.expectedRevision); return { ok: true }; }
   if (input.action === 'add-openai') { addOpenAI(input.directory,input.name,input.secret,{ read: r => backend.read(r as unknown as CredentialReference), create: (r,s) => backend.create(r as unknown as CredentialReference,s) }); return { ok: true }; }
   if (input.action === 'models') return { ok: true, models: ['fixture-model'] };
   if (input.action !== 'signin') throw Error('Unsupported installed fixture action');

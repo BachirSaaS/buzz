@@ -29,7 +29,7 @@ function fixture() {
     }
     return { ok: true, secret: backend.read(credentialReference('owner',input.owner)) === null ? null : readCredential(credentialReference('owner',input.owner),backend) };
   };
-  const controller = new ManagerController(home, s => { snapshot = s; }, credential, ((_root: string,_url: string,_secret: string,r: typeof receive) => { receive = r; return client; }) as any, async () => undefined);
+  const controller = new ManagerController(home, s => { snapshot = s; }, credential, ((_root: string,_url: string,_secret: string,r: typeof receive) => { receive = r; return client; }) as any, async () => undefined, async () => [{publicKey:'agent-a',name:'Fixture agent',status:'unknown',channels:[]}]);
   return { controller, home, submitted, backend, get closed() { return closed; }, get snapshot() { return snapshot!; }, receive: (m: Message) => receive(m), states: (s: any[]) => { states = s; }, cleanup() { controller.close(); rmSync(home,{ recursive: true, force: true }); } };
 }
 
@@ -80,7 +80,7 @@ test('manager gates owner, exact selection/revision/freshness, unresolved operat
     f.receive({ ...m, revision: 4, body: { ...m.body, observedAt: Date.now()+1, phase: 'running', actualRun: { run: 'actual' } } });
     await request('start',{ target, revision: 4 }); assert.match(f.snapshot.status,/recent report from the assigned host/);
     f.receive({ ...m, revision: 5, body: { ...m.body, observedAt: Date.now()+2, assignedHost: 'host-b' } });
-    await request('restart',{ target, revision: 5 }); assert.match(f.snapshot.status,/assigned host/); assert.equal(f.submitted.length,4);
+    await request('restart',{ target, revision: 5 }); assert.match(f.snapshot.status,/selection changed/); assert.equal(f.submitted.length,4);
     await request('signout'); assert.equal(f.snapshot.owner,undefined); assert.equal(f.submitted.length,4); assert.equal(f.closed,1);
     f.receive(m); assert.equal(f.controller.snapshot().agents.length,0,'late receive is fenced after signout');
   } finally { f.cleanup(); }
@@ -129,12 +129,12 @@ test('manager presentation preserves raw evidence, unknown states and literal co
     assert.match(row.detail, /Model: accepted\nWorkspace: unconfirmed/);
     assert.match(row.detail, /Configuration name: accepted/);
     assert.match(row.detail, /future: diagnostic: raw detail/);
-    assert.deepEqual(JSON.parse(row.evidence!), m);
+    assert.deepEqual(JSON.parse(row.evidence!).report, m);
     assert.match(row.disabled!.start!, /host report is old/);
     const request = message('save','host-a','agent-a',3,{ configurationAction: 'select', name: 'accepted' });
     const operation = { request, state: 'unknown', publication: 'relay policy failure; automatic retry disabled; reconcile, then retry after policy repair', result: 'new backend diagnostic' };
     f.states([operation]); f.controller.refresh();
-    const shown = f.snapshot.agents.find(r => r.id === `operation:${request.id}`)!;
+    const shown = f.snapshot.diagnostics!.find(r => r.id === `operation:${request.id}`)!;
     assert.match(shown.label, /Choose configuration · Unknown/);
     assert.match(shown.detail, /Automatic retry is disabled/);
     assert.match(shown.detail, /Host result: new backend diagnostic/);
@@ -142,11 +142,11 @@ test('manager presentation preserves raw evidence, unknown states and literal co
     await f.controller.request({ id: 2, action: 'operations' });
     assert.match(f.snapshot.status, /Choose configuration · Unknown: new backend diagnostic/);
     await f.controller.request({ id: 3, action: 'reconcile' });
-    assert.equal(f.snapshot.status, 'Checking operation results. Operations blocked by relay policy will not be retried.');
+    assert.match(f.snapshot.status, /Checking operation results. Operations blocked by relay policy will not be retried./);
     assert.equal(f.submitted.length, 0);
     assert.equal(operation.state, 'unknown');
     f.receive(message('availability','host-b','',0,{ observedAt: Date.now(), configuration: { label: 'Host B', relay: 'wss://example.invalid' } }));
-    assert.match(f.snapshot.agents.find(r => r.id === 'host:host-b')!.detail, /Host configuration: Host name: Host B/);
+    assert.match(f.snapshot.diagnostics!.find(r => r.id === 'host:host-b')!.detail, /Host configuration: Host name: Host B/);
   } finally { f.cleanup(); }
 });
 
@@ -170,5 +170,40 @@ test('typed completion separates submitted intent from failures, cancellation an
     c.cancel(); finish({ok:true,secret});
     assert.equal((await pending).state,'cancelled');
     assert.equal(c.snapshot().owner,undefined);
+  } finally {c.close();rmSync(home,{recursive:true,force:true});}
+});
+
+test('late directory completion after cancellation cannot repopulate Agents',async()=>{
+  const home=mkdtempSync(join(tmpdir(),'beehive-manager-'));let enter!:()=>void,release!:(v:any)=>void;
+  const entered=new Promise<void>(r=>enter=r),read=new Promise<any>(r=>release=r);
+  const client={ready:Promise.resolve(),connected:true,close(){},status:()=>[],reconcile(){},submit(){throw Error('No execution');}};
+  const c=new ManagerController(home,()=>{},async()=>({ok:true,secret}),(()=>client) as any,async()=>undefined,async()=>{enter();return read;});
+  try {
+    const pending=c.request({id:1,action:'signin',values:{owner,relay:'wss://fixture.invalid'}});
+    await entered;c.cancel();release([{publicKey:'late-agent',name:'Late',status:'unknown',channels:[]}]);
+    assert.equal((await pending).state,'cancelled');assert.deepEqual(c.snapshot().agents,[]);
+  } finally {c.close();rmSync(home,{recursive:true,force:true});}
+});
+
+test('directory refresh replaces removals, retains prior rows on failure, and fences cancelled completion',async()=>{
+  const home=mkdtempSync(join(tmpdir(),'beehive-manager-'));
+  const rows=[{publicKey:'agent-a',name:'A',status:'unknown' as const,channels:[]}];
+  let read:()=>Promise<any>=async()=>rows,connections=0;
+  const client={ready:Promise.resolve(),connected:true,close(){},status:()=>[],reconcile(){},submit(){throw Error('No execution');}};
+  const c=new ManagerController(home,()=>{},async()=>({ok:true,secret}),(()=>{connections++;return client;}) as any,async()=>undefined,()=>read());
+  let id=0;const request=(action:string)=>c.request({id:++id,action,values:{owner,relay:'wss://fixture.invalid'}});
+  try {
+    assert.equal((await request('signin')).state,'completed');
+    read=async()=>{throw Error('Offline');};
+    assert.equal((await request('directory-refresh')).state,'failed');
+    assert.equal(c.snapshot().agents.length,1);assert.match(c.snapshot().status,/Previous results retained/);
+    let enter!:()=>void,release!:(v:any)=>void;
+    const entered=new Promise<void>(r=>enter=r),pendingRead=new Promise<any>(r=>release=r);
+    read=async()=>{enter();return pendingRead;};
+    const pending=request('directory-refresh');await entered;c.cancel();release([]);
+    assert.equal((await pending).state,'cancelled');assert.equal(c.snapshot().agents.length,1);
+    read=async()=>[];
+    assert.equal((await request('directory-refresh')).state,'completed');assert.equal(c.snapshot().agents.length,0);
+    assert.equal(connections,1);
   } finally {c.close();rmSync(home,{recursive:true,force:true});}
 });
