@@ -316,12 +316,14 @@ A Stop result is not a recent host report that confirms the agent is stopped.` }
         this.profilePreview = undefined;
         const identity = readHostIdentityPublic(this.hostDirectory);
         const key = publicKey(agentNsec(v.secret ?? ''));
+        if (v.agent && v.agent !== key) throw plain('The key does not match the selected agent.');
         if ((this.continuation || v.continuation) && (this.continuation?.token !== v.continuation || this.continuation?.agent !== key)) throw plain('The key does not match the selected agent. Start cancelled.');
         const profile = await this.profileRead(identity.pairing.relay,key,abort.signal); check();
         this.profilePreview = { publicKey: key, key: { service: 'beehive', role: 'agent', publicKey: key }, ...profile };
         this.status = profile.profileState === 'found' ? 'Signed public profile found.' : profile.profileState === 'none' ? 'No profile found. You can register with the public key.' : 'Profile lookup unavailable. You can register without a profile.';
       } else if (request.action === 'register-agent') {
         const key = publicKey(agentNsec(v.secret ?? ''));
+        if (v.agent && v.agent !== key) throw plain('The key does not match the selected agent.');
         const pending = this.continuation;
         if ((pending || v.continuation) && (!pending || pending.token !== v.continuation || pending.agent !== key)) throw plain('Start selection changed. No operation was sent.');
         if (this.profilePreview?.publicKey !== key) throw plain('Confirm the public key first.');

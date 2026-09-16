@@ -68,14 +68,18 @@ test('agent controls stay visible beside long details and user scroll survives u
     view.onSelect = id => { routed.push(id); };
     const actions = ['Start', 'Stop', 'Restart', 'Move', 'Inspect'].map(label => ({ label, run: () => { runs.push(label); } }));
     view.show(rows, actions); await ui.renderOnce();
-    // Controls are a bounded always-visible region: the action list renders beside
+    // Actions are a bounded viewport inside the detail pane and render beside
     // long detail text, without scrolling the Details pane to reach it.
     const initial = ui.captureCharFrame();
-    assert.ok(initial.includes('Controls')); assert.ok(initial.includes('Restart')); assert.ok(initial.includes('Report line 00'));
+    assert.ok(!initial.includes('Controls')); assert.ok(initial.includes('Details')); assert.ok(initial.includes('Restart')); assert.ok(initial.includes('Report line 00'));
     // The advertised 'a' key focuses controls and the focused region stays on screen.
     ui.mockInput.pressKey('a'); await ui.renderOnce();
     const focused = ui.captureCharFrame();
-    assert.ok(focused.includes('[Controls]')); assert.ok(focused.includes('Restart'));
+    assert.ok(focused.includes('[Actions]')); assert.ok(focused.includes('Restart'));
+    ui.mockInput.pressArrow('down'); view.show(rows, actions); await ui.renderOnce();
+    assert.ok(ui.captureCharFrame().includes('▶ Stop'), 'unchanged refresh reset selected detail action');
+    assert.ok(ui.captureCharFrame().includes('[Actions]'), 'unchanged refresh moved action focus');
+    ui.mockInput.pressArrow('up');
     // User wheel scroll over Details moves the long report off its first lines.
     for (let wheel = 0; wheel < 10; wheel++) await ui.mockMouse.scroll(60, 8, 'down');
     await ui.renderOnce();
@@ -88,7 +92,7 @@ test('agent controls stay visible beside long details and user scroll survives u
     const pushed = ui.captureCharFrame();
     assert.ok(!pushed.includes('Report line 00'), 'unchanged snapshot push reset Details scroll');
     assert.ok(pushed.includes('Report line 10')); assert.deepEqual(routed, ['agent-one']); assert.deepEqual(runs, []);
-    // Pointer wheel over the bounded Controls moves the focused action selection.
+    // Pointer wheel over detail actions moves the focused action selection.
     await ui.mockMouse.scroll(40, 22, 'down'); await ui.mockMouse.scroll(40, 22, 'down'); await ui.renderOnce();
     assert.ok(ui.captureCharFrame().includes('▶ Restart'));
     // A click on a visible control runs exactly that action, never an offset-mapped stranger.
@@ -108,14 +112,14 @@ test('agent controls stay visible beside long details and user scroll survives u
   } finally { view.close(); }
 });
 
-test('overflowing real Agents controls map every visible click to its own action and keep the tail reachable', async () => {
+test('overflowing detail actions map every visible click to its own action and keep the tail reachable', async () => {
   const ui = await createTestRenderer({ width: 100, height: 30, exitOnCtrlC: false });
   const view = new OpenTuiScreen(ui.renderer);
   try {
     const runs: string[] = [];
-    // The actual signed-in Agents menu from manager-view.ts is the longest list in
-    // the product: it overflows the bounded Controls region at 100x30.
-    const labels = ['Register agent', 'Refresh agents', 'Choose runtime…', 'Choose configuration…', 'Start', 'Stop', 'Restart', 'Move…', 'Inspect operations', 'Check operation results', 'Sign out', 'Publish profile or instructions', 'Quit Beehive'];
+    // Renderer stress fixture, not a mirrored production menu. Production menu
+    // generation is exercised separately by manager walkthroughs.
+    const labels = ['Register agent', 'Refresh agents', 'Choose runtime…', 'Choose configuration…', 'Start', 'Stop', 'Restart', 'Move…', 'Inspect operations', 'Check operation results', 'Sign out', 'Publish profile or instructions', 'Last action'];
     const actions = labels.map(label => ({ label, run: () => { runs.push(label); } }));
     view.show([{ id: 'review-agent', label: 'Review agent', detail: 'Agent detail' }], actions);
     await ui.renderOnce();
@@ -132,17 +136,17 @@ test('overflowing real Agents controls map every visible click to its own action
     for (let wheel = 0; wheel < 12; wheel++) await ui.mockMouse.scroll(40, 20, 'down');
     await ui.renderOnce();
     const tailed = ui.captureCharFrame();
-    assert.ok(tailed.includes('Quit Beehive'), 'keyboard/wheel must keep the tail reachable');
+    assert.ok(tailed.includes('Last action'), 'keyboard/wheel must keep the tail reachable');
     assert.ok(!tailed.includes('Register agent'), 'window should have followed the selection');
     await ui.mockMouse.click(40, 22); await ui.renderOnce();
     await ui.mockMouse.click(40, 24); await ui.renderOnce();
-    assert.deepEqual(runs, ['Register agent', 'Check operation results', 'Sign out', 'Quit Beehive']);
+    assert.deepEqual(runs, ['Register agent', 'Check operation results', 'Sign out', 'Last action']);
     // Keyboard selection movement recentres the window on the head again.
     for (let step = 0; step < 12; step++) ui.mockInput.pressArrow('up');
     await ui.renderOnce();
     assert.ok(ui.captureCharFrame().includes('Register agent'));
     await ui.mockMouse.click(40, 15); await ui.renderOnce();
-    assert.deepEqual(runs, ['Register agent', 'Check operation results', 'Sign out', 'Quit Beehive', 'Register agent']);
+    assert.deepEqual(runs, ['Register agent', 'Check operation results', 'Sign out', 'Last action', 'Register agent']);
   } finally { view.close(); }
 });
 

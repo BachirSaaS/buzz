@@ -18,7 +18,6 @@ export class OpenTuiScreen {
   private readonly pane: BoxRenderable;
   private readonly detail: TextRenderable;
   private readonly scroll: ScrollBoxRenderable;
-  private readonly controlsFrame: BoxRenderable;
   private readonly actions: SelectRenderable;
   private readonly status: TextRenderable;
   private readonly footer: TextRenderable;
@@ -69,17 +68,14 @@ export class OpenTuiScreen {
       else this.notice('Use arrows to select an item in this list. Mouse selection is unavailable.');
     } });
     this.listFrame.add(this.list);
-    // Details and Controls share the right column. Controls always occupy a
-    // bounded bottom region, so agent actions stay reachable and visibly
-    // focused beside arbitrarily long detail text, for pointer and keyboard.
-    this.pane = new BoxRenderable(renderer, { flexGrow: 1, height: '100%', flexDirection: 'column' });
+    // One bordered detail pane owns both the report and its actionable rows.
+    // Actions have a bounded viewport inside that pane, not a third frame.
+    this.pane = new BoxRenderable(renderer, { flexGrow: 1, height: '100%', flexDirection: 'column', border: true, title: 'Details' });
     body.add(this.pane);
-    this.scroll = new ScrollBoxRenderable(renderer, { flexGrow: 1, border: true, title: 'Details', scrollY: true, onMouseDown: () => { this.focusIndex = 1; this.scroll.focus(); } });
+    this.scroll = new ScrollBoxRenderable(renderer, { flexGrow: 1, scrollY: true, onMouseDown: () => { this.focusIndex = 1; this.scroll.focus(); } });
     this.pane.add(this.scroll);
     this.detail = new TextRenderable(renderer, { fg, width: '100%', content: 'No items.', selectable: false });
     this.scroll.add(this.detail);
-    this.controlsFrame = new BoxRenderable(renderer, { height: 7, border: true, title: 'Controls' });
-    this.pane.add(this.controlsFrame);
     this.actions = new SelectRenderable(renderer, { backgroundColor: bg, textColor: fg, focusedBackgroundColor: bg, focusedTextColor: fg, selectedBackgroundColor: fg, selectedTextColor: bg, width: '100%', height: '100%', showDescription: false, showSelectionIndicator: true, showScrollIndicator: true, options: [], onMouseScroll: event => { if (event.scroll?.direction === 'up') this.actions.moveUp(); else if (event.scroll?.direction === 'down') this.actions.moveDown(); }, onMouseDown: event => {
       this.focusIndex = 2; this.actions.focus();
       const delta = event.y - this.actions.y, visible = Math.max(1, Math.floor(this.actions.height));
@@ -95,7 +91,7 @@ export class OpenTuiScreen {
       if (index >= this.commands.length) return;
       this.actions.setSelectedIndex(index); this.actions.selectCurrent();
     } });
-    this.controlsFrame.add(this.actions);
+    this.pane.add(this.actions);
     this.status = new TextRenderable(renderer, { fg, height: 2, onMouseDown: () => this.outcome() });
     this.root.add(this.status);
     this.footer = new TextRenderable(renderer, { fg, height: 1, content: OpenTuiScreen.hintsWide });
@@ -129,7 +125,7 @@ export class OpenTuiScreen {
   private focusStyle() {
     this.listFrame.title = `${this.list.focused ? '[List]' : 'List'} · ${this.rows.length ? this.list.getSelectedIndex() + 1 : 0}/${this.rows.length}`;
     this.scroll.title = managerSections[this.scope] ?? 'Details';
-    this.controlsFrame.title = this.actions.focused ? '[Controls]' : 'Controls';
+    this.pane.title = this.actions.focused ? 'Details · [Actions]' : 'Details · Tab: Actions';
     for (const widget of [this.list, this.actions]) { widget.selectedBackgroundColor = widget.focused ? fg : bg; widget.selectedTextColor = widget.focused ? bg : fg; }
   }
   private narrow = false;
@@ -140,9 +136,8 @@ export class OpenTuiScreen {
   setPending(value: boolean) { this.pending = value; }
   private formWidth() { return this.scope === 0 ? Math.max(20, this.renderer.width - this.listFrame.width - 2) : Math.min(72, this.renderer.width - 4); }
   private formLeft() { return this.scope === 0 ? this.listFrame.width : Math.floor((this.renderer.width - this.formWidth()) / 2); }
-  /** Bounded Controls height: every action stays reachable through the list's
-   * own focus scroll, while Details keeps at least a bordered sliver. */
-  private controlsHeight() { return Math.min(Math.max(7, Math.min(12, this.commands.length + 2)), Math.max(7, this.renderer.height - 10)); }
+  /** Keep actions reachable within the detail pane without consuming the report. */
+  private actionHeight() { return Math.min(Math.max(7, Math.min(12, this.commands.length + 2)), Math.max(7, this.renderer.height - 10)) - 2; }
   private resize() {
     this.heading();
     if (this.overlay && this.modal) { this.overlay.width = this.formWidth(); this.overlay.left = this.formLeft(); this.overlay.height = this.compactOverlay ? Math.min(14, this.renderer.height - 4) : this.renderer.height - 4; }
@@ -150,7 +145,7 @@ export class OpenTuiScreen {
     this.narrow = this.scope !== 0 && (this.renderer.width < 88 || this.renderer.height < 24);
     this.listFrame.visible = !this.narrow || !this.drilled;
     this.pane.visible = !this.narrow || this.drilled;
-    this.controlsFrame.height = this.controlsHeight();
+    this.actions.height = this.actionHeight();
     this.listFrame.width = this.narrow ? '100%' : Math.min(32, Math.max(14, Math.floor(this.renderer.width * .28)));
     this.scroll.title = managerSections[this.scope] ?? 'Details';
     this.footer.content = this.relayFooter + '\n' + (this.renderer.width >= 70 ? OpenTuiScreen.hintsWide : OpenTuiScreen.hintsNarrow); this.footer.height = 2;
@@ -205,7 +200,7 @@ export class OpenTuiScreen {
     this.detail.visible = true;
     const commandOptions = actions.map(a => ({ name: clean(a.label + (a.disabled ? ' — unavailable' : '')), description: '' }));
     if (JSON.stringify(this.actions.options) !== JSON.stringify(commandOptions)) this.actions.options = commandOptions;
-    this.controlsFrame.height = this.controlsHeight();
+    this.actions.height = this.actionHeight();
     const options = rows.map(row => ({ name: clean(row.label), description: '', value: row.id }));
     if (JSON.stringify(this.list.options) !== JSON.stringify(options)) this.list.options = options;
     const index = Math.max(0, rows.findIndex(row => row.id === prior));
@@ -243,7 +238,7 @@ export class OpenTuiScreen {
   }
   inspect() { if (this.scope === 0) return; const row = this.rows[this.list.getSelectedIndex()]; this.read('Technical details', row?.evidence ?? 'No technical details for this item.'); }
   private outcome() { this.read('Status · latest message', this.lastNotice || 'No status message yet.'); }
-  private help() { this.read('Help', 'Tab: switch list and controls. Arrows: select. Enter: open.\nLeft/Right: Host, Agents, Harnesses, Providers.\nEsc: cancel or back. q or Ctrl-C: quit. The host keeps running.\nHost Start and Stop control this computer’s service, not an agent.\nAgent execution still requires authenticated management authority.\nShortcuts do not run while you edit fields.'); }
+  private help() { this.read('Help', 'Tab: switch list and detail actions. Arrows: select. Enter: open.\nLeft/Right: Host, Agents, Harnesses, Providers.\nEsc: cancel or back. q or Ctrl-C: quit. The host keeps running.\nHost Start and Stop control this computer’s service, not an agent.\nAgent execution still requires authenticated management authority.\nShortcuts do not run while you edit fields.'); }
   private read(title: string, content: string) {
     if (this.modal || this.closed) return;
     const box = new ScrollBoxRenderable(this.renderer, { position: 'absolute', top: 2, left: this.formLeft(), width: this.formWidth(), height: this.renderer.height - 4, border: true, title: title + ' · Esc close', backgroundColor: bg, scrollY: true });

@@ -18,8 +18,14 @@ test('four sections retain exact selections without retargeting removed items', 
 test('section rows expose selected public fields, not credential references or other controls', () => {
   const snapshot: ManagerSnapshot = { local: [{ id: 'host', label: 'This host', detail: '' }], agents: [], status: '', hostRelay: 'wss://fixture.invalid', service: { state: 'stopped' }, settings: { version: 1, revision: 1, agents: [], providers: [{ id: 'p', name: 'Provider A', type: 'openai', endpoint: 'https://api.openai.com/v1', key: { service: 'beehive', account: 'secret-reference' } }], runtimes: [{ id: 'r', name: 'Runtime A', harness: 'buzz-agent', providerId: 'p', model: 'gpt-5', effort: 'high', executable: '/fixture/harness' }] } };
   assert.match(sectionRows(snapshot,0)[0]!.detail, /Host name: This host\nRelay URL: wss:\/\/fixture.invalid\nState: stopped/);
-  assert.equal(sectionRows(snapshot,1).length, 0);
+  assert.deepEqual(sectionRows(snapshot,1).map(row => row.label), ['Registered agents', '  Register agent', 'Other agents']);
   assert.match(sectionRows(snapshot,2)[0]!.detail, /Provider: Provider A\nModel: gpt-5\nEffort: high/);
   assert.equal(sectionRows(snapshot,3)[0]!.id,'p');
   assert.ok(!JSON.stringify(sectionRows(snapshot,3)).includes('secret-reference'));
 });
+
+ test('Agents are separated by registered custody, retaining directory order within each group', () => {
+  const agent = (id: string) => ({ id, label: id, detail: id, revision: 0, configurations: [] });
+  const snapshot = { local: [], agents: [agent('other'), agent('registered')], status: '', settings: { version: 1, revision: 0, providers: [], runtimes: [], agents: [{ publicKey: 'registered', key: { service: 'beehive', role: 'agent', publicKey: 'registered' }, profileState: 'none' }] } } as ManagerSnapshot;
+  assert.deepEqual(sectionRows(snapshot, 1).map(row => row.id), ['registered-agents', 'register-agent', 'registered', 'other-agents', 'other']);
+ });

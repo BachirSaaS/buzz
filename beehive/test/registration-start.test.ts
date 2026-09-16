@@ -243,3 +243,18 @@ test('cancelling after host enrollment preserves stopped placement and cannot la
   const retry=await request('start',undefined,row().target,row().revision);
   assert.equal(retry.state,'registration-required','retry is explicit, never resumes cancelled continuation');
 });
+
+
+test('Other-agent registration requires that exact identity even without a Start continuation', async t => {
+  const f = await fixture(t);
+  const other = 'f'.repeat(64);
+  assert.equal((await f.request('profile-preview', { secret: f.nsec, agent: other })).state, 'failed');
+  assert.equal(readSettings(f.directory).agents.length, 0);
+  assert.equal((await f.request('profile-preview', { secret: f.nsec, agent: f.agent })).state, 'completed');
+  assert.equal((await f.request('register-agent', { secret: f.nsec, agent: other, runtime: f.runtimeId })).state, 'failed');
+  assert.equal(readSettings(f.directory).agents.length, 0);
+  assert.equal((await f.request('register-agent', { secret: f.nsec, agent: f.agent, runtime: f.runtimeId })).state, 'completed');
+  assert.equal(readSettings(f.directory).agents[0]?.publicKey, f.agent);
+  await f.request('operations');
+  assert.match(f.snapshot.status, /No saved operations/);
+});

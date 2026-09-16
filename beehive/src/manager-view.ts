@@ -60,11 +60,11 @@ async function registerForm(continuation?: string, agent?: string) {
     const runtime = runtimes[labels.indexOf(choice)]; if (!runtime) return;
     const answer = await screen.input(`Register agent${agent ? `\n${agent}` : ''}\nMatching nsec. Hidden. Saved in Beehive’s OS credential store.`, '', true);
     if (answer === undefined) return; secret = answer;
-    const result = await request('profile-preview',{secret,...(continuation ? {continuation} : {})});
+    const result = await request('profile-preview',{secret,...(agent ? {agent} : {}),...(continuation ? {continuation} : {})});
     if (result.state !== 'completed') { settled = true; return; }
     const preview = snapshot.profilePreview; if (!preview) return;
     if (!await screen.confirm(`Register agent\n${preview.profile?.name ?? 'Name unavailable'}\n${preview.publicKey}\n${preview.profileState === 'unavailable' ? 'Profile unavailable; public key verified locally.' : preview.profileState === 'none' ? 'No relay profile found.' : ''}\nRuntime: ${runtime.name}\nHarness: ${runtime.harness} · Model: ${runtime.model}\nProvider: ${snapshot.settings?.providers.find(p => p.id === runtime.providerId)?.name ?? 'Unknown'}\nEffort: ${runtime.effort ?? 'Inherit'} · Environment: ${Object.keys(runtime.environment ?? {}).join(', ') || 'None'}\n${continuation ? 'Register and continue Start on the selected host?' : 'Save registration?'}`)) return;
-    await request('register-agent',{secret,runtime:runtime.id,...(continuation ? {continuation} : {})}); settled = true;
+    await request('register-agent',{secret,runtime:runtime.id,...(agent ? {agent} : {}),...(continuation ? {continuation} : {})}); settled = true;
   } finally { secret = ''; if (continuation && !settled) await request('retire-continuation'); }
 }
 function eligibility(action: string) {
@@ -83,7 +83,7 @@ function render() {
   const configured = snapshot.local.some(r => r.id === 'host');
   const registerAction: ManagerAction = { label: 'Register agent', run: async () => {
       if (!configured) { await routing('configure'); return; }
-      await registerForm();
+      await registerForm(undefined, snapshot.agents.some(row => row.id === selected) ? selected : undefined);
     } };
   let actions: ManagerAction[] = scope !== 1 ? [
     { label: 'Add provider', run: async () => {
@@ -156,10 +156,15 @@ The source stops before destination launch. Workspace, session and credentials s
     { label: 'Import matching owner key and sign in', run: () => routing('signin', true) },
   ];
   if (scope === 0) actions = actions.filter(a => a.label === (snapshot.service?.state === 'running' ? 'Stop' : 'Start'));
-  if (scope === 1) actions.unshift(registerAction);
+  if (scope === 1) {
+    const isAgent = snapshot.agents.some(row => row.id === selected);
+    const registered = snapshot.settings?.agents.some(agent => agent.publicKey === selected);
+    if (snapshot.owner && !isAgent) actions = [registerAction, ...actions.filter(action => ['Refresh agents', 'Sign out'].includes(action.label))];
+    else if (snapshot.owner && !registered) actions.unshift(registerAction);
+  }
   if (scope === 2) actions = [
     ...actions.filter(a => a.label === 'Add runtime'),
-    { label: 'Refresh', run: () => request('runtime-form') },
+    { label: 'Refresh harnesses', run: () => request('runtime-form') },
   ];
   if (scope === 3) actions = [
     ...actions.filter(a => a.label === 'Add provider'),
@@ -169,7 +174,6 @@ The source stops before destination launch. Workspace, session and credentials s
       if (snapshot.models) await screen.choose('Models', snapshot.models.map(id=>snapshot.modelLabels?.[id] && snapshot.modelLabels[id] !== id ? `${snapshot.modelLabels[id]} · ${id}` : id));
     } },
   ];
-  if (scope !== 0) actions.push({ label: 'Quit Beehive', run: () => screen.close() });
   screen.show(vanished ? [{ id: selected, label: 'Selection unavailable', detail: 'Unavailable' }, ...rows] : rows, actions, selected);
   const notice = scope === 0 ? `Host: ${snapshot.service?.state ?? 'unknown'} · Saved: ${snapshot.settings?.revision ?? 0} · Loaded: ${snapshot.service?.revision ?? 'not confirmed'}\n${snapshot.status}` : snapshot.status;
   if (lastStatus !== notice) { lastStatus = notice; screen.notice(notice); }
