@@ -21,6 +21,10 @@ export async function fixtureCredential(input: any, signal: AbortSignal) {
   if (input.action === 'add-provider') { addProvider(input.directory,input.name,input.secret,{read:r=>backend.read(r as unknown as CredentialReference),create:(r,s)=>backend.create(r as unknown as CredentialReference,s)},input.type,input.endpoint,input.wire); return {ok:true}; }
   if (input.action === 'models') return { ok: true, models: ['fixture-model'] };
   if (input.action === 'signin-buzz') {
+    // Test-only pacing so a PTY driver can observe the pending state and exercise
+    // Esc cancellation deterministically; inert unless the driver sets it.
+    const paced = Number(process.env.BEEHIVE_TEST_SIGNIN_DELAY_MS ?? '0');
+    if (paced > 0) await new Promise((resolve, reject) => { const timer = setTimeout(resolve, paced); signal.addEventListener('abort', () => { clearTimeout(timer); reject(signal.reason); }, { once: true }); });
     const key = backend.read(credentialReference('owner', input.owner));
     const result = readBuzzOwnerKey(input.owner, () => key === null ? null : JSON.stringify({identity:nip19.nsecEncode(Buffer.from(key,'hex'))}));
     if (!result.ok) throw Error(buzzOwnerKeyErrors[result.reason]);

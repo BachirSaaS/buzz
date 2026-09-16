@@ -22,7 +22,7 @@ function request(action: string, values?: Record<string,string>, target?: string
   const id = ++sequence;
   const completion = new Promise<ManagerResult>(resolve => { pending = { id, resolve }; });
   const message: ManagerRequest = { id, action, values, target, revision };
-  screen.setPending(true); const retire = screen.temporaryNotice(action === 'add-databricks' ? 'Signing in through your browser… Esc cancels the native helper. An OS credential write or browser window may remain; cancelled sign-in will not save a provider.' : 'Working… Esc stops waiting. Remote work and saved changes are not cancelled. Inspect before you try again.');
+  screen.setPending(true); const retire = screen.temporaryNotice(action === 'add-databricks' ? 'Signing in through your browser… Esc cancels the native helper. An OS credential write or browser window may remain; cancelled sign-in will not save a provider.' : action === 'signin-buzz' ? 'Reading the saved Buzz owner key… Keychain read only · session only · no local copy. Esc stops waiting. An OS keychain permission dialog may appear; it is separate and is not bypassed.' : 'Working… Esc stops waiting. Remote work and saved changes are not cancelled. Inspect before you try again.');
   output.write(JSON.stringify(message) + '\n');
   return completion.finally(retire);
 }
@@ -46,10 +46,14 @@ async function routing(action: string, secret = false) {
     if (key === undefined) return;
     values.secret = key;
   }
-  const confirmation = action === 'signin-buzz'
-    ? `Sign in with Buzz key\nKeychain read only · session only · no local copy\nOwner: ${shortIdentity(owner)}\nRelay: ${relay}`
-    : `${action === 'configure' ? 'Configure this computer' : 'Sign in'}\nOwner: ${shortIdentity(owner)}\nRelay: ${relay}\n${action === 'configure' ? 'Create host identity in the OS credential store?' : 'Access owner key in the OS credential store?'}`;
-  if (!await screen.confirm(confirmation)) { delete values.secret; return; }
+  // Buzz-key sign-in carries no extra Beehive prompt: selecting the action is
+  // itself the explicit gesture (an OS keychain permission dialog is separate
+  // and still applies), so the request dispatches immediately. The saved-key
+  // and import paths keep their confirmation.
+  if (action !== 'signin-buzz') {
+    const confirmation = `${action === 'configure' ? 'Configure this computer' : 'Sign in'}\nOwner: ${shortIdentity(owner)}\nRelay: ${relay}\n${action === 'configure' ? 'Create host identity in the OS credential store?' : 'Access owner key in the OS credential store?'}`;
+    if (!await screen.confirm(confirmation)) { delete values.secret; return; }
+  }
   await request(action, values); delete values.secret;
 }
 async function registerForm(continuation?: string, agent?: string) {

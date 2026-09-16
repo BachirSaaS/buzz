@@ -1,7 +1,10 @@
 # Explicit Buzz owner sign-in
 
 Agents offers **Sign in with Buzz key** alongside saved-key and matching-key import.
-The confirmation says Keychain read only, session only, no local copy. Merely
+Selecting the action signs in immediately: selection itself is the explicit
+gesture, and no extra Beehive confirmation is shown. While the key is read the
+status line states Keychain read only, session only, no local copy, and that an
+OS keychain permission dialog is separate and not bypassed. Merely
 opening Beehive, selecting Agents, configuring routing, or choosing another
 sign-in method never invokes this reader. It is not provider sharing/discovery.
 
@@ -79,6 +82,13 @@ Final semantic candidate, pinned Node **24.15.0**, package-local TypeScript:
   A separate fresh traversal of the **unchanged installed launcher** exercised
   saved-key sign-in (cancel/confirm), with the same explicit isolation. This is
   compatibility evidence, not installation of this feature or real relay proof.
+- 2025-09-16 prompt removal: the extra Beehive confirmation before the Buzz-key
+  read was deleted; one selection dispatches the request. The source-UI PTY
+  driver (`ui-single-gesture.py`) replays screen state and verified Agents →
+  select Buzz key once → signed-in controls with **no** Beehive confirm or other
+  input, Esc still cancelling the in-flight read; same fresh-HOME,
+  fixture-credential and service fences, production Keychain untouched. The
+  12/12 backend and 8/8 renderer suites and package typecheck re-passed.
 - **One** default concurrent full-package run was attempted on the final semantic
   candidate. It exceeded the outer tool's **400 second** bound, so no final suite
   summary exists. Retained output reports failures in assignment, broker, and
