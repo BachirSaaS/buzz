@@ -66,7 +66,7 @@ export function PulseBriefing({
           <span className="sr-only">Finding what needs your attention…</span>
         </div>
       ) : groups.length ? (
-        <div className="mx-auto grid w-full max-w-[640px] gap-4">
+        <div className="mx-auto grid w-full max-w-[640px] gap-1">
           {groups.map((group) => (
             <HomeActivityCard
               key={group.kind}

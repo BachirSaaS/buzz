@@ -143,4 +143,15 @@ test("Home falls back to bounded recent evidence after priority signals", async 
   for (const id of ["muted", "old", "pending", "future"])
     assert.ok(!ids.includes(id));
   assert.deepEqual(buildHomeBriefing(items, undefined, reads, now), []);
+  const own = buildHomeBriefing(
+    [
+      conversation("own", [
+        message({ pubkey: me, author: "Arjun", body: "The design is ready" }),
+      ]),
+    ],
+    me,
+    reads,
+    now,
+  );
+  assert.match(own[0].label, /^You shared/);
 });

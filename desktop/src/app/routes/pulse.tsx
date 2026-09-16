@@ -12,7 +12,6 @@ import {
   type ProfilePanelTab,
   type ProfilePanelView,
 } from "@/features/profile/ui/UserProfilePanelUtils";
-import { usePreviewFeatureWarning } from "@/shared/features";
 import { ViewLoadingFallback } from "@/shared/ui/ViewLoadingFallback";
 
 const PulseScreen = React.lazy(async () => {
@@ -105,7 +104,8 @@ export const Route = createFileRoute("/pulse")({
 });
 
 function PulseRouteComponent() {
-  usePreviewFeatureWarning("pulse");
+  // This branch launches into Home here. The historical route name should not
+  // make the default app shell require the legacy Pulse experiment toggle.
   return (
     <React.Suspense
       fallback={<ViewLoadingFallback includeHeader kind="pulse" />}

@@ -168,7 +168,16 @@ export function buildHomeBriefing(
             m.createdAt >= now - 48 * 3600 &&
             m.createdAt <= now + 60,
         );
-      const authors = [...new Set(messages.map((m) => m.author))];
+      const authors = [
+        ...new Set(
+          messages.map((m) =>
+            m.pubkey?.trim().toLowerCase() ===
+            currentPubkey?.trim().toLowerCase()
+              ? "You"
+              : m.author,
+          ),
+        ),
+      ];
       const names =
         authors.slice(0, 2).join(" and ") +
         (authors.length > 2 ? ` and ${authors.length - 2} others` : "");

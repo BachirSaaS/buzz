@@ -1,5 +1,6 @@
 import type { PulseConversation } from "./unifiedFeed";
 import type { BriefingGroup, ReadSignals } from "./pulseBriefing";
+import { normalizePubkey } from "@/shared/lib/pubkey";
 
 /** Supply conversation context and explicit viewer relevance, bounded for a short briefing. */
 export function buildSummaryInput(
@@ -8,7 +9,23 @@ export function buildSummaryInput(
   reads: ReadSignals,
   scope: string,
   now: number,
+  viewerName?: string,
 ) {
+  const viewerKey = normalizePubkey(me);
+  const isViewer = (pubkey?: string) =>
+    Boolean(viewerKey) && normalizePubkey(pubkey ?? "") === viewerKey;
+  const names = [
+    ...new Set(
+      [
+        viewerName,
+        ...conversations.flatMap((item) =>
+          item.messages
+            .filter((message) => isViewer(message.pubkey))
+            .map((message) => message.author),
+        ),
+      ].filter((name): name is string => Boolean(name && name !== "You")),
+    ),
+  ].slice(0, 8);
   const eligible = conversations.filter(
     (item) =>
       Boolean(item.channel) &&
@@ -29,6 +46,7 @@ export function buildSummaryInput(
   const perSource = new Map<string, number>();
   return {
     scope,
+    viewer: { names, addressAs: "you" },
     asOf: Math.floor(now / 60) * 60,
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     conversations: selected
@@ -62,8 +80,8 @@ export function buildSummaryInput(
           messages: messages.map((m) => ({
             id: m.id,
             conversationId: messageSources.get(m.id) ?? item.id,
-            author: m.author,
-            isViewer: m.pubkey?.toLowerCase() === me.toLowerCase(),
+            author: isViewer(m.pubkey) ? "You" : m.author,
+            isViewer: isViewer(m.pubkey),
             isAgent: Boolean(m.isAgent),
             createdAt: m.createdAt,
             body: m.body.slice(0, 650),

@@ -571,9 +571,9 @@ export function WorkflowDialog({
           }}
           showCloseButton={false}
         >
-          <DialogHeader className="flex flex-shrink-0 flex-row items-center justify-between gap-6 space-y-0 px-6 pt-3 pb-2 text-left">
+          <DialogHeader className="flex flex-shrink-0 flex-row items-center justify-between gap-6 space-y-0 border-b border-border p-6 text-left">
             <div className="space-y-0">
-              <DialogTitle className="text-lg leading-tight">
+              <DialogTitle className="text-blockui-section-title">
                 {TITLES[mode]}
               </DialogTitle>
               <DialogDescription className="sr-only">
@@ -618,7 +618,7 @@ export function WorkflowDialog({
                       data-testid="workflow-history-dropdown"
                       sideOffset={8}
                     >
-                      <div className="flex-shrink-0 border-b px-5 py-3">
+                      <div className="flex-shrink-0 border-b p-4">
                         <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                           Workflow
                         </p>
@@ -740,7 +740,7 @@ export function WorkflowDialog({
             </p>
           ) : null}
 
-          <div className="flex flex-shrink-0 items-center justify-between gap-4 px-6 pt-2 pb-4">
+          <div className="flex flex-shrink-0 items-center justify-between flex-wrap gap-4 border-t border-border px-6 py-4">
             <Tabs onValueChange={handleEditorModeChange} value={editorMode}>
               <TabsList aria-label="Workflow editor mode" className="h-8 p-0.5">
                 <TabsTrigger

@@ -59,7 +59,10 @@ export const ChooserDialogContent = React.forwardRef<
       {...props}
     >
       <DialogHeader
-        className={cn("shrink-0 px-6 py-5 pr-14", headerClassName)}
+        className={cn(
+          "shrink-0 border-b border-border p-6 pr-14",
+          headerClassName,
+        )}
         data-testid={headerTestId}
       >
         <DialogTitle>{title}</DialogTitle>
@@ -75,13 +78,13 @@ export const ChooserDialogContent = React.forwardRef<
         )}
         data-testid={scrollAreaTestId}
       >
-        <div className={cn("py-5", contentClassName)}>{children}</div>
+        <div className={cn("py-6", contentClassName)}>{children}</div>
       </div>
 
       {footer ? (
         <div
           className={cn(
-            "flex shrink-0 border-t border-border/60 px-6 py-4",
+            "flex shrink-0 border-t border-border px-6 py-4",
             footerClassName,
           )}
           data-testid={footerTestId}

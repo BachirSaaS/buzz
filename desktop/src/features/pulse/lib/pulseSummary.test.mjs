@@ -43,7 +43,69 @@ test("summary context joins sequential DM messages so later answers can resolve 
   );
   assert.equal(input.conversations[0].messages.length, 2);
   assert.equal(input.conversations[0].messages[1].isViewer, true);
+  assert.equal(input.conversations[0].messages[1].author, "You");
   assert.equal(input.conversations[0].messages[1].body, "Yes, approved.");
+});
+test("viewer identity uses keys, carries profile aliases, and does not claim namesakes", () => {
+  const mine = item("mine", {
+    messages: [
+      {
+        id: "mine",
+        pubkey: " ME ",
+        author: "Arjun",
+        body: "I shipped it",
+        createdAt: now,
+      },
+    ],
+  });
+  const namesake = item("namesake", {
+    messages: [
+      {
+        id: "namesake",
+        pubkey: "someone-else",
+        author: "Arjun",
+        body: "I reviewed it",
+        createdAt: now + 1,
+      },
+    ],
+  });
+  const input = buildSummaryInput(
+    [mine, namesake],
+    "me",
+    reads,
+    "scope",
+    now,
+    "Arjun Mahanti",
+  );
+  assert.deepEqual(input.viewer, {
+    names: ["Arjun Mahanti", "Arjun"],
+    addressAs: "you",
+  });
+  const messages = input.conversations[0].messages;
+  assert.equal(messages[0].author, "You");
+  assert.equal(messages[0].isViewer, true);
+  assert.equal(messages[1].author, "Arjun");
+  assert.equal(messages[1].isViewer, false);
+  const unknown = buildSummaryInput(
+    [
+      item("unknown", {
+        messages: [
+          {
+            id: "unknown",
+            pubkey: "",
+            author: "Unknown",
+            body: "hello",
+            createdAt: now,
+          },
+        ],
+      }),
+    ],
+    "",
+    reads,
+    "scope",
+    now,
+  );
+  assert.equal(unknown.conversations[0].messages[0].isViewer, false);
 });
 test("summary input bounds channels and context and excludes muted or old activity", () => {
   const input = buildSummaryInput(

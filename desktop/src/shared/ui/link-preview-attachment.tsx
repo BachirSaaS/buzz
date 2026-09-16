@@ -55,6 +55,7 @@ export function LinkPreviewAttachmentPresentation({
       onRemove={onRemove}
       preview={preview}
       showControls={showControls}
+      showExpandControl={showExpandControl}
     />
   );
 }

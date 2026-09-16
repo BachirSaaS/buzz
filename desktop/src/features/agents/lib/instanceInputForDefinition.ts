@@ -47,6 +47,15 @@ export function resolveStartRuntimeForDefinition(
   runtimes: readonly AcpRuntime[],
   preferredRuntimeId?: string | null,
 ): { runtime: AcpRuntime; warnings: string[] } {
+  const configuredRuntime = persona.runtime ?? preferredRuntimeId;
+  if (
+    configuredRuntime &&
+    !runtimes.some((runtime) => runtime.id === configuredRuntime)
+  ) {
+    throw new Error(
+      `This agent requires runtime "${configuredRuntime}", which is not available. Open Settings → Agents to install it, or choose another runtime in the agent's settings. The agent was not started.`,
+    );
+  }
   // Use the buzz-agent-first preference (buzz-agent → goose → first available)
   // so a freshly installed goose never beats the bundled buzz-agent sidecar
   // for runtime-less personas (item 13 regression guard).

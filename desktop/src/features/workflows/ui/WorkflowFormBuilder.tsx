@@ -252,9 +252,9 @@ function WorkflowNode({
           className={cn(
             "relative z-20 flex w-full items-center gap-3 text-left transition-colors",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-            "rounded-full bg-muted/25 p-3 outline outline-2 outline-offset-4 outline-muted-foreground/0",
-            "data-[selected=true]:bg-muted/70 data-[selected=true]:outline-muted-foreground/20",
-            "data-[selected=false]:hover:bg-muted/45",
+            "rounded-blockui-lg bg-muted p-4 outline outline-2 outline-offset-4 outline-muted-foreground/0",
+            "data-[selected=true]:bg-accent data-[selected=true]:outline-muted-foreground/20",
+            "data-[selected=false]:hover:bg-accent",
           )}
           data-selected={selected}
           disabled={disabled}
@@ -264,7 +264,7 @@ function WorkflowNode({
           <span
             className={cn(
               "flex h-9 w-9 shrink-0 items-center justify-center",
-              "rounded-full bg-muted/60 text-muted-foreground",
+              "rounded-full bg-card text-muted-foreground",
               "data-[selected=true]:bg-foreground/15 data-[selected=true]:text-foreground",
               isNumbered && "text-sm font-semibold",
             )}
@@ -663,7 +663,7 @@ export const WorkflowFormBuilder = React.forwardRef<
         ) : null}
 
         {mode === "yaml" ? (
-          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden px-6 pb-3 pt-3">
+          <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-6">
             <div className="max-w-md flex-shrink-0">{scopeField}</div>
             <div className="flex min-h-0 flex-1 flex-col gap-1.5">
               <Textarea
@@ -682,7 +682,7 @@ export const WorkflowFormBuilder = React.forwardRef<
         ) : (
           <div className="flex min-h-0 flex-1 flex-col">
             <div className="relative isolate flex min-h-0 flex-1">
-              <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-6 py-5">
+              <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-6">
                 <div className="mx-auto w-full max-w-sm">
                   {scopeField ? <div className="mb-3">{scopeField}</div> : null}
                   <ol aria-label="Workflow sequence">
@@ -812,12 +812,8 @@ export const WorkflowFormBuilder = React.forwardRef<
                           : { duration: 0.24, ease: [0.22, 1, 0.36, 1] }
                       }
                     >
-                      <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl bg-muted/40 [@container(max-width:58rem)]:bg-background [@container(max-width:58rem)]:shadow-2xl">
-                        <div
-                          aria-hidden="true"
-                          className="pointer-events-none absolute inset-0 z-0 hidden bg-muted/40 [@container(max-width:58rem)]:block"
-                        />
-                        <div className="relative z-10 flex w-96 min-w-96 flex-shrink-0 items-start justify-between gap-3 px-5 pb-3 pt-5 [@container(max-width:26rem)]:w-full [@container(max-width:26rem)]:min-w-0">
+                      <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden rounded-blockui-lg border border-border bg-card [@container(max-width:58rem)]:shadow-2xl">
+                        <div className="relative z-10 flex w-96 min-w-96 flex-shrink-0 items-start justify-between gap-4 p-6 [@container(max-width:26rem)]:w-full [@container(max-width:26rem)]:min-w-0">
                           <div className="min-w-0">
                             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                               {selectedNode.type === "trigger"

@@ -718,6 +718,14 @@ test("captures the built editor at desktop and narrow widths", async ({
     await page.screenshot({
       path: `test-results/workflow-editor-${viewport.name}-step-details.png`,
     });
+    await page.evaluate(() => document.documentElement.classList.add("dark"));
+    await waitForAnimations(page);
+    await page.screenshot({
+      path: `test-results/workflow-editor-${viewport.name}-dark.png`,
+    });
+    await page.evaluate(() =>
+      document.documentElement.classList.remove("dark"),
+    );
     await inspector.getByRole("button", { name: "Step details" }).click();
   }
 });

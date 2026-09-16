@@ -1,3 +1,6 @@
+/* Buzz overlays use the opaque card role for readable foreground content.
+   The upstream translucent popover tint is retained in theme.css as a source
+   token; it is not a complete surface without a composited material. */
 /* Adapted from squareup/blockui-web; see SOURCE.json and README.md. */
 :root {
   --background: var(--blockui-surface-app);
@@ -26,7 +29,7 @@
   --muted: var(--blockui-surface-standard);
   --accent: var(--blockui-surface-standard);
   --card: var(--blockui-surface-card);
-  --popover: var(--blockui-surface-popover);
+  --popover: var(--blockui-surface-card);
   --border: var(--blockui-border-subtle);
   --input: var(--blockui-border-standard);
   --ring: var(--blockui-focus-ring);
@@ -49,7 +52,7 @@
   --muted: var(--blockui-surface-subtle);
   --accent: var(--blockui-surface-standard);
   --card: var(--blockui-surface-card);
-  --popover: var(--blockui-surface-popover);
+  --popover: var(--blockui-surface-card);
   --border: var(--blockui-border-subtle);
   --input: var(--blockui-border-standard);
   --ring: var(--blockui-focus-ring);
@@ -73,7 +76,7 @@
   --muted: var(--blockui-surface-subtle);
   --accent: var(--blockui-surface-standard);
   --card: var(--blockui-surface-card);
-  --popover: var(--blockui-surface-popover);
+  --popover: var(--blockui-surface-card);
   --border: var(--blockui-border-subtle);
   --input: var(--blockui-border-standard);
   --ring: var(--blockui-focus-ring);
@@ -98,7 +101,7 @@
   --muted: var(--blockui-surface-subtle);
   --accent: var(--blockui-surface-standard);
   --card: var(--blockui-surface-card);
-  --popover: var(--blockui-surface-popover);
+  --popover: var(--blockui-surface-card);
   --border: var(--blockui-border-subtle);
   --input: var(--blockui-border-standard);
   --ring: var(--blockui-focus-ring);
@@ -123,7 +126,7 @@
   --muted: var(--blockui-surface-subtle);
   --accent: var(--blockui-surface-standard);
   --card: var(--blockui-surface-card);
-  --popover: var(--blockui-surface-popover);
+  --popover: var(--blockui-surface-card);
   --border: var(--blockui-border-subtle);
   --input: var(--blockui-border-standard);
   --ring: var(--blockui-focus-ring);

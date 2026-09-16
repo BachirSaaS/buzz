@@ -100,21 +100,55 @@ for (const appearance of ["light", "dark"] as const) {
         widget.getByRole("link", { name: /^Open / }),
       ).toHaveAttribute("href", link.href);
       await expect(widget).toHaveCSS("font-family", /Inter/);
-      const fold = widget.getByRole("button", {
-        name: "Show less",
-        exact: true,
+      await expect(widget).toHaveCSS("border-width", "1px");
+      expect(
+        await widget.evaluate((el) => getComputedStyle(el).boxShadow),
+      ).not.toBe("none");
+      await expect(widget.locator("[data-link-preview-hostname]")).toHaveCount(
+        0,
+      );
+      await widget.scrollIntoViewIfNeeded();
+      expect(
+        await widget.evaluate((el) => {
+          const rect = el.getBoundingClientRect();
+          return document
+            .elementFromPoint(rect.right - 12, rect.bottom - 12)
+            ?.closest("a")
+            ?.getAttribute("href");
+        }),
+      ).toBe(link.href);
+      const menuButton = widget.getByRole("button", {
+        name: "Link display settings",
       });
-      await fold.focus();
+      await menuButton.focus();
       await page.keyboard.press("Enter");
+      await page
+        .getByRole("menuitem", { name: "Show less", exact: true })
+        .click();
       await expect(
         widget.locator('[data-slot="attachment-description"]'),
       ).toHaveCount(0);
-      await widget
-        .getByRole("button", { name: "Show more", exact: true })
+      await expect(menuButton).toBeFocused();
+      await expect(page.getByRole("menu")).not.toBeVisible();
+      await menuButton.click();
+      await page
+        .getByRole("menuitem", { name: "Show more", exact: true })
         .click();
       await expect(
         widget.locator('[data-slot="attachment-description"]'),
       ).toBeVisible();
+      await expect(page.getByRole("menu")).not.toBeVisible();
+      await menuButton.click();
+      await page
+        .getByRole("menuitemradio", { name: "Compact preview", exact: true })
+        .click();
+      await expect(widget).not.toHaveAttribute("data-link-preview-inline");
+      await expect(page.getByRole("menu")).not.toBeVisible();
+      await menuButton.click();
+      await page
+        .getByRole("menuitemradio", { name: "Full preview", exact: true })
+        .click();
+      await expect(widget).toHaveAttribute("data-link-preview-inline", "");
       if (link.kind === "github-pull-request") {
         await expect(widget.locator("[data-link-preview-context]")).toHaveText(
           "block / buzz · #123",
@@ -262,6 +296,10 @@ for (const appearance of ["light", "dark"] as const) {
       .getByTestId("pulse-briefing-highlight")
       .filter({ hasText: "The team shared a navigation design" });
     await expect(card).toBeVisible();
+    const evidenceArea = card.getByTestId("home-activity-evidence");
+    await expect(evidenceArea).toHaveCSS("max-height", "240px");
+    await expect(evidenceArea).toHaveCSS("overflow", "hidden");
+    expect((await evidenceArea.boundingBox())?.height).toBeLessThanOrEqual(240);
     await expect(card.locator("[data-evidence-message-id]")).toHaveCount(2);
     await expect(
       card.locator(

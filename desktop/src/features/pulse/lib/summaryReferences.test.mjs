@@ -5,6 +5,7 @@ test("model references remain short and map only to supplied source events", () 
   const input = {
     scope: "private-cache-scope",
     timezone: "UTC",
+    viewer: { names: ["Arjun"], addressAs: "you" },
     conversations: [
       {
         id: "channel:long-event-id",
@@ -26,6 +27,7 @@ test("model references remain short and map only to supplied source events", () 
   };
   const refs = summaryReferences(input);
   assert.equal(refs.payload.scope, undefined);
+  assert.deepEqual(refs.payload.viewer, input.viewer);
   assert.equal(refs.payload.conversations[0].id, "c1");
   assert.equal(refs.payload.conversations[0].messages[0].id, "m1");
   assert.equal(refs.payload.conversations[0].messages[1].conversationId, "c2");

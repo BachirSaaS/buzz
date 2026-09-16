@@ -727,6 +727,7 @@ function AppShellContent() {
       <ChannelNavigationProvider channels={channels}>
         <AppShellProvider
           value={{
+            starredChannelIds,
             markAllChannelsRead,
             markChannelRead,
             markChannelUnread,

@@ -608,7 +608,7 @@ test("sent link preview media uses the authenticated proxy in compact and rich c
     .locator("[data-link-preview-thumbnail] img")
     .first();
   const compactFavicon = compactPreview.locator(
-    "img[data-link-preview-hostname-favicon]",
+    "img[data-link-preview-favicon]",
   );
   await expect(compactThumbnail).toHaveAttribute("src", fallbackMediaPattern);
   await expect(compactFavicon).toHaveAttribute("src", fallbackMediaPattern);
@@ -725,7 +725,7 @@ test("link preview style defaults to compact and Rich unfurls descriptions", asy
   );
   await expect(richPreview).toBeVisible();
   const richHostname = richPreview.locator("[data-link-preview-hostname]");
-  await expect(richHostname).toHaveText("github.com");
+  await expect(richHostname).toHaveCount(0);
   await expect(
     richPreview.getByRole("link", { name: /^Open GitHub PR:/ }),
   ).toHaveAttribute("href", previewUrl);

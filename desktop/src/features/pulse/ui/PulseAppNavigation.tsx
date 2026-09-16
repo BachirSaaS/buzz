@@ -7,6 +7,7 @@ import {
   Zap,
 } from "lucide-react";
 import { useAppShell } from "@/app/AppShellContext";
+import { useFeatureEnabled } from "@/shared/features";
 import { cn } from "@/shared/lib/cn";
 import { Action } from "@/shared/ui/action";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
@@ -31,9 +32,19 @@ export function PulseAppNavigation({
   onSelect: (app: PulseApp) => void;
 }) {
   const { onOpenSettings } = useAppShell();
+  const projectsEnabled = useFeatureEnabled("projects");
+  const workflowsEnabled = useFeatureEnabled("workflows");
+  const visibleApps = (Object.keys(apps) as PulseApp[]).filter(
+    (app) =>
+      (app !== "projects" || projectsEnabled) &&
+      (app !== "workflows" || workflowsEnabled),
+  );
+  const firstWorkspaceApp = visibleApps.find(
+    (app) => app !== "home" && app !== "messages",
+  );
   return (
     <div
-      className="pulse-dock-rail flex w-24 shrink-0 justify-center overflow-y-auto pb-2"
+      className="pulse-dock-rail flex w-24 shrink-0 justify-center overflow-y-auto pb-2 pr-6"
       data-testid="pulse-dock-rail"
       data-tauri-drag-region
     >
@@ -42,13 +53,13 @@ export function PulseAppNavigation({
         data-testid="pulse-app-navigation"
         className="pulse-app-dock flex h-fit flex-col items-center gap-2 rounded-[calc(var(--blockui-radius-12)+var(--spacing)*2)] border border-border bg-card p-2 shadow-sm"
       >
-        {(Object.keys(apps) as PulseApp[]).map((app) => {
+        {visibleApps.map((app) => {
           const Icon = apps[app].icon;
           return (
             <div
               key={app}
               className={cn(
-                app === "projects" && "border-t border-border pt-2",
+                app === firstWorkspaceApp && "border-t border-border pt-2",
               )}
             >
               <Tooltip>

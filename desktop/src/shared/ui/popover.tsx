@@ -27,7 +27,7 @@ const PopoverContent = React.forwardRef<
         sideOffset={sideOffset}
         data-slot="popover-content"
         className={cn(
-          "z-50 w-72 origin-(--radix-popover-content-transform-origin) rounded-xl p-2.5 text-sm outline-hidden",
+          "z-50 w-72 max-w-[calc(100vw-2rem)] origin-(--radix-popover-content-transform-origin) rounded-blockui-lg p-4 text-sm outline-hidden",
           POPOVER_SURFACE_CLASS,
           POPOVER_RADIX_MOTION_CLASS,
           POPOVER_RADIX_SIDE_MOTION_CLASS,

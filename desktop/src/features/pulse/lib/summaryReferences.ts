@@ -14,6 +14,7 @@ export function summaryReferences(input: ReturnType<typeof buildSummaryInput>) {
   const payload = {
     asOf: Math.floor(Date.now() / 1000),
     timezone: input.timezone,
+    viewer: input.viewer,
     conversations: input.conversations.map((item) => ({
       ...item,
       id: alias(conversations, item.id, "c"),

@@ -593,7 +593,8 @@ test("preview-first galleries retain Markdown image actions", async ({
     .getByTestId("message-thread-panel")
     .getByTestId("message-row")
     .filter({ hasText: "preview action reply" });
-  await reply.getByRole("button", { name: /Zoom image: Preview from/ }).click();
+  await reply.getByRole("button", { name: "Link display settings" }).click();
+  await page.getByRole("menuitem", { name: "View image", exact: true }).click();
 
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByRole("status")).toHaveText("2 / 2");

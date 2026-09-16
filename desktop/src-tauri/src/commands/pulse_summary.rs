@@ -102,6 +102,8 @@ fn generate(input: &str) -> Result<Value, String> {
         .current_dir(directory.path())
         .args([
             "exec",
+            "--model",
+            "gpt-5.6-terra",
             "--ignore-user-config",
             "--ephemeral",
             "--skip-git-repo-check",

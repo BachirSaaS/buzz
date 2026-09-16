@@ -85,9 +85,9 @@ const DialogContent = React.forwardRef<
         <DialogPrimitive.Content
           data-slot="dialog-content"
           className={cn(
-            "pointer-events-auto relative grid w-[calc(100vw-2rem)] max-w-2xl gap-4 outline-hidden",
+            "pointer-events-auto relative grid w-[calc(100vw-2rem)] max-w-2xl gap-6 outline-hidden",
             surface === "default" &&
-              "rounded-2xl bg-popover p-6 text-popover-foreground ring-1 ring-foreground/10 shadow-xl",
+              "rounded-blockui-lg bg-card p-6 text-card-foreground ring-1 ring-border shadow-[var(--blockui-shadow-overlay)]",
             surface === "none" && "bg-transparent p-0 shadow-none",
             MODAL_CONTENT_MOTION_CLASS,
             className,
@@ -99,7 +99,7 @@ const DialogContent = React.forwardRef<
           {showCloseButton ? (
             <DialogPrimitive.Close
               className={cn(
-                "absolute flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 ease-out hover:bg-accent hover:text-accent-foreground focus:outline-hidden focus-visible:ring-1 focus-visible:ring-ring",
+                "absolute flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors duration-150 ease-out hover:bg-accent hover:text-accent-foreground focus:outline-hidden focus-visible:ring-1 focus-visible:ring-ring",
                 "right-4 top-4",
                 closeButtonClassName,
               )}

@@ -33,11 +33,21 @@ export type FriendlyAgentLastError =
   | { severity: "generic"; copy: string };
 
 /**
- * The exact copy for the relay-mesh denial. Centralized as a constant so the
- * test asserts the user-facing string verbatim rather than a fuzzy pattern.
+ * ACP -32001 identifies provider authentication, not community membership.
+ * It applies to Databricks, OpenAI, shared compute, and other providers.
  */
-export const RELAY_MESH_DENIED_COPY =
-  "Community access denied this agent — check its community membership.";
+export const PROVIDER_AUTH_ERROR_COPY =
+  "The model provider could not authenticate this agent. Check its provider sign-in and model access in agent settings.";
+
+/** Recovery guidance when this app's isolated Databricks credential is missing. */
+export const DATABRICKS_SIGN_IN_REQUIRED_COPY =
+  "Databricks is not signed in for this app. Open agent settings and sign in to Databricks, then retry.";
+
+function providerAuthErrorCopy(raw: string): string {
+  return raw.includes("no cached Databricks token")
+    ? DATABRICKS_SIGN_IN_REQUIRED_COPY
+    : PROVIDER_AUTH_ERROR_COPY;
+}
 
 export const MODEL_NOT_FOUND_COPY =
   "The configured model is not available — open agent settings and select a different one from the dropdown.";
@@ -78,7 +88,7 @@ export function friendlyAgentLastError(
   if (effectiveCode != null) {
     switch (effectiveCode) {
       case -32001:
-        return { severity: "denied", copy: RELAY_MESH_DENIED_COPY };
+        return { severity: "denied", copy: providerAuthErrorCopy(trimmed) };
       case -32002:
         return { severity: "denied", copy: MODEL_NOT_FOUND_COPY };
       case -32603: {
@@ -110,7 +120,7 @@ export function friendlyAgentLastError(
     trimmed.startsWith("Agent reported error: llm auth:") ||
     trimmed.startsWith("llm auth:")
   ) {
-    return { severity: "denied", copy: RELAY_MESH_DENIED_COPY };
+    return { severity: "denied", copy: providerAuthErrorCopy(trimmed) };
   }
 
   return { severity: "generic", copy: trimmed };

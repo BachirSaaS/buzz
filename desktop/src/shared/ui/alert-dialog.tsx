@@ -50,8 +50,8 @@ const AlertDialogContent = React.forwardRef<
       <AlertDialogPrimitive.Content
         data-slot="alert-dialog-content"
         className={cn(
-          "pointer-events-auto grid w-[calc(100vw-2rem)] max-w-md gap-4 outline-hidden",
-          "rounded-3xl bg-popover p-6 text-popover-foreground ring-1 ring-foreground/10 shadow-xl",
+          "pointer-events-auto grid w-[calc(100vw-2rem)] max-w-md gap-6 outline-hidden",
+          "rounded-blockui-lg bg-card p-6 text-card-foreground ring-1 ring-border shadow-[var(--blockui-shadow-overlay)]",
           MODAL_CONTENT_MOTION_CLASS,
           className,
         )}
@@ -93,7 +93,7 @@ const AlertDialogTitle = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Title>
 >(({ className, ...props }, ref) => (
   <AlertDialogPrimitive.Title
-    className={cn("text-xl font-semibold tracking-tight", className)}
+    className={cn("text-blockui-section-title", className)}
     ref={ref}
     {...props}
   />

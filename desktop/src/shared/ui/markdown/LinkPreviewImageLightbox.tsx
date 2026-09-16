@@ -1,6 +1,6 @@
 import { Action } from "@/shared/ui/action";
 import type { ComponentType } from "react";
-import { useRef, useState } from "react";
+import { useImperativeHandle, useRef, useState } from "react";
 
 import { cn } from "@/shared/lib/cn";
 import type { LinkPreviewImageLightboxProps } from "@/shared/ui/rich-link-preview-attachment";
@@ -30,7 +30,13 @@ type ImageZoomOverlayProps = {
 export function createLinkPreviewImageLightbox(
   ImageZoomOverlay: ComponentType<ImageZoomOverlayProps>,
 ): ComponentType<LinkPreviewImageLightboxProps> {
-  return function LinkPreviewImageLightbox({ alt, children, className, src }) {
+  return function LinkPreviewImageLightbox({
+    alt,
+    children,
+    className,
+    src,
+    controllerRef,
+  }) {
     const [lightboxState, setLightboxState] = useState<{
       galleryIndex: number;
       galleryItems?: ImageGalleryItem[];
@@ -78,10 +84,14 @@ export function createLinkPreviewImageLightbox(
       });
     };
 
+    useImperativeHandle(controllerRef, () => ({ open: openLightbox }));
+
     return (
       <>
         <Action
           aria-label={`Zoom image: ${alt}`}
+          aria-hidden={controllerRef ? true : undefined}
+          tabIndex={controllerRef ? -1 : undefined}
           className={cn(
             "cursor-zoom-in border-0 p-0 text-left focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring/50",
             lightboxState && "opacity-0",

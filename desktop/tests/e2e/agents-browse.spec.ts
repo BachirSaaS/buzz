@@ -61,6 +61,21 @@ for (const appearance of ["light", "dark"] as const) {
     const ownCard = page.locator('[data-testid^="persona-agent-row-"]').first();
     await expect(ownCard).toBeVisible();
     await expect(ownCard).toHaveCSS("border-radius", "24px");
+    await ownCard.getByRole("button", { name: /^Open actions for/ }).click();
+    const menu = page.getByRole("menu");
+    await expect(menu).toBeVisible();
+    // Foreground text must not compete with the agent art behind the menu.
+    await expect(menu).toHaveCSS(
+      "background-color",
+      appearance === "dark" ? "rgb(23, 23, 23)" : "rgb(255, 255, 255)",
+    );
+    await expect(menu).toHaveCSS("border-radius", "24px");
+    await waitForAnimations(page);
+    await page.screenshot({
+      path: `test-results/agents-browse/${appearance}-actions-menu.png`,
+    });
+    await page.keyboard.press("Escape");
+    await expect(menu).not.toBeVisible();
     await nav.getByRole("button", { name: "Browse", exact: true }).focus();
     await page.keyboard.press("Enter");
     await expect(page).toHaveURL(/agentSection=browse/);

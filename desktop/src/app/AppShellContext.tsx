@@ -9,6 +9,7 @@ import type { SettingsSection } from "@/features/settings/ui/SettingsPanels";
 const EMPTY_SET = new Set<string>();
 
 type AppShellContextValue = {
+  starredChannelIds?: ReadonlySet<string>;
   markAllChannelsRead: () => void;
   markChannelRead: (
     channelId: string,

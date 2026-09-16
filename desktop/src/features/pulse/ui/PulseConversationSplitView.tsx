@@ -1,3 +1,12 @@
+import { useAppShell } from "@/app/AppShellContext";
+import { useCommunities } from "@/features/communities/useCommunities";
+import { useChannelSections } from "@/features/sidebar/lib/useChannelSections";
+import { useChannelSortPreference } from "@/features/sidebar/lib/useChannelSortPreference";
+import { useFeatureEnabled } from "@/shared/features";
+import { classicSidebarGroups } from "../lib/classicSidebarGroups";
+import { useMessagesSidebarLayout } from "../lib/useMessagesSidebarLayout";
+import { MessagesSidebarHeader } from "./MessagesSidebarHeader";
+import { MessagesSidebarSection } from "./MessagesSidebarSection";
 import { WorkspaceSidebarButton } from "@/shared/ui/workspace-sidebar-button";
 import * as React from "react";
 import { useWorkingChannels } from "@/features/agents/agentWorkingSignal";
@@ -33,6 +42,7 @@ import {
   CLEAR_CONVERSATION_PANELS,
 } from "../lib/pulsePanelState";
 
+const EMPTY_STARRED_IDS = new Set<string>();
 const AVATAR_SIZE = 28;
 const AVATAR_STATUS_GEOMETRY = scaleProfileAvatarStatusGeometry(
   DEFAULT_HOVER_PROFILE_STATUS_GEOMETRY,
@@ -70,6 +80,26 @@ export function PulseConversationSplitView({
     onSelectView: (view: PulseView) => void;
   };
 }) {
+  const { activeCommunity } = useCommunities();
+  const { starredChannelIds = EMPTY_STARRED_IDS } = useAppShell();
+  const { sections, assignments } = useChannelSections(
+    currentPubkey,
+    activeCommunity?.relayUrl,
+  );
+  const sectionIds = React.useMemo(
+    () => sections.map((section) => section.id),
+    [sections],
+  );
+  const { sortModeFor } = useChannelSortPreference(
+    currentPubkey,
+    activeCommunity?.relayUrl,
+    sectionIds,
+  );
+  const [layout, setLayout] = useMessagesSidebarLayout(
+    currentPubkey,
+    activeCommunity?.relayUrl,
+  );
+  const showForums = useFeatureEnabled("forum");
   const isUnread = usePulseUnreadChannels();
   const workingChannels = useWorkingChannels();
   const workingAgents = React.useMemo(
@@ -153,16 +183,94 @@ export function PulseConversationSplitView({
     });
   };
 
+  const renderRow = (row: (typeof rows)[number]) => {
+    const participant = row.participants[0];
+    const working =
+      row.channel.channelType === "dm" &&
+      row.participants.some((person) =>
+        workingAgents.has(normalizePubkey(person.pubkey)),
+      );
+    const unread = isUnread(row.channel.id);
+    return (
+      <WorkspaceSidebarButton
+        type="button"
+        key={row.channel.id}
+        active={selected?.id === row.channel.id}
+        data-testid={`${testPrefix}-${row.channel.id}`}
+        data-channel-name={row.channel.name}
+        aria-description={
+          [working && "Agent working", unread && "Unread messages"]
+            .filter(Boolean)
+            .join(". ") || undefined
+        }
+        aria-label={
+          row.channel.channelType === "dm"
+            ? `Open DM with ${row.name}`
+            : `Open channel ${row.name}`
+        }
+        aria-current={selected?.id === row.channel.id ? "true" : undefined}
+        onClick={() => selectConversation(row.channel)}
+        className="mb-2"
+      >
+        {row.channel.channelType !== "dm" ? (
+          <PulseChannelAvatar channel={row.channel} />
+        ) : row.participants.length > 1 ? (
+          <PulseSidebarIcon icon={Users} />
+        ) : (
+          <ProfileAvatarWithStatus
+            avatarUrl={participant?.avatarUrl ?? null}
+            label={row.name}
+            avatarClassName="text-xs"
+            className="size-7 shrink-0"
+            geometry={AVATAR_STATUS_GEOMETRY}
+            size={AVATAR_SIZE}
+            status={presence.data?.[normalizePubkey(participant?.pubkey ?? "")]}
+            statusTestId="pulse-conversation-presence"
+            shape={participant?.isAgent ? "squircle" : "circle"}
+          />
+        )}
+        <span className="min-w-0 truncate text-sm">{row.name}</span>
+        {working ? (
+          <span
+            aria-hidden="true"
+            data-testid="pulse-working-dots"
+            className="ml-auto flex shrink-0 items-center"
+          >
+            <TypingDots
+              className="gap-[3px] [--typing-dot-lift:-2px]"
+              dotClassName={`${PULSE_STATUS_DOT_CLASS} ${selected?.id === row.channel.id ? "bg-primary-foreground" : ""}`}
+            />
+          </span>
+        ) : unread ? (
+          <PulseUnreadDot active={selected?.id === row.channel.id} />
+        ) : null}
+      </WorkspaceSidebarButton>
+    );
+  };
+
+  const rowsById = new Map(visibleRows.map((row) => [row.channel.id, row]));
+  const groups = classicSidebarGroups({
+    channels: visibleRows.map((row) => row.channel),
+    sections,
+    assignments,
+    starredIds: starredChannelIds,
+    sortModeFor,
+    labels: Object.fromEntries(rows.map((row) => [row.channel.id, row.name])),
+    showForums,
+  });
+
   return (
     <div
       className="flex min-h-0 min-w-0 flex-1"
       data-testid={`${testPrefix}-view`}
     >
       <nav
-        aria-label={label}
+        aria-label={layout === "classic" ? "Conversations by section" : label}
         className="w-[220px] min-w-0 shrink-0 overflow-y-auto border-r border-border bg-muted/30 p-4"
         data-testid={`${testPrefix}-list`}
+        data-sidebar-layout={layout}
       >
+        <MessagesSidebarHeader layout={layout} onLayoutChange={setLayout} />
         {navigation &&
           ([{ id: "search", label: "Search", icon: Search }] as const).map(
             ({ id, label, icon: Icon }) => (
@@ -203,76 +311,25 @@ export function PulseConversationSplitView({
           </>
         )}
         {visibleRows.length ? (
-          visibleRows.map((row) => {
-            const participant = row.participants[0];
-            const working =
-              row.channel.channelType === "dm" &&
-              row.participants.some((person) =>
-                workingAgents.has(normalizePubkey(person.pubkey)),
-              );
-            const unread = isUnread(row.channel.id);
-            return (
-              <WorkspaceSidebarButton
-                type="button"
-                key={row.channel.id}
-                active={selected?.id === row.channel.id}
-                data-testid={`${testPrefix}-${row.channel.id}`}
-                data-channel-name={row.channel.name}
-                aria-description={
-                  [working && "Agent working", unread && "Unread messages"]
-                    .filter(Boolean)
-                    .join(". ") || undefined
-                }
-                aria-label={
-                  row.channel.channelType === "dm"
-                    ? `Open DM with ${row.name}`
-                    : `Open channel ${row.name}`
-                }
-                aria-current={
-                  selected?.id === row.channel.id ? "true" : undefined
-                }
-                onClick={() => selectConversation(row.channel)}
-                className="mb-2"
-              >
-                {row.channel.channelType !== "dm" ? (
-                  <PulseChannelAvatar channel={row.channel} />
-                ) : row.participants.length > 1 ? (
-                  <PulseSidebarIcon icon={Users} />
-                ) : (
-                  <ProfileAvatarWithStatus
-                    avatarUrl={participant?.avatarUrl ?? null}
-                    label={row.name}
-                    avatarClassName="text-xs"
-                    className="size-7 shrink-0"
-                    geometry={AVATAR_STATUS_GEOMETRY}
-                    size={AVATAR_SIZE}
-                    status={
-                      presence.data?.[
-                        normalizePubkey(participant?.pubkey ?? "")
-                      ]
-                    }
-                    statusTestId="pulse-conversation-presence"
-                    shape={participant?.isAgent ? "squircle" : "circle"}
-                  />
-                )}
-                <span className="min-w-0 truncate text-sm">{row.name}</span>
-                {working ? (
-                  <span
-                    aria-hidden="true"
-                    data-testid="pulse-working-dots"
-                    className="ml-auto flex shrink-0 items-center"
-                  >
-                    <TypingDots
-                      className="gap-[3px] [--typing-dot-lift:-2px]"
-                      dotClassName={`${PULSE_STATUS_DOT_CLASS} ${selected?.id === row.channel.id ? "bg-primary-foreground" : ""}`}
-                    />
-                  </span>
-                ) : unread ? (
-                  <PulseUnreadDot active={selected?.id === row.channel.id} />
-                ) : null}
-              </WorkspaceSidebarButton>
-            );
-          })
+          layout === "classic" ? (
+            groups
+              .filter((section) => !query || section.channels.length > 0)
+              .map((section) => (
+                <MessagesSidebarSection
+                  key={section.id}
+                  id={section.id}
+                  name={section.name}
+                  icon={section.icon}
+                >
+                  {section.channels.map((channel) => {
+                    const row = rowsById.get(channel.id);
+                    return row ? renderRow(row) : null;
+                  })}
+                </MessagesSidebarSection>
+              ))
+          ) : (
+            visibleRows.map(renderRow)
+          )
         ) : (
           <p className="px-4 py-8 text-center text-sm text-muted-foreground">
             {query ? "No matching conversations" : "No conversations yet"}

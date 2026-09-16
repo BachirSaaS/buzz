@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
 
 export const POPOVER_SURFACE_CLASS =
-  "bg-popover text-popover-foreground shadow-md ring-1 ring-foreground/10";
+  "bg-popover text-popover-foreground shadow-[var(--blockui-shadow-menu)] border border-border";
 
 export const POPOVER_RADIX_MOTION_CLASS =
   "duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] data-[state=closed]:duration-100 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 motion-reduce:animate-none";

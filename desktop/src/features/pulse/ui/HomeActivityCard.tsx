@@ -1,4 +1,4 @@
-import { ArrowUpRight } from "lucide-react";
+import { AlarmClock, ArrowUpRight, Reply } from "lucide-react";
 import type { UserProfileSummary } from "@/shared/api/types";
 import { LinkPreviewStyleContext } from "@/shared/lib/linkPreviewStylePreference";
 import { ContentWidget } from "@/shared/ui/content-widget";
@@ -31,6 +31,9 @@ export function HomeActivityCard({
       data-testid="pulse-briefing-highlight"
       className="home-activity-card gap-6"
       data-conversation-id={sources[0].id}
+      aria-label={
+        group.generated ? "Activity summary" : "Channel activity overview"
+      }
     >
       <HomeParticipants
         sources={sources}
@@ -46,7 +49,7 @@ export function HomeActivityCard({
       <LinkPreviewStyleContext.Provider value="rich">
         {evidence.length > 0 && (
           <div
-            className="home-activity-evidence grid min-w-0 grid-cols-1 items-start gap-4 sm:grid-cols-2"
+            className="home-activity-evidence grid max-h-[240px] min-w-0 grid-cols-1 items-start gap-4 overflow-hidden sm:grid-cols-2"
             data-testid="home-activity-evidence"
           >
             {evidence.map(({ message }) => (
@@ -67,19 +70,38 @@ export function HomeActivityCard({
           </div>
         )}
       </LinkPreviewStyleContext.Provider>
-      <footer className="flex items-center justify-between gap-4 border-t border-border pt-4">
-        <span className="text-xs text-muted-foreground">
-          {group.generated ? "Activity summary" : "Activity overview"}
-        </span>
+      <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4">
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            size="icon"
+            aria-label="Snooze"
+            aria-disabled="true"
+            title="Snooze (coming soon)"
+          >
+            <AlarmClock aria-hidden className="size-4" />
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            size="icon"
+            aria-label="Reply directly"
+            aria-disabled="true"
+            title="Reply directly (coming soon)"
+          >
+            <Reply aria-hidden className="size-4" />
+          </Button>
+        </div>
         <Button
           variant="secondary"
           size="sm"
           aria-label="Open conversation"
           onClick={onOpen}
-          className="gap-2"
+          className="ml-auto h-auto max-w-full gap-2 whitespace-normal py-2 text-left"
         >
           {sources.length > 1 ? "Explore threads" : "View conversation"}
-          <ArrowUpRight aria-hidden className="size-4" />
+          <ArrowUpRight aria-hidden className="size-4 shrink-0" />
         </Button>
       </footer>
     </ContentWidget>

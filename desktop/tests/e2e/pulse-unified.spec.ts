@@ -1,8 +1,185 @@
 import { expect, test, type Page, type Locator } from "@playwright/test";
 import { installMockBridge, TEST_IDENTITIES } from "../helpers/bridge";
 import { waitForAnimations } from "../helpers/animations";
+import { readFileSync } from "node:fs";
 
 const agentKey = "c1".repeat(32);
+
+test("Messages layout menu carries over classic sections and remembers the choice", async ({
+  page,
+}) => {
+  const pubkey = "deadbeef".repeat(8);
+  const sectionKey = `buzz-channel-sections.v1:${pubkey}:${encodeURIComponent("ws://localhost:3000")}`;
+  const organization = {
+    version: 1,
+    sections: [{ id: "team", name: "Team channels", icon: "📌", order: 0 }],
+    assignments: {
+      "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50": "team",
+      "9dae0116-799b-5071-a0a8-fdd30a91a35d": "team",
+    },
+  };
+  await page.addInitScript(
+    ({ pubkey, sectionKey, organization }) => {
+      if (localStorage.getItem(sectionKey)) return;
+      localStorage.setItem(sectionKey, JSON.stringify(organization));
+      localStorage.setItem(
+        `buzz-channel-stars.v1:${pubkey}`,
+        JSON.stringify({
+          version: 1,
+          channels: {
+            "9dae0116-799b-5071-a0a8-fdd30a91a35d": {
+              starred: true,
+              updatedAt: Date.now(),
+            },
+          },
+        }),
+      );
+    },
+    { pubkey, sectionKey, organization },
+  );
+  await installMockBridge(page);
+  await page.goto("/#/pulse?feed=conversation");
+  const list = page.getByTestId("pulse-combined-list");
+  await expect(
+    list.getByRole("heading", { name: "Messages", exact: true }),
+  ).toBeVisible();
+  await expect(list).toHaveAttribute("data-sidebar-layout", "recents");
+  await list.locator('[data-channel-name="general"]').click();
+  await expect(page.getByTestId("pulse-combined-detail")).toHaveAttribute(
+    "data-channel-id",
+    "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50",
+  );
+  await expect(
+    page.getByTestId("pulse-combined-detail").getByTestId("message-input"),
+  ).toBeFocused();
+  const selectedUrl = page.url();
+  await list.getByRole("button", { name: "Organize messages" }).click();
+  await expect(
+    page.getByRole("menuitemradio", { name: "Recents", exact: true }),
+  ).toHaveAttribute("aria-checked", "true");
+  await page
+    .getByRole("menuitemradio", { name: "Classic", exact: true })
+    .click();
+  await expect(list).toHaveAttribute("data-sidebar-layout", "classic");
+  expect(page.url()).toBe(selectedUrl);
+  await expect(
+    list.locator(
+      '[data-messages-section="starred"] [data-channel-name="random"]',
+    ),
+  ).toBeVisible();
+  await expect(
+    list.locator(
+      '[data-messages-section="section:team"] [data-channel-name="general"]',
+    ),
+  ).toBeVisible();
+  await expect(list.locator('[data-channel-name="random"]')).toHaveCount(1);
+  await expect(
+    list.locator('[data-messages-section="channels"]'),
+  ).toBeVisible();
+  await expect(
+    list.locator(
+      '[data-messages-section="dms"] [data-channel-name="alice-tyler"]',
+    ),
+  ).toBeVisible();
+  await list
+    .getByRole("button", { name: "Team channels", exact: true })
+    .click();
+  await expect(list.locator('[data-channel-name="general"]')).toHaveCount(0);
+  await list
+    .getByRole("button", { name: "Team channels", exact: true })
+    .click();
+  await page.reload();
+  await expect(list).toHaveAttribute("data-sidebar-layout", "classic");
+  await expect(list.locator('[data-channel-name="general"]')).toHaveAttribute(
+    "aria-current",
+    "true",
+  );
+  await list.getByRole("button", { name: "Organize messages" }).focus();
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("menuitemradio", { name: "Classic", exact: true }),
+  ).toHaveAttribute("aria-checked", "true");
+  await waitForAnimations(page);
+  await page.screenshot({
+    path: "test-results/pulse-prototype/messages-classic-menu.png",
+  });
+  await page
+    .getByRole("menuitemradio", { name: "Recents", exact: true })
+    .focus();
+  await page.keyboard.press("Enter");
+  await expect(list).toHaveAttribute("data-sidebar-layout", "recents");
+  await expect(list.locator("[data-messages-section]")).toHaveCount(0);
+  expect(
+    await page.evaluate(
+      (key) => JSON.parse(localStorage.getItem(key) ?? "null"),
+      sectionKey,
+    ),
+  ).toEqual(organization);
+});
+
+test("dock follows Settings experiments immediately and after reopening", async ({
+  page,
+}) => {
+  await installMockBridge(page, {}, { seedPreviewFeatures: false });
+  await page.goto("/#/pulse");
+  const dock = page.getByTestId("pulse-app-navigation");
+  const entry = (name: string) =>
+    dock.getByRole("button", { name, exact: true });
+  await expect(entry("Home")).toBeVisible();
+  await expect(entry("Messages")).toBeVisible();
+  await expect(entry("Agents")).toBeVisible();
+  await expect(entry("Projects")).toHaveCount(0);
+  await expect(entry("Workflows")).toHaveCount(0);
+  await expect(
+    page.getByText("Pulse is a preview feature.", { exact: false }),
+  ).toHaveCount(0);
+
+  await entry("Settings").click();
+  await page.getByTestId("settings-nav-experimental").click();
+  for (const [id, name] of [
+    ["projects", "Projects"],
+    ["workflows", "Workflows"],
+  ]) {
+    await page.getByTestId(`feature-toggle-${id}`).click();
+    await expect(entry(name)).toBeVisible();
+  }
+  await entry("Home").click();
+  await page.reload();
+  await expect(entry("Projects")).toBeVisible();
+  await expect(entry("Workflows")).toBeVisible();
+
+  await entry("Settings").click();
+  await page.getByTestId("settings-nav-experimental").click();
+  for (const [id, name] of [
+    ["projects", "Projects"],
+    ["workflows", "Workflows"],
+  ]) {
+    await page.getByTestId(`feature-toggle-${id}`).click();
+    await expect(entry(name)).toHaveCount(0);
+  }
+  await entry("Messages").click();
+  await page.reload();
+  await expect(entry("Projects")).toHaveCount(0);
+  await expect(entry("Workflows")).toHaveCount(0);
+  await expect(page.getByTestId("pulse-combined-list")).toBeVisible();
+});
+
+test("native launch destination opens Home by default", async ({ page }) => {
+  const config = JSON.parse(
+    readFileSync(
+      new URL("../../src-tauri/tauri.conf.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  await installMockBridge(page);
+  await page.goto(`/${config.app.windows[0].url}`);
+  await expect(
+    page
+      .getByTestId("pulse-app-navigation")
+      .getByRole("button", { name: "Home", exact: true }),
+  ).toHaveAttribute("aria-current", "page");
+  await expect(page.getByTestId("pulse-briefing")).toBeVisible();
+});
 
 async function boundsOf(locator: Locator) {
   const bounds = await locator.boundingBox();
@@ -654,11 +831,14 @@ test("Home renders more than three summary rows", async ({ page }) => {
   const main = page.getByTestId("pulse-main-container");
   await expect(main).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   await expect(main).toHaveCSS("box-shadow", "none");
+  await expect(main).toHaveCSS("border-radius", "24px");
+  await expect(main).toHaveCSS("overflow", "hidden");
   await expect(highlights.first().locator("header")).toHaveCount(0);
   const first = await boundsOf(highlights.nth(0));
   const second = await boundsOf(highlights.nth(1));
-  expect(second.y - first.y - first.height).toBe(16);
+  expect(second.y - first.y - first.height).toBe(4);
   expect(first.y).toBe((await boundsOf(main)).y);
+  expect(first.width).toBe((await boundsOf(main)).width);
   await waitForAnimations(page);
   await page.screenshot({
     path: "test-results/pulse-prototype/home-flat-cards.png",
@@ -673,6 +853,34 @@ test("Home renders more than three summary rows", async ({ page }) => {
   await expect(page.getByTestId("pulse-combined-list")).toHaveCount(0);
   await expect(page.getByTestId("pulse-app-navigation")).toBeInViewport();
   await expect(page.getByTestId("pulse-conversation")).toHaveCount(0);
+  await page.setViewportSize({ width: 426, height: 863 });
+  await highlights.first().scrollIntoViewIfNeeded();
+  const card = highlights.first();
+  await expect(card.getByText("Activity summary", { exact: true })).toHaveCount(
+    0,
+  );
+  await expect(
+    card.getByRole("button", { name: "Snooze", exact: true }),
+  ).toHaveAttribute("aria-disabled", "true");
+  await expect(
+    card.getByRole("button", { name: "Reply directly", exact: true }),
+  ).toHaveAttribute("aria-disabled", "true");
+  const cardBox = await boundsOf(card);
+  const actionBox = await boundsOf(
+    card.getByRole("button", { name: "Open conversation", exact: true }),
+  );
+  expect(actionBox.x + actionBox.width).toBeLessThanOrEqual(
+    cardBox.x + cardBox.width,
+  );
+  expect(
+    await card.evaluate(
+      (element) => element.scrollWidth <= element.clientWidth,
+    ),
+  ).toBe(true);
+  await waitForAnimations(page);
+  await page.screenshot({
+    path: "test-results/pulse-prototype/home-narrow-actions.png",
+  });
 });
 
 test("combined conversations preserve recency, selection, and drafts for legacy links", async ({
@@ -690,8 +898,11 @@ test("combined conversations preserve recency, selection, and drafts for legacy 
   const detail = page.getByTestId("pulse-combined-detail");
   const all = list.getByRole("button", { name: "All messages", exact: true });
   const aggregate = page.getByTestId("pulse-all-messages-feed");
-  await expect(list.getByRole("button").nth(0)).toHaveText("Search");
-  await expect(list.getByRole("button").nth(1)).toHaveText("All messages");
+  await expect(list.getByRole("button").nth(0)).toHaveAccessibleName(
+    "Organize messages",
+  );
+  await expect(list.getByRole("button").nth(1)).toHaveText("Search");
+  await expect(list.getByRole("button").nth(2)).toHaveText("All messages");
   await list.getByRole("button", { name: "Search", exact: true }).click();
   await expect(
     page.getByRole("searchbox", { name: "Search loaded feed" }),
@@ -2512,6 +2723,11 @@ test("app dock preserves keyboard navigation and equal window insets", async ({
     expect((await boundsOf(dock)).y).toBe(box.y);
     expect(900 - box.y - box.height).toBe(40);
     expect((await boundsOf(dock)).width).toBeLessThan(90);
+    const railBox = await boundsOf(page.getByTestId("pulse-dock-rail"));
+    const dockBox = await boundsOf(dock);
+    expect(
+      railBox.x + railBox.width / 2 - (dockBox.x + dockBox.width / 2),
+    ).toBe(12);
     for (const label of [
       "Home",
       "Messages",

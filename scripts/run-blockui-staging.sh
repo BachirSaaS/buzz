@@ -16,7 +16,7 @@ const base = JSON.parse(readFileSync('./desktop/src-tauri/tauri.conf.json', 'utf
 writeFileSync(process.env.CONFIG_PATH, JSON.stringify({
   ...identity.tauriConfig,
   app: { windows: base.app.windows.map((window) => ({
-    ...window, url: 'index.html#/pulse?feed=conversation',
+    ...window, url: 'index.html#/pulse',
   })) },
   build: {
     devUrl: 'http://localhost:1435',
@@ -30,6 +30,14 @@ export BUZZ_RELAY_URL="wss://buzz.block.builderlab.xyz"
 export BUZZ_SHARE_IDENTITY=1
 export VITE_PORT=1435
 export VITE_HMR_PORT=1436
+
+if [[ "${1:-}" != "--no-build" ]]; then
+    # A frontend-only setup can leave zero-byte sidecar placeholders. Build and
+    # bundle the real agent executables before packaging a usable staging app.
+    cargo build --release -p buzz-acp -p buzz-agent -p buzz-backend-kubernetes \
+        -p buzz-dev-mcp -p git-credential-nostr -p buzz-cli
+    bash scripts/bundle-sidecars.sh
+fi
 cd desktop
 
 if [[ "${1:-}" != "--no-build" ]]; then
@@ -47,6 +55,10 @@ import subprocess
 import sys
 
 app = Path(os.environ['BLOCKUI_APP_PATH'])
+for name in ('buzz-acp', 'buzz-agent', 'buzz-dev-mcp', 'git-credential-nostr', 'buzz'):
+    sidecar = app / 'Contents/MacOS' / name
+    if not sidecar.is_file() or sidecar.stat().st_size == 0 or not os.access(sidecar, os.X_OK):
+        sys.exit(f'Missing or unusable staging sidecar: {name}. Rebuild without --no-build.')
 plist = app / 'Contents/Info.plist'
 if not plist.is_file():
     sys.exit('Build the staging app before using --no-build.')

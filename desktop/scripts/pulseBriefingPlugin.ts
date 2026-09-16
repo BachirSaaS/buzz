@@ -29,6 +29,8 @@ async function summarize(input: string) {
         process.env.BUZZ_PULSE_CODEX_BIN || "codex",
         [
           "exec",
+          "--model",
+          "gpt-5.6-terra",
           "--ignore-user-config",
           "--ephemeral",
           "--skip-git-repo-check",

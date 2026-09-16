@@ -29,9 +29,9 @@ export function PulseWorkspaceFrame({
           className={cn(
             "pulse-workspace-surface relative mx-auto flex min-h-0 w-full flex-1 flex-col overflow-hidden",
             active === "home"
-              ? "bg-transparent"
+              ? "max-w-[640px] rounded-blockui-lg bg-transparent"
               : "rounded-blockui-lg bg-background shadow-sm",
-            !expanded && "max-w-[960px]",
+            !expanded && active !== "home" && "max-w-[960px]",
           )}
         >
           {children}

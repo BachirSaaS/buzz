@@ -147,6 +147,7 @@ export function UnifiedPulseView({
     reads,
     `${currentPubkey}:${feed.scope}`,
     Date.now() / 1000,
+    feed.profiles[currentPubkey ?? ""]?.displayName ?? undefined,
   );
   const summary = usePulseSummary(
     summaryInput,

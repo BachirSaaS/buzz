@@ -334,3 +334,22 @@ test("item-13: no runtimes available — refuses with actionable error", () => {
     "empty runtime list must throw, not silently return null",
   );
 });
+
+test("unavailable configured runtime reports a stopped launch, never promises a fallback", () => {
+  for (const [definition, preferred] of [
+    [persona({ runtime: "codex" }), null],
+    [persona({ runtime: undefined }), "codex"],
+  ]) {
+    assert.throws(
+      () =>
+        resolveStartRuntimeForDefinition(definition, [gooseRuntime], preferred),
+      (error) => {
+        assert.match(error.message, /requires runtime "codex"/);
+        assert.match(error.message, /Settings.*install/);
+        assert.match(error.message, /not started/);
+        assert.doesNotMatch(error.message, /Using .* instead/);
+        return true;
+      },
+    );
+  }
+});

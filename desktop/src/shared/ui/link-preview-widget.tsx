@@ -1,7 +1,4 @@
 import {
-  ArrowUpRight,
-  ChevronDown,
-  ChevronUp,
   CircleDot,
   FileText,
   Folder,
@@ -12,10 +9,9 @@ import {
   Table2,
   GitFork,
 } from "lucide-react";
-import { useState, type MouseEvent } from "react";
+import { useRef, useState, type MouseEvent } from "react";
 import type { ResolvedLinkPreview } from "@/shared/lib/useResolvedLinkPreviews";
 import { cn } from "@/shared/lib/cn";
-import { Action } from "@/shared/ui/action";
 import {
   ContentWidget,
   WidgetCaption,
@@ -68,7 +64,7 @@ function previewIdentity(preview: ResolvedLinkPreview) {
 /** Presentation only. Metadata, snapshot, media proxy and access policies stay upstream. */
 export function LinkPreviewWidget({
   className,
-  compact = false,
+  compact: defaultCompact = false,
   ImageLightbox,
   onOpen,
   onRemove,
@@ -85,7 +81,14 @@ export function LinkPreviewWidget({
   showControls?: boolean;
   showExpandControl?: boolean;
 }) {
+  const imageController = useRef<{ open: () => void }>(null);
   const [expanded, setExpanded] = useState(true);
+  const [layout, setLayout] = useState<{
+    base: boolean;
+    compact: boolean;
+  } | null>(null);
+  const compact =
+    layout?.base === defaultCompact ? layout.compact : defaultCompact;
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
   const { Icon, hostname, context, type } = previewIdentity(preview);
   const src = preview.imageState === "image" ? preview.imageDataUrl : null;
@@ -141,7 +144,7 @@ export function LinkPreviewWidget({
   return (
     <ContentWidget
       className={cn(
-        "group/preview w-lg max-w-full shrink-0",
+        "group/preview isolate w-lg max-w-full shrink-0 shadow-[var(--blockui-card-shadow-standard)]",
         compact && "w-112",
         className,
       )}
@@ -150,15 +153,42 @@ export function LinkPreviewWidget({
       data-link-preview-inline={compact ? undefined : ""}
     >
       <div className="flex min-w-0 items-center gap-2">
-        <Icon
-          aria-hidden="true"
-          className="size-4 shrink-0 text-muted-foreground"
-        />
+        {preview.faviconDataUrl ? (
+          <img
+            alt=""
+            aria-hidden="true"
+            className="size-4 shrink-0 rounded-blockui-xs object-contain"
+            src={preview.faviconDataUrl}
+            data-link-preview-favicon=""
+          />
+        ) : (
+          <Icon
+            aria-hidden="true"
+            className="size-4 shrink-0 text-muted-foreground"
+          />
+        )}
         <WidgetCaption className="min-w-0 flex-1 truncate capitalize">
           {preview.provider} · {type}
         </WidgetCaption>
-        {showControls ? (
-          <LinkPreviewControls onRemove={onRemove} placement="inline" />
+        {showExpandControl || showControls ? (
+          <LinkPreviewControls
+            compact={compact}
+            expanded={expanded}
+            onCompactChange={(value) =>
+              setLayout({ base: defaultCompact, compact: value })
+            }
+            onExpandedChange={
+              showExpandControl && (preview.description || reserveImage)
+                ? setExpanded
+                : undefined
+            }
+            onViewImage={
+              !compact && expanded && showImage && ImageLightbox
+                ? () => imageController.current?.open()
+                : undefined
+            }
+            onRemove={showControls ? onRemove : undefined}
+          />
         ) : null}
       </div>
       <div className={cn("flex min-w-0 gap-4", !compact && "flex-col")}>
@@ -169,7 +199,7 @@ export function LinkPreviewWidget({
               {...openProps}
               href={preview.href}
               aria-label={`Open ${preview.provider} ${preview.typeLabel}: ${preview.title}`}
-              className="line-clamp-2 break-words text-foreground no-underline hover:underline focus-visible:rounded-blockui-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="line-clamp-2 break-words text-foreground no-underline after:absolute after:inset-0 after:z-10 after:rounded-blockui-lg after:content-[''] hover:underline focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-ring"
             >
               {preview.title}
             </a>
@@ -203,9 +233,10 @@ export function LinkPreviewWidget({
       {!compact && media ? (
         showImage && ImageLightbox && src ? (
           <ImageLightbox
+            controllerRef={imageController}
             alt={`Preview from ${preview.imageDomain ?? hostname}`}
             src={src}
-            className="block rounded-blockui-md"
+            className="pointer-events-none block rounded-blockui-md"
           >
             {media}
           </ImageLightbox>
@@ -213,43 +244,6 @@ export function LinkPreviewWidget({
           media
         )
       ) : null}
-      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 border-t border-border pt-4">
-        <div
-          className="flex min-w-0 max-w-full items-center gap-2 text-xs font-medium text-muted-foreground"
-          data-link-preview-hostname=""
-          data-link-preview-identity=""
-        >
-          {preview.faviconDataUrl ? (
-            <img
-              alt=""
-              aria-hidden="true"
-              className="size-4 shrink-0 rounded-blockui-xs object-contain"
-              src={preview.faviconDataUrl}
-              data-link-preview-hostname-favicon=""
-              data-link-preview-favicon=""
-            />
-          ) : null}
-          <span className="truncate">{hostname}</span>
-          <ArrowUpRight aria-hidden="true" className="size-4 shrink-0" />
-        </div>
-        {!compact &&
-        showExpandControl &&
-        (preview.description || reserveImage) ? (
-          <Action
-            type="button"
-            aria-expanded={expanded}
-            className="flex items-center gap-2 rounded-blockui-sm px-2 py-2 text-xs font-medium text-muted-foreground hover:bg-muted"
-            onClick={() => setExpanded((value) => !value)}
-          >
-            {expanded ? (
-              <ChevronUp aria-hidden="true" className="size-4" />
-            ) : (
-              <ChevronDown aria-hidden="true" className="size-4" />
-            )}
-            {expanded ? "Show less" : "Show more"}
-          </Action>
-        ) : null}
-      </div>
     </ContentWidget>
   );
 }

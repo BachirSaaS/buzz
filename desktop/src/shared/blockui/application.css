@@ -42,7 +42,7 @@
     --blockui-button-ghost-fill-hover
   );
   --huddle-control-foreground: var(--blockui-text-standard);
-  --huddle-popover-surface: var(--blockui-surface-popover);
+  --huddle-popover-surface: var(--blockui-surface-card);
   --huddle-popover-border: var(--blockui-border-subtle);
   --huddle-tooltip-surface: var(--blockui-surface-inverse);
   --huddle-tooltip-foreground: var(--blockui-text-inverse);
