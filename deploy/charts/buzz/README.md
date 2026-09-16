@@ -52,7 +52,6 @@ security boundaries.
 
 See:
 
-- [`docs/argo-rollouts.md`](docs/argo-rollouts.md) — optional manual canary updates and Deployment handover
 - [`examples/argocd-app.yaml`](examples/argocd-app.yaml) — ArgoCD Application
 - [`examples/flux-helmrelease.yaml`](examples/flux-helmrelease.yaml) — Flux HelmRelease v2
 - [`examples/secret-sample.yaml`](examples/secret-sample.yaml) — Secret schema

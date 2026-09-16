@@ -43,7 +43,8 @@ replicaCount: 1
 # Requires a separately installed Argo Rollouts controller and CRDs.
 # The Deployment remains the pod-template source via workloadRef. Set BOTH
 # counts explicitly; enabling this flag alone cannot scale down the Deployment.
-# For a two-pod handover, see docs/argo-rollouts.md before changing these values.
+# Start an existing Deployment handover with deploymentReplicas=replicaCount
+# and replicas=0, then change one count at a time after verifying health.
 rollout:
   enabled: false
   deploymentReplicas: null
