@@ -8,6 +8,8 @@ import { readBuzzOwnerKey, buzzOwnerKeyErrors } from '../src/buzz-owner-key.ts';
 import { createControllerConfig } from '../src/controller-config.ts';
 import { managerCredential } from '../src/manager-credential.ts';
 import { ManagerController } from '../src/manager-controller.ts';
+import { bootstrapHostIdentity } from '../src/host-identity.ts';
+import { isolatedFileCredentials } from './isolated-file-credentials.ts';
 import { publicKey } from '../src/protocol.ts';
 
 const secret = '1'.repeat(64), owner = publicKey(secret);
@@ -27,6 +29,7 @@ test('explicit Buzz signin validates actual blob identity and excludes all other
     ['wrong owner', () => JSON.stringify({identity:nip19.nsecEncode(Buffer.from('2'.repeat(64),'hex'))}), 'mismatch'],
   ] as const) {
     const home = mkdtempSync(join(tmpdir(), 'beehive-pairing-cli-buzz-owner-'));
+    createControllerConfig(join(home,'.beehive','owner'),owner,'wss://fixture.invalid');
     let reads = 0, connections = 0, directoryReads = 0;
     const outputs: unknown[] = [];
     const c = new ManagerController(home, s => outputs.push(s), async (input) => {
@@ -46,7 +49,7 @@ test('explicit Buzz signin validates actual blob identity and excludes all other
       assert.equal(result.state, reason ? 'failed' : 'completed',label);
       assert.equal(connections,reason ? 0 : 1,label);
       const config = join(home,'.beehive','owner','controller.json');
-      if (reason) { assert.equal(c.snapshot().owner,undefined); assert.equal(existsSync(config),false); }
+      if (reason) { assert.equal(c.snapshot().owner,undefined); assert.deepEqual(JSON.parse(readFileSync(config,'utf8')), {version:1,owner,relay:'wss://fixture.invalid'}); }
       else {
         assert.equal(c.snapshot().owner,owner);
         assert.deepEqual(JSON.parse(readFileSync(config,'utf8')), {version:1,owner,relay:'wss://fixture.invalid'});
@@ -62,18 +65,20 @@ test('explicit Buzz signin validates actual blob identity and excludes all other
 });
 
 test('Buzz late completion and untrusted helper mismatch cannot configure or connect', async () => {
-  for (const mode of ['cancel','close','mismatch','malformed'] as const) {
+  for (const mode of ['cancel','close','mismatch','malformed','first-use-cancel','first-use-close','first-use-malformed'] as const) {
     const home = mkdtempSync(join(tmpdir(),'beehive-pairing-cli-buzz-stale-'));
+    bootstrapHostIdentity(join(home,'.beehive','host'),'Fixture',owner,'wss://fixture.invalid',isolatedFileCredentials(join(home,'credentials.json')));
+    if (!mode.startsWith('first-use')) createControllerConfig(join(home,'.beehive','owner'),owner,'wss://fixture.invalid');
     let finish!: (value: unknown) => void;
     const c = new ManagerController(home,()=>{},()=>new Promise(resolve=>{finish=resolve;}), (()=>{throw Error('must never connect');}) as any, async()=>undefined);
     try {
       const pending = c.request({id:1,action:'signin-buzz',values:{owner,relay:'wss://fixture.invalid'}});
-      if (mode === 'cancel') c.cancel();
-      if (mode === 'close') c.close();
-      finish({ok:true,secret:mode === 'mismatch' ? '2'.repeat(64) : mode === 'malformed' ? nsec : secret});
+      if (mode.endsWith('cancel')) c.cancel();
+      if (mode.endsWith('close')) c.close();
+      finish({ok:true,secret:mode === 'mismatch' ? '2'.repeat(64) : mode.endsWith('malformed') ? nsec : secret});
       assert.notEqual((await pending).state,'completed');
       assert.equal(c.snapshot().owner,undefined);
-      assert.equal(existsSync(join(home,'.beehive','owner','controller.json')),false);
+      assert.equal(existsSync(join(home,'.beehive','owner','controller.json')),!mode.startsWith('first-use'));
       assert.ok(!JSON.stringify(c.snapshot()).includes(nsec));
     } finally { c.close(); rmSync(home,{recursive:true,force:true}); }
   }
@@ -82,6 +87,7 @@ test('Buzz late completion and untrusted helper mismatch cannot configure or con
 
 test('actual signin child reads only the canonical item; safe missing/access errors and no Beehive copy', async () => {
   const helper = new URL('./buzz-owner-child-fixture.ts', import.meta.url);
+  assert.deepEqual(await managerCredential({action:'signin-buzz',owner:null,fixture:{blob}},new AbortController().signal,helper),{ok:true,secret});
   assert.deepEqual(await managerCredential({action:'signin-buzz',owner,fixture:{blob}},new AbortController().signal,helper),{ok:true,secret});
   for (const [fixture, pattern] of [[{blob:null},/No Buzz owner key/],[{denied:nsec},/locked, denied, cancelled/],[{blob:'invalid'},/malformed/],[{blob},/does not match/]] as const) {
     await assert.rejects(managerCredential({action:'signin-buzz',owner:pattern.source.includes('does not match') ? publicKey('2'.repeat(64)) : owner,fixture},new AbortController().signal,helper), error => {

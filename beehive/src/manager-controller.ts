@@ -439,16 +439,22 @@ A Stop result is not a recent host report that confirms the agent is stopped.` }
         check(); this.status = 'Local agent added and stopped. Nothing was started or published to the relay.';
       } else if (request.action === 'signin' || request.action === 'signin-buzz') {
         const retained = readControllerConfig(this.ownerDirectory);
-        const owner = retained?.owner ?? ownerPublicInput(v.owner ?? '');
-        const relay = retained?.relay ?? v.relay ?? '';
+        let owner = retained?.owner ?? (request.action === 'signin-buzz' ? null : ownerPublicInput(v.owner ?? ''));
+        const relay = retained?.relay ?? (request.action === 'signin-buzz'
+          ? readHostIdentityPublic(this.hostDirectory).pairing.relay : v.relay ?? '');
         if (!/^(wss|ws):\/\//.test(relay)) throw plain('Enter a relay URL that starts with ws:// or wss://.');
         const result = await this.credential({ action: request.action, owner, ...(request.action === 'signin' && v.secret ? { secret: v.secret.toLowerCase() } : {}) }, abort.signal);
         delete v.secret; check();
         if (request.action === 'signin-buzz') {
           let matches = false;
-          try { matches = typeof result.secret === 'string' && publicKey(result.secret) === owner; } catch { /* Untrusted helper result: never expose its bytes. */ }
+          try {
+            const derived = typeof result.secret === 'string' ? publicKey(result.secret) : undefined;
+            matches = derived !== undefined && (owner === null || derived === owner);
+            if (matches && derived !== undefined) owner = derived;
+          } catch { /* Untrusted helper result: never expose its bytes. */ }
           if (!matches) throw plain('Buzz key is unavailable, malformed, or does not match the configured Beehive owner. No owner or relay was changed.');
         }
+        if (owner === null) throw plain('Buzz Keychain owner key is malformed. No key or configured owner was changed.');
         if (result.secret === null) throw plain('No saved owner key. Choose Import matching owner key and sign in. Enter the matching private key with 64 hex characters.');
         if (!retained) createControllerConfig(this.ownerDirectory, owner, relay);
         this.client?.close(); this.inventory.clear(); this.offers.clear(); this.directory = [];

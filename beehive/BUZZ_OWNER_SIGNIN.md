@@ -36,16 +36,20 @@ not a claim that the OS supports reading one JSON member independently.
 ## Secret and authority flow
 
 1. Renderer sends the explicit `signin-buzz` action with public routing only.
-2. Controller retains existing owner/relay when configured; otherwise the human
-   supplies them. Nothing is inferred from the discovered key.
+2. The Buzz action bypasses the manual routing wizard entirely. Controller retains
+   an existing owner/relay; on first use it takes the current Host relay, reads and
+   validates Buzz’s key with an explicit null expected-owner mode, then derives
+   the public owner from that key. Renderer supplies neither identity nor secret.
+   Only the public owner/relay binding is initialized via createControllerConfig,
+   after the cancellation/generation fence; no host identity is changed.
 3. Existing bounded Node credential child calls pinned `@napi-rs/keyring` via
    `loadNativeEntry()`, constructs the exact item, and calls **getPassword only**.
    Parse is bounded to a 1 MiB blob. Missing item/member, native access failure,
    malformed JSON/nsec/invalid scalar, and owner mismatch are distinct fixed
    outcomes; native denial/cancellation cannot reliably be distinguished and
    are reported together, not described as successful or as missing.
-4. Only validated matching hex secret returns over private IPC. The controller
-   checks generation/cancellation and independently validates the owner match
+4. Only validated hex secret returns over private IPC. The controller
+   checks generation/cancellation and independently derives the public identity and validates any retained owner match
    before routing persistence/transport creation. Error text never includes
    native/parser exceptions or key material.
 5. Existing management-client and authenticated directory code consume the
@@ -107,5 +111,39 @@ state, not an off-screen Sign out label.
 No native source changed or native package was rebuilt/tested. No production
 Keychain access, provider/relay calls, install, push, or PR. OS prompt interaction,
 actual production-item compatibility, installed feature delivery, and independent
-security review remain unvalidated. Existing guarded publication/export route
-must wait for that review.
+security review remain unvalidated. These historical limitations are not a gate on the explicitly requested prototype publication.
+
+
+## First-use regression and laptop smoke (current fix)
+
+The prior one-gesture fixture had controller routing preconfigured and therefore
+missed the actual first-use wizard. `test/buzz-first-use-smoke.py` now drives the
+real Node controller + Bun renderer through Agents → Actions → Buzz key → Enter
+once. Preconditions are explicit: a fresh temporary HOME, **no controller.json or
+configured controller owner**, a normal synthetic Host with `wss://fixture.invalid`,
+and an explicit synthetic credential file. The fixture selects the synthetic Buzz
+identity independently of the requested owner (`BEEHIVE_TEST_BUZZ_OWNER`), matching
+the canonical reader's first-use contract. There are no production Keychain reads.
+Directory, services, native OAuth, providers and transport remain fenced by the
+existing loader; signed-in UI is verified, not real relay connectivity.
+
+Run from `beehive/` with real runtime binaries (not Hermit shim symlinks):
+
+```sh
+BEEHIVE_SMOKE_NODE=/absolute/path/to/node-24.15.0/bin/node \
+BEEHIVE_BUN=/absolute/path/to/packaged/bun \
+python3 -u test/buzz-first-use-smoke.py
+```
+
+The test checks the derived public config, signed-in rendered state, absence of
+public-key/Step 1/nsec/Type yes prompts throughout terminal replay, unchanged
+credential file, and no private-key bytes in Beehive storage or terminal output.
+It prints the surviving temporary HOME with `ui.ansi` and `ui-frames.txt`.
+Actual walkthrough passed with Node 24.15.0 and packaged Bun 1.4.2. Focused backend
+checks remain 12/12 and TypeScript passes; cancellation/close now also exercise
+unconfigured first use, and the real credential-child check covers null owner.
+The earlier broad-suite 400-second failure above remains unresolved; no full-suite
+retry, native rebuild, production Keychain access, or installation was performed.
+For laptop acceptance: retain the normal Host, ensure no controller owner has yet
+been configured, then select Buzz-key sign-in once. Existing configured owners
+still must match. Do not delete or retarget a real retained owner just to smoke.

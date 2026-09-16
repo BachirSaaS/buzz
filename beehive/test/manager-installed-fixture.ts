@@ -25,7 +25,7 @@ export async function fixtureCredential(input: any, signal: AbortSignal) {
     // Esc cancellation deterministically; inert unless the driver sets it.
     const paced = Number(process.env.BEEHIVE_TEST_SIGNIN_DELAY_MS ?? '0');
     if (paced > 0) await new Promise((resolve, reject) => { const timer = setTimeout(resolve, paced); signal.addEventListener('abort', () => { clearTimeout(timer); reject(signal.reason); }, { once: true }); });
-    const key = backend.read(credentialReference('owner', input.owner));
+    const key = backend.read(credentialReference('owner', process.env.BEEHIVE_TEST_BUZZ_OWNER ?? input.owner));
     const result = readBuzzOwnerKey(input.owner, () => key === null ? null : JSON.stringify({identity:nip19.nsecEncode(Buffer.from(key,'hex'))}));
     if (!result.ok) throw Error(buzzOwnerKeyErrors[result.reason]);
     return result;

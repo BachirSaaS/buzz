@@ -46,14 +46,8 @@ async function routing(action: string, secret = false) {
     if (key === undefined) return;
     values.secret = key;
   }
-  // Buzz-key sign-in carries no extra Beehive prompt: selecting the action is
-  // itself the explicit gesture (an OS keychain permission dialog is separate
-  // and still applies), so the request dispatches immediately. The saved-key
-  // and import paths keep their confirmation.
-  if (action !== 'signin-buzz') {
-    const confirmation = `${action === 'configure' ? 'Configure this computer' : 'Sign in'}\nOwner: ${shortIdentity(owner)}\nRelay: ${relay}\n${action === 'configure' ? 'Create host identity in the OS credential store?' : 'Access owner key in the OS credential store?'}`;
-    if (!await screen.confirm(confirmation)) { delete values.secret; return; }
-  }
+  const confirmation = `${action === 'configure' ? 'Configure this computer' : 'Sign in'}\nOwner: ${shortIdentity(owner)}\nRelay: ${relay}\n${action === 'configure' ? 'Create host identity in the OS credential store?' : 'Access owner key in the OS credential store?'}`;
+  if (!await screen.confirm(confirmation)) { delete values.secret; return; }
   await request(action, values); delete values.secret;
 }
 async function registerForm(continuation?: string, agent?: string) {
@@ -157,7 +151,7 @@ The source stops before destination launch. Workspace, session and credentials s
     { label: 'Sign out', run: () => request('signout') },
     { label: 'Publish profile or instructions', run: () => screen.notice('Publication forms are unavailable. Use the CLI:\nbeehive drafts ~/.beehive/owner\nbeehive tui discover <relay> ~/.beehive/owner\nThis build cannot generate owner keys.') },
   ] : [
-    { label: 'Sign in with Buzz key', run: () => routing('signin-buzz') },
+    { label: 'Sign in with Buzz key', run: () => request('signin-buzz') },
     { label: 'Sign in with saved owner key', run: () => routing('signin') },
     { label: 'Import matching owner key and sign in', run: () => routing('signin', true) },
   ];

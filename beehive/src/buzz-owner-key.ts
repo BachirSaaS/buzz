@@ -5,8 +5,9 @@ import { publicKey } from './protocol.ts';
 /** Release Desktop source contract: secret_store.rs BLOB_KEY; app_state.rs
  * IDENTITY_KEY_NAME; app_state_keyring.rs keyring_service (6d1f488d).
  * The containing item also holds agent keys. Never return it, enumerate its
- * members, migrate legacy entries, or call a write API. Explicit sign-in only. */
-export function readBuzzOwnerKey(owner: string, read: () => string | null = () => new (loadNativeEntry())('buzz-desktop', 'secrets').getPassword()): { ok: true; secret: string } | { ok: false; reason: 'missing' | 'access' | 'malformed' | 'mismatch' } {
+ * members, migrate legacy entries, or call a write API. Explicit sign-in only.
+ * null explicitly permits first-use identity derivation; undefined is not first use. */
+export function readBuzzOwnerKey(owner: string | null, read: () => string | null = () => new (loadNativeEntry())('buzz-desktop', 'secrets').getPassword()): { ok: true; secret: string } | { ok: false; reason: 'missing' | 'access' | 'malformed' | 'mismatch' } {
   let raw: string | null;
   try { raw = read(); } catch { return { ok: false, reason: 'access' }; }
   if (raw === null) return { ok: false, reason: 'missing' };
@@ -19,7 +20,7 @@ export function readBuzzOwnerKey(owner: string, read: () => string | null = () =
     if (typeof blob.identity !== 'string') throw Error();
     secret = agentNsec(blob.identity);
   } catch { return { ok: false, reason: 'malformed' }; }
-  if (publicKey(secret) !== owner) return { ok: false, reason: 'mismatch' };
+  if (owner !== null && publicKey(secret) !== owner) return { ok: false, reason: 'mismatch' };
   return { ok: true, secret };
 }
 
