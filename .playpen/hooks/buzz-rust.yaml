@@ -1,0 +1,88 @@
+language: rust
+environment: BLOX
+hooks-version: 2
+average-start-delay-in-seconds: 30
+app-started-message: "Buzz Playpen ready"
+
+detect: |
+  test -f Cargo.toml && test -d crates/buzz-relay
+
+build: |
+  artifact="target/playpen-bookworm/release/buzz-relay"
+  if [ "${BUZZ_PLAYPEN_USE_PREBUILT:-}" = "1" ]; then
+    if [ ! -f "${artifact}" ]; then
+      echo "BUZZ_PLAYPEN_USE_PREBUILT=1 requires ${artifact}" >&2
+      exit 1
+    fi
+  else
+    . ./bin/activate-hermit
+    rust_version="$(sed -n 's/^ARG RUST_VERSION=//p' Dockerfile | head -n 1)"
+    debian_version="$(sed -n 's/^ARG DEBIAN_VERSION=//p' Dockerfile | head -n 1)"
+    if [ -z "${rust_version}" ] || [ -z "${debian_version}" ]; then
+      echo "Could not determine the Buzz builder image from Dockerfile" >&2
+      exit 1
+    fi
+
+    cargo_home="target/playpen-cargo-home"
+    mkdir -p "${cargo_home}"
+    if [ -f "${HOME}/.cargo/config.toml" ]; then
+      install -m 0644 "${HOME}/.cargo/config.toml" "${cargo_home}/config.toml"
+    fi
+
+    docker run --rm \
+      --user "$(id -u):$(id -g)" \
+      --env HOME=/tmp \
+      --env CARGO_HOME=/cargo-home \
+      --env CARGO_TARGET_DIR=/build/target/playpen-bookworm \
+      --volume "${PWD}/${cargo_home}:/cargo-home" \
+      --volume "${PWD}:/build" \
+      --workdir /build \
+      "rust:${rust_version}-${debian_version}" \
+      cargo build --release --locked -p buzz-relay --bin buzz-relay
+  fi
+
+copy: |
+  mkdir -p "${PLAYPEN_LOCAL_TMP_DIR}/bin"
+  install -m 0755 target/playpen-bookworm/release/buzz-relay "${PLAYPEN_LOCAL_TMP_DIR}/bin/buzz-relay"
+
+sync: |
+  rsync -av --progress --compress --checksum --no-times --no-perms \
+    --rsync-path="" \
+    --rsh "${PLAYPEN_KUBECTL} exec -i ${PLAYPEN_POD_NAME} -c ${PLAYPEN_RSYNC_CONTAINER_NAME} --" \
+    "${PLAYPEN_LOCAL_TMP_DIR}/" "rsync:${PLAYPEN_WORKING_DIR}"
+
+start: |
+  binary="${PLAYPEN_WORKING_DIR}/bin/buzz-relay"
+  pid_file="${PLAYPEN_WORKING_DIR}/buzz-relay.pid"
+
+  "${binary}" &
+  relay_pid=$!
+  echo "${relay_pid}" > "${pid_file}"
+
+  attempts=0
+  until curl --fail --silent --show-error http://127.0.0.1:8080/_readiness >/dev/null; do
+    if ! kill -0 "${relay_pid}" 2>/dev/null; then
+      wait "${relay_pid}"
+      exit $?
+    fi
+
+    attempts=$((attempts + 1))
+    if [ "${attempts}" -ge 60 ]; then
+      echo "Buzz Playpen did not become ready within 120 seconds" >&2
+      kill -TERM "${relay_pid}" 2>/dev/null || true
+      wait "${relay_pid}" || true
+      exit 1
+    fi
+    sleep 2
+  done
+
+  echo "Buzz Playpen ready"
+  wait "${relay_pid}"
+
+stop: |
+  pid_file="${PLAYPEN_WORKING_DIR}/buzz-relay.pid"
+  if [ -f "${pid_file}" ]; then
+    relay_pid="$(cat "${pid_file}")"
+    kill -TERM "${relay_pid}" 2>/dev/null || true
+    rm -f "${pid_file}"
+  fi
