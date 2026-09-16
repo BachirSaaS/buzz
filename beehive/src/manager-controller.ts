@@ -375,7 +375,9 @@ A Stop result is not a recent host report that confirms the agent is stopped.` }
         }
         runtime ??= this.saveAgentConfiguration(v);
         const { profile, profileState } = this.profilePreview;
-        await this.credential({ action: 'register-agent', directory: this.hostDirectory, secret: v.secret, profile: { profile, profileState }, runtimeId:runtime.id, expectedRevision:readSettings(this.hostDirectory).revision },abort.signal); check();
+        await this.credential({ action: 'register-agent', directory: this.hostDirectory, secret: v.secret, publicKey:key, profile: { profile, profileState }, runtimeId:runtime.id, expectedRevision:readSettings(this.hostDirectory).revision },abort.signal); check();
+        const committed = readSettings(this.hostDirectory);
+        if (!committed.agents.some(agent => agent.publicKey === key)) throw plain('Agent registration completion was not verified. Inspect saved registration before retrying.');
         this.profilePreview = undefined;
         if (!pending) this.status = 'Agent registered. Configuration saved.';
         else {

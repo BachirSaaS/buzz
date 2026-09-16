@@ -25,7 +25,11 @@ export function managerCredential(input: object, signal: AbortSignal, helper = n
       clearTimeout(timer); signal.removeEventListener('abort', cancel);
       if (request.action === 'signin-buzz' && (code !== 0 || failed || signal.aborted || !result?.ok)) reject(Error(buzzOwnerKeyErrors[code === 0 && !failed && !signal.aborted ? result?.reason : 'access'] ?? buzzOwnerKeyErrors.access));
       else if (code !== 0 || failed || signal.aborted || !result?.ok) reject(Error('Could not complete key access. It may have been cancelled, timed out, denied, or unavailable. The key may not match. Changes may already be saved. Inspect before you try again. No key was reset or saved as plain text.'));
-      else resolve(result);
+      else if (request.action === 'register-agent' &&
+        (!result.registration || result.registration.publicKey !== request.publicKey ||
+          !Number.isSafeInteger(result.registration.settingsRevision))) {
+        reject(Error('Agent registration completion was not verified. Inspect saved registration before retrying.'));
+      } else resolve(result);
     });
     child.send(input, error => { if (error) cancel(); });
   });

@@ -26,8 +26,12 @@ process.once('message', async (input: any) => {
       process.send?.({ ok: true });
     } else if (input.action === 'register-agent') {
       const secret = agentNsec(input.secret);
-      registerAgent(input.directory, secret, systemCredentials, input.profile, input.runtimeId, input.expectedRevision);
-      process.send?.({ ok: true });
+      const registered = registerAgent(input.directory, secret, systemCredentials, input.profile, input.runtimeId, input.expectedRevision);
+      const committed = readSettings(input.directory);
+      if (!committed.agents.some(agent => agent.publicKey === registered.publicKey)) throw Error('Registration commit missing');
+      // Public completion receipt only. The controller must not infer durable
+      // registration from a helper process merely accepting the request.
+      process.send?.({ ok: true, registration: { publicKey: registered.publicKey, settingsRevision: committed.revision } });
     } else if (input.action === 'add-openai') {
       addOpenAI(input.directory,input.name,input.secret,providerCredentials());
       process.send?.({ ok: true });
