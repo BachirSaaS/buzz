@@ -1,4 +1,4 @@
-import { Hash, Layers, LockKeyhole } from "lucide-react";
+import { Hash, Layers, LockKeyhole, type LucideIcon } from "lucide-react";
 import type { Channel } from "@/shared/api/types";
 
 /** Channel identity at the DM avatar size; omitting a channel renders the aggregate icon. */
@@ -12,6 +12,11 @@ export function PulseChannelAvatar({
     : channel.visibility === "private"
       ? LockKeyhole
       : Hash;
+  return <PulseSidebarIcon icon={Icon} />;
+}
+
+/** Shared circular identity container for conversation navigation and channels. */
+export function PulseSidebarIcon({ icon: Icon }: { icon: LucideIcon }) {
   return (
     <span
       aria-hidden

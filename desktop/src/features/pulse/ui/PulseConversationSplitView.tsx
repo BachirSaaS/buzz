@@ -7,7 +7,7 @@ import {
   CLEAR_WORKSPACE_PANELS,
   type PulseView,
 } from "../lib/workspaceNavigation";
-import { Inbox, Search, MessageCircle, Users, Layers } from "lucide-react";
+import { Search, MessageCircle, Users } from "lucide-react";
 import { allowNavigation } from "@/app/navigation/navigationGuard";
 import { buildDirectMessageIntro } from "@/features/channels/lib/dmParticipantDisplay";
 import { useUsersBatchQuery } from "@/features/profile/hooks";
@@ -21,7 +21,7 @@ import {
 } from "@/features/profile/ui/ProfileAvatarWithStatus";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 
-import { PulseChannelAvatar } from "./PulseChannelAvatar";
+import { PulseChannelAvatar, PulseSidebarIcon } from "./PulseChannelAvatar";
 import { PulseChannelDetail } from "./PulseChannelDetail";
 import {
   PULSE_STATUS_DOT_CLASS,
@@ -164,24 +164,21 @@ export function PulseConversationSplitView({
         data-testid={`${testPrefix}-list`}
       >
         {navigation &&
-          (
-            [
-              { id: "search", label: "Search", icon: Search },
-              { id: "all", label: "For you", icon: Inbox },
-            ] as const
-          ).map(({ id, label, icon: Icon }) => (
-            <WorkspaceSidebarButton
-              key={id}
-              active={navigation.view === id}
-              type="button"
-              aria-current={navigation.view === id ? "true" : undefined}
-              onClick={() => navigation.onSelectView(id)}
-              className="mb-2"
-            >
-              <Icon aria-hidden="true" className="size-4" />
-              {label}
-            </WorkspaceSidebarButton>
-          ))}
+          ([{ id: "search", label: "Search", icon: Search }] as const).map(
+            ({ id, label, icon: Icon }) => (
+              <WorkspaceSidebarButton
+                key={id}
+                active={navigation.view === id}
+                type="button"
+                aria-current={navigation.view === id ? "true" : undefined}
+                onClick={() => navigation.onSelectView(id)}
+                className="mb-2"
+              >
+                <PulseSidebarIcon icon={Icon} />
+                {label}
+              </WorkspaceSidebarButton>
+            ),
+          )}
         {allMessages && (
           <>
             <WorkspaceSidebarButton
@@ -199,7 +196,7 @@ export function PulseConversationSplitView({
               onClick={() => selectConversation(null)}
               className="mb-2"
             >
-              <Layers aria-hidden="true" className="size-4" />
+              <PulseChannelAvatar />
               All messages
             </WorkspaceSidebarButton>
             <div className="my-2 border-t border-border/40" />
@@ -240,12 +237,7 @@ export function PulseConversationSplitView({
                 {row.channel.channelType !== "dm" ? (
                   <PulseChannelAvatar channel={row.channel} />
                 ) : row.participants.length > 1 ? (
-                  <span
-                    aria-hidden="true"
-                    className="flex size-7 shrink-0 items-center justify-center rounded-full bg-blockui-surface-standard text-foreground"
-                  >
-                    <Users className="size-4" />
-                  </span>
+                  <PulseSidebarIcon icon={Users} />
                 ) : (
                   <ProfileAvatarWithStatus
                     avatarUrl={participant?.avatarUrl ?? null}
@@ -294,9 +286,7 @@ export function PulseConversationSplitView({
           data-testid={
             navigation?.view === "search"
               ? "pulse-search-feed"
-              : navigation?.view === "all"
-                ? "pulse-briefing-feed"
-                : "pulse-all-messages-feed"
+              : "pulse-all-messages-feed"
           }
         >
           {allMessages.content}

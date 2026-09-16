@@ -1,7 +1,7 @@
 import type { AppNavigationTarget } from "@/app/navigation/NavigationTargetContext";
 
 export type PulseWorkspacePage = "projects" | "agents" | "workflows";
-export type PulseView = "all" | "search" | "conversation" | PulseWorkspacePage;
+export type PulseView = "home" | "search" | "conversation" | PulseWorkspacePage;
 
 export function isPulseWorkspacePage(
   value: unknown,

@@ -132,3 +132,6 @@ pub use window_chrome::*;
 pub use window_vibrancy::*;
 pub use workflows::*;
 pub use workspace::*;
+
+mod pulse_summary;
+pub use pulse_summary::*;

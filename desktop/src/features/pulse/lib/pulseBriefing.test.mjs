@@ -106,3 +106,41 @@ test("unread mentions and followed threads rank above routine activity", () => {
   assert.equal(build([mention], { getMessageReadAt: () => now }).length, 0);
   assert.deepEqual(buildPulseBriefing([mention], undefined, reads, now), []);
 });
+
+test("Home falls back to bounded recent evidence after priority signals", async () => {
+  const { buildHomeBriefing } = await import("./pulseBriefing.ts");
+  const items = [
+    conversation("dm"),
+    ...Array.from({ length: 20 }, (_, i) =>
+      conversation(
+        `recent-${i}`,
+        [message({ createdAt: now - i, body: `Update ${i}` })],
+        {
+          channel: {
+            id: `channel-${Math.floor(i / 3)}`,
+            channelType: "stream",
+          },
+        },
+      ),
+    ),
+    conversation("muted", [message({ body: "Muted" })]),
+    conversation("old", [message({ createdAt: now - 49 * 3600 })]),
+    conversation("pending", [message({ pending: true })]),
+    conversation("future", [message({ createdAt: now + 3600 })]),
+  ];
+  const groups = buildHomeBriefing(
+    items,
+    me,
+    { ...reads, isThreadMuted: (id) => id === "muted" },
+    now,
+  );
+  assert.ok(groups[0].ids.has("dm"));
+  assert.equal(groups.length, 8);
+  assert.match(groups[1].label, /3 recent threads/);
+  assert.deepEqual([...groups[1].ids], ["recent-0", "recent-1", "recent-2"]);
+  const ids = groups.flatMap((group) => [...group.ids]);
+  assert.equal(new Set(ids).size, ids.length);
+  for (const id of ["muted", "old", "pending", "future"])
+    assert.ok(!ids.includes(id));
+  assert.deepEqual(buildHomeBriefing(items, undefined, reads, now), []);
+});

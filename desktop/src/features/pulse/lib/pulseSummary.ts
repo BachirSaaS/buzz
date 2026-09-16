@@ -11,7 +11,9 @@ export function buildSummaryInput(
 ) {
   const eligible = conversations.filter(
     (item) =>
-      !reads.isThreadMuted(item.rootId) && item.latestAt >= now - 48 * 3600,
+      Boolean(item.channel) &&
+      !reads.isThreadMuted(item.rootId) &&
+      item.latestAt >= now - 48 * 3600,
   );
   const selected = [...eligible].sort(
     (a, b) =>
@@ -53,10 +55,12 @@ export function buildSummaryInput(
           .slice(-8);
         return {
           id: item.id,
+          channelId: item.channel?.id,
           source: item.channel?.name ?? "Public notes",
           isDm: item.channel?.channelType === "dm",
           followed: reads.isFollowingThread(item.rootId),
           messages: messages.map((m) => ({
+            id: m.id,
             conversationId: messageSources.get(m.id) ?? item.id,
             author: m.author,
             isViewer: m.pubkey?.toLowerCase() === me.toLowerCase(),
@@ -73,31 +77,53 @@ export function buildSummaryInput(
 export function parsePulseSummary(
   value: unknown,
   allowed: Set<string>,
+  messageSources: Map<string, string> = new Map(),
+  channels: Map<string, string> = new Map(),
 ): BriefingGroup[] {
   const data = value as { highlights?: unknown[] };
   if (!data || !Array.isArray(data.highlights) || data.highlights.length > 10)
     throw new Error("Invalid briefing response");
   const used = new Set<string>();
   return data.highlights.map((entry) => {
-    const item = entry as { summary?: string; conversationIds?: string[] };
+    const item = entry as {
+      summary?: string;
+      conversationIds?: string[];
+      messageIds?: string[];
+    };
     if (
       !item ||
       typeof item.summary !== "string" ||
       !item.summary.trim() ||
-      item.summary.length > 180 ||
+      item.summary.length > 240 ||
       !Array.isArray(item.conversationIds) ||
       !item.conversationIds.length ||
       item.conversationIds.length > 6 ||
-      used.has(item.conversationIds[0]) ||
+      item.conversationIds.some((id) => used.has(id)) ||
+      new Set(item.conversationIds.map((id) => channels.get(id))).size > 1 ||
       item.conversationIds.some(
         (id) => typeof id !== "string" || !allowed.has(id),
       )
     )
       throw new Error("Briefing references unavailable conversations");
-    used.add(item.conversationIds[0]);
+    if (
+      item.messageIds !== undefined &&
+      (!Array.isArray(item.messageIds) ||
+        item.messageIds.length < 1 ||
+        item.messageIds.length > 2 ||
+        new Set(item.messageIds).size !== item.messageIds.length ||
+        item.messageIds.some(
+          (id) => !item.conversationIds?.includes(messageSources.get(id) ?? ""),
+        ))
+    )
+      throw new Error(
+        "Briefing evidence does not belong to its source conversations",
+      );
+    for (const id of item.conversationIds) used.add(id);
     return {
       kind: `recent:${item.conversationIds[0]}`,
       label: item.summary.trim(),
+      evidenceIds: item.messageIds,
+      generated: true,
       ids: new Set(item.conversationIds),
     };
   });

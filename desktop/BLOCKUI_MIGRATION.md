@@ -136,7 +136,7 @@ Ported `am-pulse-proto` at `8b5a0904730c52391c1477e2e0e72f617ca3abf8` into the l
 
 The presentation uses Block UI neutral surfaces, prominent/inverse outgoing bubbles, Inter, the conversation text-size ramp, named corner tokens, shared actions and 16px toolbar icons. Old theme/accent palettes and glass settings are not imported. Bubble links remain underlined and use the correct foreground in both directions.
 
-Open `/pulse?feed=conversation` for All messages. The staging launcher opens that route directly. The optional For you summary adapter remains development-only and opt-in; no summary provider has been enabled for real messages.
+Open `/pulse?feed=conversation` for All messages. The staging launcher opens that route directly. Home now supports native summaries through the locally signed-in Codex CLI; see the activity recap section below.
 
 Validation: 6,538 desktop unit tests passed. All 20 imported Pulse browser workflows passed across the initial run and focused visual-fix rerun; two additional checks verify light/dark token binding and text/radius scaling with root zoom. The shared messaging/navigation/Block UI regression run also passed 117 browser tests (one skipped). Desktop typecheck, native staging build, lint, text sizing and Block UI audits passed.
 
@@ -246,3 +246,16 @@ Validation: light/dark browser checks cover the canvas and card roles, actual
 Inter loading and zoom, matching shadows, channel circle sizing, empty avatar
 geometry, Settings, dock keyboard/history navigation, and native glass fallback.
 Existing avatar network-suppression tests pass.
+
+### Home dock and resilient catch-up
+
+Home owns the former For you view as a separate dock app. Messages retains Search,
+All messages, and its conversation list. Home has its own scroll area, keeps the
+shared window/dock geometry, and supports route reload, history, keyboard access,
+and returning from Settings without losing a conversation draft.
+
+Home groups recent subscribed-channel activity into focus areas with concise summaries and one or two original supporting message bubbles, image attachments, or rich repository previews. Each card routes to its source threads. Rich previews share the Messages renderer without changing the user's saved preview preference. Cards preserve the 24px inset/radius and three-level typography hierarchy.
+
+Packaged native builds use a bounded, ephemeral Codex CLI run with the local sign-in. Shared prompt/schema files keep development and native output consistent. Exact source validation rejects invented evidence and cross-channel grouping. Generation failures retain labeled channel overviews and a retry; relay failures still show an incomplete-activity warning. No relay messages are published by summarization.
+
+The staging launcher reads the existing Buzz signing identity from Keychain without printing or saving it. Rebuilt ad-hoc-signed apps may need fresh macOS authorization for the staging agent-secret store. Blob reads now share a single request and cache denied reads as errors, preventing parallel callers or repeated hydration from opening a stack of prompts. After denying or unlocking Keychain, relaunch to retry; successful credential mutations also refresh the cache. Production credentials and Keychain access controls are unchanged.

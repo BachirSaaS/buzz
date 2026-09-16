@@ -26,8 +26,16 @@ async function seed(
   page: Page,
   agentNeedsInput = false,
   expandedBriefing = false,
+  options: { home?: boolean; summaryUnavailable?: boolean } = {},
 ) {
   await page.route("**/__pulse/briefing", async (route) => {
+    if (options.summaryUnavailable) {
+      await route.fulfill({
+        status: 503,
+        json: { error: "Summary service unavailable" },
+      });
+      return;
+    }
     const body = route.request().postDataJSON();
     const source = body.conversations.find(
       (item: { messages: { body: string }[] }) =>
@@ -206,6 +214,8 @@ async function seed(
         expect.objectContaining({ key: "pulse-unified", status: "success" }),
       ]),
     );
+  if (!options.home)
+    await page.getByRole("button", { name: "Messages", exact: true }).click();
 }
 
 test.use({ viewport: { width: 1440, height: 1000 } });
@@ -213,13 +223,15 @@ test.use({ viewport: { width: 1440, height: 1000 } });
 test("briefing shows intent summaries linked to their source conversations", async ({
   page,
 }) => {
-  await seed(page);
+  await seed(page, false, false, { home: true });
   const briefing = page.getByTestId("pulse-briefing");
-  const highlight = briefing.getByTestId("pulse-briefing-highlight");
+  const highlight = briefing
+    .getByTestId("pulse-briefing-highlight")
+    .filter({ hasText: "Alice wants to review the Pulse prototype" });
   await expect(highlight).toContainText(
     "Alice wants to review the Pulse prototype",
   );
-  await expect(highlight).not.toContainText("Got a few minutes");
+  await expect(highlight).toContainText("Got a few minutes");
   await expect(
     highlight.getByRole("button", { name: "Open Alice's profile" }),
   ).toBeVisible();
@@ -227,49 +239,6 @@ test("briefing shows intent summaries linked to their source conversations", asy
   await page.getByTestId("unified-pulse").screenshot({
     path: "test-results/pulse-prototype/10-visual-briefing.png",
   });
-  await highlight.getByRole("button", { name: "Reply", exact: true }).click();
-  await expect(
-    highlight.getByText("Reply privately in alice-tyler", { exact: true }),
-  ).toBeVisible();
-  await page.evaluate(() => {
-    const internals = window.__TAURI_INTERNALS__;
-    const invoke = internals.invoke.bind(internals);
-    (window as unknown as { summarySends: unknown[] }).summarySends = [];
-    internals.invoke = async (command, args, options) => {
-      if (command === "send_channel_message")
-        (window as unknown as { summarySends: unknown[] }).summarySends.push(
-          args,
-        );
-      return invoke(command, args, options);
-    };
-  });
-  await highlight
-    .locator('[contenteditable="true"]')
-    .pressSequentially("Yes, let's review it together.");
-  await highlight
-    .getByRole("button", { name: "Send message", exact: true })
-    .click();
-  await expect
-    .poll(() =>
-      page.evaluate(
-        () =>
-          (window as unknown as { summarySends: unknown[] }).summarySends
-            .length,
-      ),
-    )
-    .toBe(1);
-  const send = await page.evaluate(
-    () =>
-      (
-        window as unknown as {
-          summarySends: { channelId: string; parentEventId: string }[];
-        }
-      ).summarySends[0],
-  );
-  await expect(highlight).toHaveAttribute(
-    "data-conversation-id",
-    `${send.channelId}:${send.parentEventId}`,
-  );
   await highlight
     .getByRole("button", { name: "Open conversation", exact: true })
     .click();
@@ -283,12 +252,14 @@ test("briefing shows intent summaries linked to their source conversations", asy
     .screenshot({ path: "test-results/pulse-prototype/08-content-recap.png" });
 });
 
-test("For you briefing prioritizes agent requests and focuses matching conversations", async ({
+test("Home briefing prioritizes agent requests and focuses matching conversations", async ({
   page,
 }) => {
-  await seed(page, true);
+  await seed(page, true, false, { home: true });
   const briefing = page.getByTestId("pulse-briefing");
-  const highlight = briefing.getByTestId("pulse-briefing-highlight");
+  const highlight = briefing
+    .getByTestId("pulse-briefing-highlight")
+    .filter({ hasText: "Scout needs approval for deployment access" });
   await expect(highlight).toContainText(
     "Scout needs approval for deployment access",
   );
@@ -310,11 +281,11 @@ test("For you briefing prioritizes agent requests and focuses matching conversat
   );
   await expect(page.getByTestId("unified-pulse")).toHaveCSS(
     "padding-top",
-    "12px",
+    "0px",
   );
   await expect(page.getByTestId("unified-pulse")).toHaveCSS(
     "padding-bottom",
-    "12px",
+    "40px",
   );
   await expect(page.getByTestId("unified-pulse")).toHaveCSS(
     "background-color",
@@ -566,7 +537,7 @@ test("DM split view switches conversations, preserves drafts, and sends to the s
   await page
     .getByTestId("unified-pulse")
     .screenshot({ path: "test-results/pulse-prototype/04-dm-split.png" });
-  await page.getByRole("button", { name: "For you", exact: true }).click();
+  await page.getByRole("button", { name: "Home", exact: true }).click();
   await expect(page.getByTestId("pulse-combined-detail")).toHaveCount(0);
   await expect(page.getByTestId("pulse-briefing")).toBeVisible();
   await expect(page.getByTestId("pulse-conversation")).toHaveCount(0);
@@ -670,21 +641,37 @@ test("conversation rail stays visible while the feed scrolls and after reload", 
   await expect(
     page.getByRole("button", { name: "Toggle Sidebar", exact: true }),
   ).toHaveCount(0);
-  await page.getByRole("button", { name: "For you", exact: true }).click();
+  await page.getByRole("button", { name: "Home", exact: true }).click();
   await expect(page.getByTestId("pulse-briefing")).toBeVisible();
   await expect(page.getByTestId("pulse-conversation")).toHaveCount(0);
 });
 
-test("For you renders more than three summary rows", async ({ page }) => {
-  await seed(page, false, true);
+test("Home renders more than three summary rows", async ({ page }) => {
+  await seed(page, false, true, { home: true });
+  await page.setViewportSize({ width: 663, height: 863 });
   const highlights = page.getByTestId("pulse-briefing-highlight");
   await expect(highlights).toHaveCount(5);
+  const main = page.getByTestId("pulse-main-container");
+  await expect(main).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(main).toHaveCSS("box-shadow", "none");
+  await expect(highlights.first().locator("header")).toHaveCount(0);
+  const first = await boundsOf(highlights.nth(0));
+  const second = await boundsOf(highlights.nth(1));
+  expect(second.y - first.y - first.height).toBe(16);
+  expect(first.y).toBe((await boundsOf(main)).y);
+  await waitForAnimations(page);
+  await page.screenshot({
+    path: "test-results/pulse-prototype/home-flat-cards.png",
+  });
   await highlights.last().scrollIntoViewIfNeeded();
   await expect(highlights.last()).toContainText("Activity highlight 5");
   await expect(
-    highlights.last().getByRole("button", { name: "Reply", exact: true }),
+    highlights
+      .last()
+      .getByRole("button", { name: "Open conversation", exact: true }),
   ).toBeVisible();
-  await expect(page.getByTestId("pulse-combined-list")).toBeInViewport();
+  await expect(page.getByTestId("pulse-combined-list")).toHaveCount(0);
+  await expect(page.getByTestId("pulse-app-navigation")).toBeInViewport();
   await expect(page.getByTestId("pulse-conversation")).toHaveCount(0);
 });
 
@@ -704,17 +691,17 @@ test("combined conversations preserve recency, selection, and drafts for legacy 
   const all = list.getByRole("button", { name: "All messages", exact: true });
   const aggregate = page.getByTestId("pulse-all-messages-feed");
   await expect(list.getByRole("button").nth(0)).toHaveText("Search");
-  await expect(list.getByRole("button").nth(1)).toHaveText("For you");
-  await expect(list.getByRole("button").nth(2)).toHaveText("All messages");
+  await expect(list.getByRole("button").nth(1)).toHaveText("All messages");
   await list.getByRole("button", { name: "Search", exact: true }).click();
   await expect(
     page.getByRole("searchbox", { name: "Search loaded feed" }),
   ).toBeVisible();
   await expect(list).toBeVisible();
   await expect(all).not.toHaveAttribute("aria-current", "true");
-  await list.getByRole("button", { name: "For you", exact: true }).click();
+  await page.getByRole("button", { name: "Home", exact: true }).click();
   await expect(page.getByTestId("pulse-briefing")).toBeVisible();
   await expect(page.getByTestId("pulse-conversation")).toHaveCount(0);
+  await page.getByRole("button", { name: "Messages", exact: true }).click();
   await all.click();
   await expect(all).toHaveAttribute("aria-current", "true");
   await expect(
@@ -1813,11 +1800,12 @@ test("workspace entrypoints keep projects, agents, and workflows in the main pan
   const rail = page.getByTestId("pulse-combined-list");
   const main = page.getByTestId("pulse-main-container");
   const apps = page.getByTestId("pulse-app-navigation");
+  await page.mouse.move(0, 0);
   await expect(main.getByTestId("pulse-app-heading")).toHaveCount(0);
   await expect(
     apps.getByRole("button", { name: "Messages", exact: true }),
   ).toHaveCSS("background-color", await themeColor(page, "--primary"));
-  await expect(apps.locator("button > svg")).toHaveCount(5);
+  await expect(apps.locator("button > svg")).toHaveCount(6);
   for (const width of [1600, 1280, 900]) {
     await page.setViewportSize({ width, height: 960 });
     const box = await boundsOf(main);
@@ -1832,14 +1820,21 @@ test("workspace entrypoints keep projects, agents, and workflows in the main pan
       .filter({ has: page.locator("svg") })
       .first(),
   ).toHaveText("Search");
-  await expect(rail.getByRole("button").nth(1)).toHaveText("For you");
+  await expect(rail.getByRole("button").nth(1)).toHaveText("All messages");
   expect(
     await apps
       .getByRole("button")
       .evaluateAll((buttons) =>
         buttons.map((button) => button.getAttribute("aria-label")),
       ),
-  ).toEqual(["Messages", "Projects", "Agents", "Workflows", "Settings"]);
+  ).toEqual([
+    "Home",
+    "Messages",
+    "Projects",
+    "Agents",
+    "Workflows",
+    "Settings",
+  ]);
   for (const name of ["Projects", "Agents", "Workflows"]) {
     await expect(rail.getByRole("button", { name, exact: true })).toHaveCount(
       0,
@@ -1965,7 +1960,7 @@ test("workspace entrypoints keep projects, agents, and workflows in the main pan
   await page
     .getByTestId("unified-pulse")
     .screenshot({ path: "test-results/pulse-prototype/apps-messages.png" });
-  await rail.getByRole("button", { name: "For you", exact: true }).click();
+  await page.getByRole("button", { name: "Home", exact: true }).click();
   await expect(main.getByTestId("pulse-briefing")).toBeVisible();
   await apps.getByRole("button", { name: "Projects", exact: true }).click();
   await main.getByTestId("projects-section-projects").click();
@@ -2134,7 +2129,7 @@ test("agent conversation rows replace unread dots with notification-sized workin
   const channelId = await detail.getAttribute("data-channel-id");
   if (!channelId) throw new Error("Missing agent conversation");
   await expect(agentRow.getByTestId("pulse-unread-dot")).toHaveCount(0);
-  await rail.getByRole("button", { name: "For you", exact: true }).click();
+  await rail.getByRole("button", { name: "Search", exact: true }).click();
   await page.evaluate(
     ({ pubkey }) =>
       window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
@@ -2518,6 +2513,7 @@ test("app dock preserves keyboard navigation and equal window insets", async ({
     expect(900 - box.y - box.height).toBe(40);
     expect((await boundsOf(dock)).width).toBeLessThan(90);
     for (const label of [
+      "Home",
       "Messages",
       "Projects",
       "Agents",
@@ -2600,4 +2596,99 @@ test("macOS glass reveals native material and respects increased contrast", asyn
     "data-window-glass",
     "true",
   );
+});
+
+for (const appearance of ["light", "dark"] as const) {
+  test(`Home stays useful without generated summaries (${appearance})`, async ({
+    page,
+  }) => {
+    await page.addInitScript(
+      (mode) => localStorage.setItem("buzz-blockui-appearance.v1", mode),
+      appearance,
+    );
+    const options = { home: true, summaryUnavailable: true };
+    await seed(page, true, true, options);
+    const dock = page.getByTestId("pulse-app-navigation");
+    const home = dock.getByRole("button", { name: "Home", exact: true });
+    const briefing = page.getByTestId("pulse-briefing");
+    await expect(home).toHaveAttribute("aria-current", "page");
+    await expect(
+      page.getByRole("heading", { name: "Home", exact: true }),
+    ).toBeVisible();
+    await expect(page.getByTestId("pulse-combined-list")).toHaveCount(0);
+    await expect(
+      briefing.getByTestId("pulse-briefing-highlight").first(),
+    ).toContainText("Scout may need your input");
+    await expect(
+      briefing.getByText(
+        "Showing channel overviews. Generated summaries are unavailable.",
+      ),
+    ).toBeVisible();
+    await expect(briefing.getByRole("alert")).toHaveCount(0);
+    await expect(
+      briefing.getByTestId("pulse-briefing-highlight").first(),
+    ).toBeVisible();
+    await waitForAnimations(page);
+    await page.getByTestId("unified-pulse").screenshot({
+      path: `test-results/pulse-prototype/home-${appearance}.png`,
+    });
+    // Recovery retries the actual failing endpoint while keeping loaded activity visible.
+    options.summaryUnavailable = false;
+    await briefing.getByRole("button", { name: "Retry highlights" }).click();
+    await expect(
+      briefing.getByText(
+        "Showing channel overviews. Generated summaries are unavailable.",
+      ),
+    ).toHaveCount(0);
+    await expect(
+      briefing.getByTestId("pulse-briefing-highlight").first(),
+    ).toContainText("Activity highlight 1");
+    await dock.getByRole("button", { name: "Messages", exact: true }).click();
+    await expect(page.getByTestId("pulse-combined-list")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "For you", exact: true }),
+    ).toHaveCount(0);
+    await page
+      .getByTestId("pulse-combined-list")
+      .locator('[data-channel-name="alice-tyler"]')
+      .click();
+    await page.getByTestId("message-input").fill("Keep my draft across Home");
+    await home.focus();
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL(/feed=home/);
+    await page.reload();
+    await expect(home).toHaveAttribute("aria-current", "page");
+    await dock.getByRole("button", { name: "Messages", exact: true }).click();
+    await expect(page.getByTestId("message-input")).toHaveText(
+      "Keep my draft across Home",
+    );
+    await dock.getByRole("button", { name: "Settings", exact: true }).click();
+    await expect(page.getByTestId("settings-panel-appearance")).toBeVisible();
+    await home.click();
+    await expect(page.getByTestId("pulse-home")).toBeVisible();
+    await page.goBack();
+    await expect(page.getByTestId("settings-panel-appearance")).toBeVisible();
+    await page.goForward();
+    await expect(home).toHaveAttribute("aria-current", "page");
+  });
+}
+
+test("Home does not regenerate unchanged activity when the clock advances", async ({
+  page,
+}) => {
+  let requests = 0;
+  page.on("request", (request) => {
+    if (request.url().endsWith("/__pulse/briefing")) requests++;
+  });
+  await seed(page, false, false, { home: true });
+  await expect(
+    page.getByRole("heading", {
+      name: "Alice wants to review the Pulse prototype",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await page.clock.install();
+  await page.clock.fastForward(65_000);
+  await page.clock.runFor(2_000);
+  expect(requests).toBe(1);
 });

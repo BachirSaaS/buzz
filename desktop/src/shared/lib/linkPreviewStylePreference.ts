@@ -7,6 +7,10 @@ export const LINK_PREVIEW_STYLE_STORAGE_KEY =
   "buzz.appearance.linkPreviewStyle";
 export const DEFAULT_LINK_PREVIEW_STYLE: LinkPreviewStyle = "compact";
 
+/** Presentation override for surfaces that always show rich source context. */
+export const LinkPreviewStyleContext =
+  React.createContext<LinkPreviewStyle | null>(null);
+
 const listeners = new Set<() => void>();
 let linkPreviewStyle = readStoredLinkPreviewStyle();
 
@@ -48,9 +52,11 @@ export function setLinkPreviewStyle(style: LinkPreviewStyle): void {
 }
 
 export function useLinkPreviewStyle(): LinkPreviewStyle {
-  return React.useSyncExternalStore(
+  const override = React.useContext(LinkPreviewStyleContext);
+  const preference = React.useSyncExternalStore(
     subscribe,
     getLinkPreviewStyle,
     () => DEFAULT_LINK_PREVIEW_STYLE,
   );
+  return override ?? preference;
 }

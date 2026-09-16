@@ -1,13 +1,21 @@
-import { Bot, Folders, MessageCircle, Settings2, Zap } from "lucide-react";
+import {
+  House,
+  Bot,
+  Folders,
+  MessageCircle,
+  Settings2,
+  Zap,
+} from "lucide-react";
 import { useAppShell } from "@/app/AppShellContext";
 import { cn } from "@/shared/lib/cn";
 import { Action } from "@/shared/ui/action";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import type { PulseWorkspacePage } from "../lib/workspaceNavigation";
 
-export type PulseApp = "messages" | PulseWorkspacePage;
+export type PulseApp = "home" | "messages" | PulseWorkspacePage;
 
 const apps = {
+  home: { label: "Home", icon: House },
   messages: { label: "Messages", icon: MessageCircle },
   projects: { label: "Projects", icon: Folders },
   agents: { label: "Agents", icon: Bot },

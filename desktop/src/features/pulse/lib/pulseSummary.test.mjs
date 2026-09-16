@@ -110,3 +110,41 @@ test("briefing accepts ten grounded highlights and rejects overflow", () => {
   );
   assert.throws(() => parsePulseSummary({ highlights }, allowed));
 });
+
+test("summary evidence must come from its exact channel and conversations", () => {
+  const sources = new Map([
+    ["m1", "c1"],
+    ["m2", "c2"],
+  ]);
+  const channels = new Map([
+    ["c1", "dm"],
+    ["c2", "public"],
+  ]);
+  const allowed = new Set(channels.keys());
+  const parse = (conversationIds, messageIds) =>
+    parsePulseSummary(
+      {
+        highlights: [
+          { summary: "A grounded recap", conversationIds, messageIds },
+        ],
+      },
+      allowed,
+      sources,
+      channels,
+    );
+  assert.deepEqual(parse(["c1"], ["m1"])[0].evidenceIds, ["m1"]);
+  assert.throws(() => parse(["c1"], ["m2"]));
+  assert.throws(() => parse(["c1"], ["invented"]));
+  assert.throws(() => parse(["c1"], ["m1", "m1"]));
+  assert.throws(() => parse(["c1", "c2"], ["m1", "m2"]));
+  assert.equal(
+    buildSummaryInput(
+      [item("note", { channel: undefined })],
+      "me",
+      reads,
+      "scope",
+      now,
+    ).conversations.length,
+    0,
+  );
+});

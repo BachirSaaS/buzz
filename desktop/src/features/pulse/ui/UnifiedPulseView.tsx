@@ -29,7 +29,7 @@ import {
 import { useHistorySearchState } from "@/shared/hooks/useHistorySearchState";
 import { allowNavigation } from "@/app/navigation/navigationGuard";
 import { useAppShell } from "@/app/AppShellContext";
-import type { BriefingKind } from "../lib/pulseBriefing";
+import { buildHomeBriefing, type BriefingKind } from "../lib/pulseBriefing";
 import { PulseBriefing } from "./PulseBriefing";
 import { buildSummaryInput } from "../lib/pulseSummary";
 import { usePulseSummary } from "../usePulseSummary";
@@ -63,9 +63,9 @@ export function UnifiedPulseView({
     ? values.feed
     : values.feed === "search"
       ? "search"
-      : values.feed && values.feed !== "all"
+      : values.feed && values.feed !== "all" && values.feed !== "home"
         ? "conversation"
-        : "all";
+        : "home";
   React.useEffect(() => {
     if (values.feed === "dm" || values.feed === "channel") {
       applyPatch(
@@ -85,19 +85,20 @@ export function UnifiedPulseView({
     applyPatch({
       ...CLEAR_CONVERSATION_PANELS,
       ...CLEAR_WORKSPACE_PANELS,
-      feed: next === "all" ? null : next,
+      feed: next,
     });
     setBriefingFilter(null);
     return true;
   };
   const activeApp: PulseApp = isPulseWorkspacePage(filter)
     ? filter
-    : "messages";
-  const lastMessageView = React.useRef<PulseView>(
-    values.conversation ? "conversation" : "all",
-  );
+    : filter === "home"
+      ? "home"
+      : "messages";
+  const lastMessageView = React.useRef<PulseView>("conversation");
   React.useEffect(() => {
-    if (!isPulseWorkspacePage(filter)) lastMessageView.current = filter;
+    if (filter === "conversation" || filter === "search")
+      lastMessageView.current = filter;
   }, [filter]);
   const selectApp = (app: PulseApp) => {
     if (app === activeApp) return;
@@ -149,11 +150,19 @@ export function UnifiedPulseView({
   );
   const summary = usePulseSummary(
     summaryInput,
-    filter === "all" && !feed.isLoading && Boolean(currentPubkey),
+    filter === "home" && !feed.isLoading && Boolean(currentPubkey),
   );
-  const briefing = (summary.data ?? []).filter((group) =>
+  const generatedBriefing = (summary.data ?? []).filter((group) =>
     [...group.ids].every((id) => byId.has(id)),
   );
+  const briefing = generatedBriefing.length
+    ? generatedBriefing
+    : buildHomeBriefing(
+        feed.conversations,
+        currentPubkey,
+        reads,
+        Date.now() / 1000,
+      );
   const focusedIds = briefing.find(
     (group) => group.kind === briefingFilter,
   )?.ids;
@@ -231,11 +240,11 @@ export function UnifiedPulseView({
             />
             <h2 className="text-base font-medium">A little quiet here</h2>
             <p className="mx-auto mt-2 max-w-xs text-sm text-muted-foreground">
-              {search || filter !== "all" || briefingFilter
+              {search || filter !== "home" || briefingFilter
                 ? "No conversations match these filters. Try another view or search term."
                 : "Messages from your selected channels, DMs, and people you follow will appear here."}
             </p>
-            {(search || filter !== "all" || briefingFilter) && (
+            {(search || filter !== "home" || briefingFilter) && (
               <Button
                 variant="outline"
                 size="sm"
@@ -288,13 +297,12 @@ export function UnifiedPulseView({
           )}
         </div>
       )}
-      {filter === "all" && (
+      {filter === "home" && (
         <PulseBriefing
           groups={briefing}
           conversations={byId}
           profiles={feed.profiles}
           currentPubkey={currentPubkey}
-          onRefresh={() => void refresh()}
           onSelect={(kind) => {
             if (!setFilter("search")) return;
             setBriefingFilter(kind);
@@ -302,18 +310,17 @@ export function UnifiedPulseView({
             setSearch("");
             scrollRef.current?.scrollTo({ top: 0 });
           }}
-          loading={
-            feed.isLoading ||
-            (summaryInput.conversations.length > 0 && summary.isPending)
-          }
-          hasError={Boolean(feed.error || summary.error)}
+          loading={feed.isLoading && !briefing.length}
+          hasError={Boolean(feed.error)}
+          summaryError={Boolean(summary.error)}
+          summarizing={summary.isFetching}
+          onRetrySummary={() => void summary.refetch()}
           onRetry={() => {
             feed.retry();
-            void summary.refetch();
           }}
         />
       )}
-      {filter !== "all" && feed.error && (
+      {filter !== "home" && feed.error && (
         <div
           role="alert"
           className="m-5 rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm"
@@ -329,7 +336,7 @@ export function UnifiedPulseView({
           </Button>
         </div>
       )}
-      {filter !== "all" ? feedContent : null}
+      {filter !== "home" ? feedContent : null}
     </>
   );
   return (
@@ -346,6 +353,14 @@ export function UnifiedPulseView({
         >
           {isPulseWorkspacePage(filter) ? (
             <PulseWorkspacePage page={filter} />
+          ) : filter === "home" ? (
+            <div
+              ref={setScrollElement}
+              className="min-h-0 flex-1 overflow-y-auto"
+              data-testid="pulse-home"
+            >
+              {content}
+            </div>
           ) : (
             <PulseCombinedView
               channels={feed.channels}

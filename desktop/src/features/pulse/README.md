@@ -1,31 +1,23 @@
 # Pulse prototype briefing
 
-Pulse on this branch uses the combined conversation layout from `am-pulse-proto` with Block UI tokens and components. Messages, Projects, Agents, and Workflows live in the window navigation; Search, For you, All messages, and individual conversations live inside Messages. Open `/pulse?feed=conversation` to begin with All messages.
+Pulse on this branch uses the combined conversation layout from `am-pulse-proto` with Block UI tokens and components. Home, Messages, Projects, Agents, and Workflows live in the dock. Home owns the catch-up; Search, All messages, and individual conversations live inside Messages. Open `/pulse?feed=conversation` to begin with All messages.
 
-The optional For you briefing summarizes recent relay messages with the locally signed-in Codex CLI. It is development-only and disabled until explicitly configured. Agent requests inferred from messages are not authoritative runtime status.
+Home groups the past 48 hours of subscribed channel activity into focus areas. Each card has a short recap, one or two original message bubbles or rich artifacts, and a route to its source threads. GitHub and image previews reuse the Messages renderer; Home requests rich presentation without changing the saved Messages preference. Cards use 24px insets and corners with a three-level type hierarchy.
 
-This connection is for the local prototype. After the user authorizes sharing
-their recent messages (including private conversations) with their Codex account,
-set `BUZZ_PULSE_SUMMARY_PROVIDER=codex` in `desktop/.env.local`. The CLI must be on
-the dev server's PATH, or specified by `BUZZ_PULSE_CODEX_BIN`. The switch is off by
-default. No credential is embedded in the frontend.
+Home cards sit directly on the app canvas, separated by 16px, without an outer panel or visible page/card headers. The Home heading and time range remain available to screen readers. Loading, summary retry, and incomplete-activity messages remain visible when applicable.
 
-Vite handles `/__pulse/briefing` only in development, for same-origin localhost
-requests. This is not a relay endpoint and is not available in release builds.
-The adapter uses an ephemeral, read-only Codex run with shell, apps, plugins,
-web search, and multi-agent tools disabled. It has a 90-second deadline, bounded
-input/output, and one concurrent run. Temporary response files are removed on
-completion; the in-memory cache holds at most ten responses for five minutes.
+People from the source threads appear above each recap, with evidence authors first. The composition uses Block UI's AvatarGroup and overflow count: up to three 64px avatars with 16px overlap, followed by a +N count. These dimensions are Buzz's composition on the 8px grid, not additional upstream size tokens. People retain circular avatars and agents retain their squircle identity. Each avatar opens the existing profile panel with pointer or keyboard input. Contextual message objects render at 50% scale within Home only; image viewers, profile panels, and the conversation action retain their normal size.
 
-The frontend submits at most 30 recent conversations, with up to eight messages
-per conversation and 650 characters per message. A one-minute throttle limits
-automatic updates. Summaries must reference supplied source IDs, and clicking a
-highlight opens Search filtered to those conversations. Failures expose a retry action rather
-than pretending an excerpt is an AI summary. Browser tests mock the model endpoint;
-live checks require the user-approved Codex connection.
+In the native prototype, `summarize_pulse_activity` uses the locally signed-in Codex CLI. Only bounded recent conversation context is submitted, including substantive private conversations. No credential is embedded in the frontend. The subprocess does not inherit Buzz signing keys. Browser development can opt in with `BUZZ_PULSE_SUMMARY_PROVIDER=codex` in `desktop/.env.local` and optionally `BUZZ_PULSE_CODEX_BIN`. Browser tests mock the endpoint.
 
-Messages uses a single combined conversation layout. Search and For you appear
-as circular-icon rows above All messages in the persistent sidebar. All messages
+Both adapters share the prompt and strict response schema. Runs are ephemeral and read-only with shell, apps, plugins, web search, image tools, and multi-agent tools disabled. Native runs have one concurrency slot, a 90-second deadline, bounded output, and automatic temporary-file cleanup. Browser requests have a 95-second deadline.
+
+Input includes at most 30 recent conversations, three per channel, eight messages per conversation, and 650 characters per message. Unchanged activity never triggers a model run merely because time passes. A one-minute throttle limits updates, and changed input waits for the current request to finish. The last valid summary remains visible if a later refresh fails. Requests use short, request-local references instead of long relay IDs; responses map back only through that request’s reference table. Generated cards must reference supplied conversation and message IDs, and cannot mix channels. Images render from original messages; the model does not inspect their pixels. Clicking a card opens Messages Search filtered to its source threads.
+
+While summaries load or fail, Home shows grouped channel overviews with useful original evidence. Overviews are explicitly labeled rather than presented as generated summaries. A separate retry remains available; relay failures retain an incomplete-activity warning. Agent requests inferred from messages are not authoritative runtime status.
+
+Messages uses a single combined conversation layout. Search appears
+as a circular-icon row above All messages in the persistent sidebar. All messages
 opens the mixed DM and channel feed beside a 220px list of joined DMs and channels,
 sorted by the newest relay timestamp or loaded message. Selection is independent
 of list order, so incoming activity does not switch the open conversation. The
@@ -36,8 +28,7 @@ this same combined layout.
 Conversation detail uses message bubbles: incoming messages align left on the Block UI standard surface,
 and messages authored by the signed-in viewer align right on the Block UI prominent fill with its inverse foreground. This is scoped
 to Pulse through the message presentation context. Aggregate feed posts and
-expanded replies share the bubble layout; generated briefing highlights retain
-their summary presentation. Replies, reactions, attachments, editing,
+expanded replies share the bubble layout; Home highlights combine summaries with this same message and attachment presentation. Replies, reactions, attachments, editing,
 and pending-send status use the existing message components and handlers.
 Threads drill into the conversation area at every width; Back returns to the
 conversation while the Pulse sidebar stays visible. Terminal sessions dock on the

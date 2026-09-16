@@ -360,9 +360,18 @@ fn spawn_drain<R: Read + Send + 'static>(
 ///   process group on Unix (the group-escapee case bounded by the drain rule
 ///   above) — the adjudicated asymmetry. The timeout path additionally sends a
 ///   graceful `SIGTERM` and a grace period before the kill.
-pub(crate) fn output_with_timeout(mut command: Command, timeout: Duration) -> Option<Output> {
+pub(crate) fn output_with_timeout(command: Command, timeout: Duration) -> Option<Output> {
+    output_with_timeout_and_stdin(command, timeout, Stdio::null())
+}
+
+/// Run with caller-owned input while retaining the same output and process bounds.
+pub(crate) fn output_with_timeout_and_stdin(
+    mut command: Command,
+    timeout: Duration,
+    stdin: Stdio,
+) -> Option<Output> {
     command
-        .stdin(Stdio::null())
+        .stdin(stdin)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
@@ -510,6 +519,31 @@ mod tests {
         assert!(out.status.success());
         assert_eq!(out.stdout, b"hi");
         assert_eq!(out.stderr, b"oops");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn supplies_file_input_without_an_unbounded_pipe_writer() {
+        use std::io::{Seek, SeekFrom, Write};
+        let mut input = tempfile::tempfile().expect("fixture input");
+        input
+            .write_all(b"bounded activity input")
+            .expect("write fixture");
+        input.seek(SeekFrom::Start(0)).expect("rewind fixture");
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(output_with_timeout_and_stdin(
+                Command::new("/bin/cat"),
+                Duration::from_secs(5),
+                Stdio::from(input),
+            ));
+        });
+        let output = rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("bounded completion")
+            .expect("successful capture");
+        assert!(output.status.success());
+        assert_eq!(output.stdout, b"bounded activity input");
     }
 
     // Adversarial: a child that traps and ignores SIGTERM. The old

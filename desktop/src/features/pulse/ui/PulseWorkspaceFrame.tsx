@@ -27,7 +27,10 @@ export function PulseWorkspaceFrame({
           data-testid="pulse-main-container"
           data-expanded={expanded}
           className={cn(
-            "pulse-workspace-surface relative mx-auto flex min-h-0 w-full flex-1 flex-col overflow-hidden rounded-blockui-lg bg-background shadow-sm",
+            "pulse-workspace-surface relative mx-auto flex min-h-0 w-full flex-1 flex-col overflow-hidden",
+            active === "home"
+              ? "bg-transparent"
+              : "rounded-blockui-lg bg-background shadow-sm",
             !expanded && "max-w-[960px]",
           )}
         >

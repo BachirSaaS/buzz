@@ -2,8 +2,8 @@
 //!
 //! All secrets are stored as a single JSON blob under one keychain entry
 //! (service = the store's service name, username = `"secrets"`). This means
-//! exactly one OS prompt per process lifetime regardless of how many keys are
-//! stored — the same pattern used by Goose.
+//! concurrent reads share one OS request. Mutations and legacy migrations can
+//! require additional authorization.
 //!
 //! The chosen backend is selected at compile time by the per-target feature in
 //! `Cargo.toml`. On macOS the legacy `keyring` crate (SecKeychain API) is used
@@ -213,12 +213,13 @@ impl Drop for BlobLockGuard {
 
 // ── End interprocess advisory lock ────────────────────────────────────────
 
-/// An OS keyring, addressed by service name. All secrets are stored in a
-/// single JSON blob entry (one OS prompt per process lifetime).
+type BlobRead = Result<Option<HashMap<String, String>>, String>;
+
+/// An OS keyring, addressed by service name, with a shared blob-read cache.
 pub struct SecretStore {
     service: String,
-    /// In-memory cache of the deserialized blob. `None` means "not yet loaded".
-    cache: Mutex<Option<HashMap<String, String>>>,
+    /// Cache reads, including absence and failure, until a mutation or relaunch.
+    cache: Mutex<Option<BlobRead>>,
 }
 
 impl SecretStore {
@@ -304,34 +305,29 @@ impl SecretStore {
     /// fresh install). Returns `Err` when the backend is unavailable or the
     /// stored JSON is corrupt.
     ///
-    /// On success the result is stored in `self.cache` so subsequent calls
-    /// within the same process return immediately without a keychain round-trip.
+    /// Serialize the first read so concurrent callers cannot each open an OS
+    /// permission dialog. A denied/failed read remains an error for this process;
+    /// relaunch after unlocking to retry. Successful mutations replace the cache.
     #[cfg(feature = "system-keyring")]
-    fn load_blob(&self) -> Result<Option<HashMap<String, String>>, String> {
-        {
-            let guard = self.cache.lock().unwrap_or_else(|e| e.into_inner());
-            if let Some(ref map) = *guard {
-                return Ok(Some(map.clone()));
-            }
-        }
+    fn load_blob(&self) -> BlobRead {
+        self.load_blob_with(|| self.read_blob_raw())
+    }
 
-        let raw = self.read_blob_raw()?;
-        let map = match raw {
-            None => return Ok(None),
-            Some(bytes) => {
-                let json = String::from_utf8(bytes).map_err(|e| format!("blob utf8: {e}"))?;
-                serde_json::from_str::<HashMap<String, String>>(&json)
-                    .map_err(|e| format!("blob json: {e}"))?
-            }
-        };
-
-        // Only populate the cache if it is still empty — a concurrent
-        // mutate_blob() may have written a newer value while we were reading.
+    #[cfg(feature = "system-keyring")]
+    fn load_blob_with(&self, read: impl FnOnce() -> Result<Option<Vec<u8>>, String>) -> BlobRead {
         let mut guard = self.cache.lock().unwrap_or_else(|e| e.into_inner());
-        if guard.is_none() {
-            *guard = Some(map.clone());
+        if let Some(result) = guard.as_ref() {
+            return result.clone();
         }
-        Ok(Some(map))
+        let result = read().and_then(|raw| {
+            raw.map(|bytes| {
+                serde_json::from_slice::<HashMap<String, String>>(&bytes)
+                    .map_err(|e| format!("blob json: {e}"))
+            })
+            .transpose()
+        });
+        *guard = Some(result.clone());
+        result
     }
 
     /// Read the raw blob bytes from the keychain. `Ok(None)` = not found.
@@ -428,7 +424,7 @@ impl SecretStore {
             // Update the cache to the fresh read even on no-op so subsequent
             // reads in this process see any keys another process may have added.
             let mut guard = self.cache.lock().unwrap_or_else(|e| e.into_inner());
-            *guard = Some(current);
+            *guard = Some(Ok(Some(current)));
             return Ok(());
         }
 
@@ -438,7 +434,7 @@ impl SecretStore {
             Ok(()) => {
                 // Advance the cache to `next` only after the durable write succeeds.
                 let mut guard = self.cache.lock().unwrap_or_else(|e| e.into_inner());
-                *guard = Some(next);
+                *guard = Some(Ok(Some(next)));
                 Ok(())
             }
             Err(e) => {
@@ -930,7 +926,7 @@ mod tests {
         fn with_cache(service: &str, cache: Option<HashMap<String, String>>) -> Self {
             SecretStore {
                 service: service.to_string(),
-                cache: Mutex::new(cache),
+                cache: Mutex::new(cache.map(|map| Ok(Some(map)))),
             }
         }
     }
@@ -1304,3 +1300,7 @@ mod tests {
         assert_eq!(store3.load("agent:abc123").unwrap(), None);
     }
 }
+
+#[cfg(all(test, feature = "system-keyring"))]
+#[path = "secret_store_read_tests.rs"]
+mod read_tests;

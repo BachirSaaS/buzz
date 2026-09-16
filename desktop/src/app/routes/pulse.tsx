@@ -67,6 +67,7 @@ function validatePulseSearch(
         : undefined,
     pane: serializeWorkflowEditorPane(parseWorkflowEditorPane(search.pane)),
     feed: [
+      "home",
       "search",
       "dm",
       "channel",

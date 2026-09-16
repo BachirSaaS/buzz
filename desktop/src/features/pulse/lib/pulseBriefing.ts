@@ -6,6 +6,9 @@ export type BriefingGroup = {
   kind: BriefingKind;
   label: string;
   ids: Set<string>;
+  messageId?: string;
+  evidenceIds?: string[];
+  generated?: boolean;
 };
 export type ReadSignals = {
   getChannelReadAt: (id: string) => number | null;
@@ -119,4 +122,67 @@ export function briefingPriority(id: string, groups: BriefingGroup[]) {
       .filter((group) => group.ids.has(id))
       .map((group) => weights[group.kind] ?? 0),
   );
+}
+
+/** Group loaded activity by subscribed channel while generated summaries are unavailable. */
+export function buildHomeBriefing(
+  conversations: PulseConversation[],
+  currentPubkey: string | undefined,
+  reads: ReadSignals,
+  now: number,
+): BriefingGroup[] {
+  if (!currentPubkey) return [];
+  const priority = buildPulseBriefing(conversations, currentPubkey, reads, now);
+  const channels = new Map<string, PulseConversation[]>();
+  for (const item of conversations) {
+    if (!item.channel || reads.isThreadMuted(item.rootId)) continue;
+    if (
+      !item.messages.some(
+        (m) =>
+          !m.pending &&
+          m.createdAt >= now - 48 * 3600 &&
+          m.createdAt <= now + 60 &&
+          m.body.trim(),
+      )
+    )
+      continue;
+    const list = channels.get(item.channel.id) ?? [];
+    list.push(item);
+    channels.set(item.channel.id, list);
+  }
+  return [...channels.values()]
+    .sort(
+      (a, b) =>
+        Math.max(...b.map((item) => briefingPriority(item.id, priority))) -
+          Math.max(...a.map((item) => briefingPriority(item.id, priority))) ||
+        Math.max(...b.map((item) => item.latestAt ?? 0)) -
+          Math.max(...a.map((item) => item.latestAt ?? 0)),
+    )
+    .slice(0, 8)
+    .map((items) => {
+      const messages = items
+        .flatMap((item) => item.messages)
+        .filter(
+          (m) =>
+            !m.pending &&
+            m.createdAt >= now - 48 * 3600 &&
+            m.createdAt <= now + 60,
+        );
+      const authors = [...new Set(messages.map((m) => m.author))];
+      const names =
+        authors.slice(0, 2).join(" and ") +
+        (authors.length > 2 ? ` and ${authors.length - 2} others` : "");
+      const inputRequest = priority.find(
+        (group) =>
+          group.kind === "agent" &&
+          items.some((item) => group.ids.has(item.id)),
+      );
+      return {
+        kind: `recent:${items[0].channel?.id}` as const,
+        label: inputRequest
+          ? `${inputRequest.label}. ${messages.length} recent updates in this conversation.`
+          : `${names} shared ${messages.length} update${messages.length === 1 ? "" : "s"} across ${items.length} recent thread${items.length === 1 ? "" : "s"}.`,
+        ids: new Set(items.map((item) => item.id)),
+      };
+    });
 }

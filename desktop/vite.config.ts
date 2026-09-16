@@ -7,12 +7,21 @@ import { pulseBriefingPlugin } from "./scripts/pulseBriefingPlugin";
 const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
-export default defineConfig(async ({ mode }) => {
+export default defineConfig(async ({ mode, command }) => {
   const modeEnv = loadEnv(mode, __dirname, "");
   const protectedFeaturesEnabled =
     (process.env.VITE_BUZZ_BESTIE ?? modeEnv.VITE_BUZZ_BESTIE) === "1";
 
+  const pulseSummaryProvider =
+    process.env.BUZZ_PULSE_SUMMARY_PROVIDER ??
+    modeEnv.BUZZ_PULSE_SUMMARY_PROVIDER;
   return {
+    define: {
+      __BUZZ_PULSE_SUMMARY_AVAILABLE__: JSON.stringify(
+        mode === "e2e" ||
+          (command === "serve" && pulseSummaryProvider === "codex"),
+      ),
+    },
     plugins: [
       tanstackRouter({
         target: "react",
@@ -26,10 +35,7 @@ export default defineConfig(async ({ mode }) => {
         ],
       }),
       react(),
-      pulseBriefingPlugin(
-        process.env.BUZZ_PULSE_SUMMARY_PROVIDER ??
-          modeEnv.BUZZ_PULSE_SUMMARY_PROVIDER,
-      ),
+      pulseBriefingPlugin(pulseSummaryProvider),
     ],
     resolve: {
       alias: {
