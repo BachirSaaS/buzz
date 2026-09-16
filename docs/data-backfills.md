@@ -115,43 +115,45 @@ durable execution, admin target, validation and completion record, and readiness
 obligation across builds and deployments. There MUST be exactly one durable
 backfill record and at most one readiness obligation for a stable ID.
 
-The latest deployed definition for a stable ID takes precedence. Revision,
-build, or version metadata MAY describe that definition for diagnostics, but is
-informational only: it MUST NOT create or key a second durable row, readiness
-obligation, runnable version, checkpoint, or completion. Deployment
-registration, not interpretation of those metadata strings, establishes which
-compatible definition is current.
+Registration and reconciliation MUST be idempotent upserts keyed by stable ID.
+Repeated registration retains the same execution and readiness obligation; for
+registration-owned informational fields, the last registration wins. Revision,
+build, or version metadata MAY be retained for diagnostics, but registration
+order and metadata MUST NOT determine execution precedence or select a runnable
+definition. They MUST NOT create or key a second durable row, readiness
+obligation, checkpoint, or completion.
 
 A materially different source set, ordering or checkpoint interpretation,
 mutation, or validation and completion contract requires a new stable backfill
-ID. A compatible correction MAY retain the ID only when every implementation
-allowed to execute during the rollout preserves the existing durable record's
-meaning. Validated completion is permanent for the stable ID; new work does not
-reset its record.
+ID. Every implementation that may execute work for an active ID MUST preserve
+the existing durable record's meaning. Registering behaviorally different
+definitions under one active ID is unsupported operator error, not a conflict
+the orchestrator resolves. Validated completion is permanent for the stable ID;
+new work does not reset its record.
 
-### Rolling-version safety
+### Rolling-deployment safety
 
-Registration MUST reconcile deployed definitions by stable ID before they may
-claim work. It MUST deterministically retain the latest deployed compatible
-definition for new claims; an older process registering later MUST NOT displace
-it or recreate an obligation. A worker MUST fail closed before claiming when its
-local definition is unknown or cannot safely interpret the durable bound,
-checkpoint, lifecycle, and completion contract.
+Registration MUST reconcile deployed definitions by stable ID before a process
+may claim work. Reconciliation signals may be delayed, duplicated, or reordered;
+the durable state MUST still converge on one row and one readiness obligation.
+Any process with a compatible local definition may claim the same eligible work,
+regardless of registration order or diagnostic metadata. A worker MUST fail
+closed before claiming when its local definition is unknown or cannot safely
+interpret the durable bound, checkpoint, lifecycle, and completion contract.
 
-A compatible definition becoming current does not, by itself, revoke a valid
-claim held by an older compatible implementation. That owner may commit under
-the unchanged contract while its claim and generation remain valid. If a rollout
-cannot safely accept such a commit, it MUST first stop new claims and then wait
-for the claim to end or explicitly fence it through the lifecycle protocol
-before enabling the new implementation. Merely deploying a binary or changing
-informational metadata MUST NOT be treated as a fence.
+A compatible deployment does not, by itself, revoke a valid claim held by
+another compatible implementation. That owner may commit under the unchanged
+contract while its claim and generation remain valid. If a rollout cannot safely
+accept such a commit, the changed semantics require a new stable ID; deployment
+order, binary age, and informational metadata MUST NOT be treated as fences.
 
-Every worker commit MUST still verify the current claim and generation. An older
-or unknown implementation that cannot satisfy the current execution contract
-MUST NOT claim, and a previously claimed worker that is explicitly fenced MUST
-have its mutation, checkpoint, validation, and completion writes rejected
-atomically. None of these rolling-deployment outcomes may create another durable
-execution or readiness obligation.
+Every worker commit MUST still verify the current claim and generation. An
+unknown implementation that cannot satisfy the execution contract MUST NOT
+claim, and a previously claimed worker that loses or is explicitly fenced from
+its claim MUST have its mutation, checkpoint, validation, and completion writes
+rejected atomically. Exclusive claims decide which compatible worker may act;
+claim generations fence stale owners. Neither mechanism establishes definition
+precedence or creates another durable execution or readiness obligation.
 
 ### Immutable upper bound
 
@@ -242,8 +244,8 @@ PostgreSQL before commit:
 - the claim remains valid.
 
 Failure of any check rejects the entire transaction. Checking only before work
-begins is insufficient: a paused, superseded, or expired owner may finish after
-a takeover. Generation verification at the commit seam is the fence that makes
+begins is insufficient: a paused, replaced, or expired owner may finish after a
+takeover. Generation verification at the commit seam is the fence that makes
 that result stale and harmless.
 
 A claim has bounded validity and requires renewal. Its exact policy is an
@@ -523,13 +525,15 @@ At minimum, the suite covers:
 5. **Stale owner.** Pause, expiry, or takeover occurs while an old worker is in
    flight; its target mutation, checkpoint, and completion attempts are rejected
    at the commit seam.
-6. **Rolling version.** Two application versions register compatible definitions
-   for the same stable ID through the production registration and claim path.
-   They retain one durable row and one readiness obligation, an older late
-   registration cannot displace the latest compatible definition for new
-   claims, and an existing older compatible claim remains valid until the
-   protocol fences it. An unknown or incompatible worker cannot claim, and an
-   older owner cannot commit incompatibly after that fence.
+6. **Rolling deployment.** Two concurrently deployed processes register
+   compatible definitions for the same stable ID through the production
+   registration and claim path. Repeated registration in either order retains
+   one durable row and one readiness obligation; either process may claim
+   eligible work. A controlled claim race proves that only one worker owns the
+   claim, and takeover proves that the prior owner's later mutation, checkpoint,
+   validation, and completion writes are rejected by the generation fence. The
+   test MUST NOT select a worker by registration order or diagnostic metadata,
+   or assert definition precedence.
 7. **Validation.** Reaching the bound cannot complete without validation;
    validation failure is durable and repeatable, and only successful validation
    reaches immutable `completed`.
@@ -582,7 +586,7 @@ specification.
 
 | Specification responsibility | Buzz component correspondence |
 |---|---|
-| Stable-ID definition registration and rolling compatibility, lifecycle engine, PostgreSQL durable store, claim and generation fencing, checkpoint transactions, retry policy, and validation | The new `buzz-backfill` crate owns all backfill concepts and durable behavior. |
+| Stable-ID idempotent registration and compatible-worker execution, lifecycle engine, PostgreSQL durable store, claim and generation fencing, checkpoint transactions, retry policy, and validation | The new `buzz-backfill` crate owns all backfill concepts and durable behavior. |
 | Basic writer-database and transaction access used to make mutation and checkpoint one commit | `buzz-db` supplies narrow database/transaction primitives. It does not acquire backfill records, states, policy, or orchestration, and it does not expose its connection pool. |
 | Automatic discovery/execution, the independent configuration controls, startup ordering, and the serving-readiness input | `buzz-relay` composes the backfill engine with existing startup, configuration, and readiness coordination. |
 | Authorized list/detail reads, safe lifecycle commands, explicit read-only validation, typed outcomes and conflicts, audit integration, and bounded diagnostics | The relay's deployment-admin interfaces expose the server contract; operator tooling consumes that contract rather than accessing backfill tables directly. |
