@@ -34,8 +34,8 @@ export function unwrapManagement(value: unknown, secret: Uint8Array): Authentica
   if (rumor.pubkey !== seal.pubkey || rumor.kind !== 14 || typeof rumor.content !== 'string' || Buffer.byteLength(rumor.content) > MANAGEMENT_WIRE_BYTES || JSON.stringify(rumor.tags) !== JSON.stringify([['p', recipient], ['subject', domain]]) || rumor.id !== getEventHash(rumor as unknown as Event)) throw Error('Invalid management rumor');
   return { sender: seal.pubkey, message: parseMessage(JSON.parse(rumor.content)) };
 }
-/** Tracer authority boundary. Host-to-host Move traffic is intentionally denied until
- * source authority + owner-attested host catalog is integrated with retained journals.
+/** Legacy tracer authority boundary. Peer exchanges are authenticated separately
+ * by privateHostTransport/privateExchange and the retained signed-successor checks.
  */
 export function authorizeManagement(input: AuthenticatedMessage, owner: string, hosts: Readonly<Record<string, string>>, role: { host: string } | 'owner'): Message {
   const { sender, message } = input;

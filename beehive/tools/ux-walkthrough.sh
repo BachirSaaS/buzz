@@ -25,7 +25,12 @@ registration absent. Registration does NOT mint genesis or host placement.
 The real synthetic relay enforces owner signatures; the owned ACP process checks
 REVIEW_MODE=synthetic. No installed service, provider, OS-store or external relay
 is accessed. Host Start/Stop service buttons remain deliberately fenced.
-Authenticated Move remains unavailable.
+Move: after Start, choose Move… -> Destination host / default runtime -> yes.
+Wait for the agent to report its new host and running state. Inspect operations
+shows Move complete only after that destination run is observed. Repeat Move to
+return to Review host. Destination uses an isolated owned fixture runtime; no
+workspace, session or key is sent between hosts. Both hosts pin the same explicit
+public genesis and keep separate synthetic credential stores.
 HELP
   exit 0
 fi

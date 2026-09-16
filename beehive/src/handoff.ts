@@ -5,7 +5,7 @@ import { validateGenesis, type Genesis } from './assignment.ts';
 /** Public exact launch selection; credentials and executable choices remain local. */
 export type Selection = { harnessSetup?: { id: string; fingerprint: string }; model: string; workspace: string; profile: string; behavior?: Profile; configuration?: { name: string; revision: number } };
 /** A source-consumed successor. Outer management authentication assumes trusted hosts. */
-export type Grant = { root: string; predecessor: string; source: string; target: string; agent: string; operation: Message; prepared: string; selection: Selection; targetRevision: number; sourceRun: string | null; materialization?: 'named-v1' };
+export type Grant = { proof?: string; root: string; predecessor: string; source: string; target: string; agent: string; operation: Message; prepared: string; selection: Selection; targetRevision: number; sourceRun: string | null; materialization?: 'named-v1' };
 export type Assignment = { genesis: Genesis; assignedHost: string; chain?: Grant[] };
 export function hash(value: unknown): string { return digest(JSON.stringify(value)).toString('hex'); }
 export function selection(value: unknown): Selection {
@@ -63,7 +63,8 @@ export function validateAssignment(a: Assignment): void {
   const root = validateGenesis(a.genesis); let holder = root.initialHost, predecessor = hash(root);
   if (!Array.isArray(a.chain ?? []) || (a.chain?.length ?? 0) > 24) throw Error('Assignment chain limit');
   for (const g of a.chain ?? []) {
-    fields(object(g), ['root','predecessor','source','target','agent','operation','prepared','selection','targetRevision','sourceRun', ...(g.materialization === undefined ? [] : ['materialization'])]);
+    fields(object(g), ['root','predecessor','source','target','agent','operation','prepared','selection','targetRevision','sourceRun', ...(g.materialization === undefined ? [] : ['materialization']), ...(g.proof === undefined ? [] : ['proof'])]);
+    if (g.proof !== undefined && !/^[0-9a-f]{128}$/.test(g.proof)) throw Error('Invalid successor proof');
     const op = parseMessage(g.operation); fields(op.body, ['target','targetRevision','selection']);
     selection(g.selection); text(g.prepared);
     if (g.root !== hash(root) || g.predecessor !== predecessor || g.source !== holder || g.agent !== root.agent || g.target === holder || g.target !== op.body.target || op.host !== holder || op.agent !== root.agent || op.type !== 'move' || g.targetRevision !== op.body.targetRevision || !sameSelection(g.selection, moveSelection(op.body.selection, g.targetRevision, g.materialization)) || !Number.isSafeInteger(g.targetRevision) || g.targetRevision < 0 || (g.sourceRun !== null && typeof g.sourceRun !== 'string')) throw Error('Invalid consumed grant chain');

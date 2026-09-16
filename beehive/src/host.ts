@@ -125,7 +125,7 @@ export function loadSlotState(setup: Setup, path: string, agent: string): State 
   return state;
 }
 /** Hosts consult durable assignment, never key presence or relay inventory, for authority. */
-function slot(setup: Setup, path: string, agent: string, currentSetup: (id: string, signal: AbortSignal) => Promise<Setup>, publish: (m: Message) => void, profiles: Profiles, setupId: string, bindings: Record<string, Setup>, retiredBindings: Record<string, string> = {}, privateSnapshots = false, metadataCustody?: (signal: AbortSignal) => Promise<{ secret: string; relay: string; authTag: string }>, managementRelay?: string, providerRead = managerCredential) {
+function slot(setup: Setup, path: string, agent: string, currentSetup: (id: string, signal: AbortSignal) => Promise<Setup>, publish: (m: Message) => void, profiles: Profiles, setupId: string, bindings: Record<string, Setup>, retiredBindings: Record<string, string> = {}, privateSnapshots = false, metadataCustody?: (signal: AbortSignal) => Promise<{ secret: string; relay: string; authTag: string }>, managementRelay?: string, providerRead = managerCredential, transfer?: { signGrant?(g: Grant): Grant; verifyAssignment?(current: Assignment, next: Assignment): void }) {
   // Optional execution credential: a public-only slot (local key copy deliberately
   // removed) has none. There is no shadow identity and no reconstruction; execution
   // paths must load it explicitly and fail closed when absent.
@@ -308,10 +308,14 @@ function slot(setup: Setup, path: string, agent: string, currentSetup: (id: stri
       if (m.type === 'prepare') {
         fields(m.body, ['assignment','operation']);
         const assignment = m.body.assignment as Assignment; validateAssignment(assignment);
+        transfer?.verifyAssignment?.(state.assignment, assignment);
         const op = m.body.operation as Message;
         // Validate the proposed grant shape through the same chain validator.
         const g: Grant = { root: hash(assignment.genesis), predecessor: hash(assignment.chain?.at(-1) ?? assignment.genesis), source: op.host, target: setup.host, agent, operation: op, prepared: 'pending', selection: moveSelection(op.body.selection, m.revision, 'named-v1'), materialization: 'named-v1', targetRevision: m.revision, sourceRun: null };
         validateAssignment({ ...assignment, assignedHost: setup.host, chain: [...(assignment.chain ?? []), g] });
+        const projected = inventory();
+        serializeManagement({ ...projected, body: { ...projected.body, assignmentChain: [...(assignment.chain ?? []), privateSnapshots ? {...g,proof:'0'.repeat(128)} : g], selectedNext:g.selection } },8192);
+        if (Object.hasOwn(state.operations,op.id)) throw Error('Destination operation ID already used');
         const prior = state.preparations?.[op.id];
         if (hash(assignment.genesis) !== hash(genesis) || !((state.assignment.chain ?? []).every((g, i) => hash(g) === hash(assignment.chain?.[i]))) || state.phase !== 'stopped' || state.assignment.assignedHost === setup.host || (prior?.reservedRevision ?? m.revision) !== state.revision) throw Error('Destination authority/revision conflict');
         if (prior) {
@@ -369,9 +373,12 @@ function slot(setup: Setup, path: string, agent: string, currentSetup: (id: stri
         state.phase = 'stopped'; const sourceRun = state.actual?.run ?? null; state.actual = null;
         if (retracting(m.revision) || closing) { finishMove('Move cancelled after source Stop; no grant'); return; }
         const op = pending.request;
-        const grant: Grant = { root: hash(genesis), predecessor: hash(state.assignment.chain?.at(-1) ?? genesis), source: setup.host, target: text(op.body.target), agent, operation: op, prepared: token, selection: effective, ...(materialization ? { materialization } : {}), targetRevision: Number(op.body.targetRevision), sourceRun };
+        let grant: Grant = { root: hash(genesis), predecessor: hash(state.assignment.chain?.at(-1) ?? genesis), source: setup.host, target: text(op.body.target), agent, operation: op, prepared: token, selection: effective, ...(materialization ? { materialization } : {}), targetRevision: Number(op.body.targetRevision), sourceRun };
+        if (privateSnapshots && !transfer?.signGrant) throw Error('Private successor signer unavailable');
+        grant = transfer?.signGrant?.(grant) ?? grant;
         const assignment: Assignment = { genesis, assignedHost: grant.target, chain: [...(state.assignment.chain ?? []), grant] }; validateAssignment(assignment);
         const delivery = message('grant', grant.target, agent, grant.targetRevision, { assignment });
+        serializeManagement(delivery);
         // Irreversible authority consumption + exact grant outbox precede publication.
         state.assignment = assignment; state.revision++; state.outbox.push(delivery);
         finishMove('accepted'); publish(delivery);
@@ -381,6 +388,7 @@ function slot(setup: Setup, path: string, agent: string, currentSetup: (id: stri
         if (!g || g.target !== setup.host || g.agent !== agent || m.revision !== g.targetRevision) return;
         const prior = state.incoming?.[hash(g)];
         if (prior) { publish(prior); return; }
+        transfer?.verifyAssignment?.(state.assignment, next);
         if (!extendsAssignment(state.assignment, next) || state.assignment.assignedHost === setup.host || state.phase !== 'stopped') return;
         const prep = state.preparations?.[g.operation.id];
         if (!prep || hash(prep.request.body.operation) !== hash(g.operation) || prep.token !== g.prepared || prep.reply.body.materialization !== g.materialization) return;
@@ -410,10 +418,10 @@ function slot(setup: Setup, path: string, agent: string, currentSetup: (id: stri
           if (!livePreparations.has(g.operation.id) || (await prepareLocal(g.selection)).token !== g.prepared || closing || retracting(state.revision)) throw Error('Destination preparation invalidated; assigned here, stopped; repair local setup/key/auth then explicit Start');
           const start = message('start', setup.host, agent, state.revision); start.id = g.operation.id;
           await handle(start);
-          outcome = state.operations[start.id]?.reply.body.result;
+          outcome = String(state.phase) === 'running' && state.actual?.run === start.id ? state.operations[start.id]?.reply.body.result : 'Destination did not start this Move; inspect host';
         } catch (e) { outcome = e instanceof Error ? e.message : 'Destination launch failed'; }
         livePreparations.delete(g.operation.id); preparationStage = 'consumed; actual launch outcome recorded separately';
-        const completed = message('receipt', setup.host, agent, state.revision, { operation: m.id, fingerprint: hash(m), result: outcome, assignedHost: setup.host, transfer: 'source consumed; destination assigned' });
+        const completed = message('receipt', setup.host, agent, state.revision, { operation: m.id, fingerprint: hash(m), result: outcome, move: g.operation, assignedHost: setup.host, transfer: 'source consumed; destination assigned' });
         state.incoming[hash(g)] = completed; state.outbox.push(completed); save(); publish(completed); publish(inventory());
       }
     } catch (e) {
@@ -605,7 +613,7 @@ function slot(setup: Setup, path: string, agent: string, currentSetup: (id: stri
 }
 
 /** One installation owns every slot, lock and management transport. */
-export async function host(directory: string, url: string, signal?: AbortSignal, transport?: { availability?(): Message; binding: { host: string; owner: string }; validate(url: string): void; connect(url: string, secret: string, receive: (m: Message) => void, recovered?: () => void): { ready: Promise<void>; send(m: Message): void; close(): void } }, credentials: CredentialBackend = systemCredentials, providerRead = managerCredential) {
+export async function host(directory: string, url: string, signal?: AbortSignal, transport?: { signGrant?(g: Grant): Grant; verifyAssignment?(current: Assignment, next: Assignment): void; availability?(): Message; binding: { host: string; owner: string }; validate(url: string): void; connect(url: string, secret: string, receive: (m: Message) => void, recovered?: () => void): { ready: Promise<void>; send(m: Message): void; close(): void } }, credentials: CredentialBackend = systemCredentials, providerRead = managerCredential) {
   signal?.throwIfAborted();
   (transport?.validate ?? validateRelayURL)(url);
   let effectiveSettings = readSettings(directory);
@@ -678,7 +686,7 @@ export async function host(directory: string, url: string, signal?: AbortSignal,
         if (!current || current.host !== entry.setup.host || setupOwner(current) !== setupOwner(entry.setup) || !current.agentSecret || !current.conversation?.authTag || current.conversation.relay !== url) throw Error('Existing agent key/owner association/relay required');
         return { secret: current.agentSecret, relay: current.conversation.relay, authTag: current.conversation.authTag };
         function hostKeyForMetadata() { return transport?.binding.host ?? entry.setup.host; }
-      }, url, providerRead));
+      }, url, providerRead, transport));
     }
     applySettings(effectiveSettings);
     const setup = entries[0]?.setup;

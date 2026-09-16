@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { schnorr } from '@noble/curves/secp256k1';
 import { finalizeEvent, verifyEvent, type Event } from 'nostr-tools/pure';
 import { nsecEncode } from 'nostr-tools/nip19';
-import { newKey, publicKey, digest } from '../src/protocol.ts';
+import { newKey, publicKey, digest, type Message } from '../src/protocol.ts';
 import { ManagerController, type ManagerSnapshot } from '../src/manager-controller.ts';
 import { fetchRelayDirectory } from '../src/relay-directory.ts';
 import { managementClient } from '../src/intents.ts';
@@ -23,7 +23,7 @@ import { nostrFixture } from './nostr-fixture.ts';
 /** Product-shaped synthetic fixture. Real private relay, owner authentication,
  * host and owned ACP process. Public assignment is pre-provisioned explicitly by
  * this test, NOT derived by registration from directory metadata or nsec custody. */
-export async function registrationFixture(home: string, changed: (s: ManagerSnapshot) => void, assigned = true) {
+export async function registrationFixture(home: string, changed: (s: ManagerSnapshot) => void, assigned = true, move = false) {
   home = realpathSync(home);
   if (!home.includes('beehive-pairing-cli-')) throw Error('Fresh explicit fixture HOME required');
   const credentials = isolatedFileCredentials(join(home,'credentials.json'));
@@ -55,7 +55,8 @@ export async function registrationFixture(home: string, changed: (s: ManagerSnap
   createCredential('owner',ownerSecret,credentials);
   createControllerConfig(join(home,'.beehive','owner'),owner,url);
   const setup = {host:identity.pairing.host,ownerPublic:owner,runner:realpathSync(process.execPath),args:['-e','setInterval(()=>{},1000)'],workspace:home,mode:'fixture' as const,serviceHome:home,configDirectory:home};
-  if (assigned) provisionCredentialSlot(directory,setup,agentSecret,createGenesis(owner,agent,identity.pairing.host),credentials);
+  const genesis = createGenesis(owner,agent,identity.pairing.host);
+  if (assigned) provisionCredentialSlot(directory,setup,agentSecret,genesis,credentials);
   let providerKey: string | null = null;
   addOpenAI(directory,'Review OpenAI','synthetic-provider-key',{read:()=>providerKey,create:(_r,v)=>{providerKey=v;}});
   const executable = join(home,'synthetic-acp');
@@ -63,7 +64,30 @@ export async function registrationFixture(home: string, changed: (s: ManagerSnap
   const settings = readSettings(directory), runtimeId = 'review-runtime';
   saveSettings(directory,{...settings,runtimes:[{id:runtimeId,name:'Review runtime',harness:'buzz-agent',executable,providerId:settings.providers[0]!.id,model:'gpt-5',effort:'high',environment:{REVIEW_MODE:'synthetic'}}]},settings.revision);
   let providerFailure = false;
-  const service = await host(directory,url,undefined,privateHostTransport(identity.pairing,identity.secret),credentials,async (_input,signal) => { signal.throwIfAborted(); if (providerFailure) throw Error('Synthetic provider failure'); return {ok:true,secret:'synthetic-provider-key'}; });
+  let holdPrepared = false, dropGrant = false;
+  const held: (()=>void)[] = [];
+  const faultTransport = (transport: ReturnType<typeof privateHostTransport>) => {
+    const original = transport.connect.bind(transport);
+    transport.connect = (...args) => {
+      const wire = original(...args), send = wire.send.bind(wire);
+      wire.send = (m: Message) => {
+        if (m.type === 'grant' && dropGrant) return;
+        if (m.type === 'prepared' && holdPrepared) { held.push(()=>send(m)); return; }
+        send(m);
+      };
+      return wire;
+    };
+    return transport;
+  };
+  const service = await host(directory,url,undefined,faultTransport(privateHostTransport(identity.pairing,identity.secret)),credentials,async (_input,signal) => { signal.throwIfAborted(); if (providerFailure) throw Error('Synthetic provider failure'); return {ok:true,secret:'synthetic-provider-key'}; });
+  let destination: {directory:string; host:string; credentials:ReturnType<typeof isolatedFileCredentials>; service: Awaited<ReturnType<typeof host>>} | undefined;
+  if (move) {
+    const directory = join(home,'destination'); mkdirSync(directory,{mode:0o700});
+    const peerCredentials = isolatedFileCredentials(join(directory,'credentials.json'));
+    const peer = bootstrapHostIdentity(directory,'Destination host',owner,url,peerCredentials);
+    provisionCredentialSlot(directory,{...setup,host:peer.pairing.host},agentSecret,genesis,peerCredentials);
+    destination = {directory,host:peer.pairing.host,credentials:peerCredentials,service:await host(directory,url,undefined,faultTransport(privateHostTransport(peer.pairing,peer.secret)),peerCredentials)};
+  }
   let credentialFailure = false, beforeCredential: (() => Promise<void>) | undefined, afterCredential: (() => Promise<void>) | undefined;
   const credential = async (input: any, signal: AbortSignal) => {
     signal.throwIfAborted();
@@ -78,13 +102,13 @@ export async function registrationFixture(home: string, changed: (s: ManagerSnap
   };
   const controller = new ManagerController(home,changed,credential,managementClient,async()=> 'Synthetic relay',fetchRelayDirectory,async()=>({profileState:'found',profile:{relay:url,name:'Review agent'}}));
   const originalClose = controller.close.bind(controller); let closing: Promise<void> | undefined;
-  const close = () => closing ??= (async()=>{ originalClose(); await service.close(); await relay.close(); })();
+  const close = () => closing ??= (async()=>{ originalClose(); await service.close(); await destination?.service.close(); await relay.close(); })();
   controller.close = () => { void close(); };
-  return {controller,close,directory,agent,host:identity.pairing.host,runtimeId,nsec:nsecEncode(Buffer.from(agentSecret,'hex')),errors,credentials,relay,service,setCredentialFailure(v:boolean){credentialFailure=v;},setProviderFailure(v:boolean){providerFailure=v;},beforeCredential(fn?:()=>Promise<void>){beforeCredential=fn;},afterCredential(fn?:()=>Promise<void>){afterCredential=fn;}};
+  return {controller,close,directory,agent,destination,ownerSecret,url,setHoldPrepared(v:boolean){holdPrepared=v;},setDropGrant(v:boolean){dropGrant=v;},get heldPrepared(){return held.length;},releasePrepared(){holdPrepared=false;for(const send of held.splice(0))send();},host:identity.pairing.host,runtimeId,nsec:nsecEncode(Buffer.from(agentSecret,'hex')),errors,credentials,relay,service,setCredentialFailure(v:boolean){credentialFailure=v;},setProviderFailure(v:boolean){providerFailure=v;},beforeCredential(fn?:()=>Promise<void>){beforeCredential=fn;},afterCredential(fn?:()=>Promise<void>){afterCredential=fn;}};
 }
 
 /** Installed walkthrough uses the same real synthetic lifecycle fixture as tests. */
 export async function walkthroughController(home: string, changed: (s: ManagerSnapshot) => void) {
-  const fixture = await registrationFixture(home,changed);
+  const fixture = await registrationFixture(home,changed,true,true);
   return fixture.controller;
 }

@@ -126,6 +126,18 @@ function render() {
       const result = await request(action, undefined, row.target, row.revision);
       if (result.state === 'registration-required') await registerForm(result.continuation,result.agent);
     } })),
+    { label: 'Move…', disabled: eligibility('move'), run: async () => {
+      const row = snapshot.agents.find(r => r.id === selected); if (!row) return;
+      const destinations = row.destinations ?? [];
+      if (!destinations.length) { screen.notice('No destination hosts. Configure and start another host for this owner and relay, then Refresh.'); return; }
+      const labels = destinations.map(d => `${d.label}${d.reason ? ' · Setup required' : ''}`);
+      const chosen = await screen.choose('Move · destination host / runtime',labels); if (chosen === undefined) return;
+      const destination = destinations[labels.indexOf(chosen)]; if (!destination) return;
+      if (destination.reason) { screen.notice(destination.reason); return; }
+      if (!await screen.confirm(`Move agent to ${destination.label}?
+The source stops before destination launch. Workspace, session and credentials stay on their hosts.`)) return;
+      await request('move',{destination:destination.target,destinationRevision:String(destination.revision)},row.target,row.revision);
+    } },
     { label: 'Inspect operations', run: () => request('operations') },
     { label: 'Check operation results', run: () => request('reconcile') },
     { label: 'Sign out', run: () => request('signout') },

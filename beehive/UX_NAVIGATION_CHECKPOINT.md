@@ -485,3 +485,75 @@ question, not a claim that authenticated Start cannot authorize enrollment.
 Authenticated Move and Desktop parity remain mapped in “Precise subsequent work”
 above; no allowlists or provider/harness contracts were changed here. Larry owns
 scope resolution, subsequent dispatch and independent final UX acceptance.
+
+## 064d8808 — authenticated Move candidate (existing pinned assignments only)
+
+Agents → Move… now chooses a destination host and its selected local runtime,
+then submits the real durable owner intent. No genesis or initial enrollment path
+changed. Destination setup/credential repair remains explicitly host-local; a
+missing key shows the exact `import-agent-key` action, not a remote secret form.
+Hosts without this public slot still require local provisioning with the existing
+pinned genesis and local binding, followed by host startup/Refresh. The selector
+uses already-selected destination runtimes; it does not remotely create runtime
+bindings or copy workspace/session/key material.
+
+Protocol/code owners:
+
+- `catalog-transport.ts` / `intents.ts`: canonical authenticated owner → source
+  Move, encrypted durable request before effects. Separate authenticated destination
+  receipt persists in `.destination`; source consumption alone stays pending (or
+  unknown on disconnect). Completed transfer history survives later Stop/Move and
+  controller reopen. Reconcile queries the source outbox even after source acceptance
+  while the destination result is missing; exact consumed grants are replayed once.
+- `host-transport.ts` / new `private-handoff.ts`: NIP-59 source/destination routing,
+  exact authenticated sender/recipient/agent/owner pairing. Each new successor is
+  source-signed over a domain-separated relay-bound grant. Verify unseen successors
+  against the locally pinned prefix, never public directory/availability claims.
+  Existing locally pinned unsigned history is not discarded; an unseen unsigned
+  suffix is refused. This is trusted-holder continuity, not shared first enrollment.
+- `host.ts` / `handoff.ts`: existing per-slot revisions/CAS, durable preparations,
+  selected/actual snapshots, awaited owned Stop, source-consumed grant outbox and
+  prepared launch fences remain authoritative. Sign before persisting consumption;
+  bound projected preparation inventory and grant wire bytes. Conflicting target
+  operation IDs reject during preparation, before source Stop. Destination completion
+  also requires the exact Move run to be actually running, never an old receipt.
+- `manager-controller.ts` / `manager-view.ts`: relay-listed selection, eligible
+  destination/setup guidance, typed submitted completion, truthful host/running report,
+  concise recent operation result. Source acceptance is not UI completion.
+
+Evidence: `/Users/loganj/.buzz/artifacts/beehive-ux-064d8808/`.
+
+- `focused-candidate-final.log`: **55/55**, including real private two-host owned
+  processes, successful/reverse transfer, exact retry/reopen, cross-controller target
+  ID conflict, stale target CAS, missing destination key before preparation, delayed
+  prepared reply + Stop cancellation, lost-grant reconciliation, postconsumption key
+  loss → assigned/stopped → repaired explicit Start, and injected owned source Stop
+  failure → quarantine/actual retained → repaired Stop without destination execution.
+  The same run includes legacy Move/named recovery/binding recovery, sibling isolation,
+  registration/initial-enrollment refusal, intents, profiles/wire bounds and controllers.
+- `typecheck-last-corrected.log`: strict TypeScript passed. Renderer
+  `renderer-candidate-final.log`: Bun 1.4.2 **4/4**.
+- `pty-candidate-final.log`, `walkthrough.json`, `01-host` through
+  `11-destination-stopped` `.ansi`/`.txt`: actual 100×30 PTY, registration cancellation,
+  matching hidden nsec/runtime, source actual gpt-5, Move chooser/confirmation,
+  destination owned fixture-model run under signed successor, visible **Move ·
+  Completed**, awaited destination Stop and exit 0. The nsec is absent from output.
+  The PTY snapshots observe resulting states, not independent timing instrumentation
+  of the Stop barrier. `tools/ux-walkthrough.sh` reproduces the same two-host fixture.
+- One default-concurrent package run `full-candidate.log`: **233 pass / 1 fail /
+  19 skip**, natural 32.689s. The unchanged broker response-timeout assertion failed;
+  no causal fix, deadline relaxation, serial masking or retry-to-green is claimed.
+  This whole-package run precedes the final target-ID/actual-run completion guard and
+  precise repair copy; final focused/typecheck/PTY cover that delta. Prior 202/4/19
+  evidence remains historical. No further package-wide run was performed.
+- Failed evidence retained: first/second private fixture runs exposed a reused
+  synthetic credential store across hosts (fixed with separate host-local stores);
+  `focused-final.log` 42/43 retained an obsolete operation-copy assertion;
+  `typecheck-last.log` caught TypeScript's stale narrowing across `handle(start)`.
+  No safety assertion or timeout was weakened. Final checks above supersede them.
+
+Installed host service/provider/relay/OS-store operations remain fenced. Both installed
+176497874 exports were untouched. Unchanged native historical 700-test evidence is
+reused, not rerun. No repository-wide CI, live provider/admission, independent UX
+acceptance, first-enrollment shared-root resolution or Desktop provider/harness parity
+is claimed. Larry owns independent Move UX review and those separately tracked scopes.

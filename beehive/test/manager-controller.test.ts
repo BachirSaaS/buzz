@@ -140,7 +140,7 @@ test('manager presentation preserves raw evidence, unknown states and literal co
     assert.match(shown.detail, /Host result: new backend diagnostic/);
     assert.deepEqual(JSON.parse(shown.evidence!), operation);
     await f.controller.request({ id: 2, action: 'operations' });
-    assert.match(f.snapshot.status, /Choose configuration · Unknown: new backend diagnostic/);
+    assert.ok(f.snapshot.status.startsWith(`Choose configuration · Unknown · ${request.id.slice(0,8)}\nnew backend diagnostic`));
     await f.controller.request({ id: 3, action: 'reconcile' });
     assert.match(f.snapshot.status, /Checking operation results. Operations blocked by relay policy will not be retried./);
     assert.equal(f.submitted.length, 0);

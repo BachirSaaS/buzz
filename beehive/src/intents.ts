@@ -8,12 +8,17 @@ import { digest, fields, message, object, open, publicKey, seal, type Envelope, 
 import { metadataPublicationInterrupted } from './public-metadata.ts';
 import { readPrivate, writePrivate } from './storage.ts';
 
-type Intent = { envelope: Envelope; request: Message; receipt?: Message; published: boolean; blocked?: boolean };
+type Intent = { envelope: Envelope; request: Message; receipt?: Message; destination?: Message; published: boolean; blocked?: boolean };
 const fingerprint = (m: Message) => digest(JSON.stringify(m)).toString('hex');
 function matches(request: Message, receipt: Message) {
   return receipt.type === 'receipt' && receipt.host === request.host && receipt.agent === request.agent
     && receipt.body.operation === request.id && receipt.body.fingerprint === fingerprint(request)
     && typeof receipt.body.result === 'string' && receipt.body.result.length > 0;
+}
+function matchesDestination(request: Message, receipt: Message) {
+  return request.type === 'move' && receipt.type === 'receipt' && receipt.host === request.body.target && receipt.agent === request.agent
+    && receipt.body.move !== undefined && fingerprint(receipt.body.move as Message) === fingerprint(request)
+    && receipt.body.transfer === 'source consumed; destination assigned' && typeof receipt.body.result === 'string' && receipt.body.result.length > 0;
 }
 /** Local operator journal, scoped to exact relay URL and signer; no agent keys.
  * Immutable intent files precede all network effects. Receipt files are separate
@@ -47,6 +52,13 @@ export function managementClient(root: string, url: string, secret: string, rece
       if (!matches(request, receipt)) throw Error('Unmatched journal receipt');
       intent.receipt = receipt;
     }
+    const destinationPath = join(dir, `${request.id}.destination`);
+    if (existsSync(destinationPath)) {
+      if (statSync(destinationPath).size > 70000) throw Error('Oversized destination receipt');
+      const destination = open(readPrivate(destinationPath),secret);
+      if (!matchesDestination(request,destination)) throw Error('Unmatched destination receipt');
+      intent.destination = destination;
+    }
     const blockedPath = join(dir, `${request.id}.blocked`);
     if (existsSync(blockedPath)) {
       if (statSync(blockedPath).size > 70000) throw Error('Oversized blocked intent');
@@ -62,7 +74,7 @@ export function managementClient(root: string, url: string, secret: string, rece
       try { transport.sendEnvelope(intent.envelope); } catch { break; } // Intent remains durable.
     }
     // Query host outbox too: relay history alone may lack a lost terminal receipt.
-    const slots = new Map([...intents.values()].filter(i => !i.receipt && i.request.type !== 'profile').map(i => [JSON.stringify([i.request.host, i.request.agent]), i.request]));
+    const slots = new Map([...intents.values()].filter(i => i.request.type === 'move' && !i.destination || !i.receipt && i.request.type !== 'profile').map(i => [JSON.stringify([i.request.host, i.request.agent]), i.request]));
     for (const request of slots.values()) {
       try { transport.send(message('inspect', request.host, request.agent)); } catch { break; }
     }
@@ -71,6 +83,15 @@ export function managementClient(root: string, url: string, secret: string, rece
   const connectTransport = privateHosts ? catalogTransport(privateHosts.catalog) : connect;
   const transport = connectTransport(url, secret, m => {
     if (m.type === 'receipt') {
+      const transfer = m.body.move as Message | undefined;
+      const moving = transfer && intents.get(transfer.id);
+      if (moving && !moving.destination && matchesDestination(moving.request,m)) {
+        const path = join(dir, `${moving.request.id}.destination`);
+        try { writePrivate(path,seal(m,secret),true); } catch(error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
+        const persisted = open(readPrivate(path),secret);
+        if (!matchesDestination(moving.request,persisted)) throw Error('Unmatched durable destination receipt');
+        moving.destination = persisted; changed();
+      }
       const intent = intents.get(String(m.body.operation));
       if (intent && !intent.receipt && matches(intent.request, m)) {
         // Persist before exposing completion. Failure propagates, never reports success.
@@ -104,7 +125,6 @@ export function managementClient(root: string, url: string, secret: string, rece
     submit(request: Message) {
       if (closed) throw Error('UI closed');
       if (!['metadata','profile','save','start','restart','stop','move'].includes(request.type)) throw Error('Invalid operation');
-      if (privateHosts && !['metadata', 'profile', 'save', 'start', 'restart', 'stop'].includes(request.type)) throw Error('Private Move authority is not integrated; no operation prepared');
       if (request.type === 'profile') {
         profile(request.body);
         if (request.host !== 'profiles' || request.agent !== 'profiles' || request.revision !== 0) throw Error('Invalid profile publication');
@@ -130,10 +150,10 @@ export function managementClient(root: string, url: string, secret: string, rece
     },
     status() {
       return [...intents.values()].map(i => ({ request: structuredClone(i.request),
-        state: i.request.type === 'profile' && i.published ? 'completed' : i.receipt ? ((['accepted','saved; running configuration unchanged'].includes(String(i.receipt.body.result)) || (i.request.type === 'metadata' && /^published; signed latest kind0 [a-f0-9]{64}$/.test(String(i.receipt.body.result)))) ? 'completed' : (i.receipt.body.result === 'interrupted-reconcile-locally' || (i.request.type === 'metadata' && i.receipt.body.result === metadataPublicationInterrupted)) ? 'unknown' : 'failed') : i.blocked ? 'unknown' : 'pending',
+        state: i.request.type === 'move' && i.destination ? (i.destination.body.result === 'accepted' ? 'completed' : 'failed') : i.request.type === 'move' && i.receipt?.body.result === 'accepted' ? (i.blocked || transport.socket.readyState !== 1 ? 'unknown' : 'pending') : i.request.type === 'profile' && i.published ? 'completed' : i.receipt ? ((['accepted','saved; running configuration unchanged'].includes(String(i.receipt.body.result)) || (i.request.type === 'metadata' && /^published; signed latest kind0 [a-f0-9]{64}$/.test(String(i.receipt.body.result)))) ? 'completed' : (i.receipt.body.result === 'interrupted-reconcile-locally' || (i.request.type === 'metadata' && i.receipt.body.result === metadataPublicationInterrupted)) ? 'unknown' : 'failed') : i.blocked ? 'unknown' : 'pending',
         retryAvailable: !i.receipt && !(i.request.type === 'profile' && i.published) && !!i.blocked,
         publication: i.request.type === 'profile' && i.published ? 'immutable publication observed; no agent application' : i.receipt ? 'host terminal receipt' : i.blocked ? 'relay policy failure; automatic retry disabled; reconcile, then retry after policy repair' : i.published ? 'relay observed; not host admission' : 'unconfirmed',
-        result: i.receipt?.body.result }));
+        result: i.destination ? (i.destination.body.result === 'accepted' ? 'Move complete; destination running at completion.' : `Ownership transferred; destination launch failed: ${i.destination.body.result}`) : i.request.type === 'move' && i.receipt?.body.result === 'accepted' ? 'Source consumed; destination result pending. Check operation results.' : i.receipt?.body.result }));
     },
     close() { closed = true; transport.close(); },
   };
