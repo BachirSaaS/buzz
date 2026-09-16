@@ -170,4 +170,3 @@ tests:
             app.kubernetes.io/name: buzz
             app.kubernetes.io/instance: RELEASE-NAME
             app.kubernetes.io/component: relay
-
