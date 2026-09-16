@@ -490,6 +490,9 @@ mod postgres_tests {
             "relay_admin_outbox",
             "relay_operator_audit",
             "storage_accounting_snapshots",
+            "relay_banners",
+            "relay_banner_communities",
+            "relay_banner_user_state",
         ] {
             if normalized[insert_pos..].contains(&format!("'{value}'")) {
                 globals.insert(value.to_owned());
@@ -1828,6 +1831,8 @@ mod postgres_tests {
         let mut expected_fences = migration.fence_attachments.clone();
         expected_fences.remove("product_feedback");
         expected_fences.remove("rate_limit_violations");
+        expected_fences.insert("relay_banner_communities".to_owned());
+        expected_fences.insert("relay_banner_user_state".to_owned());
         assert_eq!(
             expected_fences, schema.fence_attachments,
             "write-fence attachment targets differ after recovery policy"
@@ -2267,6 +2272,9 @@ mod postgres_tests {
             "relay_admin_actions",
             "relay_admin_outbox",
             "relay_operator_audit",
+            "relay_banners",
+            "relay_banner_communities",
+            "relay_banner_user_state",
         ] {
             assert_eq!(
                 columns(&desired, table).await,

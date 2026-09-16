@@ -8,7 +8,7 @@ use tracing::{debug, warn};
 use buzz_core::filter::filters_match;
 use buzz_core::kind::{
     is_unshared_gated_event, AUTHOR_ONLY_KINDS, KIND_AGENT_ENGRAM, KIND_AGENT_TURN_METRIC,
-    KIND_DM_VISIBILITY, KIND_HUDDLE_LIVENESS, P_GATED_KINDS, RESULT_GATED_KINDS,
+    KIND_DM_VISIBILITY, KIND_HUDDLE_LIVENESS, KIND_RELAY_BANNER, P_GATED_KINDS, RESULT_GATED_KINDS,
     SHARED_GATED_KINDS,
 };
 use buzz_core::tenant::TenantContext;
@@ -218,6 +218,30 @@ pub async fn handle_req(
             &state,
         )
         .await;
+        return;
+    }
+
+    if filters_are_relay_banner_only(&filters) {
+        match crate::api::banners::active_banner_event_for_user(&state, &conn.tenant, &pubkey_bytes)
+            .await
+        {
+            Ok(Some(event)) => {
+                let stored =
+                    buzz_core::StoredEvent::with_received_at(event, chrono::Utc::now(), None, true);
+                if filters_match(&filters, &stored)
+                    && !conn.send(RelayMessage::event(&sub_id, &stored.event))
+                {
+                    return;
+                }
+            }
+            Ok(None) => {}
+            Err(error) => {
+                warn!(conn_id = %conn_id, sub_id = %sub_id, "Relay banner lookup failed: {error}");
+                conn.send(RelayMessage::closed(&sub_id, "error: database error"));
+                return;
+            }
+        }
+        conn.send(RelayMessage::eose(&sub_id));
         return;
     }
 
@@ -1155,6 +1179,18 @@ fn filters_are_huddle_liveness_only(filters: &[Filter]) -> bool {
                     && kinds
                         .iter()
                         .all(|kind| kind.as_u16() as u32 == KIND_HUDDLE_LIVENESS)
+            })
+        })
+}
+
+fn filters_are_relay_banner_only(filters: &[Filter]) -> bool {
+    !filters.is_empty()
+        && filters.iter().all(|filter| {
+            filter.kinds.as_ref().is_some_and(|kinds| {
+                kinds.len() == 1
+                    && kinds
+                        .iter()
+                        .all(|kind| kind.as_u16() as u32 == KIND_RELAY_BANNER)
             })
         })
 }

@@ -60,9 +60,13 @@ pub fn router(state: Arc<crate::state::AppState>) -> Router {
         .route("/operators", get(list_operators))
         .route("/operators/{pubkey}", put(upsert_operator))
         .route("/operators/{pubkey}", delete(delete_operator))
+        .route("/communities", get(list_banner_communities))
+        .route("/banners", get(banners))
+        .route("/banners/current", put(upsert_banner))
+        .route("/banners/current", delete(disable_banner))
         .layer(middleware::from_fn(security_headers))
-        // Mutation routes carry a JSON body (max ~4 KB); read-only routes have no body.
-        .layer(RequestBodyLimitLayer::new(4096))
+        // Mutation routes carry a JSON body; banner text may be up to 2,000 chars.
+        .layer(RequestBodyLimitLayer::new(8192))
         .with_state(state)
 }
 
@@ -404,6 +408,223 @@ async fn feedback_attachment(
         "admin feedback attachment read"
     );
     Ok(response)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BannerCommunityResponse {
+    id: Uuid,
+    host: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AdminBannerResponse {
+    id: String,
+    severity: &'static str,
+    text: String,
+    max_displays: i32,
+    target_scope: &'static str,
+    community_ids: Vec<Uuid>,
+    created_by: String,
+    created_at: DateTime<Utc>,
+    disabled_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BannersResponse {
+    active: Option<AdminBannerResponse>,
+    history: Vec<AdminBannerResponse>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct BannerQuery {
+    limit: Option<i64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct UpsertBannerBody {
+    severity: buzz_db::RelayBannerSeverity,
+    text: String,
+    max_displays: i32,
+    target_scope: buzz_db::RelayBannerTargetScope,
+    community_ids: Option<Vec<Uuid>>,
+}
+
+impl From<buzz_db::RelayBannerRecord> for AdminBannerResponse {
+    fn from(value: buzz_db::RelayBannerRecord) -> Self {
+        let target_scope = value.target_scope().as_str();
+        Self {
+            id: value.public_id.to_string(),
+            severity: value.severity.as_str(),
+            text: value.message,
+            max_displays: value.max_displays,
+            target_scope,
+            community_ids: value
+                .community_ids
+                .into_iter()
+                .map(|id| *id.as_uuid())
+                .collect(),
+            created_by: hex::encode(value.created_by),
+            created_at: value.created_at,
+            disabled_at: value.disabled_at,
+        }
+    }
+}
+
+async fn list_banner_communities(
+    State(state): State<Arc<crate::state::AppState>>,
+    uri: Uri,
+    headers: HeaderMap,
+) -> Result<Json<Vec<BannerCommunityResponse>>, ApiError> {
+    let principal = authorize(
+        &state,
+        &headers,
+        uri.path_and_query()
+            .map_or_else(|| uri.path(), |pq| pq.as_str()),
+        "GET",
+        None,
+    )
+    .await?;
+    let principal = require_mutation_principal(principal)?;
+    require_operator(&principal)?;
+    let communities = state.db.admin_list_banner_communities().await?;
+    Ok(Json(
+        communities
+            .into_iter()
+            .map(|community| BannerCommunityResponse {
+                id: *community.id.as_uuid(),
+                host: community.host,
+            })
+            .collect(),
+    ))
+}
+
+async fn banners(
+    State(state): State<Arc<crate::state::AppState>>,
+    uri: Uri,
+    headers: HeaderMap,
+    Query(query): Query<BannerQuery>,
+) -> Result<Json<BannersResponse>, ApiError> {
+    let principal = authorize(
+        &state,
+        &headers,
+        uri.path_and_query()
+            .map_or_else(|| uri.path(), |pq| pq.as_str()),
+        "GET",
+        None,
+    )
+    .await?;
+    let principal = require_mutation_principal(principal)?;
+    require_operator(&principal)?;
+    let history = state
+        .db
+        .admin_list_relay_banners(limit(query.limit)?)
+        .await?;
+    let active = history
+        .iter()
+        .find(|banner| banner.disabled_at.is_none())
+        .cloned()
+        .map(AdminBannerResponse::from);
+    Ok(Json(BannersResponse {
+        active,
+        history: history.into_iter().map(AdminBannerResponse::from).collect(),
+    }))
+}
+
+async fn upsert_banner(
+    State(state): State<Arc<crate::state::AppState>>,
+    uri: Uri,
+    headers: HeaderMap,
+    body_bytes: Bytes,
+) -> Result<Json<AdminBannerResponse>, ApiError> {
+    let principal = require_mutation_principal(
+        authorize(
+            &state,
+            &headers,
+            uri.path_and_query()
+                .map_or_else(|| uri.path(), |pq| pq.as_str()),
+            "PUT",
+            Some(&body_bytes),
+        )
+        .await?,
+    )?;
+    require_operator(&principal)?;
+    let body: UpsertBannerBody = serde_json::from_slice(&body_bytes)
+        .map_err(|_| ApiError::bad_request("invalid_body", "invalid JSON body"))?;
+    let scope = if body.target_scope == buzz_db::RelayBannerTargetScope::All {
+        if body
+            .community_ids
+            .as_ref()
+            .is_some_and(|ids| !ids.is_empty())
+        {
+            return Err(ApiError::bad_request(
+                "invalid_scope",
+                "communityIds must be empty when targetScope is all",
+            ));
+        }
+        buzz_db::RelayBannerScope::AllCommunities
+    } else {
+        let ids = body.community_ids.unwrap_or_default();
+        if ids.is_empty() {
+            return Err(ApiError::bad_request(
+                "invalid_scope",
+                "communityIds must be non-empty when targetScope is communities",
+            ));
+        }
+        buzz_db::RelayBannerScope::Communities(
+            ids.into_iter()
+                .map(buzz_core::CommunityId::from_uuid)
+                .collect(),
+        )
+    };
+
+    let banner = state
+        .db
+        .admin_upsert_relay_banner(buzz_db::RelayBannerUpsert {
+            severity: body.severity,
+            message: body.text,
+            max_displays: body.max_displays,
+            scope,
+            actor_pubkey: principal.pubkey.to_vec(),
+        })
+        .await
+        .map_err(map_banner_db_error)?;
+    Ok(Json(AdminBannerResponse::from(banner)))
+}
+
+async fn disable_banner(
+    State(state): State<Arc<crate::state::AppState>>,
+    uri: Uri,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let principal = require_mutation_principal(
+        authorize(
+            &state,
+            &headers,
+            uri.path_and_query()
+                .map_or_else(|| uri.path(), |pq| pq.as_str()),
+            "DELETE",
+            None,
+        )
+        .await?,
+    )?;
+    require_operator(&principal)?;
+    let disabled = state
+        .db
+        .admin_disable_active_relay_banner(&principal.pubkey)
+        .await?;
+    Ok(Json(serde_json::json!({ "disabled": disabled })))
+}
+
+fn map_banner_db_error(error: buzz_db::DbError) -> ApiError {
+    match error {
+        buzz_db::DbError::InvalidData(message) => ApiError::bad_request("invalid_banner", &message),
+        _ => ApiError::internal(),
+    }
 }
 
 // ── Phase 2: Report resolution ────────────────────────────────────────────────
