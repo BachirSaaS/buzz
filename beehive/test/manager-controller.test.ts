@@ -8,6 +8,7 @@ import { bootstrapHostIdentity } from '../src/host-identity.ts';
 import { createCredential, credentialReference, readCredential, type CredentialBackend } from '../src/credential-store.ts';
 import { publicKey, message, type Message } from '../src/protocol.ts';
 import { profileDrafts } from '../src/profile-drafts.ts';
+import { saveSettings } from '../src/settings.ts';
 
 const secret = '1'.repeat(64), owner = publicKey(secret);
 function fixture() {
@@ -32,6 +33,26 @@ function fixture() {
   const controller = new ManagerController(home, s => { snapshot = s; }, credential, ((_root: string,_url: string,_secret: string,r: typeof receive) => { receive = r; return client; }) as any, async () => undefined, async () => [{publicKey:'agent-a',name:'Fixture agent',status:'unknown',channels:[]}]);
   return { controller, home, submitted, backend, get closed() { return closed; }, get snapshot() { return snapshot!; }, receive: (m: Message) => receive(m), states: (s: any[]) => { states = s; }, cleanup() { controller.close(); rmSync(home,{ recursive: true, force: true }); } };
 }
+
+test('saved registration seeds snapshots when directory omits it, survives reopen, and never duplicates discovery', () => {
+  const home = mkdtempSync(join(tmpdir(), 'beehive-manager-'));
+  const directory = join(home, '.beehive', 'host');
+  const agent = 'a'.repeat(64);
+  saveSettings(directory, { version: 1, revision: 0, providers: [], runtimes: [], agents: [{ publicKey: agent, key: credentialReference('agent', agent), profileState: 'found', profile: { relay: 'wss://fixture.invalid', name: 'Retained agent' } }] }, 0);
+  const empty = new ManagerController(home, () => {}, undefined, undefined, undefined, async () => []);
+  try {
+    assert.deepEqual(empty.snapshot().agents.map(row => [row.id, row.names?.agent]), [[agent, 'Retained agent']]);
+    empty.close();
+    const reopened = new ManagerController(home, () => {}, undefined, undefined, undefined, async () => { throw Error('relay unavailable'); });
+    try { assert.deepEqual(reopened.snapshot().agents.map(row => row.id), [agent]); }
+    finally { reopened.close(); }
+    const discovered = new ManagerController(home, () => {}, undefined, undefined, undefined, async () => [{ publicKey: agent, name: 'Directory name', status: 'offline', channels: [] }]);
+    try {
+      (discovered as any).directory = [{ publicKey: agent, name: 'Directory name', status: 'offline', channels: [] }];
+      assert.deepEqual(discovered.snapshot().agents.map(row => [row.id, row.names?.agent]), [[agent, 'Directory name']]);
+    } finally { discovered.close(); }
+  } finally { empty.close(); rmSync(home, { recursive: true, force: true }); }
+});
 
 test('manager config save is real/keyless owner routing; retained configuration refuses reset; offline multiline draft persists', async () => {
   const f = fixture();

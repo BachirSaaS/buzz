@@ -200,6 +200,8 @@ export class ManagerController {
         local.push({ id: 'host', label: identity.pairing.label, detail: 'Host configured. Agent registration is not execution authority.' });
       } else local.push({ id: 'missing', label: 'Configure this computer', detail: 'No local host configuration. Save the owner’s public key and relay URL. Beehive creates a host identity in the secure credential store. No owner sign-in is needed. This does not create an agent or start a host.' });
     } catch (error) { local.push({ id: 'error', label: 'Saved configuration needs attention', detail: (error instanceof Error ? backendMessages[error.message] ?? `Could not read saved configuration: ${error.message}` : `Could not read saved configuration: ${String(error)}`) + '\nSaved data has not been reset.' }); }
+    let settings: Settings | undefined, hostRelay: string | undefined;
+    try { settings = readSettings(this.hostDirectory); if (existsSync(join(this.hostDirectory,'host-identity.json'))) hostRelay = readHostIdentityPublic(this.hostDirectory).pairing.relay; } catch { /* Existing error row remains actionable; never reset settings. */ }
     const reports: ManagerSnapshot['agents'] = [...this.inventory].map(([id, m]) => {
       const fresh = this.fresh(m);
       const blocked = !fresh ? 'The host report is old or the host cannot be reached. Wait for a recent report before you act.' : this.client?.status().some(o => o.request.host === m.host && o.request.agent === m.agent && !['completed','failed'].includes(o.state)) ? 'An operation has no confirmed result. Inspect operations before you act.' : '';
@@ -218,11 +220,21 @@ Configuration for next start
 ${this.configurationDescription(m.body.selectedNext)}
 This choice does not change the current run.` };
     });
-    const agents: ManagerSnapshot['agents'] = this.directory.map(agent => {
+    // Authenticated local registrations remain list members even when discovery is
+    // stale or unavailable. Directory rows enrich them, but never seed custody.
+    const directory = new Map(this.directory.map(agent => [agent.publicKey, agent]));
+    for (const registered of settings?.agents ?? []) if (!directory.has(registered.publicKey)) {
+      directory.set(registered.publicKey, {
+        publicKey: registered.publicKey,
+        name: registered.profile?.name ?? registered.publicKey,
+        status: 'unknown',
+        channels: [],
+      });
+    }
+    const agents: ManagerSnapshot['agents'] = [...directory.values()].map(agent => {
       const report = this.agentReport(agent.publicKey);
       const shown = report ? reports.find(row => row.id === JSON.stringify([report.host,report.agent])) : undefined;
-      let registered = false;
-      try { registered = readSettings(this.hostDirectory).agents.some(a => a.publicKey === agent.publicKey); } catch { /* Configuration error is shown in Local Host. */ }
+      const registered = settings?.agents.some(a => a.publicKey === agent.publicKey) ?? false;
       const local = this.localEnrollmentTarget(agent.publicKey);
       const unavailable = 'No unique assigned host report. Execution authority is unknown.';
       return { configuration: report ? this.directConfiguration(report.body.selectedNext) : undefined, names: { agent: agent.name && agent.name !== agent.publicKey ? agent.name : short(agent.publicKey), host: report ? String((this.offers.get(report.host)?.body.configuration as {label?: string})?.label || short(report.host)) : undefined, startHost: local ? readHostIdentityPublic(this.hostDirectory).pairing.label : undefined }, startTarget: local, startRevision: local ? -1 : undefined, destinations: report ? this.moveDestinations(report) : [], id:agent.publicKey,target:shown?.id,label:`${agent.name} · ${shown ? this.fresh(report!) ? report!.body.phase : 'Unknown' : 'Unknown'}`,revision:shown?.revision ?? -1,configurations:shown?.configurations ?? [],disabled: { ...(shown?.disabled ?? { start:unavailable,stop:unavailable,restart:unavailable,move:unavailable,'select-config':unavailable }), ...(local ? {start:''} : {}) },evidence:JSON.stringify({ discovery:agent,report },null,2),detail:`${agent.name}
@@ -252,8 +264,6 @@ If the result is unknown, check operation results before you submit again.
 A Stop result is not a recent host report that confirms the agent is stopped.` });
     let routing: ReturnType<typeof readControllerConfig>;
     try { routing = readControllerConfig(this.ownerDirectory); } catch { /* Invalid retained routing is refused by sign-in; never reset here. */ }
-    let settings: Settings | undefined, hostRelay: string | undefined;
-    try { settings = readSettings(this.hostDirectory); if (existsSync(join(this.hostDirectory,'host-identity.json'))) hostRelay = readHostIdentityPublic(this.hostDirectory).pairing.relay; } catch { /* Existing error row remains actionable; never reset settings. */ }
     const footerRelay = hostRelay ?? routing?.relay;
     this.observeRelayName(footerRelay);
     return { managementRelay:this.owner ? this.client?.connected ? 'connected' : 'disconnected' : undefined, settings, service: this.service, hostRelay, relayName: this.relayName && this.relayName.relay === footerRelay ? this.relayName.name : undefined, profilePreview: this.profilePreview, models: this.models, modelLabels:this.modelLabels, runtimeExecutable: this.runtimeExecutable, harnesses: this.harnesses, databricksHost: this.databricksHost, local, agents, diagnostics, routing: routing ? { owner: routing.owner, relay: routing.relay } : undefined, owner: this.owner, status: this.status + (this.owner ? `\n${this.directoryState}` : '') };
