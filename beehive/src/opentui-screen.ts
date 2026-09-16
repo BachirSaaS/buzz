@@ -24,6 +24,9 @@ export class OpenTuiScreen {
   private readonly small: TextRenderable;
   private rows: ManagerRow[] = [];
   private commands: ManagerAction[] = [];
+  private menuGeneration = 0;
+  private actionOwner = '';
+  private actionSignature = '';
   private selectedRow = -1;
   private focusIndex = 0;
   private scope = 0;
@@ -93,8 +96,8 @@ export class OpenTuiScreen {
       this.actions.setSelectedIndex(index);
       // Finish pointer focus dispatch before an action opens an input modal.
       // Otherwise Select's mouse handler can steal focus back from that input.
-      const action = this.commands[index];
-      queueMicrotask(() => { void this.run(index, action); });
+      const action = this.commands[index], generation = this.menuGeneration;
+      queueMicrotask(() => { void this.run(index, action, generation); });
     } });
     this.pane.add(this.actions);
     this.status = new TextRenderable(renderer, { fg, height: 2, onMouseDown: () => this.outcome() });
@@ -190,7 +193,8 @@ export class OpenTuiScreen {
     if (key.name === 'tab') { key.preventDefault(); this.focusIndex = this.focusIndex === 0 ? 2 : 0; [this.list, this.scroll, this.actions][this.focusIndex]!.focus(); this.focusStyle(); }
     if (key.name === 'f1') { key.preventDefault(); this.help(); }
   }
-  private async run(index: number, captured?: ManagerAction) {
+  private async run(index: number, captured?: ManagerAction, generation = this.menuGeneration) {
+    if (generation !== this.menuGeneration) return;
     const action = captured ?? this.commands[index];
     if (!action || this.pending || this.busy || this.modal || this.small.visible || this.closed) return;
     if (action.disabled) { this.notice(action.disabled); return; }
@@ -205,7 +209,11 @@ export class OpenTuiScreen {
     this.rows = rows; this.commands = actions;
     this.detail.visible = true;
     const commandOptions = actions.map(a => ({ name: clean(a.label + (a.disabled ? ' — unavailable' : '')), description: '' }));
-    if (JSON.stringify(this.actions.options) !== JSON.stringify(commandOptions)) this.actions.options = commandOptions;
+    const owner = selected ?? '', signature = JSON.stringify(commandOptions);
+    if (owner !== this.actionOwner || signature !== this.actionSignature) {
+      this.menuGeneration++; this.actionOwner = owner; this.actionSignature = signature;
+      this.actions.options = commandOptions; this.actions.setSelectedIndex(0);
+    }
     this.actions.height = this.actionHeight();
     const options = rows.map(row => ({ name: clean(row.label), description: '', value: row.id }));
     if (JSON.stringify(this.list.options) !== JSON.stringify(options)) this.list.options = options;

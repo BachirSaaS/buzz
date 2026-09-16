@@ -5,6 +5,7 @@ import { createReadStream, createWriteStream } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { OpenTuiScreen, type ManagerAction } from './opentui-screen.ts';
 import type { ManagerItem, ManagerRequest, ManagerSnapshot, ManagerResult } from './manager-controller.ts';
+import { actionsForRow } from './manager-menu.ts';
 
 function shortIdentity(value: string) { return value.length > 20 ? `${value.slice(0,8)}…${value.slice(-8)}` : value; }
 function targetNames(row: ManagerItem, start = false) {
@@ -173,7 +174,9 @@ The source stops before destination launch. Workspace, session and credentials s
       if (snapshot.models) await screen.choose('Models', snapshot.models.map(id=>snapshot.modelLabels?.[id] && snapshot.modelLabels[id] !== id ? `${snapshot.modelLabels[id]} · ${id}` : id));
     } },
   ];
-  screen.show(vanished ? [{ id: selected, label: 'Selection unavailable', detail: 'Unavailable' }, ...rows] : rows, actions, selected);
+  if (scope === 0 && selected === 'host-missing') actions.unshift({ label: 'Configure this computer', run: () => routing('configure') });
+  actions = actionsForRow(snapshot, scope, rows.find(row => row.id === selected), actions);
+  screen.show(vanished ? [{ id: selected, label: 'Selection unavailable', detail: 'Unavailable' }, ...rows] : rows, vanished ? [] : actions, selected);
   const notice = scope === 0 ? `Host: ${snapshot.service?.state ?? 'unknown'} · Saved: ${snapshot.settings?.revision ?? 0} · Loaded: ${snapshot.service?.revision ?? 'not confirmed'}\n${snapshot.status}` : snapshot.status;
   if (lastStatus !== notice) { lastStatus = notice; screen.notice(notice); }
 }

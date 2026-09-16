@@ -21,13 +21,22 @@ export function sectionRows(snapshot: ManagerSnapshot, section: number): Manager
       ...(settings?.agents ?? []).filter(agent => !snapshot.agents.some(row => row.id === agent.publicKey)).map(agent => ({ id: agent.publicKey, label: agent.profile?.name ?? agent.publicKey, detail: 'Registered here · Host unavailable' })),
       { id: 'other-agents', label: 'Other agents', detail: 'Other agents' },
       ...snapshot.agents.filter(agent => !registered.has(agent.id)),
+      { id: 'management', label: 'Management', detail: 'Management commands' },
+      { id: 'refresh-agents', label: '  Refresh agents', detail: 'Refresh the agent directory' },
+      { id: 'inspect-operations', label: '  Inspect operations', detail: 'Inspect operation records' },
+      { id: 'check-results', label: '  Check operation results', detail: 'Check uncertain operation results' },
+      { id: 'sign-out', label: '  Sign out', detail: 'Sign out this owner' },
+      { id: 'publish-profile', label: '  Publish profile or instructions', detail: 'Publication instructions' },
     ];
   }
   if (section === 2) return [
+    { id: 'refresh-harnesses', label: 'Refresh harnesses', detail: 'Refresh harness discovery' },
     ...(snapshot.harnesses ?? []).map(h => ({ id: `harness:${h.id}`, label: `${h.label} · ${h.state}`, detail: `Harness: ${h.label}\nState: ${h.state}\nExecutable: ${h.executable ?? '—'}\nCLI: ${h.cli ?? '—'}` })),
-
   ];
-  if (section === 3) return (settings?.providers ?? []).map(p => ({ id: p.id, label: p.name, detail: `Provider: ${p.name}\nType: ${p.type}\nEndpoint: ${p.endpoint}` }));
+  if (section === 3) return [
+    { id: 'add-provider', label: 'Add provider', detail: 'Add a provider' },
+    ...(settings?.providers ?? []).map(p => ({ id: p.id, label: p.name, detail: `Provider: ${p.name}\nType: ${p.type}\nEndpoint: ${p.endpoint}` })),
+  ];
   return [];
 }
 
