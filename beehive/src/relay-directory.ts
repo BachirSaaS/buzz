@@ -69,10 +69,12 @@ export async function relayDirectory(viewer: string, transport: DirectoryQuery, 
   const membership = latest(await pages({ kinds:[39002], authors:[authority], '#p':[viewer] }),e => tag(e,'d'));
   const channels = new Map<string, Set<string>>();
   for (const [channel,e] of membership) for (const t of e.tags) {
-    if (t[0] !== 'p' || !key(t[1]) || t[3] !== 'bot' && !known.has(t[1])) continue;
+    // Membership enriches the owner's known roster only. It is never a
+    // discovery seed: foreign bot members must not expand profile/policy fan-out.
+    if (t[0] !== 'p' || !key(t[1]) || !known.has(t[1])) continue;
     if (!channels.has(t[1])) channels.set(t[1],new Set()); channels.get(t[1])!.add(channel);
   }
-  const candidates = [...new Set([...known,...channels.keys()])];
+  const candidates = [...known];
   if (candidates.length > 1000) throw Error('Directory candidate limit exceeded');
   async function batches(filters: DirectoryFilter[]) {
     const events: Event[] = [];

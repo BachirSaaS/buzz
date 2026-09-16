@@ -36,7 +36,9 @@ test('full canonical discovery returns only viewer-owned agents and does not pro
   assert.deepEqual(calls[1],[{kinds:[39002],authors:[relay],'#p':[viewer],limit:500}]);
   for (const batch of calls.slice(2)) { assert.ok(batch.length <= 10); for (const f of batch) { assert.equal(f.authors.length,1); assert.equal(f.limit,1); } }
   const policies = calls.flat().filter(f => f.kinds[0] === 30177 && f['#d']);
-  assert.deepEqual(new Set(policies.map(f => JSON.stringify(f))),new Set([{kinds:[30177],authors:[viewer],'#d':[a],limit:1},{kinds:[30177],authors:[other],'#d':[b],limit:1}].map(v=>JSON.stringify(v))));
+  assert.deepEqual(policies,[{kinds:[30177],authors:[viewer],'#d':[a],limit:1}]);
+  const hydratedAuthors = calls.flat().filter(f => f.kinds[0] === 0 || f.kinds[0] === 10100).map(f => f.authors[0]);
+  assert.deepEqual(new Set(hydratedAuthors),new Set([a]),'foreign channel agents never enter profile/runtime fan-out');
 });
 
 test('membership never promotes unowned agents and malformed latest owned policy controls discovery', async () => {
