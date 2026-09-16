@@ -90,4 +90,11 @@
 ──────────────────────────────────────────────────────────────────────────────
   kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }}
   kubectl -n {{ .Release.Namespace }} logs -l app.kubernetes.io/instance={{ .Release.Name }} --tail=200
+{{- $rollout := .Values.rollout | default dict }}
+{{- if $rollout.enabled }}
+  kubectl -n {{ .Release.Namespace }} get deployment,rollout {{ include "buzz.fullname" . }}
+  Argo Rollouts is enabled. The Deployment supplies the pod template.
+  Updates pause for manual promotion. See docs/argo-rollouts.md before handover.
+{{- else }}
   kubectl -n {{ .Release.Namespace }} rollout status deployment/{{ include "buzz.fullname" . }}
+{{- end }}

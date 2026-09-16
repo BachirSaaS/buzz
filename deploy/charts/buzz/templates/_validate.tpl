@@ -5,6 +5,8 @@ surface at template time regardless of which manifest helm renders first.
 
 {{- define "buzz.validate" -}}
 
+{{- include "buzz.validateRollout" . -}}
+
 {{/* relayUrl is required */}}
 {{- if not .Values.relayUrl -}}
   {{- fail "relayUrl is required: set --set relayUrl=wss://your.domain" -}}

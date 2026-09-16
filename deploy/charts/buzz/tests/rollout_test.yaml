@@ -1,0 +1,173 @@
+suite: opt-in relay Rollout
+templates:
+  - templates/rollout.yaml
+  - templates/deployment.yaml
+  - templates/service.yaml
+  - templates/pdb.yaml
+  - templates/secret-chart.yaml
+set:
+  relayUrl: wss://buzz.example.com
+  ownerPubkey: "0000000000000000000000000000000000000000000000000000000000000000"
+  secrets.existingSecret: buzz-secrets
+  replicaCount: 2
+tests:
+  - it: tolerates missing rollout values from an older release
+    set:
+      rollout: null
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: templates/rollout.yaml
+      - equal:
+          path: spec.replicas
+          value: 2
+        template: templates/deployment.yaml
+
+  - it: creates no Rollout by default
+    template: templates/rollout.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: keeps Deployment replicas and rolling update strategy by default
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 2
+      - equal:
+          path: spec.strategy
+          value:
+            type: RollingUpdate
+            rollingUpdate:
+              maxSurge: 1
+              maxUnavailable: 0
+
+  - it: permits preparing a zero-pod Rollout without draining the Deployment
+    set:
+      rollout.enabled: true
+      rollout.deploymentReplicas: 2
+      rollout.replicas: 0
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 0
+        template: templates/rollout.yaml
+      - equal:
+          path: spec.replicas
+          value: 2
+        template: templates/deployment.yaml
+
+  - it: permits one extra pod during handover
+    set:
+      rollout.enabled: true
+      rollout.deploymentReplicas: 2
+      rollout.replicas: 1
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 1
+        template: templates/rollout.yaml
+      - equal:
+          path: spec.replicas
+          value: 2
+        template: templates/deployment.yaml
+
+  - it: retains the Deployment pod configuration at zero replicas
+    template: templates/deployment.yaml
+    set:
+      rollout.enabled: true
+      rollout.deploymentReplicas: 0
+      rollout.replicas: 2
+      image.repository: ghcr.io/example/buzz
+      image.tag: test-image
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 0
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/example/buzz:test-image
+      - exists:
+          path: spec.template.spec.containers[0].readinessProbe
+
+  - it: references the same Deployment name with manual canary pauses
+    template: templates/rollout.yaml
+    set:
+      fullnameOverride: custom-relay
+      rollout.enabled: true
+      rollout.deploymentReplicas: 0
+      rollout.replicas: 2
+    asserts:
+      - isAPIVersion:
+          of: argoproj.io/v1alpha1
+      - isKind:
+          of: Rollout
+      - equal:
+          path: metadata.name
+          value: custom-relay
+      - equal:
+          path: spec.workloadRef
+          value:
+            apiVersion: apps/v1
+            kind: Deployment
+            name: custom-relay
+            scaleDown: never
+      - notExists:
+          path: spec.template
+      - equal:
+          path: spec.minReadySeconds
+          value: 60
+      - equal:
+          path: spec.progressDeadlineSeconds
+          value: 900
+      - equal:
+          path: spec.progressDeadlineAbort
+          value: false
+      - equal:
+          path: spec.strategy.canary
+          value:
+            maxSurge: 1
+            maxUnavailable: 0
+            steps:
+              - pause: {}
+              - setWeight: 50
+              - pause: {}
+              - setWeight: 100
+              - pause: {}
+      - equal:
+          path: spec.selector.matchLabels
+          value:
+            app.kubernetes.io/name: buzz
+            app.kubernetes.io/instance: RELEASE-NAME
+            app.kubernetes.io/component: relay
+
+  - it: keeps the Service selecting both sets of relay pods
+    template: templates/service.yaml
+    set:
+      rollout.enabled: true
+      rollout.deploymentReplicas: 1
+      rollout.replicas: 1
+    asserts:
+      - equal:
+          path: spec.selector
+          value:
+            app.kubernetes.io/name: buzz
+            app.kubernetes.io/instance: RELEASE-NAME
+            app.kubernetes.io/component: relay
+
+  - it: keeps the PodDisruptionBudget selecting both sets of relay pods
+    template: templates/pdb.yaml
+    set:
+      rollout.enabled: true
+      rollout.deploymentReplicas: 1
+      rollout.replicas: 2
+      podDisruptionBudget.enabled: true
+    asserts:
+      - equal:
+          path: spec.selector.matchLabels
+          value:
+            app.kubernetes.io/name: buzz
+            app.kubernetes.io/instance: RELEASE-NAME
+            app.kubernetes.io/component: relay
+

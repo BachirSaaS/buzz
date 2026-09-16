@@ -1,0 +1,33 @@
+{{- include "buzz.validate" . -}}
+{{- $rollout := .Values.rollout | default dict -}}
+{{- if $rollout.enabled }}
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: {{ include "buzz.fullname" . }}
+  labels:
+    {{- include "buzz.labels" . | nindent 4 }}
+spec:
+  replicas: {{ $rollout.replicas }}
+  minReadySeconds: {{ $rollout.minReadySeconds | default 60 }}
+  progressDeadlineSeconds: {{ $rollout.progressDeadlineSeconds | default 900 }}
+  progressDeadlineAbort: false
+  selector:
+    matchLabels:
+      {{- include "buzz.relaySelectorLabels" . | nindent 6 }}
+  workloadRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "buzz.fullname" . }}
+    scaleDown: never
+  strategy:
+    canary:
+      maxSurge: 1
+      maxUnavailable: 0
+      steps:
+        - pause: {}
+        {{- range $rollout.weights }}
+        - setWeight: {{ . }}
+        - pause: {}
+        {{- end }}
+{{- end }}

@@ -1,0 +1,9 @@
+relayUrl: wss://buzz.example.com
+ownerPubkey: "0000000000000000000000000000000000000000000000000000000000000000"
+secrets:
+  existingSecret: buzz-secrets
+replicaCount: 2
+rollout:
+  enabled: true
+  deploymentReplicas: 0
+  replicas: 2

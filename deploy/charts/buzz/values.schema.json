@@ -31,7 +31,23 @@
     "replicaCount": {
       "type": "integer",
       "minimum": 1,
-      "description": "Replica count for the relay Deployment. replicaCount > 1 requires Redis (for buzz-pubsub) — enforced by _validate.tpl. Git storage does NOT need ReadWriteMany: git state is object-store-backed and repo names live in Postgres, so ReadWriteOnce is fine per replica."
+      "description": "Replica count for the relay Deployment, or fleet target when rollout.enabled. replicaCount > 1 requires Redis (for buzz-pubsub) — enforced by _validate.tpl. Git storage does NOT need ReadWriteMany: git state is object-store-backed and repo names live in Postgres, so ReadWriteOnce is fine per replica."
+    },
+    "rollout": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "description": "Opt-in fixed-replica Argo Rollouts. Explicit counts control the handover; the existing Deployment remains the pod-template source.",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "deploymentReplicas": { "type": ["integer", "null"], "minimum": 0 },
+        "replicas": { "type": ["integer", "null"], "minimum": 0 },
+        "minReadySeconds": { "type": "integer", "minimum": 1 },
+        "progressDeadlineSeconds": { "type": "integer", "minimum": 1 },
+        "weights": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 1, "maximum": 100 }
+        }
+      }
     },
     "relayUrl": {
       "type": "string",

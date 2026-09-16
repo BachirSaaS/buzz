@@ -1,4 +1,5 @@
 {{- include "buzz.validate" . -}}
+{{- $rollout := .Values.rollout | default dict -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -6,7 +7,9 @@ metadata:
   labels:
     {{- include "buzz.labels" . | nindent 4 }}
 spec:
-  {{- if not .Values.autoscaling.enabled }}
+  {{- if $rollout.enabled }}
+  replicas: {{ $rollout.deploymentReplicas }}
+  {{- else if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
   {{- end }}
   strategy:

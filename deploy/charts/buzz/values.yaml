@@ -35,7 +35,25 @@ image:
 # object-store-backed (each request hydrates an ephemeral repo from S3; writer
 # serialization is the object-store pointer CAS), and repo-name uniqueness lives
 # in Postgres. Each replica can use its own ReadWriteOnce volume (or none).
+# With rollout.enabled, this is the fleet target; rollout's two replica fields
+# explicitly divide that target between the Deployment and Rollout.
 replicaCount: 1
+
+# ── Argo Rollouts (opt-in, fixed replicas only) ────────────────────────────────
+# Requires a separately installed Argo Rollouts controller and CRDs.
+# The Deployment remains the pod-template source via workloadRef. Set BOTH
+# counts explicitly; enabling this flag alone cannot scale down the Deployment.
+# For a two-pod handover, see docs/argo-rollouts.md before changing these values.
+rollout:
+  enabled: false
+  deploymentReplicas: null
+  replicas: null
+  minReadySeconds: 60
+  progressDeadlineSeconds: 900
+  # Increasing percentages ending at 100. Each weight has an indefinite pause,
+  # with another pause before the first weight. Initial creation skips steps.
+  # [50, 100] is intended for two replicas; larger fleets need smaller steps.
+  weights: [50, 100]
 
 # ── Autoscaling ──────────────────────────────────────────────────────────────
 # Requires Metrics Server for CPU. Optional WebSocket scaling additionally

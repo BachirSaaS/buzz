@@ -1,0 +1,89 @@
+suite: Rollout validation
+templates:
+  - templates/rollout.yaml
+set:
+  relayUrl: wss://buzz.example.com
+  ownerPubkey: "0000000000000000000000000000000000000000000000000000000000000000"
+  secrets.existingSecret: buzz-secrets
+  replicaCount: 2
+tests:
+  - it: rejects enabling without explicit handover counts
+    template: templates/rollout.yaml
+    set:
+      rollout.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: requires explicit rollout.deploymentReplicas and rollout.replicas
+
+  - it: rejects simultaneous autoscaling and Rollout ownership
+    template: templates/rollout.yaml
+    set:
+      rollout.enabled: true
+      autoscaling.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: requires autoscaling.enabled=false
+
+  - it: rejects requested capacity below the fleet target
+    template: templates/rollout.yaml
+    set:
+      rollout.enabled: true
+      rollout.deploymentReplicas: 0
+      rollout.replicas: 1
+    asserts:
+      - failedTemplate:
+          errorPattern: their sum must be replicaCount or replicaCount \+ 1
+
+  - it: rejects doubling the fleet during handover
+    template: templates/rollout.yaml
+    set:
+      rollout.enabled: true
+      rollout.deploymentReplicas: 2
+      rollout.replicas: 2
+    asserts:
+      - failedTemplate:
+          errorPattern: their sum must be replicaCount or replicaCount \+ 1
+
+  - it: rejects fractional replica counts
+    template: templates/rollout.yaml
+    set:
+      rollout.enabled: true
+      rollout.deploymentReplicas: 1.5
+      rollout.replicas: 1
+    asserts:
+      - failedTemplate:
+          errorPattern: rollout.deploymentReplicas
+
+  - it: rejects decreasing weights
+    template: templates/rollout.yaml
+    set:
+      rollout.enabled: true
+      rollout.deploymentReplicas: 0
+      rollout.replicas: 2
+      rollout.weights: [50, 25, 100]
+    asserts:
+      - failedTemplate:
+          errorPattern: increasing percentages ending at 100
+
+  - it: rejects weights that never finish the update
+    template: templates/rollout.yaml
+    set:
+      rollout.enabled: true
+      rollout.deploymentReplicas: 0
+      rollout.replicas: 2
+      rollout.weights: [50]
+    asserts:
+      - failedTemplate:
+          errorPattern: increasing percentages ending at 100
+
+  - it: rejects a deadline shorter than the readiness window
+    template: templates/rollout.yaml
+    set:
+      rollout.enabled: true
+      rollout.deploymentReplicas: 0
+      rollout.replicas: 2
+      rollout.minReadySeconds: 120
+      rollout.progressDeadlineSeconds: 60
+    asserts:
+      - failedTemplate:
+          errorPattern: must exceed rollout.minReadySeconds
