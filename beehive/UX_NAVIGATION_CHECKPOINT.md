@@ -408,3 +408,80 @@ Git behavior and use `git commit -s` for DCO; absent GPG configuration is not a
 blocker and no Git configuration is changed. This checkpoints the reviewed
 surviving directory/registration/runtime delta, not completed first enrollment.
 The 46-test evidence above remains scoped to that partial implementation.
+
+## 0605ceff — committed partial delta; first-enrollment authority decision
+
+The reviewed 17-file surviving delta is committed as
+`8c15d7d736653ce52220209f7552b60dd9d7d259` using the existing `git commit -s`
+workflow. Global and effective author/committer are Logan Johnson
+`<loganj@squareup.com>`; no Git configuration changed. This is **not a completed
+first-use candidate**. Both installed `176497874` exports remain untouched.
+
+Fresh evidence in `/Users/loganj/.buzz/artifacts/beehive-ux-0605ceff/`:
+`checkpoint-focused.log` **46/46 passed**, `checkpoint-typecheck.log` strict
+TypeScript passed. The focused list is exactly the reproduction list above.
+The unassigned-agent test still documents refusal, not acceptance. No full suite,
+new PTY, renderer, native, production credential/relay/provider or installed
+service operations were run. Prior failed evidence and suite qualification stand.
+
+### Concrete scope question raised in the work discussion
+
+Must conflicting first enrollment converge across **independent authenticated
+controllers and independently empty hosts**, or only within one retained local
+installation/controller history? `VISION_REMOTE_AGENTS.md` says Start “from this
+machine or another” converges to one live instance. The current implementation
+has no shared first-enrollment decision:
+
+- `assignment.ts:createGenesis` makes a random public root; `handoff.ts` validates
+  lineage relative to that root, not uniqueness across roots.
+- `host.ts:loadSlotState` pins a root in one journal. `host.lock`, revisions and
+  operation fingerprints serialize/replay one installation only.
+- `host-catalog.ts:HostOffers` authenticates infrastructure routes, explicitly not
+  placement. Empty offers/inventory cannot prove an agent lacks a retained holder.
+- `intents.ts:managementClient` persists before sending, but its signer/relay-scoped
+  journal is local to one controller root, not shared across controllers.
+- `credential-slots.ts` provisions supplied roots and refuses retained/partial
+  replacement. Those callers currently own the external bootstrap decision.
+
+Counterexample to a local-only automatic implementation: C1 signs first Start
+for agent A on empty H1; C2 independently signs first Start for A on empty H2.
+Each host has the matching owner/key and can win its own exclusive file write.
+Distinct roots both validate, and even a deterministic root ID cannot make
+`initialHost=H1` and `initialHost=H2` agree. Host-local receipts, directory checks,
+or a controller-local enrollment file cannot resolve this race. No such unsafe
+root-minting path was added in this run.
+
+If cross-controller convergence is required, select a shared first-write bootstrap
+authority scoped to relay/owner/agent, with atomic absent-to-pinned-root semantics
+and exact read-back. Ordinary last-writer-wins publication is insufficient. Its
+role should end at pinning the one initial root/host; the existing assignment/grant
+chain remains the sole subsequent placement authority. If the guarantee is
+intentionally local-scoped, record that narrower product contract explicitly
+before shipping a local enrollment implementation. This is a scope/trust-root
+question, not a claim that authenticated Start cannot authorize enrollment.
+
+### Remaining implementation, once that scope is settled
+
+1. Extend the existing explicit Start continuation to capture an unassigned exact
+   owned directory key and exact local infrastructure target. Registration keeps
+   custody/read-back and runtime metadata separate from assignment authority.
+2. Pin/recover the initial root through the approved bootstrap authority before
+   host activation. Persist the exact authenticated intent before network effects;
+   conflicting identity/root/target requests refuse rather than reset history.
+3. Integrate the activation transaction in `host()` under its existing lock and
+   private authenticated receive boundary. Serialize enrollment; retain an inert
+   recoverable prefix before journal/manifest activation; validate exact inventory
+   bytes before live admission. Extract the existing per-entry hydration closure
+   rather than restart the host or add an outside manifest mutator. Host close must
+   abort/drain enrollment before enumerating slot teardown.
+4. Return a durable enrollment result before the continuation sends ordinary
+   revision-fenced Start. Cancellation may leave registered or assigned/stopped
+   state but cannot launch late. Replay cannot mint another root or repeat a run.
+5. Replace the existing unassigned refusal test and extend the same private-relay
+   walkthrough, not a pre-provisioned substitute. Cover duplicate/conflicting
+   attempts, each persistence prefix/retry, cancellation and an existing running
+   sibling. Retain Save -> active unchanged -> Stop -> next Start coverage.
+
+Authenticated Move and Desktop parity remain mapped in “Precise subsequent work”
+above; no allowlists or provider/harness contracts were changed here. Larry owns
+scope resolution, subsequent dispatch and independent final UX acceptance.
