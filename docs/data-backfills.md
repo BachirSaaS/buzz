@@ -242,8 +242,8 @@ release, and takeover MUST be PostgreSQL state transitions. Each new claim or
 takeover MUST advance the generation. An admin transition that invalidates
 in-flight work MUST also advance it.
 
-Every transaction that changes target data, progress, validation, or a
-worker-driven lifecycle result MUST verify before commit that:
+Every transaction that changes target data or progress, or commits a validation
+or lifecycle result that can advance execution, MUST verify before commit that:
 
 - the lifecycle permits the operation;
 - the presented owner holds the current claim;
@@ -369,6 +369,11 @@ invocation or return `current-state`. After a lost response, retrying the same
 request MUST recover the outcome. The client MUST retry or refresh; it MUST NOT
 infer the outcome.
 
+Diagnostic validation MUST persist only its bounded outcome, request
+correlation, and audit record. It MUST NOT require or create an execution claim.
+It MUST remain serialized, operator-authorized, read-only, and unable to change
+immutable execution state.
+
 Accepted, rejected, coalesced, and completed validation requests MUST be audited
 with request correlation, actor, stable ID, evaluated lifecycle, and bounded
 outcome. Audit recording MUST NOT turn validation into a target-data write.
@@ -443,12 +448,14 @@ At minimum, the suite covers:
 10. **Admin idempotency.** Duplicate, concurrent, and lost-response requests do
     not duplicate starts, reuse generations, or recapture bounds. Conflicts
     return current state.
-11. **Explicit validation.** The production API and client render all typed
-    outcomes for non-`pending` rows, including `completed`. Unauthorized,
-    duplicate, concurrent, and lost-response requests follow the contract above.
-    Failed post-completion validation is audited and displayed without changing
-    target data or immutable state. Removing the read-only or immutable-state
-    guard fails the test.
+11. **Explicit validation.** Start with a `completed` row and no execution claim.
+    Through the production API and client, run validation, persist and display
+    its current typed outcome, and write its audit record. It creates no claim
+    and does not change the generation, target data, lifecycle, bound,
+    checkpoint, or completion. The API and client also render all typed outcomes
+    for non-`pending` rows. Unauthorized, duplicate, concurrent, and
+    lost-response requests follow the contract above. Removing serialization,
+    read-only behavior, or an immutable-state guard fails the test.
 12. **Client projection.** The UI preserves unknown and failure states and sends
     only supported controls.
 13. **Configuration matrix.** All four configurations run through real startup
