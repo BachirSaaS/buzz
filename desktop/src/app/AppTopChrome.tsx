@@ -120,7 +120,7 @@ export function AppTopChrome({
     <div
       ref={topChromeRef}
       className={cn(
-        "relative z-45 flex shrink-0 cursor-default select-none items-center bg-(--buzz-window-surface) pr-3 text-sidebar-foreground",
+        "relative z-45 flex shrink-0 cursor-default select-none items-center pr-3 text-sidebar-foreground",
         topChromeBackdrop.height,
         navRowPaddingClass,
       )}

@@ -5,6 +5,52 @@ import { readFileSync } from "node:fs";
 
 const agentKey = "c1".repeat(32);
 
+test("shared mesh background renders across workspaces and respects reduced motion", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.addInitScript(() =>
+    localStorage.setItem("buzz-blockui-appearance.v1", "light"),
+  );
+  await installMockBridge(page);
+  await page.goto("/#/pulse?feed=conversation");
+  await expect(page.getByTestId("pulse-combined-list")).toBeVisible();
+  const background = page.getByTestId("app-mesh-background");
+  await expect(background.locator("canvas")).toBeVisible();
+  await expect(background).toHaveAttribute("data-animated", "false");
+  await expect(background).toHaveCSS("pointer-events", "none");
+  const bounds = await background.boundingBox();
+  expect(bounds?.width).toBe(page.viewportSize()?.width);
+  expect(bounds?.height).toBe(page.viewportSize()?.height);
+  await expect(page.getByTestId("app-top-chrome")).toHaveCSS(
+    "background-color",
+    "rgba(0, 0, 0, 0)",
+  );
+  await expect(page.getByTestId("app-sidebar-layer")).toHaveCSS(
+    "background-color",
+    "rgba(0, 0, 0, 0)",
+  );
+  await expect(page.locator("[data-buzz-glass-inset]")).toHaveCSS(
+    "background-color",
+    "rgba(0, 0, 0, 0)",
+  );
+  await waitForAnimations(page);
+  await page.screenshot({
+    path: "test-results/pulse-prototype/mesh-messages-light.png",
+  });
+  await page
+    .getByTestId("pulse-app-navigation")
+    .getByRole("button", { name: "Settings", exact: true })
+    .click();
+  await expect(page.getByTestId("settings-sidebar")).toBeVisible();
+  await expect(background.locator("canvas")).toHaveCount(1);
+  await page.evaluate(() => document.documentElement.classList.add("dark"));
+  await waitForAnimations(page);
+  await page.screenshot({
+    path: "test-results/pulse-prototype/mesh-settings-dark.png",
+  });
+});
+
 test("Messages layout menu carries over classic sections and remembers the choice", async ({
   page,
 }) => {

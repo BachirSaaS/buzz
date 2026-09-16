@@ -1,13 +1,9 @@
 import type { ReactNode } from "react";
+import { AppMeshBackground } from "./AppMeshBackground";
 
-/** Block UI navigation uses its subtle surface rather than decorative artwork. */
+/** Shared full-window canvas behind the dock and Block UI content surfaces. */
 export function NavigationSurface() {
-  return (
-    <div
-      aria-hidden="true"
-      className="blockui-navigation pointer-events-none absolute inset-0 -z-10"
-    />
-  );
+  return <AppMeshBackground />;
 }
 
 export function ContentSurface({

@@ -39,11 +39,7 @@ export function AppShellChannelSurface({
         ref={mainInsetRef}
         className={cn(
           "isolate z-0 min-h-0 min-w-0 overflow-hidden",
-          isHuddleRoom
-            ? "bg-background"
-            : isPulse
-              ? "bg-(--buzz-window-surface)"
-              : "bg-sidebar",
+          isHuddleRoom ? "bg-background" : "bg-transparent",
           hasCollapsedSidebarGutter && "pl-2",
         )}
         data-buzz-content-surface={isHuddleRoom ? true : undefined}
@@ -54,7 +50,7 @@ export function AppShellChannelSurface({
       >
         {hasCollapsedSidebarGutter ? (
           <div
-            className="absolute inset-y-0 left-0 w-2 bg-sidebar"
+            className="absolute inset-y-0 left-0 w-2"
             data-collapsed-content-gutter
           />
         ) : null}

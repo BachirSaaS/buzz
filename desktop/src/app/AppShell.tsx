@@ -790,7 +790,7 @@ function AppShellContent() {
             <SidebarProvider
               open={hasAppDock ? false : undefined}
               disableRail={hasAppDock}
-              className="relative z-10 min-h-0 min-w-0 flex-1 flex-col overflow-visible"
+              className="relative z-10 min-h-0 min-w-0 flex-1 flex-col overflow-visible has-[[data-variant=inset]]:bg-transparent"
               data-testid="app-sidebar-layer"
             >
               <AppProfilePanelProvider>
