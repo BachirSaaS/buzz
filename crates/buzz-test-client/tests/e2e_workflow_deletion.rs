@@ -3,9 +3,10 @@
 //! and BUZZ_TEST_CHANNEL_ID, then run this ignored test target.
 
 use base64::{engine::general_purpose::STANDARD, Engine};
-use nostr::{Event, EventBuilder, Keys, Kind, Tag, Timestamp};
+use nostr::hashes::{sha256, Hash};
+use nostr::nips::nip98::{HttpData, HttpMethod};
+use nostr::{Event, EventBuilder, JsonUtil, Keys, Kind, Tag, Timestamp};
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 struct Fixture {
@@ -35,29 +36,18 @@ impl Fixture {
 
     async fn post(&self, keys: &Keys, path: &str, body: Value) -> Value {
         let url = format!("{}{path}", self.url);
-        let body = if path == "/query" {
-            json!([body])
-        } else {
-            body
-        };
         let body = body.to_string();
-        let auth = EventBuilder::new(Kind::Custom(27235), "")
-            .tags([
-                Tag::parse(["u", url.as_str()]).unwrap(),
-                Tag::parse(["method", "POST"]).unwrap(),
-                Tag::parse(["payload", &hex::encode(Sha256::digest(body.as_bytes()))]).unwrap(),
-                Tag::parse(["nonce", &Uuid::new_v4().to_string()]).unwrap(),
-            ])
+        let http = HttpData::new(url.parse().unwrap(), HttpMethod::POST)
+            .payload(sha256::Hash::hash(body.as_bytes()));
+        let auth = EventBuilder::http_auth(http)
+            .tag(Tag::parse(["nonce", &Uuid::new_v4().to_string()]).unwrap())
             .sign_with_keys(keys)
             .unwrap();
         reqwest::Client::new()
             .post(url)
             .header(
                 "Authorization",
-                format!(
-                    "Nostr {}",
-                    STANDARD.encode(serde_json::to_vec(&auth).unwrap())
-                ),
+                format!("Nostr {}", STANDARD.encode(auth.as_json())),
             )
             .header("Content-Type", "application/json")
             .body(body)
@@ -79,13 +69,13 @@ impl Fixture {
         assert_eq!(response["accepted"], true, "{response}");
     }
 
-    async fn definition(&self, id: Uuid) -> Value {
-        self.post(
-            &self.owner,
-            "/query",
-            json!({"kinds": [30620], "#d": [id.to_string()]}),
-        )
-        .await
+    async fn query(&self, filter: Value) -> Vec<Event> {
+        serde_json::from_value(self.post(&self.owner, "/query", json!([filter])).await).unwrap()
+    }
+
+    async fn definition(&self, id: Uuid) -> Vec<Event> {
+        self.query(json!({"kinds": [30620], "#d": [id.to_string()]}))
+            .await
     }
 
     fn deletion(&self, id: Uuid, timestamp: Timestamp) -> Event {
@@ -101,7 +91,7 @@ impl Fixture {
             "name: delete-regression\ntrigger:\n  on: schedule\n  cron: '0 0 1 1 *'\nsteps:\n  - id: marker\n    action: send_message\n    text: isolated deletion regression\n")
             .unwrap().custom_created_at(timestamp).sign_with_keys(&self.owner).unwrap();
         self.accepted(&event).await;
-        assert_eq!(self.definition(id).await.as_array().unwrap().len(), 1);
+        assert_eq!(self.definition(id).await.len(), 1);
     }
 }
 
@@ -121,30 +111,20 @@ async fn deletion_removes_get_list_and_execution_and_replay_is_safe() {
         .unwrap();
     let rejected = f.submit(&f.member, &forged).await;
     assert_ne!(rejected["accepted"], true, "{rejected}");
-    assert_eq!(f.definition(id).await.as_array().unwrap().len(), 1);
+    assert_eq!(f.definition(id).await.len(), 1);
 
     f.accepted(&deletion).await;
     for _ in 0..2 {
-        assert_eq!(
-            f.definition(id).await,
-            json!([]),
+        assert!(
+            f.definition(id).await.is_empty(),
             "get must omit deleted definition"
         );
         let list = f
-            .post(
-                &f.owner,
-                "/query",
-                json!({"kinds": [30620], "#h": [f.channel.to_string()]}),
-            )
+            .query(json!({"kinds": [30620], "#h": [f.channel.to_string()]}))
             .await;
         assert!(
-            !list.as_array().unwrap().iter().any(|event| {
-                event["tags"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .any(|tag| tag == &json!(["d", id.to_string()]))
-            }),
+            list.iter()
+                .all(|event| event.tags.identifier() != Some(id.to_string().as_str())),
             "list must omit deleted definition"
         );
         let trigger = buzz_sdk::build_workflow_trigger(id)
@@ -173,12 +153,12 @@ async fn stale_deletion_preserves_newer_definition_and_runtime() {
     f.create(id, now).await;
     f.accepted(&f.deletion(id, Timestamp::from(now.as_secs() - 1)))
         .await;
-    assert_eq!(f.definition(id).await.as_array().unwrap().len(), 1);
+    assert_eq!(f.definition(id).await.len(), 1);
     let trigger = buzz_sdk::build_workflow_trigger(id)
         .unwrap()
         .sign_with_keys(&f.owner)
         .unwrap();
     f.accepted(&trigger).await;
     f.accepted(&f.deletion(id, now)).await;
-    assert_eq!(f.definition(id).await, json!([]));
+    assert!(f.definition(id).await.is_empty());
 }

@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use buzz_core::{kind::KIND_DELETION, kind::KIND_WORKFLOW_DEF, tenant::TenantContext, StoredEvent};
-use nostr::Event;
+use nostr::{Event, TagKind};
 use uuid::Uuid;
 
 use super::ingest::IngestError;
@@ -21,9 +21,8 @@ pub(super) async fn persist(
         return Ok(None);
     }
     let Some(address) = event.tags.iter().find_map(|tag| {
-        let parts = tag.as_slice();
-        (parts.first().is_some_and(|part| part == "a"))
-            .then(|| parts.get(1).map(String::as_str))
+        (tag.kind() == TagKind::a())
+            .then(|| tag.content())
             .flatten()
     }) else {
         return Ok(None);

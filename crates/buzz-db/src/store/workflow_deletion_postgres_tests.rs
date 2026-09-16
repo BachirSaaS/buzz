@@ -25,9 +25,6 @@ impl Fixture {
             .await
             .unwrap();
         let keys = Keys::generate();
-        crate::user::ensure_user(&pool, community, &keys.public_key().to_bytes())
-            .await
-            .unwrap();
         let f = Self {
             pool,
             community,
@@ -66,17 +63,17 @@ impl Fixture {
     }
 
     async fn counts(&self, community: CommunityId) -> (i64, i64) {
-        let runtime = sqlx::query_scalar(
-            "SELECT count(*) FROM workflows WHERE community_id = $1 AND id = $2",
+        sqlx::query_as(
+            "SELECT (SELECT count(*) FROM workflows WHERE community_id = $1 AND id = $2), \
+             (SELECT count(*) FROM events WHERE community_id = $1 AND kind = 30620 \
+              AND d_tag = $3 AND deleted_at IS NULL)",
         )
         .bind(community.as_uuid())
         .bind(self.id)
+        .bind(self.id.to_string())
         .fetch_one(&self.pool)
         .await
-        .unwrap();
-        let definitions = sqlx::query_scalar("SELECT count(*) FROM events WHERE community_id = $1 AND kind = 30620 AND d_tag = $2 AND deleted_at IS NULL")
-            .bind(community.as_uuid()).bind(self.id.to_string()).fetch_one(&self.pool).await.unwrap();
-        (runtime, definitions)
+        .unwrap()
     }
 
     async fn delete(&self, owner: &[u8], timestamp: i64, commit: bool) {
