@@ -373,14 +373,15 @@ A Stop result is not a recent host report that confirms the agent is stopped.` }
           const report = this.agentReport(key);
           if (settings.revision !== pending.settingsRevision || !report || !this.fresh(report) || JSON.stringify([report.host,report.agent]) !== pending.target || report.revision !== pending.revision || report.body.phase !== 'stopped' || report.body.actualRun) throw plain('Settings or host selection changed. Start again.');
         }
-        runtime ??= this.saveAgentConfiguration(v);
+        runtime ??= pending ? this.saveAgentConfiguration(v) : undefined;
         const { profile, profileState } = this.profilePreview;
-        await this.credential({ action: 'register-agent', directory: this.hostDirectory, secret: v.secret, publicKey:key, profile: { profile, profileState }, runtimeId:runtime.id, expectedRevision:readSettings(this.hostDirectory).revision },abort.signal); check();
+        await this.credential({ action: 'register-agent', directory: this.hostDirectory, secret: v.secret, publicKey:key, profile: { profile, profileState }, ...(runtime ? { runtimeId:runtime.id } : {}), expectedRevision:readSettings(this.hostDirectory).revision },abort.signal); check();
         const committed = readSettings(this.hostDirectory);
         if (!committed.agents.some(agent => agent.publicKey === key)) throw plain('Agent registration completion was not verified. Inspect saved registration before retrying.');
         this.profilePreview = undefined;
-        if (!pending) this.status = 'Agent registered. Configuration saved.';
+        if (!pending) this.status = 'Agent registered. You can configure it before Start.';
         else {
+          if (!runtime) throw plain('Select an available harness and provider before Start.');
           const guard = () => {
             check();
             if (this.continuation !== pending || this.owner !== pending.owner || !this.directory.some(a => a.publicKey === pending.agent)) throw plain('Start selection changed. Inspect saved registration.');

@@ -246,16 +246,21 @@ test('cancelling after host enrollment preserves stopped placement and cannot la
 });
 
 
-test('Other-agent registration requires that exact identity even without a Start continuation', async t => {
+test('Other-agent registration requires that exact identity and does not require runtime setup', async t => {
   const f = await fixture(t);
   const other = 'f'.repeat(64);
   assert.equal((await f.request('profile-preview', { secret: f.nsec, agent: other })).state, 'failed');
   assert.equal(readSettings(f.directory).agents.length, 0);
   assert.equal((await f.request('profile-preview', { secret: f.nsec, agent: f.agent })).state, 'completed');
-  assert.equal((await f.request('register-agent', { secret: f.nsec, agent: other, runtime: f.runtimeId })).state, 'failed');
+  assert.equal((await f.request('register-agent', { secret: f.nsec, agent: other })).state, 'failed');
   assert.equal(readSettings(f.directory).agents.length, 0);
-  assert.equal((await f.request('register-agent', { secret: f.nsec, agent: f.agent, runtime: f.runtimeId })).state, 'completed');
-  assert.equal(readSettings(f.directory).agents[0]?.publicKey, f.agent);
+  const before = readSettings(f.directory);
+  assert.equal((await f.request('register-agent', { secret: f.nsec, agent: f.agent })).state, 'completed');
+  const after = readSettings(f.directory);
+  assert.equal(after.agents[0]?.publicKey, f.agent);
+  assert.equal(after.agents[0]?.runtimeId, undefined);
+  assert.deepEqual(after.providers, before.providers);
+  assert.deepEqual(after.runtimes, before.runtimes);
   const rows = sectionRows(f.snapshot, 1);
   assert.equal(rows.filter(row => row.id === f.agent).length, 1, 'registered identity has one row');
   assert.ok(rows.indexOf(rows.find(row => row.id === f.agent)!) < rows.findIndex(row => row.id === 'other-agents'), 'successful registration moves the row immediately without Start');

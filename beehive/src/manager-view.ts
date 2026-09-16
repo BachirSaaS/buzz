@@ -73,8 +73,9 @@ async function registerForm(continuation?: string, agent?: string) {
     const result = await request('profile-preview',{secret,...(agent ? {agent} : {}),...(continuation ? {continuation} : {})});
     if (result.state !== 'completed') { settled = true; return; }
     const preview = snapshot.profilePreview; if (!preview) return;
-    const configuration = await configurationForm(screen, () => snapshot, request); if (!configuration) return;
-    if (!await screen.confirm(`Register agent\n${preview.profile?.name ?? 'Name unavailable'}\n${preview.publicKey}\n${continuation ? 'Register and Start?' : 'Save registration?'}`)) return;
+    const configuration = continuation ? await configurationForm(screen, () => snapshot, request) : {};
+    if (!configuration) return;
+    if (!await screen.confirm(`Register agent\n${preview.profile?.name ?? 'Name unavailable'}\n${preview.publicKey}\n${continuation ? 'Register, configure and Start?' : 'Save registration? You can configure it afterward.'}`)) return;
     await request('register-agent',{secret,...configuration,...(agent ? {agent} : {}),...(continuation ? {continuation} : {})}); settled = true;
   } finally { secret = ''; if (continuation && !settled) await request('retire-continuation'); }
 }
