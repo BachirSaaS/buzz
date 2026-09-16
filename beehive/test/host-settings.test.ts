@@ -93,7 +93,7 @@ for (const providerType of ['openai','databricks_v2','codex-openai','anthropic',
   let stored: string | null = null;
   if (added) addProvider(root,'Fixture','synthetic',{read:()=>stored,create:(_r,v)=>{stored=v;}},providerType as 'anthropic'|'openai-compat'|'openrouter','https://fixture.example/v1',providerType === 'openai-compat' ? 'responses' : undefined);
   else if (providerType !== 'databricks_v2') addOpenAI(root,'Fixture','synthetic',{ read: () => stored, create(_r,v) { stored = v; } });
-  else await addDatabricks(root,'Fixture','https://fixture.example',new AbortController().signal,async () => ({ok:true}));
+  else await addDatabricks(root,'Fixture','https://fixture.example',new AbortController().signal);
   const prior = readSettings(root), id = settingsId();
   const model = codex ? 'custom-codex-model' : added ? (providerType === 'anthropic' ? 'claude-sonnet-4-5' : 'unknown-custom-model') : providerType === 'openai' ? 'gpt-5' : 'databricks-gpt-5-4';
   const executable = join(root,'fixture-buzz-agent');

@@ -7,21 +7,18 @@ import { addDatabricks, databricksHost, databricksNative } from '../src/databric
 import { readSettings } from '../src/settings.ts';
 import { buzzProviderEnvironment } from '../src/buzz-provider.ts';
 
-// Native/browser/network and OS custody are replaced explicitly, not by HOME.
-test('verified native login precedes catalog; cancelled late completion and failure never publish',async () => {
+// Saving the environment-provided workspace is configuration only: no browser,
+// network, or OS credential access occurs until a later explicit operation needs it.
+test('workspace save is immediate and keyless; cancellation before save never publishes',async () => {
   const dir=mkdtempSync(join(tmpdir(),'beehive-db-test-'));
   try {
-    const trace:string[]=[];
-    const native:typeof databricksNative = async (input,signal) => { assert.equal(input.action,'login'); assert.equal(input.host,'https://fixture.example'); signal.throwIfAborted(); trace.push('auth','store','verify'); assert.equal(readSettings(dir).providers.length,0); return {ok:true}; };
-    await addDatabricks(dir,'Fixture','https://fixture.example/',new AbortController().signal,native);
-    trace.push('catalog'); assert.deepEqual(trace,['auth','store','verify','catalog']);
+    await addDatabricks(dir,'Fixture','https://fixture.example/',new AbortController().signal);
     const provider=readSettings(dir).providers[0]!;
-    assert.equal(provider.type,'databricks_v2');
+    assert.equal(provider.type,'databricks_v2'); assert.equal(provider.endpoint,'https://fixture.example');
     const env=buzzProviderEnvironment({ provider:'databricks_v2',auth:'token',baseUrl:provider.endpoint,credential:provider.key,models:['fixture-model'] },'/synthetic/home','/synthetic/config','fixture-model','synthetic-bearer');
     assert.equal(env.DATABRICKS_TOKEN,'synthetic-bearer'); assert.equal(env.DATABRICKS_HOST,provider.endpoint); assert.equal(env.BUZZ_AGENT_MODEL,'fixture-model');
-    const abort=new AbortController();
-    await assert.rejects(addDatabricks(dir,'Late','https://fixture.example',abort.signal,async () => {abort.abort();return {ok:true};}));
-    await assert.rejects(addDatabricks(dir,'Denied','https://fixture.example',new AbortController().signal,async () => {throw Error('fixture denial');}));
+    const abort=new AbortController(); abort.abort();
+    await assert.rejects(addDatabricks(dir,'Late','https://fixture.example',abort.signal),/abort/i);
     assert.equal(readSettings(dir).providers.length,1);
     for (const name of readdirSync(dir)) if (name.endsWith('.json')) assert.ok(!readFileSync(join(dir,name),'utf8').includes('synthetic-bearer'));
   } finally {rmSync(dir,{recursive:true,force:true});}

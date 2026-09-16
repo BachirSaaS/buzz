@@ -37,7 +37,7 @@ for (const providerType of ['pi-openai','pi-databricks','pi-custom','pi-databric
   const active = reports.filter(m => m.type === 'inventory').at(-1)!.body.actualRun;
   let stored: string | null = null;
   if (!db) addOpenAI(root,'Fixture','synthetic',{ read: () => stored, create(_r,v) { stored = v; } });
-  else await addDatabricks(root,'Workspace','https://pi-workspace.example',new AbortController().signal,async input => { assert.equal(input.action,'login'); return {ok:true}; });
+  else await addDatabricks(root,'Workspace','https://pi-workspace.example',new AbortController().signal);
   const prior = readSettings(root), id = settingsId();
   const model = providerType === 'pi-databricks-custom' ? 'tenant.schema.gpt-6-service' : providerType === 'pi-custom' ? 'retained-custom-model' : db ? 'databricks-gpt-5-4' : 'gpt-5';
   const effort = providerType.endsWith('custom') ? undefined : 'high';

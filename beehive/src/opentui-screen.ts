@@ -263,8 +263,13 @@ export class OpenTuiScreen {
       const entry = secret ? undefined : multiline
         ? new TextareaRenderable(this.renderer, { initialValue: value, flexGrow: 1, width: '100%' })
         : new InputRenderable(this.renderer, { value, maxLength: 8192, width: '100%', backgroundColor: fg, textColor: bg, focusedBackgroundColor: fg, focusedTextColor: bg });
+      let secretDisplay: TextRenderable | undefined;
       if (entry) { const field = new BoxRenderable(this.renderer, { border: !multiline, height: multiline ? undefined : 3, flexShrink: 0, flexGrow: multiline ? 1 : 0, width: '100%' }); field.add(entry); box.add(field); entry.focus(); }
-      else { this.list.blur(); this.actions.blur(); this.scroll.blur(); box.add(new TextRenderable(this.renderer, { fg, content: 'Your key is hidden. Its length is not shown.', height: 2 })); }
+      else {
+        this.list.blur(); this.actions.blur(); this.scroll.blur();
+        const field = new BoxRenderable(this.renderer, { border: true, height: 3, flexShrink: 0, width: '100%' });
+        secretDisplay = new TextRenderable(this.renderer, { fg, content: ' ', width: '100%' }); field.add(secretDisplay); box.add(field);
+      }
       box.add(new TextRenderable(this.renderer, { fg, content: multiline ? 'Ctrl-S save · Esc cancel (unsaved text discarded)' : back ? 'Enter next · Shift-Tab back · Esc cancel' : 'Enter continue · Esc cancel · Ctrl-↑/↓ scroll', height: 2 }));
       const error = new TextRenderable(this.renderer, { fg, height: 2, flexShrink: 0 }); box.add(error);
       let settled = false;
@@ -278,7 +283,7 @@ export class OpenTuiScreen {
       };
       this.modal = {
         cancel: () => finish(),
-        paste: text => { if (secret && hidden.length + text.length <= 4096) hidden += text.replace(/[\r\n]/g, ''); },
+        paste: text => { if (secret && hidden.length + text.length <= 4096) { hidden += text.replace(/[\r\n]/g, ''); if (secretDisplay) secretDisplay.content = hidden ? '•'.repeat(Math.min(hidden.length,64)) : ' '; } },
         key: key => {
           if (key.ctrl && ['up','down'].includes(key.name)) { key.preventDefault(); prompt.scrollBy(key.name === 'up' ? -3 : 3); return; }
           if (back && !secret && key.name === 'tab' && key.shift) { key.preventDefault(); back(entry instanceof InputRenderable ? entry.value : entry?.plainText ?? ''); finish('\0back'); return; }
@@ -291,6 +296,7 @@ export class OpenTuiScreen {
           if (key.name === 'backspace') hidden = hidden.slice(0, -1);
           else if (key.ctrl && key.name === 'u') hidden = '';
           else if (!key.ctrl && !key.meta && key.sequence.length === 1 && key.sequence >= ' ' && hidden.length < 4096) hidden += key.sequence;
+          if (secretDisplay) secretDisplay.content = hidden ? '•'.repeat(Math.min(hidden.length,64)) : ' ';
         },
       };
     });

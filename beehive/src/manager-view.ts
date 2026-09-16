@@ -90,9 +90,9 @@ function render() {
       await request('provider-form');
       const type = await screen.choose('Add provider',['OpenAI','Anthropic','OpenAI-compatible','OpenRouter','Databricks v2']); if (!type) return;
       if (type === 'Databricks v2') {
-        const endpoint = await screen.input('Databricks workspace URL',snapshot.databricksHost ?? ''); if (!endpoint) return;
-        const name = await screen.input('Provider name','Databricks'); if (!name) return;
-        if (await screen.confirm(`Sign in to provider\n${name}\nBrowser sign-in · Tokens saved in the OS credential store`)) await request('add-databricks',{ name,endpoint });
+        const endpoint = snapshot.databricksHost?.trim();
+        if (!endpoint) { screen.notice('DATABRICKS_HOST is not set. Set it to the Databricks workspace HTTPS origin and reopen Add provider.'); return; }
+        await request('add-databricks',{ name:'Databricks',endpoint });
         return;
       }
       const providerType = type === 'Anthropic' ? 'anthropic' : type === 'OpenRouter' ? 'openrouter' : type === 'OpenAI-compatible' ? 'openai-compat' : 'openai';

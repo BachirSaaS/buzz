@@ -3,8 +3,7 @@ import { mkdirSync, mkdtempSync, lstatSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readSettings, saveSettings, settingsId, settingsLock, type ProviderReference } from './settings.ts';
-import { retainCredentialAttempt } from './settings-credentials.ts';
+import { readSettings, saveSettings, settingsId, type ProviderReference } from './settings.ts';
 
 /** No discovery or credentials on passive render. Workspace identity is an origin. */
 export function databricksHost(input: string): string {
@@ -42,13 +41,15 @@ export async function databricksNative(input: { action: 'login' | 'models' | 'to
     });
   } finally { rmSync(coordination,{ recursive:true,force:true }); }
 }
-/** Native grant and OS read-back precede public CAS; cancellation cannot publish. */
-export async function addDatabricks(directory: string, name: string, endpoint: string, signal: AbortSignal, native = databricksNative) {
+/** Save the workspace and an OS credential reference only. Authentication is owned
+ * by the native runtime when models/start require it; adding a provider never
+ * opens a browser or claims credential readiness. */
+export async function addDatabricks(directory: string, name: string, endpoint: string, signal: AbortSignal) {
+  signal.throwIfAborted();
   if (!name || name.length > 128 || /[\x00-\x1f\x7f]/.test(name)) throw Error('Enter a provider name');
   endpoint = databricksHost(endpoint);
   const previous = readSettings(directory), id = settingsId();
   const key: ProviderReference = { service:'beehive',account:`provider:${id}` };
-  settingsLock(directory,() => retainCredentialAttempt(directory,key));
-  await native({ action:'login',host:endpoint,key },signal); signal.throwIfAborted();
+  signal.throwIfAborted();
   return saveSettings(directory,{ ...previous,providers:[...previous.providers,{ id,name,type:'databricks_v2',endpoint,key }] },previous.revision);
 }

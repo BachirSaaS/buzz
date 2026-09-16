@@ -405,7 +405,7 @@ A Stop result is not a recent host report that confirms the agent is stopped.` }
       } else if (request.action === 'provider-form') {
         this.databricksHost = process.env.DATABRICKS_HOST ?? ''; this.status = 'Provider credentials stay in Beehive’s OS store.';
       } else if (request.action === 'add-databricks') {
-        await addDatabricks(this.hostDirectory,v.name,v.endpoint,abort.signal); check(); this.status = 'Databricks signed in and saved. No agent was started.';
+        await addDatabricks(this.hostDirectory,v.name,v.endpoint,abort.signal); check(); this.status = 'Databricks workspace saved. Authentication will be requested only when models or a runtime need it. No agent was started.';
       } else if (request.action === 'add-openai' || request.action === 'add-provider') {
         await this.credential({ action: request.action, directory: this.hostDirectory, name: v.name, secret: v.secret, type:v.type, endpoint:v.endpoint, wire:v.wire },abort.signal); check(); this.status = 'Provider saved. No agent was started.';
       } else if (request.action === 'runtime-form') {
