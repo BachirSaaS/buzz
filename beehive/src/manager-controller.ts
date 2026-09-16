@@ -31,7 +31,7 @@ export type ManagerResult =
   | { state: 'failed' | 'cancelled' | 'ignored'; reason: string };
 
 export type ManagerRequest = { id: number; action: string; values?: Record<string, string>; target?: string; revision?: number };
-export type ManagerItem = { target?: string; id: string; label: string; detail: string; evidence?: string; disabled?: Record<string, string> };
+export type ManagerItem = { startTarget?: string; startRevision?: number; target?: string; id: string; label: string; detail: string; evidence?: string; disabled?: Record<string, string> };
 export type MoveDestination = { target: string; revision: number; label: string; reason?: string };
 export type ManagerSnapshot = { managementRelay?: 'connected' | 'disconnected'; diagnostics?: ManagerItem[]; local: ManagerItem[]; agents: (ManagerItem & { revision: number; configurations: string[]; destinations?: MoveDestination[] })[]; routing?: { owner: string; relay: string }; owner?: string; status: string; settings?: Settings; service?: ServiceStatus; hostRelay?: string; relayName?: string; profilePreview?: RegisteredAgent; models?: string[]; runtimeExecutable?: string; harnesses?: DetectedHarness[]; databricksHost?: string };
 const short = (s: string) => s.length > 22 ? `${s.slice(0,8)}…${s.slice(-6)}` : s;
@@ -100,7 +100,7 @@ const plainValues: Record<string, string> = {
   'interrupted-reconcile-locally': 'Operation interrupted. Result unknown. Inspect and repair the saved state on the host before you try again.',
 };
 const plainStates: Record<string, string> = { pending: 'Pending', completed: 'Completed', failed: 'Failed', unknown: 'Unknown' };
-const plainTypes: Record<string, string> = { start: 'Start', stop: 'Stop', restart: 'Restart', move: 'Move', metadata: 'Publish profile', profile: 'Publish instructions' };
+const plainTypes: Record<string, string> = { enroll: 'Enroll locally', 'authorize-move': 'Authorize destination', start: 'Start', stop: 'Stop', restart: 'Restart', move: 'Move', metadata: 'Publish profile', profile: 'Publish instructions' };
 const plainOperationType = (request: Message) => request.type === 'save' && request.body.configurationAction === 'select' ? 'Choose configuration' : plainTypes[request.type] ?? request.type;
 const operationText = (value: unknown) => typeof value === 'string' ? plainValues[value] ?? value : describe(value);
 /** Named launch choice: the model/workspace/instruction selection of one agent. */
@@ -148,7 +148,7 @@ export class ManagerController {
   private owner?: string;
   private generation = 0;
   private active?: AbortController;
-  private continuation?: { token: string; agent: string; target: string; revision: number; settingsRevision: number; owner: string };
+  private continuation?: { enroll?: boolean; token: string; agent: string; target: string; revision: number; settingsRevision: number; owner: string };
   private closed = false;
   private service: ServiceStatus = { state: 'unknown' };
   private probing = false;
@@ -203,8 +203,9 @@ This choice does not change the current run.` };
       const shown = report ? reports.find(row => row.id === JSON.stringify([report.host,report.agent])) : undefined;
       let registered = false;
       try { registered = readSettings(this.hostDirectory).agents.some(a => a.publicKey === agent.publicKey); } catch { /* Configuration error is shown in Local Host. */ }
+      const local = this.localEnrollmentTarget(agent.publicKey);
       const unavailable = 'No unique assigned host report. Execution authority is unknown.';
-      return { destinations: report ? this.moveDestinations(report) : [], id:agent.publicKey,target:shown?.id,label:`${agent.name} · ${shown ? this.fresh(report!) ? report!.body.phase : 'Unknown' : 'Unknown'}`,revision:shown?.revision ?? -1,configurations:shown?.configurations ?? [],disabled:shown?.disabled ?? { start:unavailable,stop:unavailable,restart:unavailable,move:unavailable,'select-config':unavailable },evidence:JSON.stringify({ discovery:agent,report },null,2),detail:`${agent.name}
+      return { startTarget: local, startRevision: local ? -1 : undefined, destinations: report ? this.moveDestinations(report) : [], id:agent.publicKey,target:shown?.id,label:`${agent.name} · ${shown ? this.fresh(report!) ? report!.body.phase : 'Unknown' : 'Unknown'}`,revision:shown?.revision ?? -1,configurations:shown?.configurations ?? [],disabled: { ...(shown?.disabled ?? { start:unavailable,stop:unavailable,restart:unavailable,move:unavailable,'select-config':unavailable }), ...(local ? {start:''} : {}) },evidence:JSON.stringify({ discovery:agent,report },null,2),detail:`${agent.name}
 Agent: ${agent.publicKey}
 Registered here: ${registered ? 'Yes' : 'No'}
 Relay presence: ${agent.status} (discovery only)
@@ -243,19 +244,28 @@ A Stop result is not a recent host report that confirms the agent is stopped.` }
       const target = JSON.stringify([offer.host,source.agent]), report = this.inventory.get(target);
       const label = String((offer.body.configuration as {label?:string})?.label ?? short(offer.host));
       let reason: string | undefined;
-      if (!this.fresh(offer) || !report || !this.fresh(report)) reason = `On ${label}, provision this agent's matching key and pinned assignment with a local runtime, then Refresh. No credentials are transferred.`;
-      else if (hash(report.body.genesis) !== hash(source.body.genesis)) reason = 'Destination has a conflicting pinned assignment. Reconcile on that host.';
+      if (!this.fresh(offer) || !report || !this.fresh(report)) reason = `On ${label}, register this agent with a local runtime, use local Start to enroll it, then Stop and Refresh. No credentials are transferred.`;
       else if (report.body.localKey !== 'present') reason = `On ${label}, stop its host service and run beehive import-agent-key <host-directory> ${source.agent}. Enter the matching key only there, restart that host and Refresh. Source will not stop.`;
-      else if (report.body.phase !== 'stopped' || report.body.actualRun || report.body.assignedHost === report.host) reason = 'Destination is not an eligible stopped standby.';
+      else if (report.body.phase !== 'stopped' || report.body.actualRun) reason = 'Destination is not an eligible stopped standby.';
       const selected = report?.body.selectedNext as {harnessSetup?:{id:string}; model?:string} | undefined;
       return {target,revision:report?.revision ?? -1,label:`${label} · ${selected?.harnessSetup?.id ?? 'default runtime'} · ${selected?.model ?? 'setup required'}`,reason};
     });
   }
   private operationStatus() { return this.client?.status() ?? []; }
 
+  private localEnrollmentTarget(agent: string) {
+    if (!this.owner || !existsSync(join(this.hostDirectory,'host-identity.json'))) return;
+    const pairing = readHostIdentityPublic(this.hostDirectory).pairing;
+    const target = JSON.stringify([pairing.host,agent]);
+    const offer = this.offers.get(pairing.host);
+    if (pairing.owner !== this.owner || !offer || !this.fresh(offer) || this.inventory.has(target) || !this.directory.some(a => a.publicKey === agent && a.owner === this.owner)) return;
+    if (this.client?.status().some(o => o.request.host === pairing.host && o.request.agent === agent && !['completed','failed'].includes(o.state))) return;
+    return target;
+  }
   private agentReport(agent: string) {
     const rows = [...this.inventory.values()].filter(m => m.agent === agent && m.body.assignedHost === m.host);
-    return rows.length === 1 ? rows[0] : undefined;
+    const local = existsSync(join(this.hostDirectory,'host-identity.json')) ? readHostIdentityPublic(this.hostDirectory).pairing.host : undefined;
+    return rows.find(m => m.host === local) ?? (rows.length === 1 ? rows[0] : undefined);
   }
   private fresh(m: Message) { return Boolean(this.client?.connected && Date.now() - Number(m.body.observedAt) <= 6000); }
   /** Optional bounded footer relay name. One attempt per configured relay URL; absence,
@@ -314,7 +324,9 @@ A Stop result is not a recent host report that confirms the agent is stopped.` }
         if (this.profilePreview?.publicKey !== key) throw plain('Confirm the public key first.');
         const settings = readSettings(this.hostDirectory), runtime = settings.runtimes.find(r => r.id === v.runtime);
         if (!runtime) throw plain('Select a saved runtime.');
-        if (pending) {
+        if (pending?.enroll) {
+          if (settings.revision !== pending.settingsRevision || this.localEnrollmentTarget(key) !== pending.target) throw plain('Local enrollment selection changed. Start again.');
+        } else if (pending) {
           const report = this.agentReport(key);
           if (settings.revision !== pending.settingsRevision || !report || !this.fresh(report) || JSON.stringify([report.host,report.agent]) !== pending.target || report.revision !== pending.revision || report.body.phase !== 'stopped' || report.body.actualRun) throw plain('Settings or host selection changed. Start again.');
         }
@@ -329,7 +341,24 @@ A Stop result is not a recent host report that confirms the agent is stopped.` }
             const registered = readSettings(this.hostDirectory).agents.find(a => a.publicKey === pending.agent);
             if (!registered) throw plain('Registration was not verified. No Start sent.');
           };
-          const current = () => { guard(); const m = this.agentReport(pending.agent); if (!m || JSON.stringify([m.host,m.agent]) !== pending.target || !this.fresh(m) || m.body.phase !== 'stopped' || m.body.actualRun) throw plain('Host assignment or running state changed. No Start sent.'); return m; };
+          if (pending.enroll) {
+            guard();
+            if (this.localEnrollmentTarget(key) !== pending.target) throw plain('Local enrollment target changed. No Start sent.');
+            const [host] = JSON.parse(pending.target) as [string,string];
+            const enroll = message('enroll',host,pending.agent,0,{runtime:runtime.id,settingsRevision:readSettings(this.hostDirectory).revision});
+            this.client!.submit(enroll);
+            let enrolled = false;
+            for (let n=0;n<100;n++) {
+              guard();
+              const operation = this.client!.status().find(o => o.request.id === enroll.id);
+              if (!operation || ['failed','unknown'].includes(operation.state)) throw plain('Local enrollment failed or is unknown. Inspect operations before retrying.');
+              if (operation.state === 'completed' && this.inventory.has(pending.target)) { enrolled = true; break; }
+              await delay(100,undefined,{signal:abort.signal});
+            }
+            if (!enrolled) throw plain('Enrollment submitted; Start not sent. Inspect operations.');
+            pending.revision = 0;
+          }
+          const current = () => { guard(); const m = this.inventory.get(pending.target); if (!m || JSON.stringify([m.host,m.agent]) !== pending.target || !this.fresh(m) || m.body.phase !== 'stopped' || m.body.actualRun) throw plain('Host assignment or running state changed. No Start sent.'); return m; };
           let report = current();
           if (report.revision !== pending.revision) throw plain('Host revision changed. No Start sent.');
           let binding: { id: string; fingerprint: string } | undefined;
@@ -462,6 +491,15 @@ A Stop result is not a recent host report that confirms the agent is stopped.` }
         this.status = this.operationStatus().slice(-5).reverse().map(o => `${plainOperationType(o.request)} · ${plainStates[o.state] ?? o.state} · ${o.request.id.slice(0,8)}\n${operationText(o.result ?? o.publication)}`).join('\n') || 'No saved operations.';
       } else if (['start', 'stop', 'restart', 'move', 'select-config', 'select-runtime'].includes(request.action)) {
         if (!this.owner || !this.client) throw plain('Owner sign-in required');
+        if (request.action === 'start') {
+          const agent = this.directory.find(a => this.localEnrollmentTarget(a.publicKey) === request.target);
+          if (agent && request.revision === -1) {
+            const settings = readSettings(this.hostDirectory);
+            this.continuation = {enroll:true,token:randomUUID(),agent:agent.publicKey,target:request.target!,revision:0,settingsRevision:settings.revision,owner:this.owner};
+            this.status = 'Register here, then enroll and Start on this host.';
+            return {state:'registration-required',continuation:this.continuation.token,agent:agent.publicKey};
+          }
+        }
         const candidate = this.inventory.get(request.target ?? '');
         const current = candidate && this.directory.some(a => a.publicKey === candidate.agent) && this.agentReport(candidate.agent) === candidate ? candidate : undefined;
         if (!current || !this.fresh(current) || current.revision !== request.revision) throw plain('The selection changed, or the host report is old or unavailable. Select an agent with a recent report. No request was sent.');
@@ -486,7 +524,22 @@ A Stop result is not a recent host report that confirms the agent is stopped.` }
           const selected = selection(target.body.selectedNext), source = selection(current.body.selectedNext);
           selected.profile = source.profile;
           if (source.behavior) selected.behavior = source.behavior; else delete selected.behavior;
-          const operation = message('move',current.host,current.agent,current.revision,{target:target.host,targetRevision:target.revision,selection:selected});
+          const needsAuthorization = hash(target.body.genesis) !== hash(current.body.genesis) || target.body.assignedHost === target.host;
+          const operation = message('move',current.host,current.agent,current.revision,{target:target.host,targetRevision:target.revision + (needsAuthorization ? 1 : 0),selection:selected});
+          if (needsAuthorization) {
+            const assignment = {genesis:current.body.genesis,assignedHost:current.body.assignedHost,chain:current.body.assignmentChain ?? []};
+            const authorize = message('authorize-move',target.host,current.agent,target.revision,{operation,assignment});
+            check(); this.client.submit(authorize);
+            let accepted = false;
+            for (let n=0;n<100;n++) {
+              check();
+              const result = this.client.status().find(o => o.request.id === authorize.id);
+              if (!result || ['failed','unknown'].includes(result.state)) throw plain('Destination authorization failed or is unknown. Source Move not sent.');
+              if (result.state === 'completed') { accepted = true; break; }
+              await delay(100,undefined,{signal:abort.signal});
+            }
+            if (!accepted || this.inventory.get(request.target!)?.revision !== current.revision) throw plain('Selection changed or destination authorization pending. Source Move not sent.');
+          }
           check(); this.client.submit(operation);
           this.status = `Move submitted (${operation.id}). Source remains assigned until preparation and verified Stop. Destination launch is reported separately.`;
           return {state:'submitted',operationId:operation.id};

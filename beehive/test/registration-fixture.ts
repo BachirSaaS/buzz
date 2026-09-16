@@ -1,10 +1,11 @@
+import { setTimeout as delay } from 'node:timers/promises';
 import { mkdirSync, writeFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { schnorr } from '@noble/curves/secp256k1';
 import { finalizeEvent, verifyEvent, type Event } from 'nostr-tools/pure';
 import { nsecEncode } from 'nostr-tools/nip19';
-import { newKey, publicKey, digest, type Message } from '../src/protocol.ts';
+import { message, newKey, publicKey, digest, type Message } from '../src/protocol.ts';
 import { ManagerController, type ManagerSnapshot } from '../src/manager-controller.ts';
 import { fetchRelayDirectory } from '../src/relay-directory.ts';
 import { managementClient } from '../src/intents.ts';
@@ -64,7 +65,7 @@ export async function registrationFixture(home: string, changed: (s: ManagerSnap
   const settings = readSettings(directory), runtimeId = 'review-runtime';
   saveSettings(directory,{...settings,runtimes:[{id:runtimeId,name:'Review runtime',harness:'buzz-agent',executable,providerId:settings.providers[0]!.id,model:'gpt-5',effort:'high',environment:{REVIEW_MODE:'synthetic'}}]},settings.revision);
   let providerFailure = false;
-  let holdPrepared = false, dropGrant = false;
+  let holdPrepared = false, dropGrant = false, holdEnrollment = false;
   const held: (()=>void)[] = [];
   const faultTransport = (transport: ReturnType<typeof privateHostTransport>) => {
     const original = transport.connect.bind(transport);
@@ -72,6 +73,7 @@ export async function registrationFixture(home: string, changed: (s: ManagerSnap
       const wire = original(...args), send = wire.send.bind(wire);
       wire.send = (m: Message) => {
         if (m.type === 'grant' && dropGrant) return;
+        if (m.type === 'receipt' && m.revision === 0 && holdEnrollment) { held.push(()=>send(m)); return; }
         if (m.type === 'prepared' && holdPrepared) { held.push(()=>send(m)); return; }
         send(m);
       };
@@ -85,8 +87,34 @@ export async function registrationFixture(home: string, changed: (s: ManagerSnap
     const directory = join(home,'destination'); mkdirSync(directory,{mode:0o700});
     const peerCredentials = isolatedFileCredentials(join(directory,'credentials.json'));
     const peer = bootstrapHostIdentity(directory,'Destination host',owner,url,peerCredentials);
-    provisionCredentialSlot(directory,{...setup,host:peer.pairing.host},agentSecret,genesis,peerCredentials);
-    destination = {directory,host:peer.pairing.host,credentials:peerCredentials,service:await host(directory,url,undefined,faultTransport(privateHostTransport(peer.pairing,peer.secret)),peerCredentials)};
+    if (assigned) provisionCredentialSlot(directory,{...setup,host:peer.pairing.host},agentSecret,genesis,peerCredentials);
+    else {
+      saveSettings(directory,{...readSettings(directory),providers:readSettings(join(home,'.beehive','host')).providers,runtimes:readSettings(join(home,'.beehive','host')).runtimes},0);
+      registerAgent(directory,agentSecret,peerCredentials,{profileState:'none'},runtimeId,readSettings(directory).revision);
+    }
+    destination = {directory,host:peer.pairing.host,credentials:peerCredentials,service:await host(directory,url,undefined,faultTransport(privateHostTransport(peer.pairing,peer.secret)),peerCredentials,async()=>({ok:true,secret:'synthetic-provider-key'}))};
+    if (!assigned) {
+      let report: Message | undefined;
+      const c = managementClient(join(home,'destination-enrollment'),url,ownerSecret,m=>{if(m.type==='inventory' && m.host===peer.pairing.host) report=m;},()=>{},{catalog:{version:1,owner,relay:url,registrations:[]}});
+      try {
+        await c.ready;
+        const send = async (m:Message) => {
+          c.submit(m);
+          for(let n=0;n<400;n++) {
+            const result=c.status().find(s=>s.request.id===m.id);
+            if(result?.state==='failed') throw Error(String(result.result));
+            if(result?.state==='completed' && report) return;
+            await delay(20);
+          }
+          throw Error('Destination local enrollment evidence missing');
+        };
+        await send(message('enroll',peer.pairing.host,agent,0,{runtime:runtimeId,settingsRevision:readSettings(directory).revision}));
+        await send(message('start',peer.pairing.host,agent,report!.revision));
+        for(let n=0;n<400 && report?.body.phase!=='running';n++) await delay(20);
+        await send(message('stop',peer.pairing.host,agent,report!.revision));
+        for(let n=0;n<400 && report?.body.phase!=='stopped';n++) await delay(20);
+      } finally { c.close(); }
+    }
   }
   let credentialFailure = false, beforeCredential: (() => Promise<void>) | undefined, afterCredential: (() => Promise<void>) | undefined;
   const credential = async (input: any, signal: AbortSignal) => {
@@ -104,11 +132,11 @@ export async function registrationFixture(home: string, changed: (s: ManagerSnap
   const originalClose = controller.close.bind(controller); let closing: Promise<void> | undefined;
   const close = () => closing ??= (async()=>{ originalClose(); await service.close(); await destination?.service.close(); await relay.close(); })();
   controller.close = () => { void close(); };
-  return {controller,close,directory,agent,destination,ownerSecret,url,setHoldPrepared(v:boolean){holdPrepared=v;},setDropGrant(v:boolean){dropGrant=v;},get heldPrepared(){return held.length;},releasePrepared(){holdPrepared=false;for(const send of held.splice(0))send();},host:identity.pairing.host,runtimeId,nsec:nsecEncode(Buffer.from(agentSecret,'hex')),errors,credentials,relay,service,setCredentialFailure(v:boolean){credentialFailure=v;},setProviderFailure(v:boolean){providerFailure=v;},beforeCredential(fn?:()=>Promise<void>){beforeCredential=fn;},afterCredential(fn?:()=>Promise<void>){afterCredential=fn;}};
+  return {controller,close,directory,agent,destination,ownerSecret,url,setHoldEnrollment(v:boolean){holdEnrollment=v;},setHoldPrepared(v:boolean){holdPrepared=v;},setDropGrant(v:boolean){dropGrant=v;},get heldPrepared(){return held.length;},releasePrepared(){holdPrepared=false;holdEnrollment=false;for(const send of held.splice(0))send();},host:identity.pairing.host,runtimeId,nsec:nsecEncode(Buffer.from(agentSecret,'hex')),errors,credentials,relay,service,setCredentialFailure(v:boolean){credentialFailure=v;},setProviderFailure(v:boolean){providerFailure=v;},beforeCredential(fn?:()=>Promise<void>){beforeCredential=fn;},afterCredential(fn?:()=>Promise<void>){afterCredential=fn;}};
 }
 
 /** Installed walkthrough uses the same real synthetic lifecycle fixture as tests. */
 export async function walkthroughController(home: string, changed: (s: ManagerSnapshot) => void) {
-  const fixture = await registrationFixture(home,changed,true,true);
+  const fixture = await registrationFixture(home,changed,false,true);
   return fixture.controller;
 }

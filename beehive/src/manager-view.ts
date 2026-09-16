@@ -122,8 +122,8 @@ function render() {
     } },
     ...(['start','stop','restart'] as const).map(action => ({ label: action[0]!.toUpperCase() + action.slice(1), disabled: eligibility(action), run: async () => {
       const row = snapshot.agents.find(r => r.id === selected); if (!row) return;
-      if (!await screen.confirm(`${action[0]!.toUpperCase() + action.slice(1)} agent?\nHost and agent: ${row.target ?? 'Unknown'}\nRevision: ${row.revision}`)) return;
-      const result = await request(action, undefined, row.target, row.revision);
+      if (!await screen.confirm(`${action[0]!.toUpperCase() + action.slice(1)} agent?\nHost and agent: ${action === 'start' ? row.startTarget ?? row.target ?? 'Unknown' : row.target ?? 'Unknown'}\nRevision: ${row.revision}`)) return;
+      const result = await request(action, undefined, action === 'start' ? row.startTarget ?? row.target : row.target, action === 'start' ? row.startRevision ?? row.revision : row.revision);
       if (result.state === 'registration-required') await registerForm(result.continuation,result.agent);
     } })),
     { label: 'Move…', disabled: eligibility('move'), run: async () => {

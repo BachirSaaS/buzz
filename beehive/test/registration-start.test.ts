@@ -143,20 +143,103 @@ test('explicit directory refresh reuses authenticated discovery without reconnec
 });
 
 
-test('initially unassigned owned directory agent exposes the remaining placement gap; registration never invents authority',async t=>{
+test('initially unassigned owned directory agent enrolls under explicit local Start, without public genesis provisioning',async t=>{
   const home=realpathSync(mkdtempSync(join(tmpdir(),'beehive-pairing-cli-unassigned-')));
   let snapshot:ManagerSnapshot;
   const f=await registrationFixture(home,s=>{snapshot=s;},false);
   t.after(async()=>{await f.close();rmSync(home,{recursive:true,force:true});});
-  let id=0;const request=(action:string,values?:Record<string,string>)=>f.controller.request({id:++id,action,values});
+  let id=0;const request=(action:string,values?:Record<string,string>,target?:string,revision?:number)=>f.controller.request({id:++id,action,values,target,revision});
   assert.equal((await request('signin')).state,'completed');
   const row=()=>snapshot!.agents.find(a=>a.id===f.agent)!;
-  assert.ok(row()); assert.equal(row().target,undefined);
-  assert.equal((await request('profile-preview',{secret:f.nsec})).state,'completed');
-  assert.equal((await request('register-agent',{secret:f.nsec,runtime:f.runtimeId})).state,'completed');
-  assert.equal(readSettings(f.directory).agents.length,1);
+  await until(()=>!!row()?.startTarget);
   assert.equal(existsSync(join(f.directory,'setup.json')),false);
-  assert.equal((await request('start')).state,'failed');
-  assert.match(row().disabled!.start!,/authority is unknown/);
+  let begin=await request('start',undefined,row().startTarget,-1);
+  if(begin.state!=='registration-required') throw Error(snapshot!.status);
+  await request('retire-continuation');
+  assert.equal(existsSync(join(f.directory,'setup.json')),false);
+  begin=await request('start',undefined,row().startTarget,-1);
+  if(begin.state!=='registration-required') throw Error(snapshot!.status);
+  assert.equal((await request('profile-preview',{secret:f.nsec,continuation:begin.continuation})).state,'completed');
+  const result=await request('register-agent',{secret:f.nsec,runtime:f.runtimeId,continuation:begin.continuation});
+  assert.equal(result.state,'submitted',snapshot!.status);
+  await until(()=>row().label.includes('running'));
+  const report=JSON.parse(row().evidence!).report;
+  assert.equal(report.host,f.host);
+  assert.equal(report.body.actualRun.selection.model,'gpt-5');
+  assert.equal(report.body.actualRun.selection.harnessSetup.id,`runtime:${f.runtimeId}`);
+  assert.equal(existsSync(join(f.directory,'setup.json')),true);
+  assert.equal(readSettings(f.directory).agents.length,1);
+  assert.equal((await request('stop',undefined,row().target,row().revision)).state,'submitted');
+  await until(()=>row().label.includes('stopped'));
   assert.deepEqual(f.errors,[]);
+});
+
+test('ordinary independent local enrollments compose with selected-source Move and retain destination history',async t=>{
+  const home=realpathSync(mkdtempSync(join(tmpdir(),'beehive-pairing-cli-independent-')));
+  let snapshot:ManagerSnapshot;
+  const f=await registrationFixture(home,s=>{snapshot=s;},false,true);
+  t.after(async()=>{await f.close();rmSync(home,{recursive:true,force:true});});
+  let id=0;const request=(action:string,values?:Record<string,string>,target?:string,revision?:number)=>f.controller.request({id:++id,action,values,target,revision});
+  assert.equal((await request('signin')).state,'completed');
+  const row=()=>snapshot!.agents.find(a=>a.id===f.agent)!;
+  await until(()=>!!row()?.startTarget);
+  assert.equal(row().startTarget,JSON.stringify([f.host,f.agent]),'explicit local Start, not the other already-enrolled host');
+  const destinationBefore=JSON.parse(readFileSync(join(f.destination!.directory,'agents',f.agent,'journal.json'),'utf8'));
+  assert.ok(Object.keys(destinationBefore.runs).length===1,'destination actually started then stopped via ordinary registration/enrollment');
+  const begin=await request('start',undefined,row().startTarget,-1);
+  if(begin.state!=='registration-required') throw Error(snapshot!.status);
+  await request('profile-preview',{secret:f.nsec,continuation:begin.continuation});
+  assert.equal((await request('register-agent',{secret:f.nsec,runtime:f.runtimeId,continuation:begin.continuation})).state,'submitted',snapshot!.status);
+  await until(()=>row().label.includes('running'));
+  const source=JSON.parse(row().evidence!).report;
+  assert.notDeepEqual(source.body.genesis,destinationBefore.assignment.genesis);
+  const target=row().destinations!.find(d=>d.target===JSON.stringify([f.destination!.host,f.agent]))!;
+  assert.equal(target.reason,undefined);
+  const {managementClient}=await import('../src/intents.ts');
+  const {message,publicKey}=await import('../src/protocol.ts');
+  const raw=managementClient(join(home,'unauthorized-destination'),f.url,f.ownerSecret,()=>{},()=>{},{catalog:{version:1,owner:publicKey(f.ownerSecret),relay:f.url,registrations:[]}});
+  try {
+    await raw.ready;
+    const unauthorized=message('move',f.host,f.agent,source.revision,{target:f.destination!.host,targetRevision:target.revision,selection:destinationBefore.selected});
+    raw.submit(unauthorized);
+    await until(()=>raw.status().some(o=>o.request.id===unauthorized.id&&o.state==='failed'));
+    assert.deepEqual(JSON.parse(readFileSync(join(f.directory,'agents',f.agent,'journal.json'),'utf8')).actual,source.body.actualRun,'source must not Stop before destination owner authorizes this independent enrollment');
+  } finally {raw.close();}
+  const move=await request('move',{destination:target.target,destinationRevision:String(target.revision)},row().target,row().revision);
+  assert.equal(move.state,'submitted',snapshot!.status);
+  await until(()=>snapshot!.diagnostics!.some(d=>d.id===`operation:${move.state==='submitted'?move.operationId:''}`&&d.label.includes('Completed')));
+  await until(()=>JSON.parse(row().evidence!).report.host===f.destination!.host&&row().label.includes('running'));
+  const after=JSON.parse(readFileSync(join(f.destination!.directory,'agents',f.agent,'journal.json'),'utf8'));
+  assert.deepEqual(after.assignmentHistory,[destinationBefore.assignment]);
+  assert.deepEqual(after.runs[Object.keys(destinationBefore.runs)[0]!],Object.values(destinationBefore.runs)[0]);
+  assert.equal(after.assignment.genesis.id,source.body.genesis.id);
+  assert.ok(after.assignment.chain.at(-1).proof);
+  assert.equal((await request('stop',undefined,row().target,row().revision)).state,'submitted');
+  await until(()=>row().label.includes('stopped'));
+});
+
+test('cancelling after host enrollment preserves stopped placement and cannot launch on late receipt',async t=>{
+  const home=realpathSync(mkdtempSync(join(tmpdir(),'beehive-pairing-cli-enrollment-cancel-')));
+  let snapshot:ManagerSnapshot;
+  const f=await registrationFixture(home,s=>{snapshot=s;},false);
+  t.after(async()=>{await f.close();rmSync(home,{recursive:true,force:true});});
+  let id=0;const request=(action:string,values?:Record<string,string>,target?:string,revision?:number)=>f.controller.request({id:++id,action,values,target,revision});
+  await request('signin');
+  const row=()=>snapshot!.agents.find(a=>a.id===f.agent)!;
+  await until(()=>!!row()?.startTarget);
+  const begin=await request('start',undefined,row().startTarget,-1);
+  if(begin.state!=='registration-required') throw Error(snapshot!.status);
+  await request('profile-preview',{secret:f.nsec,continuation:begin.continuation});
+  f.setHoldEnrollment(true);
+  const pending=request('register-agent',{secret:f.nsec,runtime:f.runtimeId,continuation:begin.continuation});
+  await until(()=>f.heldPrepared>0);
+  f.controller.cancel();assert.equal((await pending).state,'cancelled');
+  f.releasePrepared();
+  await until(()=>snapshot!.diagnostics!.some(d=>d.label.startsWith('Enroll locally · Completed')));
+  assert.ok(row().label.includes('stopped'));
+  const journal=JSON.parse(readFileSync(join(f.directory,'agents',f.agent,'journal.json'),'utf8'));
+  assert.equal(journal.actual,null);assert.deepEqual(journal.runs??{},{});
+  assert.ok(!snapshot!.diagnostics!.some(d=>d.label.startsWith('Start ·')));
+  const retry=await request('start',undefined,row().target,row().revision);
+  assert.equal(retry.state,'registration-required','retry is explicit, never resumes cancelled continuation');
 });

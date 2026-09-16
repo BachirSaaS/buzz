@@ -20,17 +20,20 @@ Synthetic agent nsec (never use real credentials in this fixture):
   nsec1yg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qxh9tww
 Ctrl-Q: exit even inside a form; this test closes its owned relay/host.
 
-The fixture pre-provisions PUBLIC assignment authority, but leaves catalog
-registration absent. Registration does NOT mint genesis or host placement.
+Review host begins WITHOUT an agent slot or genesis. Explicit local Start
+registers custody/runtime, enrolls a stopped local slot under authenticated owner
+intent, then submits ordinary Start. Cancellation never launches late.
 The real synthetic relay enforces owner signatures; the owned ACP process checks
 REVIEW_MODE=synthetic. No installed service, provider, OS-store or external relay
 is accessed. Host Start/Stop service buttons remain deliberately fenced.
-Move: after Start, choose Move… -> Destination host / default runtime -> yes.
+Move: after Start, choose Move… -> Destination host / Review runtime -> yes.
 Wait for the agent to report its new host and running state. Inspect operations
 shows Move complete only after that destination run is observed. Repeat Move to
 return to Review host. Destination uses an isolated owned fixture runtime; no
-workspace, session or key is sent between hosts. Both hosts pin the same explicit
-public genesis and keep separate synthetic credential stores.
+workspace, session or key is sent between hosts. The destination was independently registered, enrolled, started and stopped
+through the production path. Move explicitly authorizes the selected source at
+that destination, retains its prior assignment/history and verifies the signed
+successor. Hosts keep separate synthetic credential stores.
 HELP
   exit 0
 fi

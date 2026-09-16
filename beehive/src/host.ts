@@ -1,3 +1,5 @@
+import { prepareLocalEnrollment } from './local-enrollment.ts';
+import type { SlotEntry } from './slots.ts';
 import { runtimeEnvironment } from './runtime-environment.ts';
 import { validatePi } from './pi.ts';
 import { readSettings, retainedSettingsRow } from './settings.ts';
@@ -35,7 +37,7 @@ export function bindingFingerprint(setup: Setup): string {
 }
 type Selection = import('./handoff.ts').Selection;
 type ActualRun = { harnessSetup?: { id: string; fingerprint: string }; appliedInstructions?: { source: 'profile' | 'upstream-default'; revision: string | null; hash: string | null }; selection: Selection; executableHash: string; run: string; evidence?: Evidence; preparedInputHash?: string };
-type State = { publicMetadata?: { operation: string; revision: string; event: import('nostr-tools/pure').Event }; configurations?: Configurations; runs?: Record<string, ActualRun>; assignment: Assignment; move?: { request: Message; prepare: Message }; preparations?: Record<string, { request: Message; token: string; reply: Message; candidate?: Selection; reservedRevision?: number }>; incoming?: Record<string, Message>; binding: { host: string; owner: string; agent: string }; revision: number; phase: 'stopped' | 'transitioning' | 'running' | 'quarantined'; selected: Selection; actual: null | ActualRun; operations: Record<string, { fingerprint: string; reply: Message }>; outbox: Message[] };
+type State = { assignmentHistory?: Assignment[]; moveAuthorizations?: Record<string, { operation: Message; assignment: Assignment; destination: Assignment }>; publicMetadata?: { operation: string; revision: string; event: import('nostr-tools/pure').Event }; configurations?: Configurations; runs?: Record<string, ActualRun>; assignment: Assignment; move?: { request: Message; prepare: Message }; preparations?: Record<string, { request: Message; token: string; reply: Message; candidate?: Selection; reservedRevision?: number }>; incoming?: Record<string, Message>; binding: { host: string; owner: string; agent: string }; revision: number; phase: 'stopped' | 'transitioning' | 'running' | 'quarantined'; selected: Selection; actual: null | ActualRun; operations: Record<string, { fingerprint: string; reply: Message }>; outbox: Message[] };
 /** Resolve owner authority without requiring a private owner identity on a host.
  * Legacy diagnostic manifests remain readable; contradictory identities refuse. */
 export function setupOwner(setup: Pick<Setup, 'ownerPublic' | 'ownerSecret'>): string {
@@ -133,7 +135,7 @@ function slot(setup: Setup, path: string, agent: string, currentSetup: (id: stri
   if (executionSecret !== undefined && publicKey(executionSecret) !== agent) throw Error('Slot key/identity mismatch');
   const keyPresent = executionSecret !== undefined;
   let state = loadSlotState(setup, path, agent);
-  const genesis = state.assignment.genesis;
+  let genesis = state.assignment.genesis;
   if (state.phase !== 'stopped') state.phase = 'quarantined';
   let persistenceFailed = false;
   const save = () => { try { writePrivate(path,state); } catch (e) { persistenceFailed = true; throw e; } };
@@ -177,7 +179,7 @@ function slot(setup: Setup, path: string, agent: string, currentSetup: (id: stri
   function receive(m: Message) { trace('slot.receive', { id: m.id, type: m.type, revision: m.revision });
     // Cancellation is signalled outside the serialized mutation queue. Admission is
     // still exact-authority/revision and never bypasses durable receipt processing.
-    const operation = m.host === setup.host && ['metadata','save','start','restart','stop','move'].includes(m.type);
+    const operation = m.host === setup.host && ['authorize-move','metadata','save','start','restart','stop','move'].includes(m.type);
     const first = operation && !queuedOperations.has(m.id);
     if (operation) queuedOperations.add(m.id);
     // Reserve receive order too: a conflicting queued ID is not a Stop authority.
@@ -308,8 +310,11 @@ function slot(setup: Setup, path: string, agent: string, currentSetup: (id: stri
       if (m.type === 'prepare') {
         fields(m.body, ['assignment','operation']);
         const assignment = m.body.assignment as Assignment; validateAssignment(assignment);
-        transfer?.verifyAssignment?.(state.assignment, assignment);
         const op = m.body.operation as Message;
+        const authorization = state.moveAuthorizations?.[op.id];
+        const authorized = authorization && hash(authorization.destination) === hash(state.assignment) && hash(authorization.operation) === hash(op) && hash({...authorization.assignment,chain:authorization.assignment.chain ?? []}) === hash({...assignment,chain:assignment.chain ?? []});
+        const prefix = authorized ? authorization.assignment : state.assignment;
+        transfer?.verifyAssignment?.(prefix, assignment);
         // Validate the proposed grant shape through the same chain validator.
         const g: Grant = { root: hash(assignment.genesis), predecessor: hash(assignment.chain?.at(-1) ?? assignment.genesis), source: op.host, target: setup.host, agent, operation: op, prepared: 'pending', selection: moveSelection(op.body.selection, m.revision, 'named-v1'), materialization: 'named-v1', targetRevision: m.revision, sourceRun: null };
         validateAssignment({ ...assignment, assignedHost: setup.host, chain: [...(assignment.chain ?? []), g] });
@@ -317,7 +322,7 @@ function slot(setup: Setup, path: string, agent: string, currentSetup: (id: stri
         serializeManagement({ ...projected, body: { ...projected.body, assignmentChain: [...(assignment.chain ?? []), privateSnapshots ? {...g,proof:'0'.repeat(128)} : g], selectedNext:g.selection } },8192);
         if (Object.hasOwn(state.operations,op.id)) throw Error('Destination operation ID already used');
         const prior = state.preparations?.[op.id];
-        if (hash(assignment.genesis) !== hash(genesis) || !((state.assignment.chain ?? []).every((g, i) => hash(g) === hash(assignment.chain?.[i]))) || state.phase !== 'stopped' || state.assignment.assignedHost === setup.host || (prior?.reservedRevision ?? m.revision) !== state.revision) throw Error('Destination authority/revision conflict');
+        if (hash(assignment.genesis) !== hash(prefix.genesis) || !((prefix.chain ?? []).every((g, i) => hash(g) === hash(assignment.chain?.[i]))) || state.phase !== 'stopped' || (!authorized && state.assignment.assignedHost === setup.host) || (prior?.reservedRevision ?? m.revision) !== state.revision) throw Error('Destination authority/revision conflict');
         if (prior) {
           if (hash(prior.request) !== hash(m)) throw Error('Preparation ID conflict');
           // Grant-acceptance evidence is immutable, even after restart. Replayed
@@ -388,8 +393,11 @@ function slot(setup: Setup, path: string, agent: string, currentSetup: (id: stri
         if (!g || g.target !== setup.host || g.agent !== agent || m.revision !== g.targetRevision) return;
         const prior = state.incoming?.[hash(g)];
         if (prior) { publish(prior); return; }
-        transfer?.verifyAssignment?.(state.assignment, next);
-        if (!extendsAssignment(state.assignment, next) || state.assignment.assignedHost === setup.host || state.phase !== 'stopped') return;
+        const authorization = state.moveAuthorizations?.[g.operation.id];
+        const authorized = authorization && hash(authorization.destination) === hash(state.assignment) && hash(authorization.operation) === hash(g.operation);
+        const prefix = authorized ? authorization.assignment : state.assignment;
+        transfer?.verifyAssignment?.(prefix, next);
+        if (!extendsAssignment(prefix, next) || (!authorized && state.assignment.assignedHost === setup.host) || state.phase !== 'stopped') return;
         const prep = state.preparations?.[g.operation.id];
         if (!prep || hash(prep.request.body.operation) !== hash(g.operation) || prep.token !== g.prepared || prep.reply.body.materialization !== g.materialization) return;
         if (hash(prep.request.body.assignment) !== hash({ genesis: next.genesis, assignedHost: g.source, ...(next.chain!.length > 1 ? { chain: next.chain!.slice(0,-1) } : {}) })) {
@@ -401,7 +409,10 @@ function slot(setup: Setup, path: string, agent: string, currentSetup: (id: stri
         // fail launch but must never return authority to the consumed source.
         const candidateChanged = state.revision !== (prep.reservedRevision ?? g.targetRevision)
           || (!g.materialization && !sameSelection(state.selected, g.selection));
-        state.assignment = next;
+        if (hash(state.assignment.genesis) !== hash(next.genesis)) {
+          state.assignmentHistory ??= []; state.assignmentHistory.push(structuredClone(state.assignment));
+        }
+        state.assignment = next; genesis = next.genesis;
         // A public standby edit cannot strand a consumed grant or overwrite a later
         // accepted candidate. Accept authority, but never launch mixed inputs.
         if (!candidateChanged) {
@@ -439,8 +450,8 @@ function slot(setup: Setup, path: string, agent: string, currentSetup: (id: stri
     }
   }
   async function handle(m: Message) { trace('slot.handle', { id: m.id, type: m.type, revision: m.revision });
-    if (m.host === setup.host && ['metadata','save','start','restart','stop','move'].includes(m.type)) queuedOperations.delete(m.id);
-    if (closing || persistenceFailed || m.host !== setup.host || !['metadata','inspect','save','start','restart','stop','move','prepare','prepared','grant'].includes(m.type)) return;
+    if (m.host === setup.host && ['authorize-move','metadata','save','start','restart','stop','move'].includes(m.type)) queuedOperations.delete(m.id);
+    if (closing || persistenceFailed || m.host !== setup.host || !['authorize-move','metadata','inspect','save','start','restart','stop','move','prepare','prepared','grant'].includes(m.type)) return;
     if (['prepare','prepared','grant'].includes(m.type)) { await exchange(m); return; }
     // Serialized Stop processing durably resolves that Stop's own retraction.
     if (m.type === 'stop' || m.type === 'save') retracted.delete(m.id);
@@ -455,7 +466,7 @@ function slot(setup: Setup, path: string, agent: string, currentSetup: (id: stri
       publish(previous.fingerprint === fingerprint ? previous.reply : message('receipt',setup.host,m.agent,state.revision,{ operation: m.id, fingerprint, result: 'operation-id-conflict' })); return;
     }
     let result = 'accepted';
-    if (m.agent !== agent || (state.assignment.assignedHost !== setup.host && m.type !== 'save')) result = 'not-authority';
+    if (m.agent !== agent || (state.assignment.assignedHost !== setup.host && !['save','authorize-move'].includes(m.type))) result = 'not-authority';
     else if (state.move && ['start','restart','move'].includes(m.type)) result = 'Move reservation busy';
     else if (m.revision !== state.revision) result = 'revision-conflict';
     else if ((state.phase === 'quarantined' || state.phase === 'transitioning') && !(m.type === 'stop' && (restartProbe?.owned.child.connected || (owned instanceof ConversationSession ? owned.connected : owned?.child.connected)))) result = 'quarantined';
@@ -465,7 +476,18 @@ function slot(setup: Setup, path: string, agent: string, currentSetup: (id: stri
       state.operations[m.id] = { fingerprint, reply: pending }; save();
       try {
         if (state.move && m.type === 'stop') { fields(m.body, []); finishMove('Move cancelled before grant by stop'); }
-        if (m.type === 'metadata') {
+        if (m.type === 'authorize-move') {
+          fields(m.body, ['operation','assignment']);
+          if (!privateSnapshots || state.phase !== 'stopped' || state.actual || state.move) throw Error('Destination must be locally stopped');
+          const op = m.body.operation as Message, assignment = m.body.assignment as Assignment;
+          validateAssignment(assignment);
+          if (op.type !== 'move' || op.agent !== agent || op.host !== assignment.assignedHost || op.host === setup.host || op.body.target !== setup.host || op.body.targetRevision !== state.revision + 1 || assignment.genesis.agent !== agent || assignment.genesis.owner !== state.binding.owner || !sameLaunchSelection(op.body.selection, state.selected)) throw Error('Invalid selected-source authorization');
+          // Exercise the governing operation/selection validator before persisting.
+          validateAssignment({...assignment,assignedHost:setup.host,chain:[...(assignment.chain ?? []),{root:hash(assignment.genesis),predecessor:hash(assignment.chain?.at(-1) ?? assignment.genesis),source:op.host,target:setup.host,agent,operation:op,prepared:'pending',selection:moveSelection(op.body.selection,Number(op.body.targetRevision),'named-v1'),materialization:'named-v1',targetRevision:Number(op.body.targetRevision),sourceRun:null}]});
+          if (Object.hasOwn(state.operations,op.id) || Object.hasOwn(state.moveAuthorizations ?? {},op.id) || Object.keys(state.moveAuthorizations ?? {}).length >= 1000 || (state.assignmentHistory?.length ?? 0) >= 24) throw Error('Destination authorization conflict or history full');
+          state.moveAuthorizations ??= {};
+          state.moveAuthorizations[op.id] = {operation:op,assignment,destination:structuredClone(state.assignment)};
+        } else if (m.type === 'metadata') {
           fields(m.body, ['relay', 'value', 'revision']);
           const value = publicMetadata(m.body.value);
           if (!privateSnapshots || !metadataCustody || m.body.relay !== managementRelay || m.body.revision !== metadataRevision(value)) throw Error('Invalid private metadata authorization/binding');
@@ -621,6 +643,9 @@ export async function host(directory: string, url: string, signal?: AbortSignal,
   mkdirSync(lock, { mode: 0o700 }); // Never infer ownership from a recovered PID.
   let client: { ready: Promise<void>; send(m: Message): void; close(): void } | undefined;
   let initialized = false;
+  const enrollmentAbort = new AbortController();
+  let enrollmentQueue = Promise.resolve();
+  let enrollmentPending = 0;
   let reloadSettings = () => {};
   const slots = new Map<string, ReturnType<typeof slot>>();
   const profiles = new Profiles();
@@ -628,7 +653,8 @@ export async function host(directory: string, url: string, signal?: AbortSignal,
   let heartbeat: ReturnType<typeof setInterval> | undefined;
   let closing: Promise<void> | undefined;
   const close = () => closing ??= (async () => {
-    initialized = false; client?.close(); clearInterval(heartbeat);
+    initialized = false; enrollmentAbort.abort(); client?.close(); clearInterval(heartbeat);
+    await enrollmentQueue;
     const results = await Promise.allSettled([...slots.values()].map(s => s.close()));
     const errors = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected').map(r => r.reason);
     if (errors.length) throw new AggregateError(errors, 'Incomplete owned teardown; installation remains locked');
@@ -653,9 +679,9 @@ export async function host(directory: string, url: string, signal?: AbortSignal,
       try { const candidate = readSettings(directory); if (candidate.revision !== effectiveSettings.revision) applySettings(candidate); }
       catch { /* Saved invalid settings remain on disk for repair; prior effective catalog is retained. */ }
     };
-    for (const entry of entries) {
+    const hydrate = (entry: SlotEntry) => {
       if (transport && (entry.setup.host !== transport.binding.host || setupOwner(entry.setup) !== transport.binding.owner)) throw Error('Private transport differs from retained host/agent authority');
-      slots.set(entry.agent, slot(entry.setup, entry.path, entry.agent, async (id, readSignal) => {
+      return slot(entry.setup, entry.path, entry.agent, async (id, readSignal) => {
         const current = (await installationSlotsAsync(directory, credentials, readSignal)).find(e => e.agent === entry.agent);
         readSignal.throwIfAborted();
         if (!current) throw Error('Key removed');
@@ -686,8 +712,9 @@ export async function host(directory: string, url: string, signal?: AbortSignal,
         if (!current || current.host !== entry.setup.host || setupOwner(current) !== setupOwner(entry.setup) || !current.agentSecret || !current.conversation?.authTag || current.conversation.relay !== url) throw Error('Existing agent key/owner association/relay required');
         return { secret: current.agentSecret, relay: current.conversation.relay, authTag: current.conversation.authTag };
         function hostKeyForMetadata() { return transport?.binding.host ?? entry.setup.host; }
-      }, url, providerRead, transport));
-    }
+      }, url, providerRead, transport);
+    };
+    for (const entry of entries) slots.set(entry.agent, hydrate(entry));
     applySettings(effectiveSettings);
     const setup = entries[0]?.setup;
     const hostKey = transport?.binding.host ?? setup!.host;
@@ -698,10 +725,44 @@ export async function host(directory: string, url: string, signal?: AbortSignal,
       if (!initialized) return;
       profiles.receive(m);
       if (m.host !== hostKey) return;
+      if (m.type === 'enroll') {
+        if (!transport || enrollmentPending >= 32) return;
+        enrollmentPending++;
+        enrollmentQueue = enrollmentQueue.then(async () => {
+          if (!initialized) return;
+          let result = 'accepted';
+          try {
+            const prepared = await prepareLocalEnrollment(directory, transport.binding.owner, m, credentials, enrollmentAbort.signal);
+            if (prepared.existing && !slots.has(m.agent)) {
+              const entry = (await installationSlotsAsync(directory, credentials, enrollmentAbort.signal)).find(e => e.agent === m.agent);
+              if (!entry) throw Error('Activated enrollment is missing');
+              const candidate = hydrate(entry); candidate.validateBindings(entry.bindings);
+              entries.push(entry); slots.set(m.agent,candidate);
+            }
+            if (!prepared.existing) {
+              const candidate = hydrate(prepared.entry);
+              try {
+                candidate.validateBindings(prepared.entry.bindings);
+                const additions = entries.map(entry => prepared.bindingsFor(entry.setup));
+                for (const [i,entry] of entries.entries()) slots.get(entry.agent)!.validateBindings({...entry.bindings,...additions[i]});
+                prepared.commit();
+                for (const [i,entry] of entries.entries()) Object.assign(entry.bindings,additions[i]);
+              } catch (error) { await candidate.close(); throw error; }
+              entries.push(prepared.entry); slots.set(m.agent, candidate);
+              applySettings(readSettings(directory));
+            }
+          } catch (error) { result = error instanceof Error ? error.message : 'Enrollment failed'; }
+          if (initialized) {
+            publish(message('receipt',hostKey,m.agent,0,{operation:m.id,fingerprint:digest(JSON.stringify(m)).toString('hex'),result}));
+            slots.get(m.agent)?.replay();
+          }
+        }).finally(() => { enrollmentPending--; });
+        return;
+      }
       const selected = slots.get(m.agent); trace('host.route', { id: m.id, type: m.type, selected: !!selected });
       if (selected) selected.receive(m);
       else if (m.type === 'inspect') { for (const s of slots.values()) s.replay(); }
-      else if (['metadata','save','start','restart','stop','move'].includes(m.type)) publish(message('receipt',hostKey,m.agent,0,{ operation: m.id, fingerprint: digest(JSON.stringify(m)).toString('hex'), result: 'not-authority' }));
+      else if (['authorize-move','metadata','save','start','restart','stop','move'].includes(m.type)) publish(message('receipt',hostKey,m.agent,0,{ operation: m.id, fingerprint: digest(JSON.stringify(m)).toString('hex'), result: 'not-authority' }));
     }, () => { if (initialized) for (const s of slots.values()) s.replay(); });
     await client.ready;
     signal?.throwIfAborted();

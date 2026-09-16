@@ -31,7 +31,7 @@ export function privateHostTransport(configuration: HostPairing | HostRegistrati
           receive(authenticated);
           return;
         }
-        if (input.sender !== retained.request.owner || m.host !== retained.request.host || !['metadata', 'inspect', 'save', 'start', 'restart', 'stop', 'move'].includes(m.type)) return;
+        if (input.sender !== retained.request.owner || m.host !== retained.request.host || !['authorize-move','enroll','metadata', 'inspect', 'save', 'start', 'restart', 'stop', 'move'].includes(m.type)) return;
         receive(m);
       }, () => { connected = false; }); // Existing durable host outbox survives; no automatic launch retry.
       return {

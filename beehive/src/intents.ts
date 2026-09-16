@@ -43,7 +43,7 @@ export function managementClient(root: string, url: string, secret: string, rece
     const value = object(readPrivate(path)); fields(value, ['scope', 'envelope']);
     if (value.scope !== scope) throw Error('Wrong journal scope');
     const request = open(value.envelope, secret);
-    if (!['metadata','profile','save','start','restart','stop','move'].includes(request.type) || name !== `${request.id}.intent`) throw Error('Invalid intent');
+    if (!['authorize-move','enroll','metadata','profile','save','start','restart','stop','move'].includes(request.type) || name !== `${request.id}.intent`) throw Error('Invalid intent');
     const intent: Intent = { envelope: value.envelope as Envelope, request, published: false };
     const receiptPath = join(dir, `${request.id}.receipt`);
     if (existsSync(receiptPath)) {
@@ -124,7 +124,7 @@ export function managementClient(root: string, url: string, secret: string, rece
     get socket() { return transport.socket; },
     submit(request: Message) {
       if (closed) throw Error('UI closed');
-      if (!['metadata','profile','save','start','restart','stop','move'].includes(request.type)) throw Error('Invalid operation');
+      if (!['authorize-move','enroll','metadata','profile','save','start','restart','stop','move'].includes(request.type)) throw Error('Invalid operation');
       if (request.type === 'profile') {
         profile(request.body);
         if (request.host !== 'profiles' || request.agent !== 'profiles' || request.revision !== 0) throw Error('Invalid profile publication');

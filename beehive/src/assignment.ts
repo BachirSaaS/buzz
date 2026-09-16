@@ -3,7 +3,8 @@ import { fields, object, text } from './protocol.ts';
 
 /** Public, locally pinned root. It conveys no secret and is not a bearer grant. */
 export type Genesis = { v: 1; id: string; owner: string; agent: string; initialHost: string };
-/** Only new-key creation or verified one-time legacy enrollment may mint a root. */
+/** Create a host-local root under explicit authenticated owner enrollment intent.
+ * This does not assert global absence on independently configured hosts. */
 export function createGenesis(owner: string, agent: string, initialHost: string): Genesis {
   return validateGenesis({ v: 1, id: randomUUID(), owner, agent, initialHost });
 }
