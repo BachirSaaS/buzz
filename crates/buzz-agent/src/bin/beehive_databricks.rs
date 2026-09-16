@@ -92,6 +92,16 @@ impl BrowserOpener for Browser {
         webbrowser::open(url).map_err(|_| "Browser unavailable".into())
     }
 }
+fn auth_intent(action: &str) -> AuthIntent {
+    // The helper is launched only by deliberate Beehive actions. Match Buzz
+    // Desktop by letting Models/Start repair absent or rejected credentials via
+    // browser PKCE. Passive provider discovery never launches this process.
+    match action {
+        "login" | "models" | "token" => AuthIntent::UserInitiated,
+        _ => AuthIntent::Headless,
+    }
+}
+
 async fn execute(request: Request) -> Result<serde_json::Value, AgentError> {
     let url = url::Url::parse(&request.host).map_err(|_| failure())?;
     if url.scheme() != "https"
@@ -159,13 +169,8 @@ async fn execute(request: Request) -> Result<serde_json::Value, AgentError> {
         Arc::new(Browser),
         custody,
     )?;
-    let intent = if request.action == "login" {
-        AuthIntent::UserInitiated
-    } else {
-        AuthIntent::Headless
-    };
     let token = source
-        .acquire_with_intent(intent, None)
+        .acquire_with_intent(auth_intent(&request.action), None)
         .await
         .map_err(|_| failure())?;
     match request.action.as_str() {
@@ -212,6 +217,14 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn deliberate_beehive_actions_match_buzz_interactive_auth() {
+        assert_eq!(auth_intent("login"), AuthIntent::UserInitiated);
+        assert_eq!(auth_intent("models"), AuthIntent::UserInitiated);
+        assert_eq!(auth_intent("token"), AuthIntent::UserInitiated);
+        assert_eq!(auth_intent("passive-discovery"), AuthIntent::Headless);
+    }
+
     #[test]
     fn production_custody_requires_exact_readback_and_workspace() {
         let custody = Custody {
