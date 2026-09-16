@@ -22,14 +22,14 @@ test('ten pinned presets distinguish executable/CLI/adapter absence without laun
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'bh-presets-')));
   try {
     assert.deepEqual(presets.map(p => [p.id, p.command, [...p.args]]), [
-      ['pi','pi-acp',[]], ['devin','devin',['acp']], ['cursor','cursor-agent',['acp']], ['omp','omp',['acp']], ['grok','grok',['agent','--always-approve','stdio']], ['opencode','opencode',['acp']], ['kimi','kimi',['acp']], ['amp','amp-acp',[]], ['hermes','hermes-acp',[]], ['openclaw','openclaw',['acp']],
+      ['pi','buzz-pi-acp',[]], ['devin','devin',['acp']], ['cursor','cursor-agent',['acp']], ['omp','omp',['acp']], ['grok','grok',['agent','--always-approve','stdio']], ['opencode','opencode',['acp']], ['kimi','kimi',['acp']], ['amp','amp-acp',[]], ['hermes','hermes-acp',[]], ['openclaw','openclaw',['acp']],
     ]);
     assert.deepEqual(presets.filter(p => 'underlyingCli' in p).map(p => p.id), ['pi', 'amp']);
     const pi = () => discoverPresets(dir).find(p => p.id === 'pi')!;
     assert.equal(pi().availability, 'not-installed');
     writeFileSync(join(dir, 'pi'), '#!/bin/sh\nexit 99\n', { mode: 0o700 });
     assert.equal(pi().availability, 'adapter-missing');
-    writeFileSync(join(dir, 'pi-acp'), `#!/bin/sh\ntouch '${join(dir, 'unexpected-execution')}'\n`, { mode: 0o700 });
+    writeFileSync(join(dir, 'buzz-pi-acp'), `#!/bin/sh\ntouch '${join(dir, 'unexpected-execution')}'\n`, { mode: 0o700 });
     assert.equal(pi().availability, 'available');
     rmSync(join(dir, 'pi')); assert.equal(pi().availability, 'cli-missing');
     for (const p of discoverPresets(dir)) { assert.equal(p.authentication, 'unverified'); assert.deepEqual(p.env, {}); assert.match(p.reason, /no exact actual-session model/); }

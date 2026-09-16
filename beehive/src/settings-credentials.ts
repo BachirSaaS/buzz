@@ -6,7 +6,7 @@ import { loadNativeEntry, type NativeEntry } from './native-credentials.ts';
 import { type CredentialBackend, credentialReference, createCredential, readCredential } from './credential-store.ts';
 import { nip19 } from 'nostr-tools';
 import { publicKey } from './protocol.ts';
-import { readSettings, saveSettings, settingsId, settingsLock, type ProviderReference, type RegisteredAgent } from './settings.ts';
+import { readSettings, saveSettings, settingsId, settingsLock, type ProviderReference, type RegisteredAgent, type SavedProvider, validateSettings } from './settings.ts';
 
 /** Decode hidden nsec input on Node, never in the renderer's display state. */
 export function agentNsec(input: string): string {
@@ -46,13 +46,18 @@ export function providerCredentials(load = loadNativeEntry): ProviderCredentials
 }
 /** Read-back precedes public persistence. Failed commit retains the exact key entry. */
 export function addOpenAI(directory: string, name: string, secret: string, backend: ProviderCredentials) {
+  return addProvider(directory,name,secret,backend,'openai','https://api.openai.com/v1');
+}
+/** Verified immutable OS entry for each supported API-key provider. */
+export function addProvider(directory: string, name: string, secret: string, backend: ProviderCredentials, type: SavedProvider['type'], endpoint: string, wire?: SavedProvider['wire']) {
   if (!name || name.length > 128 || /[\x00-\x1f\x7f]/.test(name)) throw Error('Enter a provider name');
   if (!secret || secret.length > 16384 || /\s/.test(secret)) throw Error('Enter an API key');
   const previous = readSettings(directory), id = settingsId();
   const key: ProviderReference = { service: 'beehive', account: `provider:${id}` };
+  const candidate = validateSettings({ ...previous, providers: [...previous.providers, { id, name, type, endpoint, key, ...(wire ? {wire} : {}) }] });
   settingsLock(directory, () => { retainCredentialAttempt(directory,key); backend.create(key, secret); });
   if (backend.read(key) !== secret) throw Error('Provider credential verification failed');
-  return saveSettings(directory, { ...previous, providers: [...previous.providers, { id, name, type: 'openai', endpoint: 'https://api.openai.com/v1', key }] }, previous.revision);
+  return saveSettings(directory, candidate, previous.revision);
 }
 
 /** Public recovery references precede OS writes. Cancellation may leave a stored

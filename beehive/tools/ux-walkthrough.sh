@@ -18,6 +18,13 @@ Agents: Sign in with saved owner key -> select Review agent -> Start -> yes ->
   changing the current run or requiring identity registration again.
 Synthetic agent nsec (never use real credentials in this fixture):
   nsec1yg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qxh9tww
+Providers: Add provider -> Anthropic / OpenAI-compatible / OpenRouter.
+  Use synthetic-provider-key (hidden); compatible endpoint https://fixture.example/v1.
+  Compatible API: auto / chat / responses. Select provider -> Models.
+Harnesses: Add runtime -> Buzz Agent -> saved provider -> model or Custom model ->
+  effort (when offered) -> environment {"REVIEW_MODE":"synthetic"} -> name -> Save.
+Agents: Choose runtime then explicit Start/Restart applies the selected runtime.
+  Synthetic model access is not real provider authentication.
 Ctrl-Q: exit even inside a form; this test closes its owned relay/host.
 
 Review host begins WITHOUT an agent slot or genesis. Explicit local Start

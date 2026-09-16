@@ -115,8 +115,8 @@ test('Desktop contract detects fake adapter/CLI independently, strict Codex vers
 test('effort is manifest-backed, validates persisted settings and reaches actual ACP harness environment', async t => {
   assert.equal(readFileSync(new URL('../src/model-capabilities.json',import.meta.url),'utf8'),readFileSync(new URL('../../scripts/model-capabilities.json',import.meta.url),'utf8'));
   assert.ok(runtimeEfforts('openai','gpt-5').includes('high'));
-  assert.deepEqual(runtimeEfforts('openai','unknown-custom'),[]);
-  assert.deepEqual(runtimeEfforts('databricks_v2','catalog.schema.gpt-5'),[]);
+  assert.ok(runtimeEfforts('openai','unknown-custom').includes('high'));
+  assert.ok(runtimeEfforts('databricks_v2','catalog.schema.gpt-5').includes('high'));
   assert.ok(!runtimeEfforts('databricks_v2','databricks-claude-sonnet-4-5').includes('none'));
   const root = fixture(t), runner=join(root,'agent');
   writeFileSync(runner, `#!/bin/sh\n[ "$BUZZ_AGENT_THINKING_EFFORT" = high ] || exit 9\nexec '${process.execPath}' '${fileURLToPath(new URL('./acp-fixture.ts',import.meta.url))}' openai\n`, {mode:0o700});
@@ -129,7 +129,7 @@ test('effort is manifest-backed, validates persisted settings and reaches actual
   await session.catalog(); await session.verify();
 });
 
-test('short runtime form selects supported model-specific effort; unknown custom omits it and unsupported harness cannot save', async () => {
+test('short runtime form selects supported model-specific effort; unknown custom inherits provider capabilities and unsupported harness cannot save', async () => {
   const snapshot: ManagerSnapshot = { local:[], agents:[], status:'synthetic', models:['gpt-5'], harnesses:[{id:'buzz-agent',label:'Buzz Agent',executable:'/fixture',state:'available',providers:['openai'],reason:'fixture'},{id:'pi',label:'Pi',state:'available',providers:[],reason:'Provider integration unavailable'}], settings:{version:1,revision:1,agents:[],runtimes:[],providers:[{id:'p',name:'OpenAI',type:'openai',endpoint:'https://api.openai.com/v1',key}]} };
   const submitted: {action:string;values?:Record<string,string>}[] = [];
   const run = async (choices: string[], inputs: string[]) => runtimeForm({choose:async (_label,options) => {const value=choices.shift(); assert.ok(value === undefined || options.includes(value)); return value;},input:async label => label.startsWith('Environment') ? '{}' : inputs.shift(),confirm:async label => {assert.match(label,/Running agents do not change/);return true;},notice:() => {}}, () => snapshot, async (action,values) => {submitted.push({action,values});return {state:"completed"};});
@@ -137,7 +137,7 @@ test('short runtime form selects supported model-specific effort; unknown custom
   assert.equal(submitted.at(-1)?.values?.effort,'high');
   assert.equal(submitted.at(-1)?.values?.model,'gpt-5');
   submitted.length=0;
-  await run(['Buzz Agent · Available','OpenAI · p','Custom model'],['unrecognized-model','Custom']);
+  await run(['Buzz Agent · Available','OpenAI · p','Custom model','Inherit'],['unrecognized-model','Custom']);
   assert.equal(submitted.at(-1)?.action,'add-runtime'); assert.equal(submitted.at(-1)?.values?.effort,undefined);
   submitted.length=0;
   await run(['Pi · Provider integration unavailable'],[]);

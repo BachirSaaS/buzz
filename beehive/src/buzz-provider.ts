@@ -17,7 +17,7 @@ export function validateBuzzProvider(value: BuzzProvider): void {
   for (const model of value.models) validateRuntimeEffort(value.provider, model, value.effort);
   if (value.provider === 'databricks_v2' ? !['token', 'external-oauth'].includes(value.auth ?? '') : value.auth !== undefined) throw Error('Unsupported provider authentication contract');
   if (value.credential) {
-    if (!['openai-compat','databricks_v2'].includes(value.provider) || value.apiKeyFile !== undefined || (value.provider === 'databricks_v2' ? value.auth !== 'token' : value.auth !== undefined) || value.credential.service !== 'beehive' || !/^provider:[0-9a-f-]{36}$/.test(value.credential.account)) throw Error('Invalid OS provider binding');
+    if (value.apiKeyFile !== undefined || (value.provider === 'databricks_v2' ? value.auth !== 'token' : value.auth !== undefined) || value.credential.service !== 'beehive' || !/^provider:[0-9a-f-]{36}$/.test(value.credential.account)) throw Error('Invalid OS provider binding');
   } else if (value.auth === 'external-oauth' ? value.apiKeyFile !== undefined : typeof value.apiKeyFile !== 'string' || !isAbsolute(value.apiKeyFile)) throw Error('Provider requires owner-only key file; external OAuth forbids token fallback');
   let url: URL;
   try { url = new URL(value.baseUrl); } catch { throw Error('Invalid local provider endpoint'); }

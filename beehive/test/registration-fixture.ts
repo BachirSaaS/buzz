@@ -15,7 +15,7 @@ import { createControllerConfig } from '../src/controller-config.ts';
 import { provisionCredentialSlot } from '../src/credential-slots.ts';
 import { createGenesis } from '../src/assignment.ts';
 import { createCredential } from '../src/credential-store.ts';
-import { registerAgent, agentNsec, addOpenAI } from '../src/settings-credentials.ts';
+import { registerAgent, agentNsec, addOpenAI, addProvider } from '../src/settings-credentials.ts';
 import { readSettings, saveSettings } from '../src/settings.ts';
 import { host } from '../src/host.ts';
 import { isolatedFileCredentials } from './isolated-file-credentials.ts';
@@ -61,7 +61,7 @@ export async function registrationFixture(home: string, changed: (s: ManagerSnap
   let providerKey: string | null = null;
   addOpenAI(directory,'Review OpenAI','synthetic-provider-key',{read:()=>providerKey,create:(_r,v)=>{providerKey=v;}});
   const executable = join(home,'synthetic-acp');
-  writeFileSync(executable,`#!/bin/sh\n[ "$REVIEW_MODE" = synthetic ] || exit 9\nexec '${process.execPath}' '${fileURLToPath(new URL('./acp-fixture.ts',import.meta.url))}' openai\n`,{mode:0o700});
+  writeFileSync(executable,`#!/bin/sh\n[ "$REVIEW_MODE" = synthetic ] || exit 9\nexec '${process.execPath}' '${fileURLToPath(new URL('./acp-fixture.ts',import.meta.url))}' saved-provider\n`,{mode:0o700});
   const settings = readSettings(directory), runtimeId = 'review-runtime';
   saveSettings(directory,{...settings,runtimes:[{id:runtimeId,name:'Review runtime',harness:'buzz-agent',executable,providerId:settings.providers[0]!.id,model:'gpt-5',effort:'high',environment:{REVIEW_MODE:'synthetic'}}]},settings.revision);
   let providerFailure = false;
@@ -120,7 +120,8 @@ export async function registrationFixture(home: string, changed: (s: ManagerSnap
   const credential = async (input: any, signal: AbortSignal) => {
     signal.throwIfAborted();
     if (input.action === 'signin') return {ok:true,secret:ownerSecret};
-    if (input.action === 'models') return {ok:true,models:['gpt-5']};
+    if (input.action === 'add-provider') { addProvider(directory,input.name,input.secret,{read:()=>providerKey,create:(_r,v)=>{providerKey=v;}},input.type,input.endpoint,input.wire); return {ok:true}; }
+    if (input.action === 'models') { const p=readSettings(directory).providers.find(p=>p.id===input.provider); const model=p?.type === 'anthropic' ? 'claude-sonnet-4-5' : p?.type === 'openrouter' ? 'vendor/custom-model' : 'gpt-5'; return {ok:true,models:[model],modelLabels:{[model]:p?.type === 'anthropic' ? 'Claude Sonnet 4.5' : model}}; }
     if (input.action !== 'register-agent') throw Error('Fixture denies external credential operation');
     await beforeCredential?.(); signal.throwIfAborted();
     if (credentialFailure) throw Error('Synthetic credential failure');

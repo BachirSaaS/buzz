@@ -1,8 +1,7 @@
 import manifest from './model-capabilities.json' with { type: 'json' };
 
 /** Packaged verbatim from scripts/model-capabilities.json. Interpretation mirrors
- * Desktop modelCapabilities.ts exact/family precedence. No fallback effort picker:
- * unknown custom names and UC FQNs deliberately omit tuning rather than guessing. */
+ * Desktop modelCapabilities.ts exact/family precedence. Provider fallbacks are authored capabilities, including custom names and UC FQNs. */
 export function runtimeCapabilities(provider: string, model: string) {
   const canon = provider === 'openai-compat' ? 'openai' : provider;
   if (canon === 'databricks_v2' && model.split('.').length === 3 && model.split('.').every(v => v.length > 0 && !/[\s/]/.test(v))) {
@@ -17,7 +16,7 @@ export function runtimeCapabilities(provider: string, model: string) {
     });
     const stripped = service.slice(tokens.length ? Math.min(...tokens) : 0);
     const version = /^gpt-(\d+)(?=[^a-z0-9]|$)/.exec(stripped);
-    return { ...manifest.provider_fallbacks.databricks_v2.concrete_unknown, supported_efforts: [] as string[], databricks_v2_wire_route: version && Number(version[1]) >= 5 ? 'openai-responses' : 'mlflow-chat' };
+    return { ...manifest.provider_fallbacks.databricks_v2.concrete_unknown, databricks_v2_wire_route: version && Number(version[1]) >= 5 ? 'openai-responses' : 'mlflow-chat' };
   }
   const lower = model.toLowerCase();
   const exact = manifest.exact_records.find(r => r.provider === canon && r.raw_model_id.toLowerCase() === lower);
@@ -40,8 +39,8 @@ export function runtimeCapabilities(provider: string, model: string) {
   }).sort((a, b) => b.length - a.length || (a.rule.id < b.rule.id ? -1 : 1));
   const rule = matches[0]?.rule;
   if (rule) return rule;
-  const fallback = manifest.provider_fallbacks[canon as keyof typeof manifest.provider_fallbacks]?.concrete_unknown;
-  return fallback ? { ...fallback, supported_efforts: [] as string[] } : undefined;
+  const pair = new Map(Object.entries(manifest.provider_fallbacks)).get(canon) ?? manifest.provider_fallbacks._default;
+  return model.trim() ? pair.concrete_unknown : pair.blank;
 }
 
 export function runtimeEfforts(provider: string, model: string): readonly string[] {

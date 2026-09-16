@@ -22,7 +22,7 @@ export function runtimeBindings(base: Setup, settings: Settings, agent = base.ag
       runner: runtime.executable, args: [], workspace: base.workspace, allowedWorkspaces: base.allowedWorkspaces,
       serviceHome: paths?.home ?? base.serviceHome, configDirectory: paths?.config ?? base.configDirectory,
       ...(base.conversation ? { conversation: base.conversation } : {}), ...(runtime.harness === 'codex' ? { mode: 'codex', codex: { ...(managedHome ? { managedHome } : {}), cli: runtime.cli!, credential: provider.key, models: [runtime.model] } } : { mode: runtime.harness === 'pi' ? 'pi' : 'buzz-agent-api-key', ...(runtime.harness === 'pi' ? { piCli: runtime.cli } : {}),
-      buzzProvider: provider.type === 'databricks_v2' ? { provider:'databricks_v2',auth:'token',baseUrl:provider.endpoint,credential:provider.key,models:[runtime.model],...(runtime.effort ? { effort:runtime.effort } : {}) } : { provider: 'openai-compat', baseUrl: provider.endpoint, credential: provider.key, wire: 'auto', models: [runtime.model], ...(runtime.effort ? { effort:runtime.effort } : {}) } }),
+      buzzProvider: provider.type === 'databricks_v2' ? { provider:'databricks_v2',auth:'token',baseUrl:provider.endpoint,credential:provider.key,models:[runtime.model],...(runtime.effort ? { effort:runtime.effort } : {}) } : { provider: provider.type === 'openai' ? 'openai-compat' : provider.type, baseUrl: provider.endpoint, credential: provider.key, ...(['openai','openai-compat'].includes(provider.type) ? {wire: provider.wire ?? 'auto'} : {}), models: [runtime.model], ...(runtime.effort ? { effort:runtime.effort } : {}) } }),
     })];
   }));
 }

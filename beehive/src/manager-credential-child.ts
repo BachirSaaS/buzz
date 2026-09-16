@@ -6,9 +6,9 @@ import { object } from './protocol.ts';
 import { readHostIdentity, bootstrapHostIdentity } from './host-identity.ts';
 import { createCredential, credentialReference, readCredential, systemCredentials } from './credential-store.ts';
 import { publicKey } from './protocol.ts';
-import { registerAgent, agentNsec, addOpenAI, providerCredentials } from './settings-credentials.ts';
+import { registerAgent, agentNsec, addOpenAI, addProvider, providerCredentials } from './settings-credentials.ts';
 import { readSettings } from './settings.ts';
-import { openAIModels } from './settings-models.ts';
+import { providerModelOptions } from './settings-models.ts';
 
 // Node-only, bounded by the controller. Secrets use private IPC, never argv/output.
 process.once('message', async (input: any) => {
@@ -30,6 +30,9 @@ process.once('message', async (input: any) => {
     } else if (input.action === 'add-openai') {
       addOpenAI(input.directory,input.name,input.secret,providerCredentials());
       process.send?.({ ok: true });
+    } else if (input.action === 'add-provider') {
+      addProvider(input.directory,input.name,input.secret,providerCredentials(),input.type,input.endpoint,input.wire);
+      process.send?.({ok:true});
     } else if (input.action === 'provider-read') {
       const secret = providerCredentials().read(input.key);
       if (!secret) throw Error('Missing provider credential');
@@ -39,8 +42,8 @@ process.once('message', async (input: any) => {
       if (!provider) throw Error('Missing provider');
       const secret = providerCredentials().read(provider.key);
       if (!secret) throw Error('Missing provider credential');
-      const models = await openAIModels(secret, AbortSignal.timeout(7000));
-      process.send?.({ ok: true, models });
+      const options = await providerModelOptions(provider, secret, AbortSignal.timeout(7000));
+      process.send?.({ ok: true, models:options.map(v=>v.id), modelLabels:Object.fromEntries(options.map(v=>[v.id,v.name])) });
     } else if (input.action === 'signin') {
       const ref = credentialReference('owner', input.owner);
       if (input.secret !== undefined) {

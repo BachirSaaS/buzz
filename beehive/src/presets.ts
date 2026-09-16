@@ -7,11 +7,11 @@ export const presets = [
   {
     "id": "pi",
     "label": "Pi",
-    "command": "pi-acp",
+    "command": "buzz-pi-acp",
     "args": [],
     "env": {},
-    "installInstructionsUrl": "https://github.com/svkozak/pi-acp",
-    "installHint": "Install Pi with npm install -g --ignore-scripts @earendil-works/pi-coding-agent. Install the Pi ACP adapter with npm install -g pi-acp.",
+    "installInstructionsUrl": "https://github.com/salman1993/buzz-pi-acp",
+    "installHint": "Install Pi with npm install -g --ignore-scripts @earendil-works/pi-coding-agent. Requires Node.js 22 or newer. Install the Pi ACP adapter with npm install -g --install-links=true git+https://github.com/salman1993/buzz-pi-acp.git#86b201e. Make sure buzz-pi-acp is on PATH, then restart Buzz.",
     "underlyingCli": "pi",
     "underlyingCliInstallInstructionsUrl": "https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent"
   },

@@ -33,7 +33,7 @@ export type ManagerResult =
 export type ManagerRequest = { id: number; action: string; values?: Record<string, string>; target?: string; revision?: number };
 export type ManagerItem = { startTarget?: string; startRevision?: number; target?: string; id: string; label: string; detail: string; evidence?: string; disabled?: Record<string, string> };
 export type MoveDestination = { target: string; revision: number; label: string; reason?: string };
-export type ManagerSnapshot = { managementRelay?: 'connected' | 'disconnected'; diagnostics?: ManagerItem[]; local: ManagerItem[]; agents: (ManagerItem & { revision: number; configurations: string[]; destinations?: MoveDestination[] })[]; routing?: { owner: string; relay: string }; owner?: string; status: string; settings?: Settings; service?: ServiceStatus; hostRelay?: string; relayName?: string; profilePreview?: RegisteredAgent; models?: string[]; runtimeExecutable?: string; harnesses?: DetectedHarness[]; databricksHost?: string };
+export type ManagerSnapshot = { managementRelay?: 'connected' | 'disconnected'; diagnostics?: ManagerItem[]; local: ManagerItem[]; agents: (ManagerItem & { revision: number; configurations: string[]; destinations?: MoveDestination[] })[]; routing?: { owner: string; relay: string }; owner?: string; status: string; settings?: Settings; service?: ServiceStatus; hostRelay?: string; relayName?: string; profilePreview?: RegisteredAgent; models?: string[]; modelLabels?: Record<string,string>; runtimeExecutable?: string; harnesses?: DetectedHarness[]; databricksHost?: string };
 const short = (s: string) => s.length > 22 ? `${s.slice(0,8)}…${s.slice(-6)}` : s;
 
 /** Final plain display text thrown by this boundary; never rewrapped or retranslated. */
@@ -154,6 +154,7 @@ export class ManagerController {
   private probing = false;
   private profilePreview?: RegisteredAgent;
   private models?: string[];
+  private modelLabels?: Record<string,string>;
   private runtimeExecutable?: string;
   private harnesses?: DetectedHarness[];
   private databricksHost?: string;
@@ -236,7 +237,7 @@ A Stop result is not a recent host report that confirms the agent is stopped.` }
     try { settings = readSettings(this.hostDirectory); if (existsSync(join(this.hostDirectory,'host-identity.json'))) hostRelay = readHostIdentityPublic(this.hostDirectory).pairing.relay; } catch { /* Existing error row remains actionable; never reset settings. */ }
     const footerRelay = hostRelay ?? routing?.relay;
     this.observeRelayName(footerRelay);
-    return { managementRelay:this.owner ? this.client?.connected ? 'connected' : 'disconnected' : undefined, settings, service: this.service, hostRelay, relayName: this.relayName && this.relayName.relay === footerRelay ? this.relayName.name : undefined, profilePreview: this.profilePreview, models: this.models, runtimeExecutable: this.runtimeExecutable, harnesses: this.harnesses, databricksHost: this.databricksHost, local, agents, diagnostics, routing: routing ? { owner: routing.owner, relay: routing.relay } : undefined, owner: this.owner, status: this.status + (this.owner ? `\n${this.directoryState}` : '') };
+    return { managementRelay:this.owner ? this.client?.connected ? 'connected' : 'disconnected' : undefined, settings, service: this.service, hostRelay, relayName: this.relayName && this.relayName.relay === footerRelay ? this.relayName.name : undefined, profilePreview: this.profilePreview, models: this.models, modelLabels:this.modelLabels, runtimeExecutable: this.runtimeExecutable, harnesses: this.harnesses, databricksHost: this.databricksHost, local, agents, diagnostics, routing: routing ? { owner: routing.owner, relay: routing.relay } : undefined, owner: this.owner, status: this.status + (this.owner ? `\n${this.directoryState}` : '') };
   }
 
   private moveDestinations(source: Message): MoveDestination[] {
@@ -403,17 +404,17 @@ A Stop result is not a recent host report that confirms the agent is stopped.` }
         this.databricksHost = process.env.DATABRICKS_HOST ?? ''; this.status = 'Provider credentials stay in Beehive’s OS store.';
       } else if (request.action === 'add-databricks') {
         await addDatabricks(this.hostDirectory,v.name,v.endpoint,abort.signal); check(); this.status = 'Databricks signed in and saved. No agent was started.';
-      } else if (request.action === 'add-openai') {
-        await this.credential({ action: 'add-openai', directory: this.hostDirectory, name: v.name, secret: v.secret },abort.signal); check(); this.status = 'Provider saved. No agent was started.';
+      } else if (request.action === 'add-openai' || request.action === 'add-provider') {
+        await this.credential({ action: request.action, directory: this.hostDirectory, name: v.name, secret: v.secret, type:v.type, endpoint:v.endpoint, wire:v.wire },abort.signal); check(); this.status = 'Provider saved. No agent was started.';
       } else if (request.action === 'runtime-form') {
-        this.runtimeExecutable = undefined; this.harnesses = undefined; this.models = undefined;
+        this.runtimeExecutable = undefined; this.harnesses = undefined; this.models = undefined; this.modelLabels = undefined;
         const harnesses = await discoverHarnesses(abort.signal); check(); this.harnesses = harnesses;
-        this.runtimeExecutable = this.harnesses.find(h => h.id === 'buzz-agent' && h.providers.length)?.executable; this.models = undefined;
+        this.runtimeExecutable = this.harnesses.find(h => h.id === 'buzz-agent' && h.providers.length)?.executable; this.models = undefined; this.modelLabels = undefined;
         this.status = this.harnesses.map(h => `${h.label}: ${h.reason}`).join(' · ');
       } else if (request.action === 'models') {
-        this.models = undefined;
+        this.models = undefined; this.modelLabels = undefined;
         const provider = readSettings(this.hostDirectory).providers.find(p => p.id === v.provider);
-        const result = provider?.type === 'databricks_v2' ? await databricksNative({ action: 'models',host:provider.endpoint,key:provider.key },abort.signal) : await this.credential({ action: 'models', directory: this.hostDirectory, provider: v.provider },abort.signal); check(); this.models = result.models; this.status = 'Model list loaded. Custom model is also available.';
+        const result = provider?.type === 'databricks_v2' ? await databricksNative({ action: 'models',host:provider.endpoint,key:provider.key },abort.signal) : await this.credential({ action: 'models', directory: this.hostDirectory, provider: v.provider },abort.signal); check(); this.models = result.models; this.modelLabels = result.modelLabels; this.status = 'Model list loaded. Custom model is also available.';
       } else if (request.action === 'add-runtime') {
         const selected = this.harnesses?.find(h => h.id === (v.harness ?? 'buzz-agent'));
         const previous = readSettings(this.hostDirectory);

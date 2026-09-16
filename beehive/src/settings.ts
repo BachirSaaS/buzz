@@ -1,3 +1,4 @@
+import { validateBuzzProvider } from './buzz-provider.ts';
 import { runtimeEnvironment } from './runtime-environment.ts';
 import { piEfforts } from './pi.ts';
 import { validateRuntimeEffort } from './runtime-effort.ts';
@@ -14,7 +15,7 @@ import { credentialReference, type CredentialReference } from './credential-stor
 export type RegisteredAgent = { runtimeId?: string; publicKey: string; key: CredentialReference; profile?: { relay: string; name?: string; about?: string; picture?: string }; profileState: 'found' | 'none' | 'unavailable' };
 /** Each provider version owns an exact immutable OS credential entry. */
 export type ProviderReference = { service: 'beehive'; account: string };
-export type SavedProvider = { id: string; name: string; type: 'openai' | 'databricks_v2'; endpoint: string; key: ProviderReference };
+export type SavedProvider = { id: string; name: string; type: 'openai' | 'anthropic' | 'openai-compat' | 'openrouter' | 'databricks_v2'; endpoint: string; wire?: 'auto' | 'chat' | 'responses'; key: ProviderReference };
 export type SavedRuntime = { environment?: Record<string, string>; id: string; name: string; harness: 'buzz-agent' | 'codex' | 'pi'; cli?: string; executable: string; providerId: string; model: string; effort?: string };
 export type Settings = { version: 1; revision: number; agents: RegisteredAgent[]; providers: SavedProvider[]; runtimes: SavedRuntime[] };
 const path = (directory: string) => join(directory, 'settings.json');
@@ -30,18 +31,21 @@ export function validateSettings(value: Settings): Settings {
     if (a.runtimeId !== undefined && !value.runtimes.some(r => r.id === a.runtimeId)) throw Error('Registered runtime missing');
     if (a.profile && (typeof a.profile.relay !== 'string' || Object.values(a.profile).some(v => typeof v !== 'string' || v.length > 2048 || /[\x00-\x1f\x7f]/.test(v)))) throw Error('Invalid public profile');
   }
-  for (const p of value.providers) if (!label(p.name) || !label(p.id) || !['openai','databricks_v2'].includes(p.type) || (p.type === 'openai' ? p.endpoint !== 'https://api.openai.com/v1' : databricksHost(p.endpoint) !== p.endpoint) || p.key?.service !== 'beehive' || !/^provider:[0-9a-f-]{36}$/.test(p.key.account)) throw Error('Invalid saved provider');
+  for (const p of value.providers) {
+    if (!label(p.name) || !label(p.id) || !['openai','anthropic','openai-compat','openrouter','databricks_v2'].includes(p.type) || (p.type === 'openai' && p.endpoint !== 'https://api.openai.com/v1') || (p.type === 'databricks_v2' && databricksHost(p.endpoint) !== p.endpoint) || (p.type !== 'openai-compat' && p.wire !== undefined)) throw Error('Invalid saved provider');
+    validateBuzzProvider({provider:p.type === 'openai' ? 'openai-compat' : p.type, baseUrl:p.endpoint, credential:p.key, models:['validation-custom'], ...(p.type === 'databricks_v2' ? {auth:'token'} : {}), ...(['openai','openai-compat'].includes(p.type) ? {wire:p.wire ?? 'auto'} : {})});
+  }
   for (const r of value.runtimes) if (!label(r.id) || !label(r.name) || !['buzz-agent','codex','pi'].includes(r.harness) || !isAbsolute(r.executable) || !/^[a-zA-Z0-9_.:/-]{1,200}$/.test(r.model) || !value.providers.some(p => p.id === r.providerId)) throw Error('Invalid saved runtime');
   for (const r of value.runtimes) {
     if (r.environment !== undefined) runtimeEnvironment(r.environment);
-    if (r.harness === 'codex' ? !r.cli || !isAbsolute(r.cli) || r.effort !== undefined || value.providers.find(p => p.id === r.providerId)?.type !== 'openai' : r.harness === 'pi' ? !r.cli || !isAbsolute(r.cli) || r.effort !== undefined && !piEfforts(value.providers.find(p => p.id === r.providerId)!.type, r.model).includes(r.effort) : r.cli !== undefined) throw Error('Unsupported runtime provider/CLI/effort combination');
+    if (r.harness === 'codex' ? !r.cli || !isAbsolute(r.cli) || r.effort !== undefined || value.providers.find(p => p.id === r.providerId)?.type !== 'openai' : r.harness === 'pi' ? !['openai','databricks_v2'].includes(value.providers.find(p => p.id === r.providerId)!.type) || !r.cli || !isAbsolute(r.cli) || r.effort !== undefined && !piEfforts(value.providers.find(p => p.id === r.providerId)!.type, r.model).includes(r.effort) : r.cli !== undefined) throw Error('Unsupported runtime provider/CLI/effort combination');
   }
   for (const r of value.runtimes) validateRuntimeEffort(value.providers.find(p => p.id === r.providerId)!.type, r.model, r.effort);
   // Reject unknown fields, including accidental secret-bearing input.
   const fields = (o: object, allowed: string[]) => { if (Object.keys(o).some(k => !allowed.includes(k))) throw Error('Unexpected settings field'); };
   fields(value, ['version','revision','agents','providers','runtimes']);
   for (const a of value.agents) { fields(a, ['publicKey','key','profile','profileState','runtimeId']); if (a.profile) fields(a.profile, ['relay','name','picture','about']); }
-  for (const p of value.providers) { fields(p, ['id','name','type','endpoint','key']); fields(p.key, ['service','account']); }
+  for (const p of value.providers) { fields(p, ['id','name','type','endpoint','key','wire']); fields(p.key, ['service','account']); }
   for (const r of value.runtimes) fields(r, ['id','name','harness','executable','providerId','model','effort','cli','environment']);
   return structuredClone(value);
 }

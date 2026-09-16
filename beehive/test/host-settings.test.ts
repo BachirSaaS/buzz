@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { finalizeEvent } from 'nostr-tools/pure';
 import { nsecEncode } from 'nostr-tools/nip19';
-import { registerAgent, agentNsec, addOpenAI } from '../src/settings-credentials.ts';
+import { registerAgent, agentNsec, addOpenAI, addProvider } from '../src/settings-credentials.ts';
 import { readSettings, saveSettings, settingsId } from '../src/settings.ts';
 import { profileFromEvents } from '../src/agent-profile.ts';
 import { isolatedFileCredentials } from './isolated-file-credentials.ts';
@@ -75,28 +75,49 @@ test('OpenAI verifies store before public commit; listing is bounded and custom 
   assert.throws(() => saveSettings(root,catalog,catalog.revision),/changed/);
 });
 
-for (const providerType of ['openai','databricks_v2','codex-openai'] as const) test(`${providerType} saved runtime reaches host Save/new Start while the prior active run remains immutable`, async t => {
+for (const providerType of ['openai','databricks_v2','codex-openai','anthropic','openai-compat','openrouter'] as const) test(`${providerType} saved runtime reaches host Save/new Start while the prior active run remains immutable`, async t => {
   const root = fixture(t), owner = newKey(), agent = newKey(), hostKey = publicKey(newKey());
   const codex = providerType === 'codex-openai';
+  const added = ['anthropic','openai-compat','openrouter'].includes(providerType);
   const home = root, config = root;
   const setup: Setup = { host: hostKey, ownerSecret: owner, agentSecret: agent, runner: realpathSync(process.execPath), args: ['-e','setInterval(()=>{},1000)'], workspace: root, serviceHome: home, configDirectory: config, mode: 'fixture' };
   provision(root,setup,createGenesis(publicKey(owner),publicKey(agent),hostKey));
   let receive: (m: Message) => void = () => {}; const reports: Message[] = [];
   const transport = { binding: { host: hostKey, owner: publicKey(owner) }, validate() {}, connect(_url: string,_secret: string,handle: (m: Message) => void) { receive = handle; return { ready: Promise.resolve(), send(m: Message) { reports.push(m); }, close() {} }; } };
   let providerReads = 0;
-  const running = await host(root,'ws://127.0.0.1',undefined,transport,undefined,async (input,signal) => { signal.throwIfAborted(); assert.equal((input as any).provider,providerType !== 'databricks_v2' ? 'openai-compat' : 'databricks_v2'); if (providerType === 'databricks_v2') assert.equal((input as any).host,'https://fixture.example'); providerReads++; return {ok:true,secret:codex ? 'fixture-codex-private-key' : 'synthetic-provider-key'}; });
+  const running = await host(root,'ws://127.0.0.1',undefined,transport,undefined,async (input,signal) => { signal.throwIfAborted(); assert.equal((input as any).provider,providerType === 'openai' || codex ? 'openai-compat' : providerType); if (providerType === 'databricks_v2') assert.equal((input as any).host,'https://fixture.example'); providerReads++; return {ok:true,secret:codex ? 'fixture-codex-private-key' : 'synthetic-provider-key'}; });
   t.after(() => running.close());
   const start = message('start',hostKey,publicKey(agent),0); receive(start);
   await wait(() => reports.some(m => m.type === 'inventory' && m.body.phase === 'running'));
   const active = reports.filter(m => m.type === 'inventory').at(-1)!.body.actualRun;
   let stored: string | null = null;
-  if (providerType !== 'databricks_v2') addOpenAI(root,'Fixture','synthetic',{ read: () => stored, create(_r,v) { stored = v; } });
+  if (added) addProvider(root,'Fixture','synthetic',{read:()=>stored,create:(_r,v)=>{stored=v;}},providerType as 'anthropic'|'openai-compat'|'openrouter','https://fixture.example/v1',providerType === 'openai-compat' ? 'responses' : undefined);
+  else if (providerType !== 'databricks_v2') addOpenAI(root,'Fixture','synthetic',{ read: () => stored, create(_r,v) { stored = v; } });
   else await addDatabricks(root,'Fixture','https://fixture.example',new AbortController().signal,async () => ({ok:true}));
   const prior = readSettings(root), id = settingsId();
-  const model = codex ? 'custom-codex-model' : providerType === 'openai' ? 'gpt-5' : 'databricks-gpt-5-4';
+  const model = codex ? 'custom-codex-model' : added ? (providerType === 'anthropic' ? 'claude-sonnet-4-5' : 'unknown-custom-model') : providerType === 'openai' ? 'gpt-5' : 'databricks-gpt-5-4';
   const executable = join(root,'fixture-buzz-agent');
   writeFileSync(executable,`#!/bin/sh\n[ \"$REVIEW_MODE\" = synthetic ] || exit 10\n[ \"$BUZZ_AGENT_THINKING_EFFORT\" = high ] || exit 9\nexec '${process.execPath}' '${fileURLToPath(new URL('./acp-fixture.ts',import.meta.url))}' ${providerType === 'openai' ? 'openai' : 'databricks-os'}\n`,{mode:0o700});
   let requests = 0;
+  if (added) {
+    const keyName = providerType === 'anthropic' ? 'ANTHROPIC_API_KEY' : providerType === 'openrouter' ? 'OPENROUTER_API_KEY' : 'OPENAI_COMPAT_API_KEY';
+    const server = createServer(async (req,res) => {
+      assert.equal(req.method,'POST'); assert.equal(req.url, providerType === 'anthropic' ? '/v1/messages' : providerType === 'openrouter' ? '/v1/chat/completions' : '/v1/responses');
+      assert.equal(req.headers.authorization,'Bearer synthetic-provider-key');
+      let body=''; for await (const chunk of req) body+=chunk;
+      assert.deepEqual(JSON.parse(body),{model,...(providerType === 'anthropic' ? {} : {effort:'high'})}); requests++; res.end('{}');
+    });
+    server.listen(0,'127.0.0.1'); await once(server,'listening');
+    t.after(()=>new Promise<void>(resolve=>server.close(()=>resolve())));
+    const endpoint = `http://127.0.0.1:${(server.address() as any).port}` + (providerType === 'anthropic' ? '/v1/messages' : providerType === 'openrouter' ? '/v1/chat/completions' : '/v1/responses');
+    writeFileSync(executable,`#!${process.execPath}
+if (process.env.BUZZ_AGENT_PROVIDER !== ${JSON.stringify(providerType)} || process.env.REVIEW_MODE !== 'synthetic') throw Error('Wrong binding');
+const response = await fetch(${JSON.stringify(endpoint)},{method:'POST',headers:{authorization:'Bearer '+process.env[${JSON.stringify(keyName)}]},body:JSON.stringify({model:process.env.BUZZ_AGENT_MODEL,effort:process.env.BUZZ_AGENT_THINKING_EFFORT})});
+if (!response.ok) throw Error('Synthetic provider refused');
+process.argv[2]='saved-provider';
+await import(${JSON.stringify(new URL('./acp-fixture.ts',import.meta.url).href)});
+`,{mode:0o700});
+  }
   if (codex) {
     const server = createServer(async (req,res) => {
       assert.equal(req.method,'POST'); assert.equal(req.url,'/v1/responses');
@@ -116,7 +137,7 @@ if (!response.ok) throw Error('Synthetic provider rejected');
 await import(${JSON.stringify(new URL('./conversation-harness-fixture.ts',import.meta.url).href)});
 `,{mode:0o700});
   }
-  saveSettings(root,{ ...prior, runtimes: [{ id, name: 'Future', environment: {REVIEW_MODE:'synthetic'}, harness: codex ? 'codex' : 'buzz-agent', executable, providerId: prior.providers[0]!.id, model, ...(codex ? {cli:realpathSync(process.execPath)} : {effort:'high'}) }] },prior.revision);
+  saveSettings(root,{ ...prior, runtimes: [{ id, name: 'Future', environment: {REVIEW_MODE:'synthetic'}, harness: codex ? 'codex' : 'buzz-agent', executable, providerId: prior.providers[0]!.id, model, ...(codex ? {cli:realpathSync(process.execPath)} : providerType === 'anthropic' ? {} : {effort:'high'}) }] },prior.revision);
   const projected = runtimeBindings(setup,readSettings(root))[`runtime:${id}`]!;
   if (codex) { assert.notEqual(projected.serviceHome,root); assert.equal(existsSync(projected.serviceHome!),false); }
   await wait(() => running.settingsRevision === 2);
@@ -137,6 +158,7 @@ await import(${JSON.stringify(new URL('./conversation-harness-fixture.ts',import
   assert.equal(reports.find(m => m.body.operation === nextStart.id)?.body.result,'accepted');
   assert.equal((reports.filter(m => m.type === 'inventory').at(-1)!.body.actualRun as any).selection.model,model);
   assert.equal(providerReads,1);
+  if (added) { assert.equal(requests,1); assert.ok(!readFileSync(join(root,'journal.json'),'utf8').includes('synthetic-provider-key')); }
   if (codex) { assert.equal(requests,1); assert.ok(!readFileSync(join(root,'journal.json'),'utf8').includes('fixture-codex-private-key')); }
   assert.ok(!JSON.stringify(reports).includes('synthetic-provider-key'));
   assert.ok(!readFileSync(join(root,'journal.json'),'utf8').includes('synthetic-provider-key'));

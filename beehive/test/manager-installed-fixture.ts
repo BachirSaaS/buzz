@@ -1,4 +1,4 @@
-import { registerAgent, agentNsec, addOpenAI } from '../src/settings-credentials.ts';
+import { registerAgent, agentNsec, addOpenAI, addProvider } from '../src/settings-credentials.ts';
 import type { CredentialReference } from '../src/credential-store.ts';
 import { bootstrapHostIdentity } from '../src/host-identity.ts';
 import { isolatedFileCredentials } from './isolated-file-credentials.ts';
@@ -16,6 +16,7 @@ export async function fixtureCredential(input: any, signal: AbortSignal) {
   }
   if (input.action === 'register-agent') { registerAgent(input.directory,agentNsec(input.secret),backend,input.profile,input.runtimeId,input.expectedRevision); return { ok: true }; }
   if (input.action === 'add-openai') { addOpenAI(input.directory,input.name,input.secret,{ read: r => backend.read(r as unknown as CredentialReference), create: (r,s) => backend.create(r as unknown as CredentialReference,s) }); return { ok: true }; }
+  if (input.action === 'add-provider') { addProvider(input.directory,input.name,input.secret,{read:r=>backend.read(r as unknown as CredentialReference),create:(r,s)=>backend.create(r as unknown as CredentialReference,s)},input.type,input.endpoint,input.wire); return {ok:true}; }
   if (input.action === 'models') return { ok: true, models: ['fixture-model'] };
   if (input.action !== 'signin') throw Error('Unsupported installed fixture action');
   if (input.secret) {

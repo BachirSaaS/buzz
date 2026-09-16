@@ -32,9 +32,9 @@ test('Pi model routes use the shared capability owner; UC tenant components neve
   const p=piModelConfig(db,model).providers.beehive;
   assert.equal(p.api,api);assert.equal(p.baseUrl,db.baseUrl+suffix);assert.equal(p.models[0].id,model);
  }
- assert.deepEqual(piEfforts('databricks_v2','catalog.schema.gpt-6-service'),[]);
- assert.deepEqual(piEfforts('openai','unknown-custom'),[]);
- assert.equal(runtimeCapabilities('databricks_v2','gpt-5.schema.unknown')!.supported_efforts.length,0);
+ assert.ok(piEfforts('databricks_v2','catalog.schema.gpt-6-service').includes('high'));
+ assert.ok(piEfforts('openai','unknown-custom').includes('high'));
+ assert.ok(runtimeCapabilities('databricks_v2','gpt-5.schema.unknown')!.supported_efforts.includes('high'));
 });
 
 test('actual runtime form offers Pi both providers, retains custom names, submits only supported model effort',async()=>{

@@ -83,16 +83,19 @@ function render() {
   let actions: ManagerAction[] = scope !== 1 ? [
     { label: 'Add provider', run: async () => {
       await request('provider-form');
-      const type = await screen.choose('Add provider',['OpenAI','Databricks v2']); if (!type) return;
+      const type = await screen.choose('Add provider',['OpenAI','Anthropic','OpenAI-compatible','OpenRouter','Databricks v2']); if (!type) return;
       if (type === 'Databricks v2') {
         const endpoint = await screen.input('Databricks workspace URL',snapshot.databricksHost ?? ''); if (!endpoint) return;
         const name = await screen.input('Provider name','Databricks'); if (!name) return;
         if (await screen.confirm(`Sign in to ${name} in your browser? Tokens stay in Beehive’s OS store. No agent will start.`)) await request('add-databricks',{ name,endpoint });
         return;
       }
-      const name = await screen.input('Provider name','OpenAI'); if (!name) return;
-      let secret = await screen.input('OpenAI API key. Hidden. Saved in Beehive’s OS credential store.','',true); if (!secret) return;
-      if (await screen.confirm(`Save provider ${name}? No agent will start.`)) await request('add-openai',{ name, secret });
+      const providerType = type === 'Anthropic' ? 'anthropic' : type === 'OpenRouter' ? 'openrouter' : type === 'OpenAI-compatible' ? 'openai-compat' : 'openai';
+      const endpoint = providerType === 'openai-compat' ? await screen.input('HTTPS endpoint') : providerType === 'anthropic' ? 'https://api.anthropic.com' : providerType === 'openrouter' ? 'https://openrouter.ai/api/v1' : 'https://api.openai.com/v1'; if (!endpoint) return;
+      const wire = providerType === 'openai-compat' ? await screen.choose('API',['auto','chat','responses']) : undefined; if (providerType === 'openai-compat' && !wire) return;
+      const name = await screen.input('Provider name',type); if (!name) return;
+      let secret = await screen.input(`${type} API key · Hidden · OS credential store`,'',true); if (!secret) return;
+      if (await screen.confirm(`Save provider ${name}? No agent will start.`)) await request('add-provider',{ name, secret, type:providerType, endpoint, ...(wire ? {wire} : {}) });
       secret = '';
     } },
     { label: 'Add runtime', run: () => runtimeForm(screen, () => snapshot, request) },
@@ -157,7 +160,7 @@ The source stops before destination launch. Workspace, session and credentials s
     { label: 'Models', disabled: rows.some(r => r.id === selected) ? undefined : 'Select provider', run: async () => {
       const provider = selected;
       await request('models', { provider });
-      if (snapshot.models) await screen.choose('Models', snapshot.models);
+      if (snapshot.models) await screen.choose('Models', snapshot.models.map(id=>snapshot.modelLabels?.[id] && snapshot.modelLabels[id] !== id ? `${snapshot.modelLabels[id]} · ${id}` : id));
     } },
   ];
   if (scope === 1 && !snapshot.owner) actions.push({ label: 'New private instructions draft…', run: async () => { const name = await screen.input('Private instructions · 1 of 2\nDraft name', '', false, false, v => v.trim() ? '' : 'Enter a draft name.'); if (name === undefined) return; const instructions = await screen.input(`Private instructions · 2 of 2\nDraft: ${name}\nSaved only on this computer. Not published or used by an agent. Do not enter passwords or keys.`, '', false, true, v => v.trim() ? '' : 'Enter instructions.'); if (instructions !== undefined) await request('draft', { name, instructions }); } });

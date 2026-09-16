@@ -24,8 +24,10 @@ export async function runtimeForm(screen: {
   const modelResult = await request('models', { provider: provider.id });
   if (modelResult.state === 'cancelled' || modelResult.state === 'ignored') return;
   const models = snapshot().models;
-  const choiceModel = await screen.choose(models ? 'Model' : 'Model listing unavailable · Custom model allowed', [...(models ?? []), 'Custom model']); if (!choiceModel) return;
-  const model = choiceModel === 'Custom model' ? await screen.input('Exact model ID. Custom does not verify provider access.') : choiceModel; if (!model) return;
+  const labelsById = snapshot().modelLabels ?? {};
+  const modelLabels = (models ?? []).map(id=>labelsById[id] && labelsById[id] !== id ? `${labelsById[id]} · ${id}` : id);
+  const choiceModel = await screen.choose(models ? 'Model' : 'Model listing unavailable · Custom model allowed', [...modelLabels, 'Custom model']); if (!choiceModel) return;
+  const model = choiceModel === 'Custom model' ? await screen.input('Exact model ID. Custom does not verify provider access.') : models?.[modelLabels.indexOf(choiceModel)]; if (!model) return;
   const efforts = selected.id === 'buzz-agent' ? runtimeEfforts(provider.type, model) : selected.id === 'pi' ? piEfforts(provider.type, model) : [];
   const effort = efforts.length ? await screen.choose('Effort · new runs only', ['Inherit', ...efforts]) : 'Inherit'; if (!effort) return;
   const entry = await screen.input('Environment · JSON name/value map · no secrets', '{}'); if (entry === undefined) return;
