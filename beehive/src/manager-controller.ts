@@ -166,7 +166,7 @@ export class ManagerController {
       const fresh = this.fresh(m);
       const blocked = !fresh ? 'The host report is old or the host cannot be reached. Wait for a recent report before you act.' : this.client?.status().some(o => o.request.host === m.host && o.request.agent === m.agent && !['completed','failed'].includes(o.state)) ? 'An operation has no confirmed result. Inspect operations before you act.' : '';
       return { id, label: `Agent ${short(m.agent)} · ${fresh ? m.body.phase : 'Unknown'}`, revision: m.revision, configurations: Object.keys((m.body.configurations ?? {}) as object),
-        disabled: { 'select-config': blocked, stop: blocked, start: blocked || (m.body.phase !== 'stopped' || m.body.actualRun || m.body.assignedHost !== m.host ? 'Start requires a recent report from the assigned host. It must report the agent stopped with no current run.' : '') },
+        disabled: { 'select-config': blocked, stop: blocked, restart: blocked || (m.body.assignedHost !== m.host || !['stopped', 'running'].includes(String(m.body.phase)) ? 'Restart requires a recent report from the assigned host.' : ''), start: blocked || (m.body.phase !== 'stopped' || m.body.actualRun || m.body.assignedHost !== m.host ? 'Start requires a recent report from the assigned host. It must report the agent stopped with no current run.' : '') },
         evidence: JSON.stringify(m, null, 2), detail: `Agent ${short(m.agent)}
 Host ${short(m.host)}
 ${fresh ? 'Recent host report' : 'Current status unknown. The report is old or the host cannot be reached. Last report:'}
@@ -329,10 +329,10 @@ A Stop result is not a recent host report that confirms the agent is stopped.` }
         if (!this.owner || !this.client) throw plain('Owner sign-in required');
         const current = this.inventory.get(request.target ?? '');
         if (!current || !this.fresh(current) || current.revision !== request.revision) throw plain('The selection changed, or the host report is old or unavailable. Select an agent with a recent report. No request was sent.');
-        if (request.action === 'restart') throw plain('Restart can change the local setup. Use Stop. Inspect a recent host report that confirms the agent is stopped. Then use Start. No Restart request is sent. No request was sent.');
+        if (request.action === 'restart' && (current.body.assignedHost !== current.host || !['stopped', 'running'].includes(String(current.body.phase)))) throw plain('Restart requires a recent report from the assigned host.');
         if (request.action === 'start' && (current.body.phase !== 'stopped' || current.body.actualRun || current.body.assignedHost !== current.host)) throw plain('Start requires a recent report from the assigned host. It must report the agent stopped with no current run.');
         if (this.client.status().some(o => o.request.host === current.host && o.request.agent === current.agent && !['completed','failed'].includes(o.state))) throw plain('An operation has no confirmed result. Inspect operations and check operation results before you act again.');
-        const operation = message(request.action === 'select-config' ? 'save' : request.action as 'start' | 'stop', current.host, current.agent, current.revision, request.action === 'select-config' ? { configurationAction: 'select', name: v.name } : {});
+        const operation = message(request.action === 'select-config' ? 'save' : request.action as 'start' | 'stop' | 'restart', current.host, current.agent, current.revision, request.action === 'select-config' ? { configurationAction: 'select', name: v.name } : {});
         this.client.submit(operation);
         this.status = `Operation ${operation.id}: ${plainOperationType(operation)} saved and pending.\nHost: ${current.host}\nAgent: ${current.agent}\nRelay publication does not confirm host acceptance. Inspect operations. Unknown does not mean stopped.`;
       } else if (request.action !== 'refresh') throw plain('Not available in this build');

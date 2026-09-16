@@ -1,3 +1,4 @@
+import { ManagerNavigation, sectionRows } from './manager-navigation.ts';
 import { runtimeForm } from './runtime-form.ts';
 import { createCliRenderer } from '@opentui/core';
 import { createReadStream, createWriteStream } from 'node:fs';
@@ -9,6 +10,7 @@ const renderer = await createCliRenderer({ exitOnCtrlC: false });
 const screen = new OpenTuiScreen(renderer);
 const output = createWriteStream('', { fd: 4 });
 let snapshot: ManagerSnapshot = { local: [], agents: [], status: 'Connecting to Beehive…' };
+const navigation = new ManagerNavigation();
 let scope = 0, selected = '', sequence = 0, lastStatus = '';
 let pending: { id: number; resolve: () => void } | undefined;
 function request(action: string, values?: Record<string,string>, target?: string, revision?: number) {
@@ -51,19 +53,12 @@ function eligibility(action: string) {
 }
 function render() {
   screen.setOwner(snapshot.owner?.slice(-12));
-  const hostRows = [
-    { id: 'agents', label: 'Agents', detail: '' }, ...(snapshot.settings?.agents ?? []).map(a => ({ id: a.publicKey, label: a.profile?.name ?? a.publicKey, detail: '' })),
-    { id: 'providers', label: 'Providers', detail: '' }, ...(snapshot.settings?.providers ?? []).map(p => ({ id: p.id, label: p.name, detail: '' })),
-    { id: 'runtimes', label: 'Runtimes', detail: '' }, ...(snapshot.settings?.runtimes ?? []).map(r => ({ id: r.id, label: r.name, detail: '' })),
-  ];
-  const rows = scope === 0 ? hostRows : snapshot.agents;
-  if (selected === 'empty') selected = '';
-  if (!selected || (scope === 0 && selected === 'missing' && rows.some(r => r.id === 'host'))) selected = rows[0]?.id ?? '';
+  const rows = sectionRows(snapshot, scope);
+  selected = navigation.selection(rows);
   const vanished = !!selected && !rows.some(row => row.id === selected);
   screen.setRelay(snapshot.hostRelay ?? snapshot.routing?.relay, snapshot.service?.relay ?? 'unknown', snapshot.relayName);
   const configured = snapshot.local.some(r => r.id === 'host');
-  const actions: ManagerAction[] = scope === 0 ? [
-    { label: 'Register agent', run: async () => {
+  const registerAction: ManagerAction = { label: 'Register agent', run: async () => {
       if (!configured) { await routing('configure'); return; }
       let secret = await screen.input('Register agent\nAgent nsec private key. Hidden. Saved only in Beehive’s OS credential store.', '', true);
       if (secret === undefined) return;
@@ -72,7 +67,8 @@ function render() {
       if (!preview) { secret = ''; return; }
       if (await screen.confirm(`Register agent\n${preview.profile?.name ?? 'Name unavailable'}\n${preview.publicKey}\n${preview.profileState === 'unavailable' ? 'Relay unavailable. Register without a profile?' : preview.profileState === 'none' ? 'No profile found.' : preview.profile?.about ?? ''}\nThis does not authorize or start an agent. Save?`)) await request('register-agent',{ secret });
       secret = '';
-    } },
+    } };
+  let actions: ManagerAction[] = scope !== 1 ? [
     { label: 'Add provider', run: async () => {
       await request('provider-form');
       const type = await screen.choose('Add provider',['OpenAI','Databricks v2']); if (!type) return;
@@ -103,9 +99,9 @@ function render() {
       if (!await screen.confirm(`Use ${name} for the next start?\nHost and agent: ${row.id}\nRevision: ${row.revision}\nThis does not change the current run.`)) return;
       await request('select-config', { name }, row.id, row.revision);
     } },
-    ...(['start','stop','restart'] as const).map(action => ({ label: action === 'restart' ? 'Restart — unavailable' : `${action === 'start' ? 'Start' : 'Stop'} selected agent`, disabled: action === 'restart' ? 'Restart can change the local setup. Use Stop. Inspect a recent host report that confirms the agent is stopped. Then use Start. No Restart request is sent.' : eligibility(action), run: async () => {
+    ...(['start','stop','restart'] as const).map(action => ({ label: action[0]!.toUpperCase() + action.slice(1), disabled: eligibility(action), run: async () => {
       const row = snapshot.agents.find(r => r.id === selected); if (!row) return;
-      if (!await screen.confirm(`${action === 'start' ? 'Start' : 'Stop'} this agent?\nHost and agent: ${row.id}\nRevision: ${row.revision}`)) return;
+      if (!await screen.confirm(`${action[0]!.toUpperCase() + action.slice(1)} agent?\nHost and agent: ${row.id}\nRevision: ${row.revision}`)) return;
       await request(action, undefined, row.id, row.revision);
     } })),
     { label: 'Inspect operations', run: () => request('operations') },
@@ -116,14 +112,28 @@ function render() {
     { label: 'Sign in with saved owner key', run: () => routing('signin') },
     { label: 'Import matching owner key and sign in', run: () => routing('signin', true) },
   ];
+  if (scope === 0) actions = actions.filter(a => a.label === (snapshot.service?.state === 'running' ? 'Stop' : 'Start'));
+  if (scope === 1) actions.unshift(registerAction);
+  if (scope === 2) actions = [
+    ...actions.filter(a => a.label === 'Add runtime'),
+    { label: 'Refresh', run: () => request('runtime-form') },
+  ];
+  if (scope === 3) actions = [
+    ...actions.filter(a => a.label === 'Add provider'),
+    { label: 'Models', disabled: rows.some(r => r.id === selected) ? undefined : 'Select provider', run: async () => {
+      const provider = selected;
+      await request('models', { provider });
+      if (snapshot.models) await screen.choose('Models', snapshot.models);
+    } },
+  ];
   if (scope === 1 && !snapshot.owner) actions.push({ label: 'New private instructions draft…', run: async () => { const name = await screen.input('Private instructions · 1 of 2\nDraft name', '', false, false, v => v.trim() ? '' : 'Enter a draft name.'); if (name === undefined) return; const instructions = await screen.input(`Private instructions · 2 of 2\nDraft: ${name}\nSaved only on this computer. Not published or used by an agent. Do not enter passwords or keys.`, '', false, true, v => v.trim() ? '' : 'Enter instructions.'); if (instructions !== undefined) await request('draft', { name, instructions }); } });
   if (scope !== 0) actions.push({ label: 'Quit Beehive', run: () => screen.close() });
-  screen.show(vanished ? [{ id: selected, label: 'Selection no longer available', detail: 'This item is no longer available. Select a current item. No operation will use a replacement item.' }, ...rows] : scope === 0 ? hostRows : snapshot.agents.length ? snapshot.agents : [{ id: 'empty', label: snapshot.owner ? 'No host reports yet' : 'Owner sign-in required', detail: 'Sign in as owner to manage agents. This list uses private host reports, not a separate agent directory. An empty list or an offline host does not mean agents are stopped. Local Host and local drafts do not require sign-in.' }], actions, selected);
+  screen.show(vanished ? [{ id: selected, label: 'Selection unavailable', detail: 'Unavailable' }, ...rows] : rows.length ? rows : [{ id: 'empty', label: 'Empty', detail: '—' }], actions, selected);
   const notice = scope === 0 ? `Host: ${snapshot.service?.state ?? 'unknown'} · Saved: ${snapshot.settings?.revision ?? 0} · Loaded: ${snapshot.service?.revision ?? 'not confirmed'}\n${snapshot.status}` : snapshot.status;
   if (lastStatus !== notice) { lastStatus = notice; screen.notice(notice); }
 }
-screen.onScope = value => { scope = value; selected = ''; render(); };
-screen.onSelect = id => { if (selected !== id) { selected = id; render(); } };
+screen.onScope = value => { navigation.switch(value); scope = navigation.section; render(); if (scope === 2 && !snapshot.harnesses) void request('runtime-form'); };
+screen.onSelect = id => { if (id === 'empty') return; if (selected !== id) { if (id !== 'empty') navigation.select(id); selected = id; render(); } };
 const input = createInterface({ input: createReadStream('', { fd: 3 }) });
 input.on('line', line => {
   try {

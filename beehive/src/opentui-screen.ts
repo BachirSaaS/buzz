@@ -1,4 +1,5 @@
 import { RGBA, BoxRenderable, InputRenderable, ScrollBoxRenderable, SelectRenderable, TextRenderable, TextareaRenderable, type CliRenderer, type KeyEvent } from '@opentui/core';
+import { managerSections } from './manager-navigation.ts';
 import { stripVTControlCharacters } from 'node:util';
 
 export type ManagerRow = { id: string; label: string; detail: string; evidence?: string };
@@ -42,7 +43,15 @@ export class OpenTuiScreen {
   constructor(readonly renderer: CliRenderer) {
     this.root = new BoxRenderable(renderer, { width: '100%', height: '100%', flexDirection: 'column', backgroundColor: bg });
     renderer.root.add(this.root);
-    this.header = new TextRenderable(renderer, { fg, height: 2, onMouseDown: event => { if (event.y !== 0) return; const end = this.scope === 0 ? 20 : 18; if (event.x >= 8 && event.x < end) this.switchScope(0); else if (event.x >= end + 3 && event.x < end + 3 + (this.scope === 1 ? 8 : 6)) this.switchScope(1); } });
+    this.header = new TextRenderable(renderer, { fg, height: 2, onMouseDown: event => {
+      if (event.y !== 0) return;
+      let start = this.renderer.width < 56 ? 0 : 8;
+      for (let index = 0; index < managerSections.length; index++) {
+        const width = managerSections[index]!.length + (this.scope === index ? 2 : 0);
+        if (event.x >= start && event.x < start + width) { this.switchScope(index); return; }
+        start += width + (this.renderer.width < 56 ? 1 : 3);
+      }
+    } });
     this.root.add(this.header);
     const body = new BoxRenderable(renderer, { flexGrow: 1, flexDirection: 'row', minHeight: 1 });
     this.root.add(body);
@@ -88,7 +97,7 @@ export class OpenTuiScreen {
 
   private focusStyle() {
     this.listFrame.title = `${this.list.focused ? '[List]' : 'List'} · ${this.list.getSelectedIndex() + 1}/${this.rows.length}`;
-    this.scroll.title = this.scope === 0 ? 'Host settings' : 'Agent controls';
+    this.scroll.title = managerSections[this.scope] ?? 'Details';
     for (const widget of [this.list, this.actions]) { widget.selectedBackgroundColor = widget.focused ? fg : bg; widget.selectedTextColor = widget.focused ? bg : fg; }
   }
   private narrow = false;
@@ -100,18 +109,19 @@ export class OpenTuiScreen {
   private formWidth() { return this.scope === 0 ? Math.max(20, this.renderer.width - this.listFrame.width - 2) : Math.min(72, this.renderer.width - 4); }
   private formLeft() { return this.scope === 0 ? this.listFrame.width : Math.floor((this.renderer.width - this.formWidth()) / 2); }
   private resize() {
+    this.heading();
     if (this.overlay && this.modal) { this.overlay.width = this.formWidth(); this.overlay.left = this.formLeft(); this.overlay.height = this.compactOverlay ? Math.min(14, this.renderer.height - 4) : this.renderer.height - 4; }
     this.small.visible = this.renderer.width < 40 || this.renderer.height < 16;
     this.narrow = this.scope !== 0 && (this.renderer.width < 88 || this.renderer.height < 24);
     this.listFrame.visible = !this.narrow || !this.drilled;
     this.scroll.visible = !this.narrow || this.drilled;
     this.listFrame.width = this.narrow ? '100%' : Math.min(32, Math.max(14, Math.floor(this.renderer.width * .28)));
-    this.scroll.title = this.scope === 0 ? 'Host settings' : 'Agent controls';
+    this.scroll.title = managerSections[this.scope] ?? 'Details';
     this.footer.content = this.relayFooter + '\n' + (this.renderer.width >= 70 ? OpenTuiScreen.hintsWide : OpenTuiScreen.hintsNarrow); this.footer.height = 2;
   }
   private relayFooter = 'Relay: Not configured · disconnected';
   setRelay(url?: string, state = 'unknown', name?: string) { this.relayFooter = url ? `Relay: ${name ? `${clean(name)} · ` : ''}${clean(url)} · ${state}` : 'Relay: Not configured · disconnected'; this.resize(); }
-  private heading() { this.header.content = `BEEHIVE ${this.scope === 0 ? '[Local Host]' : 'Local Host'} | ${this.scope === 1 ? '[Agents]' : 'Agents'}\n${this.scope === 0 ? 'This computer · no owner sign-in needed' : 'Owner · ' + clean(this.owner)}`; }
+  private heading() { this.header.content = `${this.renderer.width < 56 ? '' : 'BEEHIVE '}${managerSections.map((name, index) => this.scope === index ? `[${name}]` : name).join(this.renderer.width < 56 ? ' ' : ' | ')}\n${clean(this.owner)}`; }
   setOwner(publicSuffix?: string) { this.owner = publicSuffix ? `${publicSuffix} · signed in · key saved here` : 'signed out'; this.heading(); }
   private switchScope(scope: number) {
     if (this.modal || this.busy || this.small.visible || this.closed) return;
@@ -137,7 +147,7 @@ export class OpenTuiScreen {
     if (key.name === 'f3' && this.scope !== 0) { key.preventDefault(); this.inspect(); return; }
     if (key.name === 'f4') { key.preventDefault(); this.outcome(); return; }
     if (this.focusIndex === 0 && ['home','end','pageup','pagedown'].includes(key.name)) { key.preventDefault(); this.navigate(this.list, key.name); }
-    if (key.name === 'left' || key.name === 'right') { key.preventDefault(); this.switchScope(1 - this.scope); }
+    if (key.name === 'left' || key.name === 'right') { key.preventDefault(); this.switchScope((this.scope + (key.name === 'left' ? managerSections.length - 1 : 1)) % managerSections.length); }
     if (key.name === 'tab') { key.preventDefault(); this.focusIndex = this.focusIndex === 0 ? 2 : 0; [this.list, this.scroll, this.actions][this.focusIndex]!.focus(); this.focusStyle(); }
     if (key.name === 'f1') { key.preventDefault(); this.help(); }
   }
@@ -154,7 +164,7 @@ export class OpenTuiScreen {
     if (this.closed) return;
     const prior = selected ?? this.rows[this.list.getSelectedIndex()]?.id;
     this.rows = rows; this.commands = actions;
-    this.detail.visible = this.scope !== 0;
+    this.detail.visible = true;
     const commandOptions = actions.map(a => ({ name: clean(a.label + (a.disabled ? ' — unavailable' : '')), description: '' }));
     if (JSON.stringify(this.actions.options) !== JSON.stringify(commandOptions)) this.actions.options = commandOptions;
     this.actions.height = Math.max(5,actions.length);
@@ -184,7 +194,7 @@ export class OpenTuiScreen {
   }
   inspect() { if (this.scope === 0) return; const row = this.rows[this.list.getSelectedIndex()]; this.read('Technical details', row?.evidence ?? 'No technical details for this item.'); }
   private outcome() { this.read('Status · latest message', this.lastNotice || 'No status message yet.'); }
-  private help() { this.read('Help', 'Tab: switch list and controls. Arrows: select. Enter: open.\nLeft/Right: switch Host settings and remote Agents.\nEsc: cancel or back. q or Ctrl-C: quit. The host keeps running.\nHost Start and Stop control this computer’s service, not an agent.\nAgent execution still requires authenticated management authority.\nShortcuts do not run while you edit fields.'); }
+  private help() { this.read('Help', 'Tab: switch list and controls. Arrows: select. Enter: open.\nLeft/Right: Host, Agents, Harnesses, Providers.\nEsc: cancel or back. q or Ctrl-C: quit. The host keeps running.\nHost Start and Stop control this computer’s service, not an agent.\nAgent execution still requires authenticated management authority.\nShortcuts do not run while you edit fields.'); }
   private read(title: string, content: string) {
     if (this.modal || this.closed) return;
     const box = new ScrollBoxRenderable(this.renderer, { position: 'absolute', top: 2, left: this.formLeft(), width: this.formWidth(), height: this.renderer.height - 4, border: true, title: title + ' · Esc close', backgroundColor: bg, scrollY: true });

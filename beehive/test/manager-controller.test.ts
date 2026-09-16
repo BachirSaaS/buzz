@@ -67,17 +67,21 @@ test('manager gates owner, exact selection/revision/freshness, unresolved operat
     assert.equal(f.snapshot.agents[0]!.disabled!.start, '');
     const target = JSON.stringify(['host-a','agent-a']);
     await request('start',{ target, revision: 2 }); assert.match(f.snapshot.status,/selection changed/);
+    await request('restart',{ target, revision: 2 }); assert.match(f.snapshot.status,/selection changed/); assert.equal(f.submitted.length,0);
     await request('start',{ target, revision: 3 }); assert.equal(f.submitted.length,1); assert.equal(f.submitted[0]!.type,'start');
     await f.controller.request({ id, action: 'start', target, revision: 3 }); assert.equal(f.submitted.length,1,'duplicate request cannot act twice');
-    await request('restart',{ target, revision: 3 }); assert.match(f.snapshot.status,/No Restart request is sent/); assert.equal(f.submitted.length,1,'handler refuses even if directly invoked');
+    await request('restart',{ target, revision: 3 }); assert.equal(f.submitted.at(-1)!.type,'restart'); assert.equal(f.submitted.length,2);
     f.states([{ request: f.submitted[0], state: 'unknown' }]);
-    await request('stop',{ target, revision: 3 }); assert.match(f.snapshot.status,/no confirmed result/); assert.equal(f.submitted.length,1);
+    await request('stop',{ target, revision: 3 }); assert.match(f.snapshot.status,/no confirmed result/); assert.equal(f.submitted.length,2);
+    await request('restart',{ target, revision: 3 }); assert.equal(f.submitted.length,2,'unresolved operation blocks Restart');
     f.states([{ request: f.submitted[0], state: 'completed' }]);
-    await request('select-config',{ target, revision: 3, values: { name: 'Alternative' } }); assert.equal(f.submitted[1]!.type,'save');
-    await request('stop',{ target, revision: 3 }); assert.equal(f.submitted[2]!.type,'stop');
+    await request('select-config',{ target, revision: 3, values: { name: 'Alternative' } }); assert.equal(f.submitted[2]!.type,'save');
+    await request('stop',{ target, revision: 3 }); assert.equal(f.submitted[3]!.type,'stop');
     f.receive({ ...m, revision: 4, body: { ...m.body, observedAt: Date.now()+1, phase: 'running', actualRun: { run: 'actual' } } });
     await request('start',{ target, revision: 4 }); assert.match(f.snapshot.status,/recent report from the assigned host/);
-    await request('signout'); assert.equal(f.snapshot.owner,undefined); assert.equal(f.submitted.length,3); assert.equal(f.closed,1);
+    f.receive({ ...m, revision: 5, body: { ...m.body, observedAt: Date.now()+2, assignedHost: 'host-b' } });
+    await request('restart',{ target, revision: 5 }); assert.match(f.snapshot.status,/assigned host/); assert.equal(f.submitted.length,4);
+    await request('signout'); assert.equal(f.snapshot.owner,undefined); assert.equal(f.submitted.length,4); assert.equal(f.closed,1);
     f.receive(m); assert.equal(f.controller.snapshot().agents.length,0,'late receive is fenced after signout');
   } finally { f.cleanup(); }
 });

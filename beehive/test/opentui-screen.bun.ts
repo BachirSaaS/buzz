@@ -3,16 +3,16 @@ import assert from 'node:assert/strict';
 import { createTestRenderer } from '@opentui/core/testing';
 import { OpenTuiScreen } from '../src/opentui-screen.ts';
 
-test('host settings has right-pane controls, no inspection menu, and hidden ordinary-key entry', async () => {
+test('host shows selected details and controls with hidden ordinary-key entry', async () => {
   const ui = await createTestRenderer({ width: 100, height: 30, exitOnCtrlC: false });
   const view = new OpenTuiScreen(ui.renderer);
   try {
     let calls = 0;
-    view.show(['Agents','Providers','Runtimes'].map(label => ({ id: label,label,detail: 'PRIVATE DETAIL MUST NOT DISPLAY' })),['Register agent','Add provider','Add runtime','Start','Stop'].map(label => ({ label,run: () => { calls++; } })));
+    view.show(['Agents','Providers','Runtimes'].map(label => ({ id: label,label,detail: 'Host name: Fixture' })),['Register agent','Add provider','Add runtime','Start','Stop'].map(label => ({ label,run: () => { calls++; } })));
     view.setRelay('wss://fixture.invalid','disconnected'); await ui.renderOnce();
     const frame = ui.captureCharFrame();
-    assert.match(frame,/Host settings/); assert.match(frame,/Register agent/); assert.match(frame,/wss:\/\/fixture.invalid.*disconnected/);
-    assert.ok(!frame.includes('Inspect')); assert.ok(!frame.includes('PRIVATE DETAIL')); assert.ok(!frame.includes('Actions (a)'));
+    assert.match(frame,/\[Host\]/); assert.match(frame,/Register agent/); assert.match(frame,/wss:\/\/fixture.invalid.*disconnected/);
+    assert.ok(!frame.includes('Inspect')); assert.ok(frame.includes('Host name: Fixture')); assert.ok(!frame.includes('Actions (a)'));
     ui.mockInput.pressTab(); ui.mockInput.pressEnter(); await ui.renderOnce(); assert.equal(calls,1);
     const secret = 'synthetic-aq?io-private-value';
     const entered = view.input('Hidden fixture key','',true);
@@ -53,5 +53,27 @@ test('footer shows the optional sanitized relay name before the exact URL and st
     assert.match(ui.captureCharFrame(),/Relay: wss:\/\/fixture\.invalid · connected/);
     view.setRelay(undefined,'unknown'); await ui.renderOnce();
     assert.match(ui.captureCharFrame(),/Relay: Not configured · disconnected/);
+  } finally { view.close(); }
+});
+
+
+test('four sections navigate in both directions and remain readable at narrow width', async () => {
+  const ui = await createTestRenderer({ width: 100, height: 30, exitOnCtrlC: false });
+  const view = new OpenTuiScreen(ui.renderer);
+  const scopes: number[] = [];
+  view.onScope = scope => { scopes.push(scope); view.show([{ id: String(scope), label: 'Selected', detail: `Section ${scope}` }], []); };
+  try {
+    for (const name of ['Agents', 'Harnesses', 'Providers', 'Host']) {
+      ui.mockInput.pressArrow('right'); await ui.renderOnce();
+      assert.ok(ui.captureCharFrame().includes(`[${name}]`), JSON.stringify({name,scopes,frame:ui.captureCharFrame()}));
+    }
+    ui.mockInput.pressArrow('left'); await ui.renderOnce();
+    assert.deepEqual(scopes, [1, 2, 3, 0, 3]);
+    ui.resize(40, 24); await ui.renderOnce();
+    assert.match(ui.captureCharFrame(), /Host Agents Harnesses \[Providers\]/);
+    await ui.mockMouse.click(13,0); await ui.renderOnce();
+    assert.equal(scopes.at(-1),2);
+    await ui.mockMouse.click(25,0); await ui.renderOnce();
+    assert.equal(scopes.at(-1),3);
   } finally { view.close(); }
 });
