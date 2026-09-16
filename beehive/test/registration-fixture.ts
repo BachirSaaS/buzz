@@ -1,5 +1,5 @@
 import { setTimeout as delay } from 'node:timers/promises';
-import { mkdirSync, writeFileSync, realpathSync } from 'node:fs';
+import { mkdirSync, writeFileSync, realpathSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { schnorr } from '@noble/curves/secp256k1';
@@ -9,12 +9,12 @@ import { message, newKey, publicKey, digest, type Message } from '../src/protoco
 import { ManagerController, type ManagerSnapshot } from '../src/manager-controller.ts';
 import { fetchRelayDirectory } from '../src/relay-directory.ts';
 import { managementClient } from '../src/intents.ts';
-import { bootstrapHostIdentity } from '../src/host-identity.ts';
+import { bootstrapHostIdentity, readHostIdentity, readHostIdentityPublic } from '../src/host-identity.ts';
 import { privateHostTransport } from '../src/host-transport.ts';
 import { createControllerConfig } from '../src/controller-config.ts';
 import { provisionCredentialSlot } from '../src/credential-slots.ts';
 import { createGenesis } from '../src/assignment.ts';
-import { createCredential } from '../src/credential-store.ts';
+import { createCredential, type CredentialReference } from '../src/credential-store.ts';
 import { registerAgent, agentNsec, addOpenAI, addProvider } from '../src/settings-credentials.ts';
 import { readSettings, saveSettings } from '../src/settings.ts';
 import { host } from '../src/host.ts';
@@ -24,7 +24,7 @@ import { nostrFixture } from './nostr-fixture.ts';
 /** Product-shaped synthetic fixture. Real private relay, owner authentication,
  * host and owned ACP process. Public assignment is pre-provisioned explicitly by
  * this test, NOT derived by registration from directory metadata or nsec custody. */
-export async function registrationFixture(home: string, changed: (s: ManagerSnapshot) => void, assigned = true, move = false) {
+export async function registrationFixture(home: string, changed: (s: ManagerSnapshot) => void, assigned = true, move = false, direct = false) {
   home = realpathSync(home);
   if (!home.includes('beehive-pairing-cli-')) throw Error('Fresh explicit fixture HOME required');
   const credentials = isolatedFileCredentials(join(home,'credentials.json'));
@@ -34,7 +34,8 @@ export async function registrationFixture(home: string, changed: (s: ManagerSnap
   const profile = finalizeEvent({kind:0,created_at:now,tags:[['auth',owner,'',Buffer.from(schnorr.sign(digest(`nostr:agent-auth:${agent}:`),ownerSecret)).toString('hex')]],content:JSON.stringify({name:'Review agent'})},Buffer.from(agentSecret,'hex'));
   const errors: unknown[] = [], ids = new Set<string>();
   const members = new Set([owner]); let url = '';
-  const relay = await nostrFixture(owner,members,{open:true},(req,res) => {
+  const retained = direct && existsSync(join(home,'.beehive/host/host-identity.json')) ? readHostIdentityPublic(join(home,'.beehive/host')) : undefined;
+  const relay = await nostrFixture(owner,members,{open:true,...(retained ? {port:Number(new URL(retained.pairing.relay).port)} : {})},(req,res) => {
     if (req.method === 'GET' && req.url === '/') { res.end(JSON.stringify({self:publicKey(relaySecret),name:'Synthetic relay'})); return true; }
     if (req.method !== 'POST' || req.url !== '/query') return false;
     let body = ''; req.on('data',chunk => { body += chunk; if (body.length > 65536) req.destroy(); });
@@ -52,18 +53,18 @@ export async function registrationFixture(home: string, changed: (s: ManagerSnap
   url = relay.url;
   const directory = join(home,'.beehive','host');
   mkdirSync(directory,{recursive:true,mode:0o700});
-  const identity = bootstrapHostIdentity(directory,'Review host',owner,url,credentials);
-  createCredential('owner',ownerSecret,credentials);
-  createControllerConfig(join(home,'.beehive','owner'),owner,url);
+  const identity = retained ? readHostIdentity(directory,credentials) : bootstrapHostIdentity(directory,'Review host',owner,url,credentials);
+  if (!retained) createCredential('owner',ownerSecret,credentials);
+  if (!direct) createControllerConfig(join(home,'.beehive','owner'),owner,url);
   const setup = {host:identity.pairing.host,ownerPublic:owner,runner:realpathSync(process.execPath),args:['-e','setInterval(()=>{},1000)'],workspace:home,mode:'fixture' as const,serviceHome:home,configDirectory:home};
   const genesis = createGenesis(owner,agent,identity.pairing.host);
   if (assigned) provisionCredentialSlot(directory,setup,agentSecret,genesis,credentials);
   let providerKey: string | null = null;
-  addOpenAI(directory,'Review OpenAI','synthetic-provider-key',{read:()=>providerKey,create:(_r,v)=>{providerKey=v;}});
+  if (!direct) addOpenAI(directory,'Review OpenAI','synthetic-provider-key',{read:()=>providerKey,create:(_r,v)=>{providerKey=v;}});
   const executable = join(home,'synthetic-acp');
   writeFileSync(executable,`#!/bin/sh\n[ "$REVIEW_MODE" = synthetic ] || exit 9\nexec '${process.execPath}' '${fileURLToPath(new URL('./acp-fixture.ts',import.meta.url))}' saved-provider\n`,{mode:0o700});
   const settings = readSettings(directory), runtimeId = 'review-runtime';
-  saveSettings(directory,{...settings,runtimes:[{id:runtimeId,name:'Review runtime',harness:'buzz-agent',executable,providerId:settings.providers[0]!.id,model:'gpt-5',effort:'high',environment:{REVIEW_MODE:'synthetic'}}]},settings.revision);
+  if (!direct) saveSettings(directory,{...settings,runtimes:[{id:runtimeId,name:'Review runtime',harness:'buzz-agent',executable,providerId:settings.providers[0]!.id,model:'gpt-5',effort:'high',environment:{REVIEW_MODE:'synthetic'}}]},settings.revision);
   let providerFailure = false;
   let holdPrepared = false, dropGrant = false, holdEnrollment = false;
   const held: (()=>void)[] = [];
@@ -119,8 +120,8 @@ export async function registrationFixture(home: string, changed: (s: ManagerSnap
   let credentialFailure = false, beforeCredential: (() => Promise<void>) | undefined, afterCredential: (() => Promise<void>) | undefined;
   const credential = async (input: any, signal: AbortSignal) => {
     signal.throwIfAborted();
-    if (input.action === 'signin') return {ok:true,secret:ownerSecret};
-    if (input.action === 'add-provider') { addProvider(directory,input.name,input.secret,{read:()=>providerKey,create:(_r,v)=>{providerKey=v;}},input.type,input.endpoint,input.wire); return {ok:true}; }
+    if (input.action === 'signin' || input.action === 'signin-buzz') return {ok:true,secret:ownerSecret};
+    if (input.action === 'add-provider') { addProvider(directory,input.name,input.secret,direct ? {read:r=>credentials.read(r as unknown as CredentialReference),create:(r,v)=>credentials.create(r as unknown as CredentialReference,v)} : {read:()=>providerKey,create:(_r,v)=>{providerKey=v;}},input.type,input.endpoint,input.wire); return {ok:true}; }
     if (input.action === 'models') { const p=readSettings(directory).providers.find(p=>p.id===input.provider); const model=p?.type === 'anthropic' ? 'claude-sonnet-4-5' : p?.type === 'openrouter' ? 'vendor/custom-model' : 'gpt-5'; return {ok:true,models:[model],modelLabels:{[model]:p?.type === 'anthropic' ? 'Claude Sonnet 4.5' : model}}; }
     if (input.action !== 'register-agent') throw Error('Fixture denies external credential operation');
     await beforeCredential?.(); signal.throwIfAborted();
@@ -138,6 +139,7 @@ export async function registrationFixture(home: string, changed: (s: ManagerSnap
 
 /** Installed walkthrough uses the same real synthetic lifecycle fixture as tests. */
 export async function walkthroughController(home: string, changed: (s: ManagerSnapshot) => void) {
-  const fixture = await registrationFixture(home,changed,false,true);
+  const direct = process.env.BEEHIVE_SMOKE_DIRECT === '1';
+  const fixture = await registrationFixture(home,changed,false,!direct,direct);
   return fixture.controller;
 }

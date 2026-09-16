@@ -8,7 +8,7 @@ test('host shows selected details and controls with hidden ordinary-key entry', 
   const view = new OpenTuiScreen(ui.renderer);
   try {
     let calls = 0;
-    view.show(['Agents','Providers','Runtimes'].map(label => ({ id: label,label,detail: 'Host name: Fixture' })),['Register agent','Add provider','Add runtime','Start','Stop'].map(label => ({ label,run: () => { calls++; } })));
+    view.show(['Agents','Providers','Harnesses'].map(label => ({ id: label,label,detail: 'Host name: Fixture' })),['Register agent','Add provider','Configure','Start','Stop'].map(label => ({ label,run: () => { calls++; } })));
     view.setRelay('wss://fixture.invalid','disconnected'); await ui.renderOnce();
     const frame = ui.captureCharFrame();
     assert.match(frame,/\[Host\]/); assert.match(frame,/Register agent/); assert.match(frame,/wss:\/\/fixture.invalid.*disconnected/);
@@ -201,5 +201,20 @@ test('temporary notices retire nested work but retain newer results and errors',
     view.show([], [{ label: 'Cancel form', run: async () => {} }]);
     ui.mockInput.pressKey('a'); ui.mockInput.pressKey('return'); await new Promise(resolve => setTimeout(resolve, 20));
     await ui.renderOnce(); assert.ok(!ui.captureCharFrame().includes('Working'));
+  } finally { view.close(); }
+});
+
+test('pointer-opened confirmation retains ordinary input focus through mouse dispatch', async () => {
+  const ui = await createTestRenderer({ width: 100, height: 30, exitOnCtrlC: false });
+  const view = new OpenTuiScreen(ui.renderer);
+  try {
+    let result: boolean | undefined;
+    view.show([{id:'agent',label:'Agent',detail:'Selected agent'}],[{label:'Start',run:async()=>{result = await view.confirm('Start agent?');}}]);
+    await ui.renderOnce();
+    const lines = ui.captureCharFrame().split('\n'), row = lines.findIndex(line => line.includes('Start'));
+    await ui.mockMouse.click(40,row); await ui.renderOnce();
+    await ui.mockInput.typeText('yes'); await ui.renderOnce();
+    ui.mockInput.pressEnter(); await ui.renderOnce();
+    assert.equal(result,true,'pointer dispatch stole focus from confirmation input');
   } finally { view.close(); }
 });

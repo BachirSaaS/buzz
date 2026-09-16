@@ -37,12 +37,13 @@ test('Pi model routes use the shared capability owner; UC tenant components neve
  assert.ok(runtimeCapabilities('databricks_v2','gpt-5.schema.unknown')!.supported_efforts.includes('high'));
 });
 
-test('actual runtime form offers Pi both providers, retains custom names, submits only supported model effort',async()=>{
+test('direct configuration form offers Pi both providers and returns only supported model effort',async()=>{
  for(const type of ['openai','databricks_v2'] as const) {
   const model=type==='openai'?'gpt-5':'databricks-gpt-5-4';
   const snapshot:ManagerSnapshot={local:[],agents:[],status:'fixture',harnesses:[{id:'pi',label:'Pi',executable:'/fake',cli:'/fake-pi',state:'available',providers:['openai','databricks_v2'],reason:'synthetic'}],models:[model],settings:{version:1,revision:1,agents:[],runtimes:[],providers:[{id:'p',name:'Saved',type,endpoint:type==='openai'?'https://api.openai.com/v1':'https://pi-workspace.example',key}]}};
-  const choices=['Pi · Available','Saved · p',model,'high'];const calls:any[]=[];
-  await runtimeForm({async choose(_label,options){const value=choices.shift();assert.ok(options.includes(value!));return value;},async input(label){return label.startsWith('Environment') ? '{}' : 'My Pi';},async confirm(){return true;},notice(){throw Error('unexpected notice');}},()=>snapshot,async(action,values)=>{calls.push({action,values});return {state:"completed"};});
-  assert.deepEqual(calls.at(-1),{action:'add-runtime',values:{name:'My Pi',model,environment:'{}',provider:'p',harness:'pi',effort:'high'}});
+  const choices=['Pi · Available','Saved',model,'high'];const calls:any[]=[];
+  const configured = await runtimeForm({async choose(_label,options){const value=choices.shift();assert.ok(options.includes(value!));return value;},async input(label){return label.startsWith('Environment') ? '{}' : 'My Pi';},async confirm(){return true;},notice(){throw Error('unexpected notice');}},()=>snapshot,async(action,values)=>{calls.push({action,values});return {state:"completed"};});
+  assert.deepEqual(configured,{model,environment:'{}',provider:'p',harness:'pi',effort:'high'});
+  assert.deepEqual(calls.map(c => c.action),['configuration-form','models']);
  }
 });

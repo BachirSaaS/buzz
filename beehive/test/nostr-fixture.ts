@@ -7,7 +7,7 @@ import { verifyEvent, type Event } from 'nostr-tools/pure';
  * recipient-scoped REQ, timestamp/size and publication rules. Optional allowed
  * identities model real server AUTH refusal, not a Beehive membership preflight.
  */
-export async function nostrFixture(owner: string, allowedIdentities?: ReadonlySet<string>, access: { open?: boolean; denyAuth?: boolean; denyPublication?: boolean; denyReq?: boolean } = {}, publicHttp?: (req: IncomingMessage, res: ServerResponse) => boolean) {
+export async function nostrFixture(owner: string, allowedIdentities?: ReadonlySet<string>, access: { open?: boolean; denyAuth?: boolean; denyPublication?: boolean; denyReq?: boolean; port?: number } = {}, publicHttp?: (req: IncomingMessage, res: ServerResponse) => boolean) {
   const allowed = new Set(allowedIdentities ?? [owner]);
   const httpRequests: string[] = [];
   const http = createServer((req, res) => {
@@ -18,7 +18,7 @@ export async function nostrFixture(owner: string, allowedIdentities?: ReadonlySe
     else res.writeHead(404).end('{}');
   });
   const server = new WebSocketServer({ server: http, maxPayload: 300000 });
-  await new Promise<void>(resolve => http.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolve,reject) => { http.once('error',reject); http.listen(access.port ?? 0, '127.0.0.1', resolve); });
   const address = http.address();
   if (!address || typeof address === 'string') throw Error('Missing fixture address');
   const url = `ws://127.0.0.1:${address.port}`;

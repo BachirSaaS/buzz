@@ -36,6 +36,7 @@ export class OpenTuiScreen {
   private finish!: () => void;
   readonly done = new Promise<void>(resolve => { this.finish = resolve; });
   onScope: (index: number) => void = () => {};
+  onActivate: (id: string) => void | Promise<void> = () => {};
   onSelect: (id: string) => void = () => {};
 
   /** Persistent ordinary-key legend, separate from status. Never function-key first.
@@ -89,7 +90,11 @@ export class OpenTuiScreen {
       const offset = Math.max(0, Math.min(this.actions.getSelectedIndex() - Math.floor(visible / 2), this.commands.length - visible));
       const index = offset + delta;
       if (index >= this.commands.length) return;
-      this.actions.setSelectedIndex(index); this.actions.selectCurrent();
+      this.actions.setSelectedIndex(index);
+      // Finish pointer focus dispatch before an action opens an input modal.
+      // Otherwise Select's mouse handler can steal focus back from that input.
+      const action = this.commands[index];
+      queueMicrotask(() => { void this.run(index, action); });
     } });
     this.pane.add(this.actions);
     this.status = new TextRenderable(renderer, { fg, height: 2, onMouseDown: () => this.outcome() });
@@ -109,7 +114,7 @@ export class OpenTuiScreen {
       this.focusStyle(); if (row) this.onSelect(row.id);
     });
     this.actions.on('itemSelected', (index: number) => { void this.run(index); });
-    this.list.on('itemSelected', () => { if (this.narrow) { this.drilled = true; this.resize(); this.focusIndex = 1; this.scroll.focus(); } });
+    this.list.on('itemSelected', () => { const row = this.rows[this.list.getSelectedIndex()]; if (row) void this.onActivate(row.id); if (this.narrow) { this.drilled = true; this.resize(); this.focusIndex = 1; this.scroll.focus(); } });
     renderer.keyInput.on('keypress', key => this.key(key));
     renderer.keyInput.on('paste', event => {
       if (!this.modal) return;
@@ -154,6 +159,7 @@ export class OpenTuiScreen {
   setRelay(url?: string, state = 'unknown', name?: string) { this.relayFooter = url ? `Relay: ${name ? `${clean(name)} · ` : ''}${clean(url)} · ${state}` : 'Relay: Not configured · disconnected'; this.resize(); }
   private heading() { this.header.content = `${this.renderer.width < 56 ? '' : 'BEEHIVE '}${managerSections.map((name, index) => this.scope === index ? `[${name}]` : name).join(this.renderer.width < 56 ? ' ' : ' | ')}\n${clean(this.owner)}`; }
   setOwner(publicSuffix?: string) { this.owner = publicSuffix ? `${publicSuffix} · signed in` : 'signed out'; this.heading(); }
+  setScope(scope: number) { this.scope = scope; this.drilled = false; this.selectedRow = -1; this.resize(); this.heading(); }
   private switchScope(scope: number) {
     if (this.modal || this.busy || this.small.visible || this.closed) return;
     // A section change must present its own details from the top even when the

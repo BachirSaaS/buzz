@@ -55,5 +55,5 @@ test('runtime form stops on failed discovery and cancelled models rather than co
   const calls:string[]=[];
   await runtimeForm(screen,()=>snapshot,async action=>{calls.push(action);return action === 'models' ? {state:'cancelled',reason:'fixture'} : {state:'completed'};});
   assert.equal(choices,2);
-  assert.deepEqual(calls,['runtime-form','models']);
+  assert.deepEqual(calls,['configuration-form','models']);
 });

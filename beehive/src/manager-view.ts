@@ -1,5 +1,5 @@
 import { ManagerNavigation, sectionRows } from './manager-navigation.ts';
-import { runtimeForm } from './runtime-form.ts';
+import { configurationForm } from './runtime-form.ts';
 import { createCliRenderer } from '@opentui/core';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { createInterface } from 'node:readline';
@@ -17,7 +17,7 @@ let snapshot: ManagerSnapshot = { local: [], agents: [], status: 'Connecting to 
 const navigation = new ManagerNavigation();
 let scope = 0, selected = '', sequence = 0, lastStatus = '';
 let pending: { id: number; resolve: (result: ManagerResult) => void } | undefined;
-function request(action: string, values?: Record<string,string>, target?: string, revision?: number) {
+function rawRequest(action: string, values?: Record<string,string>, target?: string, revision?: number) {
   if (pending) return Promise.resolve<ManagerResult>({ state: 'ignored', reason: 'An operation is pending.' });
   const id = ++sequence;
   const completion = new Promise<ManagerResult>(resolve => { pending = { id, resolve }; });
@@ -25,6 +25,20 @@ function request(action: string, values?: Record<string,string>, target?: string
   screen.setPending(true); const retire = screen.temporaryNotice(action === 'add-databricks' ? 'Signing in through your browser… Esc cancels the native helper. An OS credential write or browser window may remain; cancelled sign-in will not save a provider.' : action === 'signin-buzz' ? 'Reading the saved Buzz owner key… Keychain read only · session only · no local copy. Esc stops waiting. An OS keychain permission dialog may appear; it is separate and is not bypassed.' : 'Working… Esc stops waiting. Remote work and saved changes are not cancelled. Inspect before you try again.');
   output.write(JSON.stringify(message) + '\n');
   return completion.finally(retire);
+}
+async function signin() {
+  if (snapshot.owner) return true;
+  const choice = await screen.choose('Sign in', ['Buzz key', 'Saved owner key', 'Import matching owner key']);
+  if (!choice) return false;
+  if (choice === 'Buzz key') await rawRequest('signin-buzz');
+  else await routing('signin', choice === 'Import matching owner key');
+  return !!snapshot.owner;
+}
+async function request(action: string, values?: Record<string,string>, target?: string, revision?: number): Promise<ManagerResult> {
+  const result = await rawRequest(action, values, target, revision);
+  if (result.state !== 'signin-required') return result;
+  if (!await signin()) return { state: 'cancelled', reason: 'Sign in cancelled.' };
+  return rawRequest(action, values, target, revision);
 }
 async function routing(action: string, secret = false) {
   const retained = action !== 'configure' ? snapshot.routing : undefined;
@@ -42,7 +56,7 @@ async function routing(action: string, secret = false) {
   }
   const values: Record<string,string> = { owner, relay };
   if (secret) {
-    const key = await screen.input('Import owner key\nMatching private key (64 hex characters) · OS credential store', '', true);
+    const key = await screen.input('Import owner key\nMatching nsec · OS credential store', '', true);
     if (key === undefined) return;
     values.secret = key;
   }
@@ -53,18 +67,14 @@ async function routing(action: string, secret = false) {
 async function registerForm(continuation?: string, agent?: string) {
   let secret = '', settled = false;
   try {
-    const runtimes = snapshot.settings?.runtimes ?? [];
-    if (!runtimes.length) { screen.notice('Add a provider and runtime in Harnesses, then Start again.'); return; }
-    const labels = runtimes.map(r => `${r.name} · ${r.model} · ${r.id}`);
-    const choice = await screen.choose('Runtime',labels); if (choice === undefined) return;
-    const runtime = runtimes[labels.indexOf(choice)]; if (!runtime) return;
     const answer = await screen.input(`Register agent${agent ? `\n${agent}` : ''}\nMatching nsec. Hidden. Saved in Beehive’s OS credential store.`, '', true);
     if (answer === undefined) return; secret = answer;
     const result = await request('profile-preview',{secret,...(agent ? {agent} : {}),...(continuation ? {continuation} : {})});
     if (result.state !== 'completed') { settled = true; return; }
     const preview = snapshot.profilePreview; if (!preview) return;
-    if (!await screen.confirm(`Register agent\n${preview.profile?.name ?? 'Name unavailable'}\n${preview.publicKey}\n${preview.profileState === 'unavailable' ? 'Profile unavailable; public key verified locally.' : preview.profileState === 'none' ? 'No relay profile found.' : ''}\nRuntime: ${runtime.name}\nHarness: ${runtime.harness} · Model: ${runtime.model}\nProvider: ${snapshot.settings?.providers.find(p => p.id === runtime.providerId)?.name ?? 'Unknown'}\nEffort: ${runtime.effort ?? 'Inherit'} · Environment: ${Object.keys(runtime.environment ?? {}).join(', ') || 'None'}\n${continuation ? 'Register and continue Start on the selected host?' : 'Save registration?'}`)) return;
-    await request('register-agent',{secret,runtime:runtime.id,...(agent ? {agent} : {}),...(continuation ? {continuation} : {})}); settled = true;
+    const configuration = await configurationForm(screen, () => snapshot, request); if (!configuration) return;
+    if (!await screen.confirm(`Register agent\n${preview.profile?.name ?? 'Name unavailable'}\n${preview.publicKey}\n${continuation ? 'Register and Start?' : 'Save registration?'}`)) return;
+    await request('register-agent',{secret,...configuration,...(agent ? {agent} : {}),...(continuation ? {continuation} : {})}); settled = true;
   } finally { secret = ''; if (continuation && !settled) await request('retire-continuation'); }
 }
 function eligibility(action: string) {
@@ -103,7 +113,6 @@ function render() {
       if (await screen.confirm(`Save provider\n${name}`)) await request('add-provider',{ name, secret, type:providerType, endpoint, ...(wire ? {wire} : {}) });
       secret = '';
     } },
-    { label: 'Add runtime', run: () => runtimeForm(screen, () => snapshot, request) },
     { label: 'Start', disabled: snapshot.service?.state === 'unknown' ? 'Host ownership is unknown. No process will be adopted.' : undefined, run: async () => {
       if (!configured) { await routing('configure'); return; }
       if (await screen.confirm('Start host\nLocal host service · Keeps running when you quit')) await request('host-start');
@@ -114,19 +123,10 @@ function render() {
     } },
   ] : snapshot.owner ? [
     { label: 'Refresh agents', run: () => request('directory-refresh') },
-    { label: 'Choose runtime…', disabled: eligibility('select-config'), run: async () => {
+    { label: 'Configure', disabled: eligibility('select-config'), run: async () => {
       const row = snapshot.agents.find(r => r.id === selected); if (!row) return;
-      const runtimes = snapshot.settings?.runtimes ?? [];
-      const labels = runtimes.map(r => `${r.name} · ${r.model} · ${r.id}`);
-      const choice = await screen.choose('Runtime for next start',labels); if (choice === undefined) return;
-      const runtime = runtimes[labels.indexOf(choice)]; if (!runtime) return;
-      if (await screen.confirm(`Save runtime\n${runtime.name} · Next Start\n${targetNames(row)}`)) await request('select-runtime',{runtime:runtime.id},row.target,row.revision);
-    } },
-    { label: 'Choose configuration…', disabled: eligibility('select-config'), run: async () => {
-      const row = snapshot.agents.find(r => r.id === selected); if (!row) return;
-      const name = await screen.choose('Configuration for next start', row.configurations); if (name === undefined) return;
-      if (!await screen.confirm(`Save configuration\n${name} · Next Start\n${targetNames(row)}\nRevision: ${row.revision}`)) return;
-      await request('select-config', { name }, row.target, row.revision);
+      const configuration = await configurationForm(screen, () => snapshot, request, row.configuration); if (!configuration) return;
+      if (await screen.confirm(`Save configuration\n${targetNames(row)}\nFor next Start`)) await request('configure-agent',configuration,row.target,row.revision);
     } },
     ...(['start','stop','restart'] as const).map(action => ({ label: action[0]!.toUpperCase() + action.slice(1), disabled: eligibility(action), run: async () => {
       const row = snapshot.agents.find(r => r.id === selected); if (!row) return;
@@ -139,7 +139,7 @@ function render() {
       const destinations = row.destinations ?? [];
       if (!destinations.length) { screen.notice('No destination hosts. Configure and start another host for this owner and relay, then Refresh.'); return; }
       const labels = destinations.map(d => `${d.label}${d.reason ? ' · Setup required' : ''}`);
-      const chosen = await screen.choose('Move · destination host / runtime',labels); if (chosen === undefined) return;
+      const chosen = await screen.choose('Move · destination host',labels); if (chosen === undefined) return;
       const destination = destinations[labels.indexOf(chosen)]; if (!destination) return;
       if (destination.reason) { screen.notice(destination.reason); return; }
       if (!await screen.confirm(`Move agent\n${targetNames(row)}\nDestination: ${destination.label}
@@ -159,12 +159,11 @@ The source stops before destination launch. Workspace, session and credentials s
   if (scope === 1) {
     const isAgent = snapshot.agents.some(row => row.id === selected);
     const registered = snapshot.settings?.agents.some(agent => agent.publicKey === selected);
-    if (snapshot.owner && !isAgent) actions = [registerAction, ...actions.filter(action => ['Refresh agents', 'Sign out'].includes(action.label))];
-    else if (snapshot.owner && !registered) actions.unshift(registerAction);
+    if (snapshot.owner && !isAgent) actions = [registered ? { label: 'Configure', disabled: 'Host unavailable.', run: () => {} } : registerAction, ...actions.filter(action => ['Refresh agents', 'Sign out'].includes(action.label))];
+    else if (snapshot.owner && !registered) { actions = actions.filter(a => a.label !== 'Configure'); actions.unshift(registerAction); }
   }
   if (scope === 2) actions = [
-    ...actions.filter(a => a.label === 'Add runtime'),
-    { label: 'Refresh harnesses', run: () => request('runtime-form') },
+    { label: 'Refresh harnesses', run: () => request('configuration-form') },
   ];
   if (scope === 3) actions = [
     ...actions.filter(a => a.label === 'Add provider'),
@@ -178,7 +177,16 @@ The source stops before destination launch. Workspace, session and credentials s
   const notice = scope === 0 ? `Host: ${snapshot.service?.state ?? 'unknown'} · Saved: ${snapshot.settings?.revision ?? 0} · Loaded: ${snapshot.service?.revision ?? 'not confirmed'}\n${snapshot.status}` : snapshot.status;
   if (lastStatus !== notice) { lastStatus = notice; screen.notice(notice); }
 }
-screen.onScope = value => { navigation.switch(value); scope = navigation.section; render(); if (scope === 2 && !snapshot.harnesses) void request('runtime-form'); };
+screen.onScope = async value => {
+  if (value >= 2 && !snapshot.owner && !await signin()) { screen.setScope(scope); return; }
+  navigation.switch(value); scope = navigation.section; render();
+  if (scope === 2 && !snapshot.harnesses) await request('configuration-form');
+};
+screen.onActivate = async id => {
+  if (id === 'signin-buzz') await request('signin-buzz');
+  else if (id === 'signin-saved' || id === 'signin-import') await routing('signin', id === 'signin-import');
+  else if (id === 'register-agent') { if (await signin()) await registerForm(); }
+};
 screen.onSelect = id => { if (selected !== id) { navigation.select(id); selected = id; render(); } };
 const input = createInterface({ input: createReadStream('', { fd: 3 }) });
 input.on('line', line => {

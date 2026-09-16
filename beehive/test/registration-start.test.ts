@@ -138,7 +138,7 @@ test('explicit directory refresh reuses authenticated discovery without reconnec
   assert.deepEqual(f.snapshot.agents.map(a=>a.id),before);
   assert.deepEqual(f.errors,[]);
   await f.request('signout');
-  assert.equal((await f.request('directory-refresh')).state,'failed');
+  assert.equal((await f.request('directory-refresh')).state,'signin-required');
   assert.equal(f.snapshot.agents.length,0);
 });
 
@@ -257,4 +257,60 @@ test('Other-agent registration requires that exact identity even without a Start
   assert.equal(readSettings(f.directory).agents[0]?.publicKey, f.agent);
   await f.request('operations');
   assert.match(f.snapshot.status, /No saved operations/);
+});
+
+test('direct agent configuration registers, saves future selection without mutating actual, remembers discovery and preserves provider references', async t => {
+  const f = await fixture(t);
+  const begin = await f.start(); assert.equal(begin.state,'registration-required'); if (begin.state !== 'registration-required') return;
+  await f.request('profile-preview',{secret:f.nsec,agent:f.agent,continuation:begin.continuation});
+  assert.equal((await f.request('configuration-form')).state,'completed',f.snapshot.status);
+  const provider = readSettings(f.directory).providers[0]!;
+  const fields = {harness:'buzz-agent',provider:provider.id,model:'gpt-5',effort:'high',environment:'{"REVIEW_MODE":"synthetic"}'};
+  assert.equal((await f.request('register-agent',{...fields,secret:f.nsec,agent:f.agent,continuation:begin.continuation})).state,'submitted',f.snapshot.status);
+  await until(()=>f.snapshot.agents[0]?.label.includes('running') === true);
+  let row = f.snapshot.agents[0]!;
+  const actual = JSON.parse(row.evidence!).report.body.actualRun;
+  assert.notEqual(actual.selection.harnessSetup.id, `runtime:${f.runtimeId}`);
+  assert.equal((await f.request('configure-agent',{...fields,effort:'low'},row.target,row.revision)).state,'submitted',f.snapshot.status);
+  await until(()=>f.snapshot.agents[0]!.revision > row.revision);
+  row = f.snapshot.agents[0]!;
+  assert.deepEqual(JSON.parse(row.evidence!).report.body.actualRun,actual);
+  assert.equal(row.configuration?.effort,'low');
+  assert.ok(!row.detail.includes('runtime:'));
+  const saved = readSettings(f.directory);
+  assert.equal((await f.request('configuration-form')).state,'completed');
+  assert.deepEqual(readSettings(f.directory).providers,saved.providers);
+  assert.deepEqual(readSettings(f.directory).runtimes,saved.runtimes);
+  assert.deepEqual(readSettings(f.directory).harnesses,f.snapshot.harnesses);
+  const {ManagerController} = await import('../src/manager-controller.ts');
+  const reopened = new ManagerController(f.controller.home,()=>{});
+  assert.deepEqual(reopened.snapshot().harnesses,f.snapshot.harnesses);
+  assert.deepEqual(reopened.snapshot().settings?.providers,saved.providers);
+  assert.deepEqual(reopened.snapshot().settings?.runtimes,saved.runtimes);
+  assert.equal((await reopened.request({id:1,action:'configure-agent',values:fields})).state,'signin-required');
+  reopened.close();
+  await f.request('stop',undefined,row.target,row.revision);
+  await until(()=>f.snapshot.agents[0]?.label.includes('stopped') === true);
+  row=f.snapshot.agents[0]!;
+  await f.request('start',undefined,row.target,row.revision);
+  await until(()=>f.snapshot.agents[0]?.label.includes('running') === true);
+  assert.notEqual(JSON.parse(f.snapshot.agents[0]!.evidence!).report.body.actualRun.selection.harnessSetup.id,actual.selection.harnessSetup.id);
+});
+
+test('environment Databricks is normalized, visible and durable before any provider setup or credential read', async t => {
+  const home = realpathSync(mkdtempSync(join(tmpdir(),'beehive-pairing-cli-env-provider-')));
+  t.after(()=>rmSync(home,{recursive:true,force:true}));
+  const prior = process.env.DATABRICKS_HOST;
+  process.env.DATABRICKS_HOST = 'https://synthetic-workspace.example/';
+  const {ManagerController} = await import('../src/manager-controller.ts');
+  try {
+    const controller = new ManagerController(home,()=>{},async()=>{ throw Error('Passive availability cannot read credentials'); });
+    const providers = controller.snapshot().settings!.providers;
+    assert.equal(providers.length,1); assert.equal(providers[0]!.type,'databricks_v2');
+    assert.equal(providers[0]!.endpoint,'https://synthetic-workspace.example');
+    controller.close();
+    const reopened = new ManagerController(home,()=>{});
+    assert.deepEqual(reopened.snapshot().settings!.providers,providers); reopened.close();
+    assert.ok(!existsSync(join(home,'credentials.json')));
+  } finally { if (prior === undefined) delete process.env.DATABRICKS_HOST; else process.env.DATABRICKS_HOST = prior; }
 });

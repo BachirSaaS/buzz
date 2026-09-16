@@ -1,3 +1,4 @@
+import type { DetectedHarness } from './harness-discovery.ts';
 import { validateBuzzProvider } from './buzz-provider.ts';
 import { runtimeEnvironment } from './runtime-environment.ts';
 import { piEfforts } from './pi.ts';
@@ -17,7 +18,7 @@ export type RegisteredAgent = { runtimeId?: string; publicKey: string; key: Cred
 export type ProviderReference = { service: 'beehive'; account: string };
 export type SavedProvider = { id: string; name: string; type: 'openai' | 'anthropic' | 'openai-compat' | 'openrouter' | 'databricks_v2'; endpoint: string; wire?: 'auto' | 'chat' | 'responses'; key: ProviderReference };
 export type SavedRuntime = { environment?: Record<string, string>; id: string; name: string; harness: 'buzz-agent' | 'codex' | 'pi'; cli?: string; executable: string; providerId: string; model: string; effort?: string };
-export type Settings = { version: 1; revision: number; agents: RegisteredAgent[]; providers: SavedProvider[]; runtimes: SavedRuntime[] };
+export type Settings = { harnesses?: DetectedHarness[]; version: 1; revision: number; agents: RegisteredAgent[]; providers: SavedProvider[]; runtimes: SavedRuntime[] };
 const path = (directory: string) => join(directory, 'settings.json');
 const label = (s: unknown) => typeof s === 'string' && s.length > 0 && s.length <= 128 && !/[\x00-\x1f\x7f]/.test(s);
 /** Validate catalog references without touching an OS store or network. */
@@ -41,9 +42,10 @@ export function validateSettings(value: Settings): Settings {
     if (r.harness === 'codex' ? !r.cli || !isAbsolute(r.cli) || r.effort !== undefined || value.providers.find(p => p.id === r.providerId)?.type !== 'openai' : r.harness === 'pi' ? !['openai','databricks_v2'].includes(value.providers.find(p => p.id === r.providerId)!.type) || !r.cli || !isAbsolute(r.cli) || r.effort !== undefined && !piEfforts(value.providers.find(p => p.id === r.providerId)!.type, r.model).includes(r.effort) : r.cli !== undefined) throw Error('Unsupported runtime provider/CLI/effort combination');
   }
   for (const r of value.runtimes) validateRuntimeEffort(value.providers.find(p => p.id === r.providerId)!.type, r.model, r.effort);
+  if (value.harnesses !== undefined && (!Array.isArray(value.harnesses) || value.harnesses.length > 32 || value.harnesses.some(h => typeof h.id !== 'string' || typeof h.label !== 'string' || typeof h.reason !== 'string' || !['available','not-installed','cli-missing','incompatible'].includes(h.state) || !Array.isArray(h.providers) || h.providers.some(p => typeof p !== 'string') || (h.executable !== undefined && !isAbsolute(h.executable)) || (h.cli !== undefined && !isAbsolute(h.cli))))) throw Error('Invalid harness inventory');
   // Reject unknown fields, including accidental secret-bearing input.
   const fields = (o: object, allowed: string[]) => { if (Object.keys(o).some(k => !allowed.includes(k))) throw Error('Unexpected settings field'); };
-  fields(value, ['version','revision','agents','providers','runtimes']);
+  fields(value, ['version','revision','agents','providers','runtimes','harnesses']);
   for (const a of value.agents) { fields(a, ['publicKey','key','profile','profileState','runtimeId']); if (a.profile) fields(a.profile, ['relay','name','picture','about']); }
   for (const p of value.providers) { fields(p, ['id','name','type','endpoint','key','wire']); fields(p.key, ['service','account']); }
   for (const r of value.runtimes) fields(r, ['id','name','harness','executable','providerId','model','effort','cli','environment']);

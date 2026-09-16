@@ -129,19 +129,19 @@ test('effort is manifest-backed, validates persisted settings and reaches actual
   await session.catalog(); await session.verify();
 });
 
-test('short runtime form selects supported model-specific effort; unknown custom inherits provider capabilities and unsupported harness cannot save', async () => {
+test('direct configuration form selects supported model-specific effort; unknown custom inherits provider capabilities and unsupported harness cannot save', async () => {
   const snapshot: ManagerSnapshot = { local:[], agents:[], status:'synthetic', models:['gpt-5'], harnesses:[{id:'buzz-agent',label:'Buzz Agent',executable:'/fixture',state:'available',providers:['openai'],reason:'fixture'},{id:'pi',label:'Pi',state:'available',providers:[],reason:'Provider integration unavailable'}], settings:{version:1,revision:1,agents:[],runtimes:[],providers:[{id:'p',name:'OpenAI',type:'openai',endpoint:'https://api.openai.com/v1',key}]} };
   const submitted: {action:string;values?:Record<string,string>}[] = [];
-  const run = async (choices: string[], inputs: string[]) => runtimeForm({choose:async (_label,options) => {const value=choices.shift(); assert.ok(value === undefined || options.includes(value)); return value;},input:async label => { assert.ok(label.split('\n')[0]!.length <= 30); if (label.startsWith('Custom model')) assert.equal(label, 'Custom model\nExact model ID'); if (label.startsWith('Environment')) { assert.equal(label, 'Environment\nJSON name/value map · no secrets'); return '{}'; } return inputs.shift(); },confirm:async label => {assert.match(label,/^Save runtime\n/);return true;},notice:() => {}}, () => snapshot, async (action,values) => {submitted.push({action,values});return {state:"completed"};});
-  await run(['Buzz Agent · Available','OpenAI · p','gpt-5','high'],['Reasoning']);
-  assert.equal(submitted.at(-1)?.values?.effort,'high');
-  assert.equal(submitted.at(-1)?.values?.model,'gpt-5');
+  const run = async (choices: string[], inputs: string[]) => runtimeForm({choose:async (_label,options) => {const value=choices.shift(); assert.ok(value === undefined || options.includes(value)); return value;},input:async label => { assert.ok(label.split('\n')[0]!.length <= 30); if (label.startsWith('Custom model')) assert.equal(label, 'Custom model\nExact model ID'); if (label.startsWith('Environment')) { assert.equal(label, 'Environment\nJSON name/value map · no secrets'); return '{}'; } return inputs.shift(); },confirm:async () => { throw Error('Direct form must not persist configuration implicitly'); },notice:() => {}}, () => snapshot, async (action,values) => {submitted.push({action,values});return {state:"completed"};});
+  const configured = await run(['Buzz Agent · Available','OpenAI','gpt-5','high'],[]);
+  assert.equal(configured?.effort,'high');
+  assert.equal(configured?.model,'gpt-5');
   submitted.length=0;
-  await run(['Buzz Agent · Available','OpenAI · p','Custom model','Inherit'],['unrecognized-model','Custom']);
-  assert.equal(submitted.at(-1)?.action,'add-runtime'); assert.equal(submitted.at(-1)?.values?.effort,undefined);
+  const custom = await run(['Buzz Agent · Available','OpenAI','Custom model','Inherit'],['unrecognized-model']);
+  assert.equal(custom?.model,'unrecognized-model'); assert.equal(custom?.effort,undefined);
   submitted.length=0;
   await run(['Pi · Provider integration unavailable'],[]);
-  assert.deepEqual(submitted.map(s => s.action),['runtime-form']);
+  assert.deepEqual(submitted.map(s => s.action),['configuration-form']);
 });
 
 test('one actual wrapper/harness run makes requests before expiry, after refresh, and after revocation without restart', async t => {

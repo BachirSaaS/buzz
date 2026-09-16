@@ -1,74 +1,108 @@
-# Revised manager UX — partial implementation checkpoint
+# Revised manager UX — direct agent configuration
 
-Delegation 5b89d3b2; base 9aef40a3f626200ef1a702c64e315cad5339f2d3.
-**Not a delivery candidate. Do not install this checkpoint.**
+Completes the manager continuation from d216bbe (previously a local checkpoint).
+No installation is performed by this continuation.
 
-Implemented:
-- Removed the separate Controls frame altogether. The right-hand Details border
-  now encloses the report scroll and bounded, borderless action viewport. Tab/a,
-  focused `[Actions]`, keyboard selection and pointer activation remain real.
-- Production Agents row generation groups directory rows under Registered agents
-  and Other agents using saved registration custody, with a Register agent row at
-  the top of Registered agents. Other-agent details offer Register agent.
-- Both profile preview and registration reject a key differing from the selected
-  Other agent even without a Start continuation. Generic registration still permits
-  deliberate selection of a new identity.
-- Removed the selectable Quit action; retained quit keys. Named Refresh harnesses.
+## Data flow and compatibility
 
-No settings schema, retained configuration, credential custody, transport, provider
-or native implementation changed. Existing runtime workflows are still present.
+- Registered-agent Details exposes Configure. Registration first verifies the
+  selected agent's canonical matching nsec, then collects harness, provider,
+  model, effort and environment. There is no configuration name or runtime
+  chooser/setup/navigation. Start of an unregistered agent still registers first.
+- Direct submissions create immutable backing definitions in the existing
+  append-only settings catalog. These are real saved host-loadable definitions,
+  not ephemeral display rows. Existing runtime records, credential references,
+  registrations, host bindings, instructions and history remain retained.
+- On an existing local slot, Configure awaits the exact host-loaded binding and
+  submits authenticated revision-checked Save. Host selectedNext remains the
+  authority; an active run is not mutated. Registration-to-Start still waits for
+  enrollment/Save receipts and a matching report before Start. Cancellation,
+  late completion, unknown results and stale selection remain fenced.
+- Configure is host-local, matching credential/binding custody. Move selects the
+  destination and uses that destination's saved future configuration; a destination
+  needing setup is configured there through the same direct registration flow.
+  No credentials or bindings are copied between hosts. Existing Move authorization,
+  source teardown, destination preparation and late-grant rules are unchanged.
+- Discovered harness inventory is now optional durable metadata in settings.json;
+  historical catalogs without that field still load. Refresh harnesses invokes
+  real discovery and retains providers and immutable agent definitions. It never
+  silently selects a configuration or restarts a run.
+- A valid process DATABRICKS_HOST is normalized into a durable public workspace
+  reference without credentials, browser or model calls. The normal secure native
+  path remains responsible for authentication when needed. Reopen reuses the
+  reference instead of creating another provider.
+- Signed-out Agents directly contains sign-in choices. Protected controller
+  requests return a contextual sign-in requirement, and protected section
+  navigation resumes after successful sign-in. Cancellation restores the prior
+  section without Working. Signed-in Agents has no standing sign-in menu.
+  Buzz first use still derives owner/normal Host relay in one selection; manual
+  import accepts matching nsec and saved-owner sign-in uses the retained key.
+- One Details border encloses report and actions; no third Controls frame or
+  selectable Quit. q remains. Registered/Other grouping includes saved identities
+  absent from the current directory. Pointer-opened inputs now retain focus after
+  mouse dispatch (a real walkthrough finding, with a renderer regression).
 
-## Evidence
+## Focused validation
 
-Direct Node 24.15.0 package typecheck passes. Direct Bun 1.4.2 renderer: 8/8.
-Focused Node registration/navigation: 15/15. Renderer includes 100x30 long report,
-keyboard and pointer actions, unchanged-refresh report scroll AND selected action
-focus retention, overflow, narrow layout and hidden-input/quit ownership. This is
-renderer evidence, not the requested complete actual-launcher walkthrough.
+Direct Node 24.15.0 typecheck; controller/navigation **18/18**; form boundaries
+**3/3**; Buzz custody/first-use/late completion **4/4**; direct Bun 1.4.2 renderer
+**9/9**. The controller flow checks direct registration, active snapshot
+immutability across Configure, remembered providers/harnesses/definitions, next
+Start, signed-out authority and environment Databricks. Existing focused Move,
+registration cancellation and late receipt tests remain included.
 
-Logs: `/Users/loganj/.buzz/artifacts/beehive-revised-5b89d3b2/`.
-The first renderer run exposed old-coordinate expectations after removing borders;
-the final action viewport retains the old usable row count (without a third frame)
-and those existing coordinate assertions pass. One initial typecheck fixture lacked
-required Settings fields; corrected the fixture rather than weakening its type.
-No full-package run attempted; inherited timed-out/non-green baseline is unchanged.
+Two actual **100×30 shell-launcher** workflows use the existing first-use PTY
+and registration/manager loader fixtures, with fresh explicit
+`beehive-pairing-cli-` homes and credential files:
 
-Reproduce focused controller tests from repository root (fresh isolated fixture;
-no production keychain/provider/service/relay operations):
+1. Signed-out Agents choices; contextual Harnesses sign-in cancellation and
+   restoration; one Buzz selection resumes Harnesses; q/exit0/terminal restoration.
+2. No controller owner or backing configuration initially; contextual Buzz sign-in;
+   environment Databricks visible; actual provider Save; Refresh harnesses;
+   separate Registered/Other; Start of known Other agent; matching nsec; direct
+   harness/provider/model/effort/environment; running; Configure; Stop; actual
+   launcher/controller reopen; remembered catalog and credentials; next Start;
+   Stop; q/exit0/terminal restoration. Detail actions are pointer-driven and fields
+   are keyboard-driven. Controller tests additionally verify old active snapshots
+   remain byte-identical and next Start selects the new saved binding.
+
+Only synthetic loopback relay, credential backend and external ACP fixture are
+used. The native OAuth, production service/discovery and provider boundaries are
+fenced. No production Keychain, provider, relay, browser, harness or host operation;
+no native rebuild. Shell-launcher staging is under artifacts, not an installation.
+
+Evidence directory: `/Users/loganj/.buzz/artifacts/beehive-direct-28618049/`.
+Includes typecheck/focused/form/renderer/Buzz logs and actual shell smoke logs.
+Initial iterations retained there include stale old-navigation expectations,
+using the manager loader for a form-only file with additional exports, and the
+pointer-focus failure. The first successful first-use driver also found a cleanup
+attempt against an already-exited process; cleanup now checks its owned child.
+None is represented as a production credential failure or a green broad suite.
+
+**The inherited 400-second incomplete/non-green full-suite result remains open.**
+No broad rerun, inherited-failure triage or repository-wide CI claim.
+
+## Portable laptop-first smoke after separately guarded installation
+
+Larry dispatches laptop installation first. From the exact installed package
+root (not a production HOME), run its committed synthetic driver against the
+actual installed launcher:
 
 ```sh
-NODE=/path/to/node-24.15.0/bin/node
-ROOT=$PWD
-FIXTURE=$(mktemp -d /tmp/beehive-pairing-cli-revised-XXXXXX)
-BEEHIVE_TEST_CREDENTIAL_FILE="$FIXTURE/credentials.json" \
-NODE_OPTIONS="--import=$ROOT/beehive/test/manager-installed-loader.ts" \
-BEEHIVE_TEST_REGISTRATION_WALKTHROUGH=1 \
-"$NODE" --test beehive/test/registration-start.test.ts beehive/test/manager-navigation.test.ts
-"$NODE" beehive/node_modules/typescript/bin/tsc --noEmit -p beehive
-(cd beehive && /path/to/bun-1.4.2 test ./test/opentui-screen.bun.ts)
+cd /absolute/path/to/installed/beehive
+export BEEHIVE_SMOKE_NODE="$PWD/runtime/node"
+export BEEHIVE_BUN="$PWD/runtime/bun"
+export BEEHIVE_SMOKE_LAUNCHER="$PWD/bin/beehive"
+"$BEEHIVE_SMOKE_NODE" --version  # v24.15.0
+"$BEEHIVE_BUN" --version         # 1.4.2
+/usr/bin/python3 test/buzz-first-use-smoke.py
+BEEHIVE_SMOKE_DIRECT=1 /usr/bin/python3 test/buzz-first-use-smoke.py
 ```
 
-## Required next work before publishing/installing
-
-1. Evolve selected-next configuration API to accept harness/provider/model/effort/
-   environment directly. Replace runtimeForm/name/chooser paths, registration's
-   saved-runtime prerequisite, and Move's runtime selection. Preserve immutable
-   saved records and active-run snapshots; do not implement UI-only fake runtimes.
-2. Complete grouped Agents behavior for saved registrations absent from current
-   directory results. Group header rows currently use ordinary list navigation.
-3. Contextual sign-in chooser at actual authority boundaries; signed-out sign-in
-   choices directly in Agents list. Verify Buzz first use without preconfigured
-   owner, preserving its single-selection flow.
-4. Remember/discover harness state on reopen, and project env Databricks availability
-   using existing `databricksHost` URL validation and secure provider references.
-   Current addDatabricks only saves a workspace/reference (no immediate login);
-   do not accidentally add credential reads to passive render.
-5. Extract/test actual production menu generation (existing renderer overflow test
-   is explicitly only a generic stress fixture), then one complete isolated 100x30
-   actual-launcher walkthrough using adapted existing loaders. Do not claim the
-   preconfigured-owner registration fixture proves Buzz first use.
-6. Self-review full flow, ordinary signed-off commit/publish and exact remote-head
-   verification; then request separate laptop-first guarded installation. No native
-   rebuild needed unless subsequent code changes native sources.
-
-This run does not push or install. Laptop/current remains the prior 9aef40a build.
+The driver constructs a closed child environment, explicit credential fixture,
+NODE_OPTIONS --import manager loader and fresh HOME itself. It prints each
+surviving fixture root, with ANSI and reconstructed frames. The direct workflow
+reopens that same synthetic home to verify saved configuration. Do not substitute
+production credentials, loosen loader fences, or interpret fixture readiness as
+real provider/relay approval. Install/publish provenance and exact head belong in
+the delivery post, not a moving hash embedded in this document.
