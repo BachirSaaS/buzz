@@ -23,7 +23,7 @@ function queryFixture(events: Event[], calls: DirectoryFilter[][] = []): Directo
 }
 const signal = () => new AbortController().signal;
 
-test('full canonical discovery finds viewer-owned channel-less and cross-owner membership-visible agents, not arbitrary kind0 or host metadata', async () => {
+test('full canonical discovery returns only viewer-owned agents and does not promote channel peers, arbitrary kind0, or host metadata', async () => {
   const calls: DirectoryFilter[][] = [];
   const result = await relayDirectory(viewer,queryFixture([
     policy(viewerSecret,a,'Owned'), profile(aSecret,viewerSecret),
@@ -31,7 +31,7 @@ test('full canonical discovery finds viewer-owned channel-less and cross-owner m
     event(bSecret,10100,[],{name:'Old name',status:'online',host:'fake-execution-authority',channel_ids:['forged']}),
     profile(newKey(),viewerSecret),policy(otherSecret,a,'Forged policy'),
   ],calls),signal());
-  assert.deepEqual(result,[{publicKey:a,name:'Owned',owner:viewer,status:'unknown',channels:[]},{publicKey:b,name:'Shared',owner:other,status:'online',channels:['channel']}]);
+  assert.deepEqual(result,[{publicKey:a,name:'Owned',owner:viewer,status:'unknown',channels:[]}]);
   assert.deepEqual(calls[0],[{kinds:[30177],authors:[viewer],limit:500}]);
   assert.deepEqual(calls[1],[{kinds:[39002],authors:[relay],'#p':[viewer],limit:500}]);
   for (const batch of calls.slice(2)) { assert.ok(batch.length <= 10); for (const f of batch) { assert.equal(f.authors.length,1); assert.equal(f.limit,1); } }
@@ -39,17 +39,17 @@ test('full canonical discovery finds viewer-owned channel-less and cross-owner m
   assert.deepEqual(new Set(policies.map(f => JSON.stringify(f))),new Set([{kinds:[30177],authors:[viewer],'#d':[a],limit:1},{kinds:[30177],authors:[other],'#d':[b],limit:1}].map(v=>JSON.stringify(v))));
 });
 
-test('membership role, current membership removal, verified owner and malformed latest policy control discovery', async () => {
+test('membership never promotes unowned agents and malformed latest owned policy controls discovery', async () => {
   const legacy = event(bSecret,10100,[],{name:'Legacy',status:'running'});
   assert.equal((await relayDirectory(viewer,queryFixture([legacy,member([['p',viewer],['p',b]])]),signal())).length,0);
   const known = policy(viewerSecret,b,'Seed only');
   const result = await relayDirectory(viewer,queryFixture([known,legacy,member([['p',viewer],['p',b]])]),signal());
-  assert.equal(result[0]?.status,'unknown'); assert.equal(result[0]?.owner,undefined);
+  assert.equal(result.length,0,'channel membership does not add an agent without verified viewer ownership');
   assert.equal((await relayDirectory(viewer,queryFixture([known,legacy]),signal())).length,0,'unverified owned coordinate alone does not retain a legacy agent');
   const removed = event(relaySecret,39002,[['d','channel'],['p',viewer]],{},101);
   assert.equal((await relayDirectory(viewer,queryFixture([legacy,member(),removed]),signal())).length,0);
-  const malformed = event(otherSecret,30177,[['d',b]],{name:'Missing required fields'});
-  assert.equal((await relayDirectory(viewer,queryFixture([legacy,member(),profile(bSecret,otherSecret),malformed]),signal())).length,0,'malformed authenticated policy reserves identity instead of reviving legacy');
+  const malformed = event(viewerSecret,30177,[['d',a]],{name:'Missing required fields'},101);
+  assert.equal((await relayDirectory(viewer,queryFixture([event(aSecret,10100,[],{name:'Legacy',status:'online'}),profile(aSecret,viewerSecret),policy(viewerSecret,a,'Owned'),malformed]),signal())).length,0,'malformed authenticated policy reserves identity instead of reviving legacy');
 });
 
 test('NIP-OA requires one canonical tag and checks every condition against profile timestamp', () => {

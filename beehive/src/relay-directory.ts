@@ -98,7 +98,9 @@ export async function relayDirectory(viewer: string, transport: DirectoryQuery, 
       row = undefined;
       if (p && typeof p.name === 'string' && Number.isInteger(p.parallelism) && Number(p.parallelism) >= 0 && Number(p.parallelism) <= 4294967295 && ['owner-only','allowlist','anyone'].includes(String(p.respond_to)) && (p.respond_to_allowlist === undefined || Array.isArray(p.respond_to_allowlist) && p.respond_to_allowlist.every(v => typeof v === 'string')) && ['persona_id','system_prompt','model','provider','persona_source_version'].every(k => p[k] === undefined || p[k] === null || typeof p[k] === 'string')) row = { publicKey:agent,name:clean(p.name,agent),owner:policy.pubkey,status,channels:[] };
     }
-    if (row && (channels.has(agent) || row.owner === viewer)) result.push({ ...row,channels:[...(channels.get(agent) ?? [])].sort() });
+    // The management directory is the signed-in owner's roster, not a channel
+    // participant browser. Channel membership only annotates owned rows.
+    if (row?.owner === viewer) result.push({ ...row,channels:[...(channels.get(agent) ?? [])].sort() });
   }
   return result.sort((a,b) => a.name.localeCompare(b.name) || a.publicKey.localeCompare(b.publicKey));
 }
