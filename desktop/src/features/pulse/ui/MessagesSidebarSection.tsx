@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/shared/lib/cn";
 import { StatusEmoji } from "@/features/user-status/ui/StatusEmoji";
+import { Button } from "@/shared/ui/button";
 
 /** Collapsible classic section, using the same capsule rows as Recents. */
 export function MessagesSidebarSection({
@@ -23,9 +24,11 @@ export function MessagesSidebarSection({
       aria-label={name}
     >
       <h3>
-        <button
+        <Button
           type="button"
-          className="mb-2 flex w-full items-center gap-2 rounded-full px-4 py-2 text-left text-xs font-medium text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          variant="ghost"
+          size="sm"
+          className="mb-2 h-auto w-full justify-start gap-2 rounded-full px-4 py-2 text-left text-xs font-medium text-muted-foreground hover:bg-muted"
           aria-expanded={open}
           onClick={() => setOpen(!open)}
         >
@@ -39,7 +42,7 @@ export function MessagesSidebarSection({
             </span>
           )}
           <span className="truncate">{name}</span>
-        </button>
+        </Button>
       </h3>
       {open && children}
     </section>

@@ -68,6 +68,7 @@ import {
   selectionOnRuntimeChange,
   type RuntimeModelProviderSelection,
 } from "./runtimeModelProviderSelection";
+import { EditAgentNameField } from "./EditAgentNameField";
 import { AgentCreationPreview } from "./AgentCreationPreview";
 import { OwnerOnlyAccessField } from "./OwnerOnlyAccessField";
 import type { EnvVarsValue } from "./EnvVarsEditor";
@@ -975,33 +976,11 @@ export function AgentInstanceEditDialog({
             )}
           </div>
           <div className="space-y-5">
-            <div className="space-y-1.5">
-              <BlockLabel
-                className="text-sm font-medium text-foreground"
-                htmlFor="edit-agent-name"
-              >
-                Agent name
-              </BlockLabel>
-              <div
-                className={cn(
-                  "flex min-h-11 items-center px-3",
-                  PERSONA_FIELD_SHELL_CLASS,
-                )}
-              >
-                <Input
-                  autoCorrect="off"
-                  className={cn(
-                    "h-8 px-0 py-0 leading-6",
-                    PERSONA_FIELD_CONTROL_CLASS,
-                  )}
-                  disabled={isSaving}
-                  id="edit-agent-name"
-                  onChange={(event) => setName(event.target.value)}
-                  placeholder="Agent name"
-                  value={name}
-                />
-              </div>
-            </div>
+            <EditAgentNameField
+              disabled={isSaving}
+              value={name}
+              onChange={setName}
+            />
             <OwnerOnlyAccessField
               accessLocked={agentAccessOwnerOnly === true}
               allowlist={respondToAllowlist}
