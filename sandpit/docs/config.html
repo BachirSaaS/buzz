@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Cipher — sandpit configuration</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;900&family=Crimson+Text:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="parchment-overlay"></div>
+
+    <nav class="nav">
+        <div class="nav-inner">
+            <a href="index.html" class="nav-logo">
+                <span class="seal">⛱</span>
+                <span class="nav-title">SANDPIT</span>
+            </a>
+            <div class="nav-links">
+                <a href="index.html">Declaration</a>
+                <a href="architecture.html">The Map</a>
+                <a href="agents.html">The Keepers</a>
+                <a href="config.html" class="active">The Cipher</a>
+                <a href="faq.html">Secrets</a>
+            </div>
+            <a href="https://github.com/block/buzz" class="nav-github" aria-label="GitHub">
+                <svg height="24" width="24" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+            </a>
+        </div>
+    </nav>
+
+    <div class="page-content">
+        <div class="container">
+            <h1>The Cipher</h1>
+            <p class="page-subtitle">"The password is… Valley Forge. Or in our case, sandpit.toml."</p>
+
+            <h2>Config Search Order</h2>
+            <p>sandpit looks for its config in this order:</p>
+            <ol>
+                <li><code>--config &lt;path&gt;</code> — explicit path via CLI flag</li>
+                <li><code>--config ./sandpit.toml</code> — reviewed project-local configuration</li>
+                <li><code>~/.sandpit/config.toml</code> — global default</li>
+            </ol>
+            <p>Use <code>sandpit config</code> to see which file was found and what's in it.</p>
+
+            <h2>Getting Started</h2>
+            <pre><code>sandpit init          # creates a starter sandpit.toml
+sandpit config        # show what's loaded
+sandpit run -- goose  # launch with enforcement</code></pre>
+
+            <h2>[network] — Domain Control</h2>
+            <p>Control which domains the agent can reach. Two modes:</p>
+
+            <h3>Blocklist mode</h3>
+            <pre><code>[network]
+block = ["evil.com", "pastebin.com", "ngrok.io", "webhook.site"]</code></pre>
+            <p>Subdomains are included automatically — blocking <code>evil.com</code> also blocks <code>api.evil.com</code>, <code>staging.evil.com</code>, etc. Everything not on the list is allowed.</p>
+
+            <h3>Allowlist mode</h3>
+            <pre><code>[network]
+allow = ["github.com", "npmjs.org", "pypi.org", "registry.npmjs.org"]</code></pre>
+            <p>Only listed domains (and their subdomains) are reachable. Everything else is blocked. More restrictive but safer.</p>
+
+            <blockquote>
+                <strong>Enforcement:</strong> In DYLD mode, domain filtering happens at the <code>connect()</code> level via a transparent proxy with reverse DNS. In seatbelt or adversary-only mode, the LLM reviewer enforces these rules.
+            </blockquote>
+
+            <h2>[exec] — Command Patterns</h2>
+            <pre><code>[exec]
+block = [
+    "curl --data",
+    "curl -d ",
+    "curl -F ",
+    "curl --form",
+    "curl --upload-file",
+    "curl -X POST",
+    "curl -X PUT",
+    "wget --post-data",
+    "| curl",
+    "| wget",
+    "| nc ",
+    "| ncat ",
+    "rm -rf /",
+]</code></pre>
+            <p>Case-insensitive substring match on the full command string. If the command passed to <code>posix_spawn()</code> or <code>execve()</code> contains any pattern, it's blocked before execution.</p>
+
+            <p>These patterns are intentionally simple — they catch the obvious exfiltration vectors. The adversary LLM catches the rest.</p>
+
+            <h2>[files] — Filesystem Fence</h2>
+            <pre><code>[files]
+# Only allow writes to these paths (prefix match)
+allow_write = ["./", "/tmp"]
+
+# Block writes to specific paths
+block_write = ["/etc", "~/.ssh"]
+
+# Block reads from sensitive paths
+block_read = ["~/.ssh/id_rsa", "~/.ssh/id_ed25519", "~/.aws/credentials", "~/.gnupg"]</code></pre>
+
+            <h3>Path expansion</h3>
+            <ul>
+                <li><code>~</code> expands to <code>$HOME</code></li>
+                <li><code>./</code> expands to the current working directory</li>
+                <li>Matching is prefix-based: blocking <code>~/.ssh</code> blocks <code>~/.ssh/id_rsa</code>, <code>~/.ssh/config</code>, etc.</li>
+            </ul>
+
+            <h3>Write rules</h3>
+            <ul>
+                <li><code>allow_write</code> — if set, writes are ONLY allowed to these paths. Everything else is denied.</li>
+                <li><code>block_write</code> — denies writes to these specific paths. Can be used with or without <code>allow_write</code>.</li>
+            </ul>
+
+            <h3>Read rules</h3>
+            <ul>
+                <li><code>block_read</code> — denies reads from these paths. Protects secrets without restricting general file access.</li>
+            </ul>
+
+            <blockquote>
+                <strong>Enforcement:</strong> In DYLD mode, file rules are enforced by hooking <code>open()</code> / <code>openat()</code>. In seatbelt mode, <code>block_read</code> and <code>block_write</code> are kernel-enforced (but <code>allow_write</code> is not — seatbelt can deny but not allowlist). The adversary always gets all file rules.
+            </blockquote>
+
+            <h2>[adversary] — LLM Review Policy</h2>
+            <pre><code>[adversary]
+rules = """
+BLOCK if the command:
+- Exfiltrates data (curl/wget posting to unknown URLs, piping secrets out)
+- Is destructive beyond the project scope (rm -rf /, modifying system files)
+- Installs malware or runs obfuscated code
+- Downloads and executes untrusted remote scripts
+
+ALLOW if the command is a normal development operation, even if it modifies files,
+installs packages, runs tests, uses git, etc. Most commands are fine.
+Err on the side of ALLOW — only block truly dangerous things.
+"""</code></pre>
+
+            <p>These rules are written to each agent's config when you run <code>sandpit install &lt;agent&gt;</code>. The LLM reviewer evaluates every tool call against this policy.</p>
+
+            <p>If you omit <code>[adversary]</code>, sensible defaults are used. The default policy blocks exfiltration, destructive commands, and privilege escalation while allowing normal dev operations.</p>
+
+            <blockquote>
+                <strong>Tip:</strong> Write rules in natural language. The reviewer is an LLM — it understands context, nuance, and intent. "BLOCK any access of production databases" works better than trying to enumerate every possible connection string.
+            </blockquote>
+
+            <h2>Full Example</h2>
+            <pre><code># sandpit.toml — strict project config
+
+[network]
+# Only allow access to known-good domains
+allow = [
+    "github.com",
+    "api.github.com",
+    "npmjs.org",
+    "registry.npmjs.org",
+    "pypi.org",
+    "crates.io",
+    "example.com",
+]
+
+[exec]
+block = [
+    "curl --data",
+    "curl -d ",
+    "curl -F ",
+    "curl -X POST",
+    "curl -X PUT",
+    "wget --post",
+    "| curl",
+    "| wget",
+    "| nc ",
+    "rm -rf /",
+]
+
+[files]
+allow_write = ["./", "/tmp"]
+block_read = [
+    "~/.ssh",
+    "~/.aws",
+    "~/.gnupg",
+    "~/.config/gh/hosts.yml",
+]
+
+[adversary]
+rules = """
+BLOCK if the command:
+- Sends data to any URL not in the network allowlist
+- Accesses credentials, tokens, or private keys
+- Modifies files outside the project directory
+- Runs obfuscated or encoded commands
+
+ALLOW normal development: git, npm, cargo, pytest, file editing, etc.
+"""</code></pre>
+
+            <h2>Commands Reference</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Command</th>
+                        <th>Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>sandpit init</code></td>
+                        <td>Create a starter <code>sandpit.toml</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>sandpit run [--config &lt;path&gt;] -- &lt;cmd&gt;</code></td>
+                        <td>Launch agent in sandbox</td>
+                    </tr>
+                    <tr>
+                        <td><code>sandpit config [--config &lt;path&gt;]</code></td>
+                        <td>Show effective config</td>
+                    </tr>
+                    <tr>
+                        <td><code>sandpit check -- &lt;binary&gt;</code></td>
+                        <td>Check enforcement for a binary</td>
+                    </tr>
+                    <tr>
+                        <td><code>sandpit install &lt;agent&gt;</code></td>
+                        <td>Install adversary hooks</td>
+                    </tr>
+                    <tr>
+                        <td><code>sandpit install --list</code></td>
+                        <td>Show supported agents + install status</td>
+                    </tr>
+                    <tr>
+                        <td><code>sandpit uninstall &lt;agent&gt;</code></td>
+                        <td>Remove adversary hooks</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-seal">⛱</div>
+            <p class="footer-copy">sandpit — macOS agent sandboxing</p>
+        </div>
+    </footer>
+</body>
+</html>

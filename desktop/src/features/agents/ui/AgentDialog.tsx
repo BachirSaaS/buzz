@@ -21,6 +21,7 @@ import {
   type AgentDefinitionSubmitOptions,
 } from "./AgentDefinitionDialog";
 import { WhereToRunSection } from "./WhereToRunSection";
+import { NewAgentSecurityNotice } from "./NewAgentSecurityNotice";
 import {
   canSubmitWhereToRun,
   emptyWhereToRunDraft,
@@ -147,6 +148,9 @@ function AgentCreateDialogRouter({
     // because it owns the "Run on" draft.
     <AgentRunLocationProvider runLocation={runLocationForRunOn(runDraft.runOn)}>
       <AgentDefinitionDialog
+        createSecuritySection={
+          <NewAgentSecurityNotice local={runDraft.runOn === "local"} />
+        }
         createRunSection={
           <WhereToRunSection
             draft={runDraft}

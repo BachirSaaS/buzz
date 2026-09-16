@@ -211,6 +211,9 @@ pub struct CreateManagedAgentRequest {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateManagedAgentRequest {
+    /// Private local confinement settings; never included in a shared persona.
+    #[serde(default, deserialize_with = "crate::util::double_option")]
+    pub security_policy: Option<Option<buzz_security_policy::SecurityPolicy>>,
     pub pubkey: String,
     /// Absent = don't touch. Present = rename the agent.
     #[serde(default)]
@@ -496,5 +499,22 @@ mod tests {
         )
         .expect("a create payload without provenance should deserialize");
         assert_eq!(request.catalog_source, None);
+    }
+}
+
+#[cfg(test)]
+mod security_request_tests {
+    use super::*;
+    #[test]
+    fn policy_patch_distinguishes_unchanged_clear_and_set() {
+        let absent: UpdateManagedAgentRequest =
+            serde_json::from_value(serde_json::json!({"pubkey":"test"})).unwrap();
+        assert!(absent.security_policy.is_none());
+        let clear: UpdateManagedAgentRequest =
+            serde_json::from_value(serde_json::json!({"pubkey":"test","securityPolicy":null}))
+                .unwrap();
+        assert!(matches!(clear.security_policy, Some(None)));
+        let set: UpdateManagedAgentRequest = serde_json::from_value(serde_json::json!({"pubkey":"test","securityPolicy":{"schema_version":1,"writable_roots":null,"network":{"mode":"deny_all"}}})).unwrap();
+        assert!(matches!(set.security_policy, Some(Some(_))));
     }
 }

@@ -1167,3 +1167,39 @@ benchmark-check:
 # Stop the benchmark Docker stack (state and channels are kept)
 benchmark-down:
     docker compose --project-name buzz-benchmark down
+
+# Local macOS Sandpit engine; excluded from the portable root workspace.
+sandpit-build:
+    cargo build --release --manifest-path sandpit/Cargo.toml -p sandpit-dylib
+    cargo build --release --manifest-path sandpit/Cargo.toml --bin sandpit
+
+# Disposable fixtures only; never invoke the legacy destructive test.sh.
+sandpit-test: sandpit-build
+    python3 sandpit/test-kernel-policy.py
+    python3 sandpit/test-file-policy.py
+
+# Build the self-contained local ACP demo with its adjacent, trusted engine.
+sandpit-poc-build: sandpit-build
+    cargo build -p buzz-acp
+    cp sandpit/target/release/sandpit target/debug/buzz-sandpit
+
+sandpit-demo: sandpit-poc-build
+    python3 scripts/sandpit-demo.py
+
+# Uses existing native-agent sign-in; optional --interactive opens a local chat.
+sandpit-live-demo *args: sandpit-poc-build
+    cargo build -p buzz-agent -p buzz-dev-mcp
+    python3 scripts/sandpit-live-demo.py {{args}}
+
+# Open the isolated native Desktop preview. Start a local relay separately.
+sandpit-desktop-demo:
+    bash scripts/sandpit-desktop-demo.sh
+
+# Build a clickable local app with separate app-data, keyring, and OAuth caches.
+sandpit-desktop-bundle:
+    bash scripts/sandpit-desktop-bundle.sh
+
+# Exercise the native agent and MCP with a credential-free scripted local model.
+sandpit-native-test: sandpit-poc-build
+    cargo build -p buzz-agent -p buzz-dev-mcp
+    python3 scripts/sandpit-native-test.py

@@ -134,6 +134,8 @@ export type RawManagedAgent = {
   persona_orphaned: boolean;
   needs_restart: boolean;
   restart_diff?: RawRestartDiffEntry[];
+  security_policy?: ManagedAgent["securityPolicy"];
+  security_status?: string;
   env_vars?: Record<string, string>;
   status: ManagedAgent["status"];
   pid: number | null;
@@ -192,6 +194,7 @@ export type RawAcpRuntimeCatalogEntry = {
   source: "builtin" | "preset" | "custom";
   /** Definition-level env vars for `source: custom` entries; absent for builtin/preset. */
   definition_env?: Record<string, string>;
+  supports_sandpit?: boolean;
   max_parallelism?: number;
   effort_canonical_values?: string[] | null;
 };
@@ -635,6 +638,8 @@ export function fromRawManagedAgent(agent: RawManagedAgent): ManagedAgent {
     personaOrphaned: agent.persona_orphaned ?? false,
     needsRestart: agent.needs_restart ?? false,
     restartDiff: agent.restart_diff ?? [],
+    securityPolicy: agent.security_policy ?? null,
+    securityStatus: agent.security_status,
     envVars: agent.env_vars ?? {},
     status: agent.status,
     pid: agent.pid,
@@ -684,6 +689,7 @@ export function fromRawAcpRuntimeCatalogEntry(
     source: entry.source,
     definitionEnv: entry.definition_env ?? {},
     effortCanonicalValues: entry.effort_canonical_values ?? null,
+    supportsSandpit: entry.supports_sandpit ?? false,
     ...(entry.max_parallelism !== undefined && {
       maxParallelism: entry.max_parallelism,
     }),

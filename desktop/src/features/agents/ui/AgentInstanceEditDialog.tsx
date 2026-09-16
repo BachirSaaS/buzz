@@ -22,7 +22,6 @@ import type {
 } from "@/shared/api/types";
 import type { EditAgentFocusTarget } from "@/features/agents/openEditAgentEvent";
 import { cn } from "@/shared/lib/cn";
-import { Button } from "@/shared/ui/button";
 import { ChooserDialogContent } from "@/shared/ui/chooser-dialog-content";
 import { Dialog } from "@/shared/ui/dialog";
 import { Input } from "@/shared/ui/input";
@@ -66,7 +65,7 @@ import {
   selectionOnRuntimeChange,
   type RuntimeModelProviderSelection,
 } from "./runtimeModelProviderSelection";
-import { AgentCreationPreview } from "./AgentCreationPreview";
+import { AgentEditAvatar, AgentEditFooter } from "./AgentEditChrome";
 import { OwnerOnlyAccessField } from "./OwnerOnlyAccessField";
 import type { EnvVarsValue } from "./EnvVarsEditor";
 import { useRequiredCredentialState } from "./useRequiredCredentialState";
@@ -920,58 +919,25 @@ export function AgentInstanceEditDialog({
         headerClassName="pb-2"
         title={`Edit ${agent.name}`}
         footer={
-          <div className="flex w-full items-center justify-end gap-2">
-            <Button
-              disabled={isSaving || isAvatarUploadPending}
-              onClick={() => handleOpenChange(false)}
-              type="button"
-              variant="outline"
-            >
-              Cancel
-            </Button>
-            <Button
-              data-testid="edit-agent-dialog-submit"
-              disabled={!canSubmit}
-              onClick={() => void handleSubmit()}
-              type="button"
-            >
-              {isSaving ? "Saving..." : "Save changes"}
-            </Button>
-          </div>
+          <AgentEditFooter
+            isSaving={isSaving}
+            uploadPending={isAvatarUploadPending}
+            canSubmit={canSubmit}
+            onCancel={() => handleOpenChange(false)}
+            onSave={() => void handleSubmit()}
+          />
         }
       >
         <div className="grid gap-5 lg:grid-cols-[220px_minmax(0,1fr)]">
-          {/* Avatar is definition-level identity. hideEditControl suppresses
-              the internal pencil badge; the CTA below is the only edit path. */}
-          <div className="flex flex-col items-center gap-2">
-            <AgentCreationPreview
-              avatarUrl={previewAvatarUrl}
-              hideEditControl
-              label={previewLabel}
-              onClearAvatar={() => setAvatarUrl("")}
-              onUploadPendingChange={setIsAvatarUploadPending}
-              onSelectAvatar={setAvatarUrl}
-            />
-            {onEditLinkedPersona ? (
-              <Button
-                className="w-full"
-                disabled={isSaving}
-                onClick={() => {
-                  handleOpenChange(false);
-                  onEditLinkedPersona();
-                }}
-                size="sm"
-                type="button"
-                variant="outline"
-              >
-                Edit avatar
-              </Button>
-            ) : (
-              <p className="text-center text-xs text-muted-foreground">
-                Avatar is shared identity
-              </p>
-            )}
-          </div>
+          <AgentEditAvatar
+            label={previewLabel}
+            avatarUrl={previewAvatarUrl}
+            isSaving={isSaving}
+            onSelectAvatar={setAvatarUrl}
+            onUploadPendingChange={setIsAvatarUploadPending}
+            onClose={() => handleOpenChange(false)}
+            onEditLinkedPersona={onEditLinkedPersona}
+          />
           <div className="space-y-5">
             <div className="space-y-1.5">
               <label

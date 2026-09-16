@@ -193,6 +193,9 @@ pub(crate) fn build_deploy_payload<R: tauri::Runtime>(
     state: &AppState,
     record: &ManagedAgentRecord,
 ) -> Result<serde_json::Value, String> {
+    if record.security_policy.is_some() {
+        return Err("Sandpit policy is local-only; remote deployment is unavailable".into());
+    }
     if let Some(err) = crate::managed_agents::spawn_key_refusal(record) {
         return Err(err);
     }

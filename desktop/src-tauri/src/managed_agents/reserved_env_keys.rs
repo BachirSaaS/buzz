@@ -82,7 +82,7 @@ pub(crate) const RESERVED_ENV_KEYS: &[&str] = &[
 ];
 
 pub(crate) fn is_reserved_env_key(key: &str) -> bool {
-    RESERVED_ENV_KEYS
+    buzz_security_policy::reserved(&key.to_ascii_uppercase()) || RESERVED_ENV_KEYS
         .iter()
         .any(|reserved| reserved.eq_ignore_ascii_case(key))
 }

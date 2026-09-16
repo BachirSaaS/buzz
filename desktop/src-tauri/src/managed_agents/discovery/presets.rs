@@ -67,6 +67,7 @@ pub(super) fn preset_catalog_entry(
     };
 
     AcpRuntimeCatalogEntry {
+        supports_sandpit: false,
         id: def.id.to_string(),
         label: def.label.to_string(),
         // No remote URL — all preset icons are bundled assets.

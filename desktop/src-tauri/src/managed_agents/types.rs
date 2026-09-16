@@ -115,6 +115,7 @@ impl AgentDefinition {
     /// event coordinate (`d_tag = slug`) across the fold.
     pub fn into_agent_record(self) -> ManagedAgentRecord {
         ManagedAgentRecord {
+            security_policy: None,
             pubkey: String::new(),
             name: self.display_name.clone(),
             persona_id: None,
@@ -236,6 +237,9 @@ pub struct RelayAgentInfo {
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ManagedAgentRecord {
+    /// Private local confinement settings; never included in a shared persona.
+    #[serde(default)]
+    pub security_policy: Option<buzz_security_policy::SecurityPolicy>,
     pub pubkey: String,
     pub name: String,
     #[serde(default)]
@@ -492,6 +496,7 @@ pub struct ManagedAgentRecord {
 
 #[derive(Debug)]
 pub struct ManagedAgentProcess {
+    pub security_launch: Option<tempfile::TempDir>,
     pub child: Child,
     pub log_path: PathBuf,
     /// The effective spawn config this process was launched with (see
@@ -524,6 +529,11 @@ pub struct ManagedAgentProcess {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ManagedAgentSummary {
+    /// Evidence from this local process generation, never relay-supplied.
+    pub security_status: String,
+    /// Private local confinement settings; never included in a shared persona.
+    #[serde(default)]
+    pub security_policy: Option<buzz_security_policy::SecurityPolicy>,
     pub pubkey: String,
     pub name: String,
     pub persona_id: Option<String>,
@@ -662,6 +672,7 @@ pub enum HarnessSource {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct AcpRuntimeCatalogEntry {
+    pub supports_sandpit: bool,
     pub id: String,
     pub label: String,
     pub avatar_url: String,

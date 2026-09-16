@@ -100,6 +100,7 @@ pub(crate) struct SpawnConfigInputs<'a> {
 /// [`ManagedAgentProcess`]: super::ManagedAgentProcess
 #[derive(Clone, Serialize)]
 pub(crate) struct SpawnConfigSnapshot {
+    pub security_policy: Option<buzz_security_policy::SecurityPolicy>,
     /// The ACP harness binary the desktop launches (`buzz-acp`).
     pub acp_command: String,
     /// The effective agent command the harness drives.
@@ -194,6 +195,7 @@ impl SpawnConfigSnapshot {
         let (respond_to, respond_to_allowlist) =
             super::projected_access_with_policy(record, enforced_owner_only);
         Self {
+            security_policy: record.security_policy.clone(),
             acp_command: record.acp_command.clone(),
             command: descriptor.command.clone(),
             args: descriptor.args.clone(),

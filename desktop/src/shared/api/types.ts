@@ -308,7 +308,20 @@ export type AcpSessionPolicy = "channel" | "thread";
 
 import type { RestartDiffEntry } from "./restartDiff";
 export type { JsonValue, RestartChange, RestartDiffEntry } from "./restartDiff";
+/** Host-local paths and grants. Never part of a shared persona. */
+export type AgentSecurityPolicy = {
+  schema_version: 1;
+  writable_roots: string[] | null;
+  denied_reads: string[];
+  denied_writes: string[];
+  network:
+    | { mode: "unrestricted" | "deny_all" }
+    | { mode: "allowlist"; destinations: string[] };
+  environment: string[];
+};
 export type ManagedAgent = {
+  securityPolicy?: AgentSecurityPolicy | null;
+  securityStatus?: string;
   pubkey: string;
   name: string;
   personaId: string | null;
@@ -541,6 +554,7 @@ export type AcpRuntimeCatalogEntry = {
    */
   definitionEnv?: Record<string, string>;
   /** Spawn-time parallelism cap; absent for uncapped harnesses. */
+  supportsSandpit?: boolean;
   maxParallelism?: number;
 };
 
@@ -687,6 +701,7 @@ export type RuntimeConfigSurface = {
 };
 
 export type UpdateManagedAgentInput = {
+  securityPolicy?: AgentSecurityPolicy | null;
   pubkey: string;
   name?: string;
   model?: string | null;

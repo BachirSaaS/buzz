@@ -2,6 +2,13 @@
   "version": 1,
   "features": [
     {
+      "id": "agentSecurity",
+      "name": "Agent security",
+      "description": "Limit local agents’ access to files and the internet. Available for Buzz Agent on macOS.",
+      "defaultEnabled": false,
+      "platforms": ["desktop"]
+    },
+    {
       "id": "workflows",
       "name": "Workflows",
       "description": "YAML-defined automations with approval gates",

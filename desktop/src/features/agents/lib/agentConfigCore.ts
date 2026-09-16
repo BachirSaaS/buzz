@@ -360,3 +360,12 @@ export function numericTuningPlaceholder(
     ? `Inherit (${inheritedValue})`
     : "Inherit (agent default)";
 }
+
+/** Security capability comes exclusively from the native runtime catalog. */
+export function sandpitAvailability(
+  runtime: AcpRuntimeCatalogEntry | undefined,
+  status: RuntimeCatalogStatus,
+): "available" | "unsupported" | "unknown" {
+  if (status !== "ready") return "unknown";
+  return runtime?.supportsSandpit ? "available" : "unsupported";
+}

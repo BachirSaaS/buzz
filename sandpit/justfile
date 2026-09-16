@@ -1,0 +1,50 @@
+# sandpit
+
+# Build debug
+build:
+    cargo build
+
+# Build release
+release:
+    cargo build --release
+
+# Run unit tests only (fast)
+test-unit:
+    cargo test
+
+# Run integration tests only (test.sh, ~60s)
+# Clears the cached dylib first — see AGENTS/README notes on stale cache.
+test-integration: build
+    rm -f ~/.sandpit/lib/libsandpit.dylib
+    bash test.sh
+
+# Run all tests (unit + integration)
+test: test-unit test-integration
+
+# Create starter config in current directory
+init: build
+    ./target/debug/sandpit init
+
+# Show effective config
+config: build
+    ./target/debug/sandpit config
+
+# Run an agent in the sandbox (e.g. just run goose session)
+run *args: build
+    ./target/debug/sandpit run -- {{args}}
+
+# Install adversary hooks for an agent (e.g. just hook pi)
+hook agent: build
+    ./target/debug/sandpit install {{agent}}
+
+# Uninstall adversary hooks
+unhook agent: build
+    ./target/debug/sandpit uninstall {{agent}}
+
+# List supported agents
+agents: build
+    ./target/debug/sandpit install --list
+
+# Clean build artifacts
+clean:
+    cargo clean

@@ -9,7 +9,7 @@ use crate::managed_agents::{
     HarnessSource,
 };
 mod auth_status_cache;
-mod bounded_command;
+pub(crate) mod bounded_command;
 mod login_shell;
 mod presets;
 mod runtime_metadata;
@@ -1030,6 +1030,7 @@ fn discover_acp_runtime_phase1(runtime: &'static KnownAcpRuntime, force: bool) -
     PartialEntry {
         runtime,
         entry: AcpRuntimeCatalogEntry {
+            supports_sandpit: runtime.supports_sandpit(),
             id: runtime.id.to_string(),
             label: runtime.label.to_string(),
             avatar_url: runtime.avatar_url.to_string(),
@@ -1168,6 +1169,7 @@ pub fn discover_acp_runtimes_from(
             let default_args = normalize_agent_args(&def.command, def.args.clone());
 
             entries.push(AcpRuntimeCatalogEntry {
+                supports_sandpit: false,
                 id: def.id.clone(),
                 label: def.label.clone(),
                 // F1 security fix: never copy user-supplied avatar URL into the catalog.

@@ -164,6 +164,10 @@ pub async fn update_managed_agent(
 
         let record = find_managed_agent_mut(&mut records, &input.pubkey)?;
         let previous_record = record.clone();
+        if let Some(policy) = input.security_policy {
+            crate::managed_agents::security_defaults::update_policy(&app, record, policy)?;
+        }
+        let security_changed = record.security_policy != previous_record.security_policy;
 
         let mut name_changed = false;
         if let Some(name_update) = input.name {
@@ -263,13 +267,14 @@ pub async fn update_managed_agent(
                     .to_string(),
             );
         }
-        let access_policy_changed = managed_agent_access_policy_changed(
-            record.respond_to,
-            &record.respond_to_allowlist,
-            prospective_mode,
-            &prospective_allowlist,
-            crate::managed_agents::owner_only_access_build(),
-        );
+        let access_policy_changed = security_changed
+            || managed_agent_access_policy_changed(
+                record.respond_to,
+                &record.respond_to_allowlist,
+                prospective_mode,
+                &prospective_allowlist,
+                crate::managed_agents::owner_only_access_build(),
+            );
         ensure_access_policy_change_supported(record, access_policy_changed)?;
 
         // Revoke the currently running local gate before persisting or

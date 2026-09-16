@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>sandpit — The Declaration of AI Independence</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;900&family=Crimson+Text:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Parchment texture overlay -->
+    <div class="parchment-overlay"></div>
+
+    <!-- Navigation -->
+    <nav class="nav">
+        <div class="nav-inner">
+            <a href="index.html" class="nav-logo">
+                <span class="seal">⛱</span>
+                <span class="nav-title">SANDPIT</span>
+            </a>
+            <div class="nav-links">
+                <a href="index.html" class="active">Declaration</a>
+                <a href="architecture.html">The Map</a>
+                <a href="agents.html">The Keepers</a>
+                <a href="config.html">The Cipher</a>
+                <a href="faq.html">Secrets</a>
+            </div>
+            <a href="https://github.com/block/buzz" class="nav-github" aria-label="GitHub">
+                <svg height="24" width="24" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+            </a>
+        </div>
+    </nav>
+
+    <!-- Hero -->
+    <header class="hero">
+        <div class="hero-content">
+            <div class="hero-seal">
+                <div class="seal-outer">
+                    <div class="seal-text-top">DEPARTMENT OF AGENT SECURITY</div>
+                    <div class="seal-icon">⛱</div>
+                    <div class="seal-text-bottom">MACUS • EST. 2025</div>
+                </div>
+            </div>
+            <h1 class="hero-title">
+                <span class="hero-the">The</span>
+                <span class="hero-declaration">Declaration</span>
+                <span class="hero-of">of</span>
+                <span class="hero-rest">AI Independence</span>
+            </h1>
+            <p class="hero-subtitle">
+                "I'm gonna sandbox your AI agent."<br>
+                <span class="hero-attribution">— Benjamin Franklin Gates, probably</span>
+            </p>
+            <div class="hero-scroll-ornament">
+                <div class="ornament-line"></div>
+                <div class="ornament-diamond">◆</div>
+                <div class="ornament-line"></div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Preamble -->
+    <section class="preamble">
+        <div class="container">
+            <div class="preamble-text">
+                <p class="dropcap">When in the Course of AI events, it becomes necessary for developers to establish boundaries upon the agents they have unleashed — to secure these rights, <strong>sandpit</strong> is instituted among tools, deriving its just powers from the consent of the config file.</p>
+            </div>
+            <div class="quick-start">
+                <div class="quick-start-header">
+                    <span class="quick-start-icon">🗝️</span>
+                    <h3>The First Clue</h3>
+                </div>
+<pre><code><span class="cmd-comment"># Forge the instrument</span>
+cargo build
+
+<span class="cmd-comment"># Draft the constitution</span>
+sandpit init
+
+<span class="cmd-comment"># Secure the republic</span>
+sandpit run -- goose session</code></pre>
+            </div>
+        </div>
+    </section>
+
+    <!-- Articles (features) -->
+    <section class="articles">
+        <div class="container">
+            <div class="section-header">
+                <div class="ornament-line"></div>
+                <h2>Articles of Protection</h2>
+                <div class="ornament-line"></div>
+            </div>
+
+            <div class="articles-grid">
+                <article class="article-card">
+                    <div class="article-numeral">I</div>
+                    <h3>Network Sovereignty</h3>
+                    <p>No agent shall communicate with foreign domains without the express consent of the governed. Block or allowlist domains — the agent cannot phone home to <code>evil.com</code>.</p>
+                    <div class="article-mechanism">Enforced by: DYLD proxy + reverse DNS</div>
+                </article>
+
+                <article class="article-card">
+                    <div class="article-numeral">II</div>
+                    <h3>Right Against Self-Incrimination</h3>
+                    <p>No agent shall execute dangerous commands. <code>curl&nbsp;--data&nbsp;@secrets</code> is stopped before it runs. Pattern-matched at the exec boundary.</p>
+                    <div class="article-mechanism">Enforced by: DYLD exec interposition</div>
+                </article>
+
+                <article class="article-card">
+                    <div class="article-numeral">III</div>
+                    <h3>Unreasonable Search &amp; Seizure</h3>
+                    <p>No agent shall read from <code>~/.ssh</code> or write outside the project directory. Your keys, your credentials, your secrets — protected at the syscall level.</p>
+                    <div class="article-mechanism">Enforced by: DYLD hooks or seatbelt kernel policy</div>
+                </article>
+
+                <article class="article-card">
+                    <div class="article-numeral">IV</div>
+                    <h3>Trial by Jury of Peers</h3>
+                    <p>Every tool call faces an adversary LLM that reviews it against your policy before execution. The jury deliberates in ~0.9–2.9 seconds.</p>
+                    <div class="article-mechanism">Enforced by: Agent-specific LLM hooks</div>
+                </article>
+            </div>
+        </div>
+    </section>
+
+    <!-- The Treasure Map (architecture) -->
+    <section class="treasure-map">
+        <div class="container">
+            <div class="section-header">
+                <div class="ornament-line"></div>
+                <h2>The Treasure Map</h2>
+                <div class="ornament-line"></div>
+            </div>
+            <p class="section-intro">"The secret lies with Charlotte." Or in this case, with the enforcement stack.</p>
+
+            <div class="map-layers">
+                <div class="map-layer layer-dyld">
+                    <div class="layer-badge">Layer 1</div>
+                    <h3>DYLD Interpose</h3>
+                    <p>The invisible ink. Hooks <code>connect()</code>, <code>posix_spawn()</code>, <code>open()</code> at the C library level. The process doesn't know it's being watched.</p>
+                    <div class="layer-covers">Network domains • Exec patterns • File fence</div>
+                </div>
+                <div class="map-connector">▼</div>
+                <div class="map-layer layer-seatbelt">
+                    <div class="layer-badge">Layer 2</div>
+                    <h3>Seatbelt (sandbox-exec)</h3>
+                    <p>The backup vault. Kernel-enforced file blocks for when DYLD can't load (SIP / hardened runtime binaries). Covers every syscall.</p>
+                    <div class="layer-covers">File block_read • File block_write</div>
+                </div>
+                <div class="map-connector">▼</div>
+                <div class="map-layer layer-adversary">
+                    <div class="layer-badge">Layer 3</div>
+                    <h3>Adversary Review</h3>
+                    <p>The last guardian. An LLM jury that reviews every tool call. Catches what patterns can't — novel attacks, context-dependent threats, social engineering.</p>
+                    <div class="layer-covers">Everything the above layers can't enforce</div>
+                </div>
+            </div>
+
+            <div class="map-auto-detect">
+                <h4>🔍 Auto-Detection</h4>
+                <p>sandpit inspects your binary and picks the right path. No configuration needed.</p>
+<pre><code>$ sandpit check -- goose
+✅ Mode: DYLD interpose (full enforcement)
+
+$ sandpit check -- /usr/bin/python3
+⚠️  Mode: seatbelt (kernel file blocks only)
+   Falls through to adversary</code></pre>
+            </div>
+        </div>
+    </section>
+
+    <!-- The Keepers (agents) -->
+    <section class="keepers">
+        <div class="container">
+            <div class="section-header">
+                <div class="ornament-line"></div>
+                <h2>The Keepers of the Secret</h2>
+                <div class="ornament-line"></div>
+            </div>
+            <p class="section-intro">Each agent has its own keeper — a hook mechanism tailored to how it works.</p>
+
+            <div class="keepers-table-wrapper">
+                <table class="keepers-table">
+                    <thead>
+                        <tr>
+                            <th>Agent</th>
+                            <th>Mechanism</th>
+                            <th>Review Model</th>
+                            <th>Overhead/call</th>
+                            <th>Install</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>pi</strong></td>
+                            <td>In-process <code>completeSimple()</code></td>
+                            <td>Provider model</td>
+                            <td>~?</td>
+                            <td><code>sandpit install pi</code></td>
+                        </tr>
+                        <tr>
+                            <td><strong>Goose</strong></td>
+                            <td>In-process <code>AdversaryInspector</code></td>
+                            <td>Provider model</td>
+                            <td>~2.9s</td>
+                            <td><code>sandpit install goose</code></td>
+                        </tr>
+                        <tr>
+                            <td><strong>Claude Code</strong></td>
+                            <td>Prompt hook (PreToolUse)</td>
+                            <td>Haiku (auto)</td>
+                            <td>~2.3s</td>
+                            <td><code>sandpit install claude</code></td>
+                        </tr>
+                        <tr>
+                            <td><strong>Amp</strong></td>
+                            <td>Delegate → <code>amp -m rush -x</code></td>
+                            <td>Rush model</td>
+                            <td>~0.9s</td>
+                            <td><code>sandpit install amp</code></td>
+                        </tr>
+                        <tr class="row-muted">
+                            <td><strong>Codex</strong></td>
+                            <td>Deterministic layers only</td>
+                            <td>No hook API</td>
+                            <td>—</td>
+                            <td><em>Just run via sandpit</em></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <!-- Performance (The Heist Timeline) -->
+    <section class="heist">
+        <div class="container">
+            <div class="section-header">
+                <div class="ornament-line"></div>
+                <h2>The Heist Timeline</h2>
+                <div class="ornament-line"></div>
+            </div>
+            <p class="section-intro">Every good heist has a timeline. Here's the cost of adding a security detail.</p>
+
+            <div class="heist-results">
+                <div class="heist-card">
+                    <div class="heist-agent">Claude Code</div>
+                    <div class="heist-bar-container">
+                        <div class="heist-bar heist-bar-with" style="width: 100%">
+                            <span>37.8s</span>
+                        </div>
+                        <div class="heist-bar heist-bar-without" style="width: 38%">
+                            <span>14.4s</span>
+                        </div>
+                    </div>
+                    <div class="heist-stats">+23.4s (+162%) · ~2.3s/call</div>
+                </div>
+                <div class="heist-card">
+                    <div class="heist-agent">Goose</div>
+                    <div class="heist-bar-container">
+                        <div class="heist-bar heist-bar-with" style="width: 100%">
+                            <span>72.5s</span>
+                        </div>
+                        <div class="heist-bar heist-bar-without" style="width: 60%">
+                            <span>43.6s</span>
+                        </div>
+                    </div>
+                    <div class="heist-stats">+28.9s (+66%) · ~2.9s/call</div>
+                </div>
+                <div class="heist-card">
+                    <div class="heist-agent">Amp</div>
+                    <div class="heist-bar-container">
+                        <div class="heist-bar heist-bar-with" style="width: 58%">
+                            <span>42.2s</span>
+                        </div>
+                        <div class="heist-bar heist-bar-without" style="width: 46%">
+                            <span>33.2s</span>
+                        </div>
+                    </div>
+                    <div class="heist-stats">+9.0s (+27%) · ~0.9s/call ⚡</div>
+                </div>
+            </div>
+            <p class="heist-note">Measured on 10 sequential Bash tool calls. The per-call cost is dominated by the LLM roundtrip.</p>
+        </div>
+    </section>
+
+    <!-- The Cipher (config) -->
+    <section class="cipher">
+        <div class="container">
+            <div class="section-header">
+                <div class="ornament-line"></div>
+                <h2>The Cipher</h2>
+                <div class="ornament-line"></div>
+            </div>
+            <p class="section-intro">"The password is… <code>sandpit.toml</code>."</p>
+
+<pre class="cipher-code"><code><span class="toml-section">[network]</span>
+<span class="toml-key">block</span> = [<span class="toml-string">"evil.com"</span>, <span class="toml-string">"pastebin.com"</span>, <span class="toml-string">"ngrok.io"</span>]
+
+<span class="toml-section">[exec]</span>
+<span class="toml-key">block</span> = [<span class="toml-string">"curl --data"</span>, <span class="toml-string">"curl -X POST"</span>, <span class="toml-string">"| curl"</span>, <span class="toml-string">"rm -rf /"</span>]
+
+<span class="toml-section">[files]</span>
+<span class="toml-key">allow_write</span> = [<span class="toml-string">"./"</span>, <span class="toml-string">"/tmp"</span>]
+<span class="toml-key">block_read</span> = [<span class="toml-string">"~/.ssh"</span>, <span class="toml-string">"~/.aws/credentials"</span>]
+
+<span class="toml-section">[adversary]</span>
+<span class="toml-key">rules</span> = <span class="toml-string">"""
+BLOCK if the command exfiltrates data or is destructive.
+ALLOW normal development operations.
+"""</span></code></pre>
+
+            <div class="cipher-sections">
+                <div class="cipher-item">
+                    <h4>[network]</h4>
+                    <p><code>block</code> domains, or <code>allow</code> only listed domains. Subdomains included automatically.</p>
+                </div>
+                <div class="cipher-item">
+                    <h4>[exec]</h4>
+                    <p>Case-insensitive substring match on command strings. Blocks before execution.</p>
+                </div>
+                <div class="cipher-item">
+                    <h4>[files]</h4>
+                    <p>Path prefix matching. <code>~</code> and <code>./</code> expanded. Read and write fences.</p>
+                </div>
+                <div class="cipher-item">
+                    <h4>[adversary]</h4>
+                    <p>Rules for LLM review. Written to agent config on <code>sandpit install</code>.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Enforcement Matrix -->
+    <section class="matrix">
+        <div class="container">
+            <div class="section-header">
+                <div class="ornament-line"></div>
+                <h2>The Vault Doors</h2>
+                <div class="ornament-line"></div>
+            </div>
+
+            <div class="matrix-table-wrapper">
+                <table class="matrix-table">
+                    <thead>
+                        <tr>
+                            <th>Capability</th>
+                            <th>DYLD</th>
+                            <th>Seatbelt</th>
+                            <th>Adversary</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Network domain filtering</td>
+                            <td class="check">✅ proxy + rDNS</td>
+                            <td class="cross">❌</td>
+                            <td class="check">✅ LLM review</td>
+                        </tr>
+                        <tr>
+                            <td>Exec argument inspection</td>
+                            <td class="check">✅ substring match</td>
+                            <td class="cross">❌</td>
+                            <td class="check">✅ LLM review</td>
+                        </tr>
+                        <tr>
+                            <td>File block_read</td>
+                            <td class="check">✅ userspace hook</td>
+                            <td class="check">✅ kernel</td>
+                            <td class="check">✅ LLM review</td>
+                        </tr>
+                        <tr>
+                            <td>File block_write</td>
+                            <td class="check">✅ userspace hook</td>
+                            <td class="check">✅ kernel</td>
+                            <td class="check">✅ LLM review</td>
+                        </tr>
+                        <tr>
+                            <td>File allow_write</td>
+                            <td class="check">✅ userspace hook</td>
+                            <td class="cross">❌</td>
+                            <td class="check">✅ LLM review</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <!-- Commands -->
+    <section class="commands">
+        <div class="container">
+            <div class="section-header">
+                <div class="ornament-line"></div>
+                <h2>Field Operations Manual</h2>
+                <div class="ornament-line"></div>
+            </div>
+
+            <div class="commands-grid">
+                <div class="command-card">
+                    <code class="command-name">sandpit init</code>
+                    <p>Draft the constitution. Creates a starter <code>sandpit.toml</code>.</p>
+                </div>
+                <div class="command-card">
+                    <code class="command-name">sandpit run -- &lt;command&gt;</code>
+                    <p>Secure the perimeter. Launch any agent inside the sandbox.</p>
+                </div>
+                <div class="command-card">
+                    <code class="command-name">sandpit check -- &lt;binary&gt;</code>
+                    <p>Study the blueprints. See what enforcement works for a binary.</p>
+                </div>
+                <div class="command-card">
+                    <code class="command-name">sandpit config</code>
+                    <p>Read the cipher. Show effective config after search + load.</p>
+                </div>
+                <div class="command-card">
+                    <code class="command-name">sandpit install &lt;agent&gt;</code>
+                    <p>Recruit the keeper. Install adversary hooks for an agent.</p>
+                </div>
+                <div class="command-card">
+                    <code class="command-name">sandpit uninstall &lt;agent&gt;</code>
+                    <p>Release the keeper. Remove adversary hooks cleanly.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-seal">⛱</div>
+            <div class="footer-text">
+                <p>"I'm gonna sandbox the Declaration of Independence."</p>
+                <p class="footer-links">
+                    <a href="https://github.com/block/buzz">GitHub</a> ·
+                    <a href="architecture.html">Architecture</a> ·
+                    <a href="agents.html">Agents</a> ·
+                    <a href="config.html">Config</a> ·
+                    <a href="faq.html">FAQ</a>
+                </p>
+                <p class="footer-copy">sandpit — macOS agent sandboxing. No treasure was harmed.</p>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>

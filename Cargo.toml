@@ -2,6 +2,7 @@
 members = [
     "crates/buzz-relay",
     "crates/buzz-core",
+    "crates/buzz-security-policy",
     "crates/ifc-core",
     "crates/buzz-conformance",
     "crates/buzz-push-gateway",
@@ -33,7 +34,7 @@ members = [
     "crates/buzz-datastore-tracing",
     "examples/countdown-bot",
 ]
-exclude = ["desktop/src-tauri"]
+exclude = ["desktop/src-tauri", "sandpit"]
 resolver = "2"
 
 [workspace.package]

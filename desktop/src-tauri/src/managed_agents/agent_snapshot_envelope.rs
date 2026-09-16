@@ -367,6 +367,7 @@ mod tests {
     /// pubkey/nsec pair matters here.
     fn record_with_keys(pubkey: String, private_key_nsec: String) -> ManagedAgentRecord {
         ManagedAgentRecord {
+            security_policy: None,
             session_policy: Default::default(),
             description: None,
             pubkey,

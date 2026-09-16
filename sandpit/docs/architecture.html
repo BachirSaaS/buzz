@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Map — sandpit architecture</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;900&family=Crimson+Text:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="parchment-overlay"></div>
+
+    <nav class="nav">
+        <div class="nav-inner">
+            <a href="index.html" class="nav-logo">
+                <span class="seal">⛱</span>
+                <span class="nav-title">SANDPIT</span>
+            </a>
+            <div class="nav-links">
+                <a href="index.html">Declaration</a>
+                <a href="architecture.html" class="active">The Map</a>
+                <a href="agents.html">The Keepers</a>
+                <a href="config.html">The Cipher</a>
+                <a href="faq.html">Secrets</a>
+            </div>
+            <a href="https://github.com/block/buzz" class="nav-github" aria-label="GitHub">
+                <svg height="24" width="24" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+            </a>
+        </div>
+    </nav>
+
+    <div class="page-content">
+        <div class="container">
+            <h1>The Map</h1>
+            <p class="page-subtitle">"The next clue is on the back of the Declaration of Independence. But the real treasure… is the enforcement stack."</p>
+
+            <h2>How the Layers Work</h2>
+            <p>sandpit uses a defense-in-depth strategy. Four independent enforcement layers, each catching what the others miss. Like the puzzles in the National Archives — you have to solve all of them to get through.</p>
+
+            <h3>Layer 1: DYLD Interpose — The Invisible Ink</h3>
+            <p>On macOS, <code>DYLD_INSERT_LIBRARIES</code> lets you load a shared library into a process before it starts. sandpit's dylib hooks C library functions at the lowest level:</p>
+
+            <ul>
+                <li><strong><code>connect()</code></strong> — all outbound TCP connections pass through a transparent proxy that checks domains against your blocklist. The process doesn't know it's being proxied. HTTP, gRPC, WebSocket, raw TCP, SSH — they all call <code>connect()</code>.</li>
+                <li><strong><code>posix_spawn()</code> / <code>execve()</code></strong> — every command the agent spawns is checked against your exec block patterns before it runs. The command string is inspected, not just the binary name.</li>
+                <li><strong><code>open()</code> / <code>openat()</code></strong> — file access is fenced. Reads from blocked paths are denied. Writes outside allowed paths are denied.</li>
+            </ul>
+
+            <p>The dylib is compiled as a separate crate (<code>sandpit-dylib</code>) and embedded into the main binary at build time. At runtime it's extracted to <code>~/.sandpit/lib/libsandpit.dylib</code>.</p>
+
+            <h3>Layer 2: Seatbelt — The Backup Vault</h3>
+            <p>Some binaries can't be DYLD-hooked. SIP-protected system binaries (like <code>/usr/bin/python3</code>) and hardened-runtime apps strip <code>DYLD_INSERT_LIBRARIES</code> before the process starts.</p>
+
+            <p>For these, sandpit falls back to <code>sandbox-exec</code> (Apple's seatbelt framework). This generates a SBPL profile at runtime from your config:</p>
+
+            <pre><code>(version 1)
+(allow default)
+(deny file-read* (subpath "/Users/you/.ssh"))
+(deny file-write* (subpath "/etc"))</code></pre>
+
+            <p>Seatbelt enforcement is kernel-level — it covers every syscall including <code>symlink()</code>, <code>truncate()</code>, <code>link()</code> that DYLD doesn't hook. But it can only do file operations — no domain-level network filtering, no exec argument inspection.</p>
+
+            <blockquote>
+                <strong>Why not both?</strong> Because <code>sandbox-exec</code> is itself a SIP-protected binary that strips <code>DYLD_INSERT_LIBRARIES</code> from children. They're mutually exclusive on macOS.
+            </blockquote>
+
+            <h3>Layer 3: Command Shims — The Decoy</h3>
+            <p>Enabled with <code>sandpit run --shims</code>, this layer generates tiny wrapper scripts that shadow dangerous commands by prepending <code>~/.sandpit/shims/</code> to the child's PATH. When the agent calls <code>curl</code>, the shell finds the shim first.</p>
+
+            <p>Each shim is a two-line shell script that calls back into sandpit itself:</p>
+            <pre><code>#!/bin/sh
+exec sandpit exec curl "$@"</code></pre>
+
+            <p>The <code>sandpit exec</code> command loads your config, checks the command against exec block rules and network domain policy in native Rust (~38ms), then either <code>exec()</code>s the real binary or blocks with an error.</p>
+
+            <p><strong>What gets shimmed:</strong> <code>curl</code>, <code>wget</code>, <code>nc</code>, <code>ssh</code>, <code>scp</code>, <code>rsync</code>, <code>socat</code>, <code>dig</code>, and more — plus any command extracted from your <code>[exec]</code> block patterns. Only commands actually installed on the system get shims.</p>
+
+            <p><strong>What gets checked:</strong></p>
+            <ul>
+                <li><strong>Exec block rules</strong> — same case-insensitive substring match as the DYLD layer</li>
+                <li><strong>Network domains</strong> — parsed from URLs (<code>https://evil.com</code>), scp syntax (<code>user@evil.com:/path</code>), ssh syntax (<code>user@evil.com</code>), and bare domains (<code>dig evil.com</code>). Subdomain matching included.</li>
+            </ul>
+
+            <p>Shims are particularly valuable when DYLD isn't available — for SIP/hardened binaries where seatbelt handles files but nothing handles network or exec. They're opt-in via <code>--shims</code> until tested with your specific agent workflow.</p>
+
+            <blockquote>
+                <strong>Limitation:</strong> PATH-based interception. If the agent uses an absolute path like <code>/usr/bin/curl</code>, the shim isn't hit. That's what DYLD and the adversary are for.
+            </blockquote>
+
+            <h3>Layer 4: Adversary Review — The Last Guardian</h3>
+            <p>An LLM that reviews every tool call before it executes. It reads your <code>[adversary].rules</code> policy and makes a judgment call: ALLOW or DENY.</p>
+
+            <p>The adversary catches what patterns can't:</p>
+            <ul>
+                <li>Novel exfiltration techniques not in your block list</li>
+                <li>Context-dependent threats ("this <code>curl</code> is to an internal API" vs "this <code>curl</code> is posting secrets")</li>
+                <li>Multi-step attacks where individual commands look benign</li>
+            </ul>
+
+            <p>The adversary always gets all rules regardless of mode — it's the backstop.</p>
+
+            <h2>Auto-Detection</h2>
+            <p>sandpit inspects the target binary at launch and picks the best enforcement mode automatically:</p>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>Binary Type</th>
+                        <th>Mode</th>
+                        <th>What's Enforced</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Homebrew / user-built (Node, Rust, Go)</td>
+                        <td>DYLD interpose</td>
+                        <td>Everything — network, exec, files</td>
+                    </tr>
+                    <tr>
+                        <td>SIP / hardened runtime binaries</td>
+                        <td>Seatbelt</td>
+                        <td>Kernel file blocks; network + exec → shims (with <code>--shims</code>) + adversary</td>
+                    </tr>
+                    <tr>
+                        <td>Neither available</td>
+                        <td>Shims + adversary</td>
+                        <td>Shims handle exec/network (with <code>--shims</code>); adversary reviews everything</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <pre><code>$ sandpit check -- goose
+🔍 Binary: /opt/homebrew/bin/goose
+   DYLD_INSERT_LIBRARIES: ✅ supported
+   sandbox-exec:          ✅ available
+
+✅ Mode: DYLD interpose (full enforcement)
+
+$ sandpit check -- /usr/bin/python3
+🔍 Binary: /usr/bin/python3
+   DYLD_INSERT_LIBRARIES: ❌ not supported (SIP)
+   sandbox-exec:          ✅ available
+
+⚠️  Mode: seatbelt (kernel file blocks only)
+   Falls through to adversary:
+   • Network domain filtering
+   • Exec argument patterns</code></pre>
+
+            <h2>Shebang Resolution</h2>
+            <p>Many agents are scripts with <code>#!/usr/bin/env python3</code> shebangs. <code>/usr/bin/env</code> is SIP-protected and strips DYLD. sandpit detects this and resolves the interpreter via PATH, spawning the Homebrew python3 directly instead. This turns a seatbelt-mode launch into a DYLD-mode launch.</p>
+
+            <h2>The Enforcement Matrix</h2>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>Capability</th>
+                        <th>DYLD</th>
+                        <th>Shims (<code>--shims</code>)</th>
+                        <th>Seatbelt</th>
+                        <th>Adversary</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Network domain filtering</td>
+                        <td>✅ proxy + rDNS</td>
+                        <td>✅ domain check on args</td>
+                        <td>❌</td>
+                        <td>✅ LLM review</td>
+                    </tr>
+                    <tr>
+                        <td>Exec argument inspection</td>
+                        <td>✅ substring match</td>
+                        <td>✅ substring match</td>
+                        <td>❌</td>
+                        <td>✅ LLM review</td>
+                    </tr>
+                    <tr>
+                        <td>File block_read</td>
+                        <td>✅ userspace hook</td>
+                        <td>❌</td>
+                        <td>✅ kernel (all syscalls)</td>
+                        <td>✅ LLM review</td>
+                    </tr>
+                    <tr>
+                        <td>File block_write</td>
+                        <td>✅ userspace hook</td>
+                        <td>❌</td>
+                        <td>✅ kernel (all syscalls)</td>
+                        <td>✅ LLM review</td>
+                    </tr>
+                    <tr>
+                        <td>File allow_write</td>
+                        <td>✅ userspace hook</td>
+                        <td>❌</td>
+                        <td>❌</td>
+                        <td>✅ LLM review</td>
+                    </tr>
+                    <tr>
+                        <td>Catches absolute paths</td>
+                        <td>✅ syscall level</td>
+                        <td>❌ PATH-based only</td>
+                        <td>✅ kernel level</td>
+                        <td>✅ LLM review</td>
+                    </tr>
+                    <tr>
+                        <td>Catches novel attacks</td>
+                        <td>❌</td>
+                        <td>❌</td>
+                        <td>❌</td>
+                        <td>✅ judgment</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h2>Limitations</h2>
+            <ul>
+                <li><strong>macOS only</strong> — uses DYLD or sandbox-exec, both macOS-specific</li>
+                <li><strong>DYLD mode:</strong> IPv4 TCP only — IPv6 and UDP pass through. Child processes that are platform binaries won't have hooks.</li>
+                <li><strong>Seatbelt mode:</strong> No domain-level network filtering or exec inspection — falls through to adversary automatically.</li>
+                <li><strong>Pattern matching</strong> catches known bad patterns, not novel attacks — pair with adversary review.</li>
+            </ul>
+
+            <h2>Roadmap</h2>
+            <h3>Linux: LD_PRELOAD + bubblewrap</h3>
+            <p>Same layered approach but stronger — bwrap doesn't strip <code>LD_PRELOAD</code>, so both layers run together. Network namespace isolation via <code>--unshare-net</code>, filesystem isolation via <code>--ro-bind</code> / <code>--tmpfs</code>.</p>
+
+            <h3>Windows: Detours + AppContainer</h3>
+            <p>Microsoft's <a href="https://github.com/microsoft/Detours">Detours</a> for function hooking (the DYLD equivalent), AppContainer for kernel isolation. No existing agent sandbox covers Windows.</p>
+
+            <h3>.app Bundle Wrapping</h3>
+            <p><code>sandpit wrap /Applications/Cursor.app</code> → creates a sandboxed launcher. Useful for Electron apps which support DYLD and get full enforcement.</p>
+        </div>
+    </div>
+
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-seal">⛱</div>
+            <p class="footer-copy">sandpit — macOS agent sandboxing</p>
+        </div>
+    </footer>
+</body>
+</html>

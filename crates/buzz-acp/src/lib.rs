@@ -11,7 +11,9 @@ mod prompt_framing;
 mod prompt_project;
 mod queue;
 mod relay;
+mod sandbox_chat;
 mod scope;
+mod security;
 mod setup_mode;
 mod usage;
 
@@ -2445,8 +2447,17 @@ mod replay_floor_tests {
 }
 
 pub fn run() -> Result<()> {
+    if is_subcommand("security-info") {
+        println!("buzz-acp-security-v1");
+        return Ok(());
+    }
+    if !is_subcommand("sandbox-chat") {
+        security::configured()?;
+    }
     config::propagate_legacy_env_vars();
-    tokio_main()
+    let result = tokio_main();
+    let cleanup = security::cleanup();
+    result.and(cleanup)
 }
 
 #[tokio::main]
@@ -2455,6 +2466,9 @@ async fn tokio_main() -> Result<()> {
     rustls::crypto::ring::default_provider()
         .install_default()
         .expect("failed to install rustls crypto provider");
+    if is_subcommand("sandbox-chat") {
+        return sandbox_chat::run().await;
+    }
     if is_subcommand("models") {
         // Strip the subcommand token so clap doesn't reject it as a positional.
         // Keeps argv[0] (binary name) and passes everything after the subcommand.

@@ -8,6 +8,7 @@ const RELAY_WITH_TOKEN: &str = "wss://relay.example/ws?token=SENTINEL";
 /// coverage guard below sees the full serialized key set.
 fn base() -> SpawnConfigSnapshot {
     SpawnConfigSnapshot {
+        security_policy: None,
         acp_command: "buzz-acp".into(),
         command: "goose".into(),
         args: vec!["--mode".into(), "acp".into()],
@@ -50,6 +51,16 @@ type Mutation = (&'static str, fn(&mut SpawnConfigSnapshot));
 
 fn mutations() -> Vec<Mutation> {
     vec![
+        ("security_policy", |s| {
+            s.security_policy = Some(buzz_security_policy::SecurityPolicy {
+                schema_version: 1,
+                writable_roots: None,
+                denied_reads: vec!["/private/SENTINEL".into()],
+                denied_writes: vec![],
+                network: buzz_security_policy::NetworkPolicy::DenyAll,
+                environment: vec![],
+            })
+        }),
         ("acp_command", |s| s.acp_command = "other-acp".into()),
         ("command", |s| s.command = "claude".into()),
         ("args", |s| s.args = vec!["--other".into()]),
@@ -461,6 +472,7 @@ fn no_sentinel_reaches_the_owning_process_debug_output() {
         .spawn()
         .expect("spawn placeholder child");
     let process = crate::managed_agents::ManagedAgentProcess {
+        security_launch: None,
         child,
         log_path: std::path::PathBuf::new(),
         spawn_config: seeded_with_sentinels(),

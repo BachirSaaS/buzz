@@ -599,7 +599,8 @@ pub async fn create_managed_agent(
             input.parallelism,
             linked_persona.as_ref(),
         )?;
-        let record = ManagedAgentRecord {
+        let mut record = ManagedAgentRecord {
+            security_policy: None,
             pubkey: pubkey.clone(),
             name: name.clone(),
             description: None,
@@ -693,6 +694,7 @@ pub async fn create_managed_agent(
             effort_level: None,
         };
 
+        crate::managed_agents::security_defaults::apply_to_new(&app, &mut record, &personas)?;
         records.push(record);
 
         save_managed_agents(&app, &records)?;

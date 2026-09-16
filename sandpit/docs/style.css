@@ -1,0 +1,1074 @@
+/* ================================================================
+   sandpit docs — National Treasure theme
+   "I'm gonna sandbox the Declaration of Independence."
+   ================================================================ */
+
+:root {
+    /* Parchment palette */
+    --parchment:       #f5f0e1;
+    --parchment-dark:  #e8dfc8;
+    --parchment-edge:  #d4c9a8;
+    --ink:             #2c1810;
+    --ink-light:       #4a3728;
+    --ink-muted:       #7a6652;
+    --gold:            #b8860b;
+    --gold-light:      #d4a843;
+    --gold-dark:       #8b6508;
+    --seal-red:        #8b1a1a;
+    --seal-red-light:  #a52a2a;
+    --vault-blue:      #1a3a5c;
+    --vault-blue-light:#2a5a8c;
+    --success:         #2d5016;
+    --danger:          #8b1a1a;
+    --code-bg:         #2c1810;
+    --code-fg:         #e8dfc8;
+
+    /* Typography */
+    --font-display:    'Cinzel', serif;
+    --font-body:       'Crimson Text', serif;
+    --font-mono:       'JetBrains Mono', monospace;
+
+    /* Sizing */
+    --container-max:   1100px;
+    --section-padding: 5rem 0;
+}
+
+/* ── Reset ──────────────────────────────────────────────────────── */
+
+*, *::before, *::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html {
+    scroll-behavior: smooth;
+    font-size: 18px;
+}
+
+body {
+    font-family: var(--font-body);
+    color: var(--ink);
+    background: var(--parchment);
+    line-height: 1.7;
+    position: relative;
+    overflow-x: hidden;
+}
+
+/* ── Parchment texture ──────────────────────────────────────────── */
+
+.parchment-overlay {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background:
+        radial-gradient(ellipse at 20% 50%, rgba(139,107,60,0.06) 0%, transparent 50%),
+        radial-gradient(ellipse at 80% 20%, rgba(139,107,60,0.04) 0%, transparent 50%),
+        radial-gradient(ellipse at 50% 80%, rgba(139,107,60,0.05) 0%, transparent 50%);
+}
+
+/* ── Container ──────────────────────────────────────────────────── */
+
+.container {
+    max-width: var(--container-max);
+    margin: 0 auto;
+    padding: 0 2rem;
+    position: relative;
+    z-index: 1;
+}
+
+/* ── Navigation ─────────────────────────────────────────────────── */
+
+.nav {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: var(--ink);
+    border-bottom: 3px solid var(--gold);
+    box-shadow: 0 2px 20px rgba(0,0,0,0.3);
+}
+
+.nav-inner {
+    max-width: var(--container-max);
+    margin: 0 auto;
+    padding: 0 2rem;
+    display: flex;
+    align-items: center;
+    height: 60px;
+    gap: 2rem;
+}
+
+.nav-logo {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    text-decoration: none;
+    color: var(--gold-light);
+    flex-shrink: 0;
+}
+
+.nav-logo .seal {
+    font-size: 1.4rem;
+}
+
+.nav-title {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 0.85rem;
+    letter-spacing: 0.2em;
+    color: var(--parchment);
+}
+
+.nav-links {
+    display: flex;
+    gap: 1.5rem;
+    margin-left: auto;
+}
+
+.nav-links a {
+    font-family: var(--font-display);
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--parchment-edge);
+    text-decoration: none;
+    padding: 0.3rem 0;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s ease;
+}
+
+.nav-links a:hover,
+.nav-links a.active {
+    color: var(--gold-light);
+    border-bottom-color: var(--gold);
+}
+
+.nav-github {
+    color: var(--parchment-edge);
+    margin-left: 1rem;
+    transition: color 0.2s;
+    flex-shrink: 0;
+}
+
+.nav-github:hover {
+    color: var(--gold-light);
+}
+
+/* ── Hero ───────────────────────────────────────────────────────── */
+
+.hero {
+    background:
+        linear-gradient(180deg,
+            var(--ink) 0%,
+            #3a2818 40%,
+            var(--ink-light) 100%);
+    padding: 5rem 2rem 4rem;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+}
+
+.hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+        radial-gradient(circle at 30% 20%, rgba(184,134,11,0.08) 0%, transparent 40%),
+        radial-gradient(circle at 70% 80%, rgba(184,134,11,0.05) 0%, transparent 40%);
+}
+
+.hero-content {
+    position: relative;
+    z-index: 1;
+}
+
+.hero-seal {
+    margin-bottom: 2rem;
+}
+
+.seal-outer {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.2rem;
+    padding: 1.2rem 2rem;
+    border: 2px solid var(--gold-dark);
+    border-radius: 50%;
+    width: 140px;
+    height: 140px;
+    justify-content: center;
+}
+
+.seal-text-top, .seal-text-bottom {
+    font-family: var(--font-display);
+    font-size: 0.45rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--gold);
+}
+
+.seal-icon {
+    font-size: 2.5rem;
+    line-height: 1;
+}
+
+.hero-title {
+    font-family: var(--font-display);
+    color: var(--parchment);
+    line-height: 1.2;
+    margin-bottom: 1.5rem;
+}
+
+.hero-the, .hero-of {
+    display: block;
+    font-size: 1rem;
+    font-weight: 400;
+    color: var(--gold);
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+}
+
+.hero-declaration {
+    display: block;
+    font-size: 3rem;
+    font-weight: 900;
+    letter-spacing: 0.05em;
+    background: linear-gradient(180deg, var(--parchment) 0%, var(--gold-light) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.hero-rest {
+    display: block;
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--parchment);
+    letter-spacing: 0.05em;
+}
+
+.hero-subtitle {
+    font-family: var(--font-body);
+    font-style: italic;
+    color: var(--parchment-edge);
+    font-size: 1.1rem;
+    line-height: 1.6;
+}
+
+.hero-attribution {
+    font-size: 0.85rem;
+    color: var(--ink-muted);
+}
+
+.hero-scroll-ornament {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-top: 2.5rem;
+    justify-content: center;
+}
+
+.ornament-line {
+    height: 1px;
+    width: 80px;
+    background: linear-gradient(90deg, transparent, var(--gold), transparent);
+}
+
+.ornament-diamond {
+    color: var(--gold);
+    font-size: 0.7rem;
+}
+
+/* ── Section headers ────────────────────────────────────────────── */
+
+.section-header {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    margin-bottom: 1.5rem;
+    justify-content: center;
+}
+
+.section-header h2 {
+    font-family: var(--font-display);
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: var(--ink);
+    text-align: center;
+    white-space: nowrap;
+}
+
+.section-header .ornament-line {
+    flex: 1;
+    max-width: 120px;
+}
+
+.section-intro {
+    text-align: center;
+    font-style: italic;
+    color: var(--ink-muted);
+    margin-bottom: 2.5rem;
+    font-size: 1.05rem;
+}
+
+/* ── Preamble ───────────────────────────────────────────────────── */
+
+.preamble {
+    padding: var(--section-padding);
+    background: var(--parchment);
+}
+
+.preamble-text {
+    max-width: 750px;
+    margin: 0 auto 3rem;
+    text-align: center;
+    font-size: 1.15rem;
+}
+
+.dropcap::first-letter {
+    float: left;
+    font-family: var(--font-display);
+    font-size: 3.5rem;
+    font-weight: 900;
+    line-height: 0.8;
+    padding: 0.1rem 0.5rem 0 0;
+    color: var(--seal-red);
+}
+
+.quick-start {
+    max-width: 600px;
+    margin: 0 auto;
+    background: var(--code-bg);
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--gold-dark);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+}
+
+.quick-start-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.8rem 1.2rem;
+    background: rgba(184,134,11,0.15);
+    border-bottom: 1px solid var(--gold-dark);
+}
+
+.quick-start-header h3 {
+    font-family: var(--font-display);
+    font-size: 0.75rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--gold-light);
+}
+
+.quick-start pre {
+    padding: 1.2rem 1.5rem;
+    margin: 0;
+}
+
+.quick-start code {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--code-fg);
+    line-height: 1.8;
+}
+
+.cmd-comment {
+    color: var(--ink-muted);
+}
+
+/* ── Articles (features) ────────────────────────────────────────── */
+
+.articles {
+    padding: var(--section-padding);
+    background: var(--parchment-dark);
+}
+
+.articles-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1.5rem;
+}
+
+.article-card {
+    background: var(--parchment);
+    border: 1px solid var(--parchment-edge);
+    border-radius: 6px;
+    padding: 2rem;
+    position: relative;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.article-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+}
+
+.article-numeral {
+    font-family: var(--font-display);
+    font-size: 2rem;
+    font-weight: 900;
+    color: var(--gold);
+    position: absolute;
+    top: 1rem;
+    right: 1.5rem;
+    opacity: 0.3;
+}
+
+.article-card h3 {
+    font-family: var(--font-display);
+    font-size: 1rem;
+    margin-bottom: 0.6rem;
+    color: var(--ink);
+}
+
+.article-card p {
+    color: var(--ink-light);
+    font-size: 0.95rem;
+    margin-bottom: 1rem;
+}
+
+.article-mechanism {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--ink-muted);
+    border-top: 1px solid var(--parchment-edge);
+    padding-top: 0.7rem;
+}
+
+/* ── Treasure Map (architecture) ────────────────────────────────── */
+
+.treasure-map {
+    padding: var(--section-padding);
+    background: var(--parchment);
+}
+
+.map-layers {
+    max-width: 700px;
+    margin: 0 auto 3rem;
+}
+
+.map-layer {
+    padding: 1.5rem 2rem;
+    border-radius: 8px;
+    border: 2px solid;
+    position: relative;
+}
+
+.layer-dyld {
+    border-color: var(--gold);
+    background: linear-gradient(135deg, rgba(184,134,11,0.06), rgba(184,134,11,0.02));
+}
+
+.layer-seatbelt {
+    border-color: var(--vault-blue);
+    background: linear-gradient(135deg, rgba(26,58,92,0.06), rgba(26,58,92,0.02));
+}
+
+.layer-adversary {
+    border-color: var(--seal-red);
+    background: linear-gradient(135deg, rgba(139,26,26,0.06), rgba(139,26,26,0.02));
+}
+
+.layer-badge {
+    font-family: var(--font-display);
+    font-size: 0.6rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    padding: 0.15rem 0.6rem;
+    border-radius: 3px;
+    display: inline-block;
+    margin-bottom: 0.5rem;
+}
+
+.layer-dyld .layer-badge {
+    background: var(--gold);
+    color: white;
+}
+
+.layer-seatbelt .layer-badge {
+    background: var(--vault-blue);
+    color: white;
+}
+
+.layer-adversary .layer-badge {
+    background: var(--seal-red);
+    color: white;
+}
+
+.map-layer h3 {
+    font-family: var(--font-display);
+    font-size: 1.1rem;
+    margin-bottom: 0.5rem;
+}
+
+.map-layer p {
+    color: var(--ink-light);
+    font-size: 0.95rem;
+    margin-bottom: 0.7rem;
+}
+
+.layer-covers {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--ink-muted);
+}
+
+.map-connector {
+    text-align: center;
+    color: var(--ink-muted);
+    font-size: 1.2rem;
+    padding: 0.3rem 0;
+}
+
+.map-auto-detect {
+    max-width: 700px;
+    margin: 0 auto;
+    background: var(--code-bg);
+    border-radius: 8px;
+    padding: 1.5rem 2rem;
+    border: 1px solid var(--gold-dark);
+}
+
+.map-auto-detect h4 {
+    font-family: var(--font-display);
+    color: var(--gold-light);
+    font-size: 0.9rem;
+    margin-bottom: 0.5rem;
+}
+
+.map-auto-detect p {
+    color: var(--parchment-edge);
+    font-size: 0.9rem;
+    margin-bottom: 1rem;
+}
+
+.map-auto-detect pre {
+    margin: 0;
+}
+
+.map-auto-detect code {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--code-fg);
+    line-height: 1.7;
+}
+
+/* ── Keepers (agents) ───────────────────────────────────────────── */
+
+.keepers {
+    padding: var(--section-padding);
+    background: var(--parchment-dark);
+}
+
+.keepers-table-wrapper {
+    overflow-x: auto;
+}
+
+.keepers-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+.keepers-table thead {
+    background: var(--ink);
+    color: var(--parchment);
+}
+
+.keepers-table th {
+    font-family: var(--font-display);
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 0.8rem 1rem;
+    text-align: left;
+}
+
+.keepers-table td {
+    padding: 0.8rem 1rem;
+    border-bottom: 1px solid var(--parchment-edge);
+}
+
+.keepers-table tbody tr:hover {
+    background: rgba(184,134,11,0.06);
+}
+
+.keepers-table .row-muted td {
+    color: var(--ink-muted);
+    font-style: italic;
+}
+
+/* ── Heist (performance) ────────────────────────────────────────── */
+
+.heist {
+    padding: var(--section-padding);
+    background: var(--parchment);
+}
+
+.heist-results {
+    max-width: 700px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.heist-card {
+    background: var(--parchment-dark);
+    border: 1px solid var(--parchment-edge);
+    border-radius: 8px;
+    padding: 1.5rem;
+}
+
+.heist-agent {
+    font-family: var(--font-display);
+    font-weight: 700;
+    margin-bottom: 0.8rem;
+}
+
+.heist-bar-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    margin-bottom: 0.7rem;
+}
+
+.heist-bar {
+    height: 32px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    padding: 0 0.8rem;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: white;
+    min-width: 60px;
+}
+
+.heist-bar-with {
+    background: linear-gradient(90deg, var(--seal-red), var(--seal-red-light));
+}
+
+.heist-bar-without {
+    background: linear-gradient(90deg, var(--vault-blue), var(--vault-blue-light));
+}
+
+.heist-stats {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--ink-muted);
+}
+
+.heist-note {
+    text-align: center;
+    color: var(--ink-muted);
+    font-size: 0.85rem;
+    margin-top: 1.5rem;
+    font-style: italic;
+}
+
+/* ── Cipher (config) ────────────────────────────────────────────── */
+
+.cipher {
+    padding: var(--section-padding);
+    background: var(--parchment-dark);
+}
+
+.cipher-code {
+    max-width: 650px;
+    margin: 0 auto 2.5rem;
+    background: var(--code-bg);
+    border: 1px solid var(--gold-dark);
+    border-radius: 8px;
+    padding: 1.5rem 2rem;
+    overflow-x: auto;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+}
+
+.cipher-code code {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    line-height: 1.8;
+    color: var(--code-fg);
+}
+
+.toml-section { color: var(--gold-light); }
+.toml-key { color: #a5c7e0; }
+.toml-string { color: #a8c97a; }
+
+.cipher-sections {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1.5rem;
+    max-width: 700px;
+    margin: 0 auto;
+}
+
+.cipher-item {
+    padding: 1rem 1.2rem;
+    background: var(--parchment);
+    border: 1px solid var(--parchment-edge);
+    border-radius: 6px;
+}
+
+.cipher-item h4 {
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    color: var(--gold-dark);
+    margin-bottom: 0.3rem;
+}
+
+.cipher-item p {
+    font-size: 0.9rem;
+    color: var(--ink-light);
+}
+
+/* ── Matrix ─────────────────────────────────────────────────────── */
+
+.matrix {
+    padding: var(--section-padding);
+    background: var(--parchment);
+}
+
+.matrix-table-wrapper {
+    overflow-x: auto;
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+.matrix-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+.matrix-table thead {
+    background: var(--ink);
+    color: var(--parchment);
+}
+
+.matrix-table th {
+    font-family: var(--font-display);
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 0.8rem 1rem;
+    text-align: left;
+}
+
+.matrix-table td {
+    padding: 0.7rem 1rem;
+    border-bottom: 1px solid var(--parchment-edge);
+}
+
+.matrix-table .check {
+    color: var(--success);
+}
+
+.matrix-table .cross {
+    color: var(--danger);
+}
+
+/* ── Commands ───────────────────────────────────────────────────── */
+
+.commands {
+    padding: var(--section-padding);
+    background: var(--parchment-dark);
+}
+
+.commands-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.2rem;
+}
+
+.command-card {
+    background: var(--parchment);
+    border: 1px solid var(--parchment-edge);
+    border-radius: 6px;
+    padding: 1.2rem 1.5rem;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.command-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+}
+
+.command-name {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--gold-dark);
+    display: block;
+    margin-bottom: 0.5rem;
+}
+
+.command-card p {
+    font-size: 0.9rem;
+    color: var(--ink-light);
+}
+
+/* ── Footer ─────────────────────────────────────────────────────── */
+
+.footer {
+    background: var(--ink);
+    color: var(--parchment-edge);
+    padding: 3rem 2rem;
+    text-align: center;
+}
+
+.footer-seal {
+    font-size: 2rem;
+    margin-bottom: 1rem;
+}
+
+.footer-text p {
+    font-style: italic;
+    font-size: 1rem;
+    margin-bottom: 0.8rem;
+    color: var(--parchment-edge);
+}
+
+.footer-links {
+    font-style: normal !important;
+    font-size: 0.85rem !important;
+}
+
+.footer-links a {
+    color: var(--gold);
+    text-decoration: none;
+}
+
+.footer-links a:hover {
+    color: var(--gold-light);
+    text-decoration: underline;
+}
+
+.footer-copy {
+    font-size: 0.8rem !important;
+    color: var(--ink-muted) !important;
+    font-style: normal !important;
+}
+
+/* ── Inline code ────────────────────────────────────────────────── */
+
+:not(pre) > code {
+    font-family: var(--font-mono);
+    font-size: 0.82em;
+    background: rgba(44,24,16,0.08);
+    padding: 0.1em 0.35em;
+    border-radius: 3px;
+    color: var(--ink);
+}
+
+/* ── Sub-page styling ───────────────────────────────────────────── */
+
+.page-content {
+    padding: var(--section-padding);
+    min-height: calc(100vh - 60px - 200px);
+}
+
+.page-content h1 {
+    font-family: var(--font-display);
+    font-size: 2.2rem;
+    text-align: center;
+    margin-bottom: 0.5rem;
+}
+
+.page-content .page-subtitle {
+    text-align: center;
+    font-style: italic;
+    color: var(--ink-muted);
+    margin-bottom: 3rem;
+    font-size: 1.05rem;
+}
+
+.page-content h2 {
+    font-family: var(--font-display);
+    font-size: 1.4rem;
+    margin: 2.5rem 0 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--parchment-edge);
+    color: var(--ink);
+}
+
+.page-content h3 {
+    font-family: var(--font-display);
+    font-size: 1.1rem;
+    margin: 1.5rem 0 0.8rem;
+    color: var(--ink);
+}
+
+.page-content p {
+    margin-bottom: 1rem;
+    color: var(--ink-light);
+}
+
+.page-content ul, .page-content ol {
+    margin-bottom: 1rem;
+    padding-left: 1.5rem;
+    color: var(--ink-light);
+}
+
+.page-content li {
+    margin-bottom: 0.3rem;
+}
+
+.page-content pre {
+    background: var(--code-bg);
+    border: 1px solid var(--gold-dark);
+    border-radius: 8px;
+    padding: 1.2rem 1.5rem;
+    margin-bottom: 1.5rem;
+    overflow-x: auto;
+}
+
+.page-content pre code {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--code-fg);
+    line-height: 1.7;
+}
+
+.page-content table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 1.5rem;
+    font-size: 0.9rem;
+}
+
+.page-content thead {
+    background: var(--ink);
+    color: var(--parchment);
+}
+
+.page-content th {
+    font-family: var(--font-display);
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 0.7rem 1rem;
+    text-align: left;
+}
+
+.page-content td {
+    padding: 0.7rem 1rem;
+    border-bottom: 1px solid var(--parchment-edge);
+}
+
+.page-content blockquote {
+    border-left: 3px solid var(--gold);
+    padding: 0.5rem 1.5rem;
+    margin: 1.5rem 0;
+    background: rgba(184,134,11,0.06);
+    border-radius: 0 6px 6px 0;
+    font-style: italic;
+}
+
+/* ── FAQ specific ───────────────────────────────────────────────── */
+
+.faq-item {
+    background: var(--parchment-dark);
+    border: 1px solid var(--parchment-edge);
+    border-radius: 8px;
+    margin-bottom: 1.5rem;
+    overflow: hidden;
+}
+
+.faq-question {
+    width: 100%;
+    background: none;
+    border: none;
+    padding: 1.2rem 1.5rem;
+    text-align: left;
+    font-family: var(--font-display);
+    font-size: 1rem;
+    color: var(--ink);
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: background 0.2s;
+}
+
+.faq-question:hover {
+    background: rgba(184,134,11,0.06);
+}
+
+.faq-arrow {
+    transition: transform 0.3s;
+    color: var(--gold);
+}
+
+.faq-item.open .faq-arrow {
+    transform: rotate(180deg);
+}
+
+.faq-answer {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease;
+}
+
+.faq-item.open .faq-answer {
+    max-height: 1000px;
+}
+
+.faq-answer-inner {
+    padding: 0 1.5rem 1.5rem;
+}
+
+/* ── Responsive ─────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+    html { font-size: 16px; }
+
+    .hero-declaration { font-size: 2rem; }
+    .hero-rest { font-size: 1.3rem; }
+
+    .articles-grid,
+    .cipher-sections {
+        grid-template-columns: 1fr;
+    }
+
+    .commands-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .nav-links {
+        gap: 0.8rem;
+    }
+
+    .nav-links a {
+        font-size: 0.6rem;
+    }
+
+    .section-header h2 {
+        font-size: 1.4rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .commands-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .nav-inner {
+        padding: 0 1rem;
+    }
+
+    .nav-links {
+        gap: 0.5rem;
+    }
+
+    .seal-outer {
+        width: 110px;
+        height: 110px;
+    }
+}

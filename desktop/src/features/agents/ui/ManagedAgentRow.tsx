@@ -1,4 +1,5 @@
 import * as React from "react";
+import { useSecurityDefaultsQuery } from "../securityDefaults";
 
 import { AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
 
@@ -52,6 +53,8 @@ export function ManagedAgentRow({
   onOpenProfile: (pubkey: string) => void;
   onSelectLogAgent: (pubkey: string | null) => void;
 }) {
+  const securityEnabled =
+    useSecurityDefaultsQuery().data?.experimental_enabled === true;
   const isLocal = agent.backend.type === "local";
   const runtimeSource =
     agent.backend.type === "provider" ? `Remote (${agent.backend.id})` : null;
@@ -128,6 +131,13 @@ export function ManagedAgentRow({
                 status={agent.status}
               />
               <RuntimeBlock agent={agent} runtimeSource={runtimeSource} />
+              {securityEnabled &&
+                agent.securityPolicy &&
+                agent.securityStatus && (
+                  <span className="text-xs text-muted-foreground">
+                    Security: {agent.securityStatus}
+                  </span>
+                )}
             </div>
           </button>
         ) : (
@@ -151,6 +161,13 @@ export function ManagedAgentRow({
                 status={agent.status}
               />
               <RuntimeBlock agent={agent} runtimeSource={runtimeSource} />
+              {securityEnabled &&
+                agent.securityPolicy &&
+                agent.securityStatus && (
+                  <span className="text-xs text-muted-foreground">
+                    Security: {agent.securityStatus}
+                  </span>
+                )}
             </div>
           </div>
         )}

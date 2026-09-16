@@ -5,6 +5,7 @@ use crate::managed_agents::{BackendKind, ManagedAgentRecord, RespondTo};
 /// state right after creation, before any snapshot apply.
 pub(super) fn sample_record() -> ManagedAgentRecord {
     ManagedAgentRecord {
+        security_policy: None,
         session_policy: Default::default(),
         description: None,
         pubkey: "p".repeat(64),
@@ -247,9 +248,9 @@ fn d_tag_already_valid_slug_is_unchanged() {
     // through untouched (no spurious coordinate change on existing data).
     let mut record = sample_persona();
     record.source_team_persona_slug = None;
-    record.id = "11111111-2222-3333-4444-555555555555".to_string();
+    record.id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee".to_string();
     let d = persona_d_tag(&record);
-    assert_eq!(d, "11111111-2222-3333-4444-555555555555");
+    assert_eq!(d, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
     assert!(passes_relay_slug_grammar(&d));
 }
 

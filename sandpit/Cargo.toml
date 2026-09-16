@@ -1,0 +1,48 @@
+[workspace]
+members = [".", "crates/sandpit-dylib"]
+
+[package]
+name = "sandpit"
+version = "0.6.5"
+edition = "2024"
+
+[[bin]]
+name = "sandpit"
+path = "src/main.rs"
+
+[[bin]]
+name = "sandpit-proxy"
+path = "src/proxy.rs"
+
+[[bin]]
+name = "sni-proxy-test"
+path = "src/sni_proxy_test.rs"
+
+[dependencies]
+libc = "0.2"
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter", "registry"] }
+opentelemetry = "0.31"
+opentelemetry_sdk = { version = "0.31", features = ["logs"] }
+opentelemetry-otlp = { version = "0.31", features = ["logs", "http-proto", "reqwest-rustls"] }
+opentelemetry-appender-tracing = "0.31"
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+dns-lookup = "3.0.1"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+toml_edit = "0.22"
+which = "8.0.2"
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "6"
+regex = "1"
+hostname = "0.4.2"
+
+[build-dependencies]
+sandpit-dylib = { path = "crates/sandpit-dylib" }
+
+[dev-dependencies]
+tempfile = "3"

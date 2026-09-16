@@ -560,6 +560,7 @@ pub async fn confirm_team_snapshot_import(
 
         // Build the ManagedAgentRecord for this member.
         let record = ManagedAgentRecord {
+            security_policy: None,
             pubkey: pubkey.clone(),
             name: display_name.clone(),
             display_name: None,
@@ -648,6 +649,14 @@ pub async fn confirm_team_snapshot_import(
             .managed_agents_store_lock
             .lock()
             .map_err(|e| e.to_string())?;
+
+        for member in &mut minted {
+            crate::managed_agents::security_defaults::apply_to_new(
+                &app,
+                &mut member.record,
+                std::slice::from_ref(&member.definition),
+            )?;
+        }
 
         // Guard against duplicate pubkeys (astronomically unlikely).
         let existing_records = load_managed_agents(&app)?;

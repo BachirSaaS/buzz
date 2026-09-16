@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secrets — sandpit FAQ</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;900&family=Crimson+Text:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="parchment-overlay"></div>
+
+    <nav class="nav">
+        <div class="nav-inner">
+            <a href="index.html" class="nav-logo">
+                <span class="seal">⛱</span>
+                <span class="nav-title">SANDPIT</span>
+            </a>
+            <div class="nav-links">
+                <a href="index.html">Declaration</a>
+                <a href="architecture.html">The Map</a>
+                <a href="agents.html">The Keepers</a>
+                <a href="config.html">The Cipher</a>
+                <a href="faq.html" class="active">Secrets</a>
+            </div>
+            <a href="https://github.com/block/buzz" class="nav-github" aria-label="GitHub">
+                <svg height="24" width="24" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+            </a>
+        </div>
+    </nav>
+
+    <div class="page-content">
+        <div class="container">
+            <h1>Secrets of the Founders</h1>
+            <p class="page-subtitle">"People don't talk that way anymore." — Riley Poole</p>
+
+            <div class="faq-item">
+                <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+                    Why not use an HTTP CONNECT proxy instead of DYLD interposing?
+                    <span class="faq-arrow">▾</span>
+                </button>
+                <div class="faq-answer">
+                    <div class="faq-answer-inner">
+                        <p>HTTP proxies (<code>HTTP_PROXY</code>/<code>HTTPS_PROXY</code> env vars) require every tool to opt in. In practice they break constantly:</p>
+                        <ul>
+                            <li>Git SSH doesn't use HTTP proxies</li>
+                            <li>gRPC often ignores proxy vars</li>
+                            <li>Node.js needs <code>NODE_OPTIONS=--use-env-proxy</code> (only ≥ 20.18)</li>
+                            <li>npm/yarn have their own proxy config</li>
+                            <li>Many Rust/Go/C binaries don't read proxy vars at all</li>
+                        </ul>
+                        <p>If you pair this with seatbelt <code>(deny network*)</code> to force compliance, anything that doesn't speak HTTP proxy protocol just dies.</p>
+                        <p>DYLD interposing works at the <code>connect()</code> syscall level. It doesn't care what protocol the tool speaks — HTTP, gRPC, WebSocket, raw TCP, SSH — they all call <code>connect()</code>. The process doesn't know it's being proxied.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="faq-item">
+                <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+                    Why not use containers (like Docker)?
+                    <span class="faq-arrow">▾</span>
+                </button>
+                <div class="faq-answer">
+                    <div class="faq-answer-inner">
+                        <p>Container-based sandboxes provide strong isolation but can't run native macOS apps. No Xcode, no Finder, no <code>.app</code> bundles, no native GUI tools. File access goes through Docker bind mounts, not your actual filesystem. There's startup overhead from spinning up containers.</p>
+                        <p>sandpit runs in your normal macOS environment. Your agent has the same tools and filesystem you do, just with guardrails. It's the difference between putting the Declaration in a vault vs. putting it behind bulletproof glass — you can still see it, but nobody's stealing it.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="faq-item">
+                <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+                    Why are DYLD and seatbelt mutually exclusive?
+                    <span class="faq-arrow">▾</span>
+                </button>
+                <div class="faq-answer">
+                    <div class="faq-answer-inner">
+                        <p><code>sandbox-exec</code> is a SIP-protected binary that strips <code>DYLD_INSERT_LIBRARIES</code> from the child environment. If you launch via <code>sandbox-exec</code>, the DYLD hooks never load. There's no way around this — it's an Apple security measure.</p>
+                        <p>So sandpit picks one: DYLD for binaries that support it (most AI agents via Homebrew), seatbelt as a fallback for platform binaries where DYLD can't work.</p>
+                        <p>On Linux, this problem doesn't exist — <code>bubblewrap</code> doesn't strip <code>LD_PRELOAD</code>, so both layers can run together.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="faq-item">
+                <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+                    What's seatbelt mode actually for?
+                    <span class="faq-arrow">▾</span>
+                </button>
+                <div class="faq-answer">
+                    <div class="faq-answer-inner">
+                        <p>Seatbelt mode is a narrow fallback for kernel-enforced file protection when the target binary is a SIP/hardened platform binary (e.g. <code>/usr/bin/python3</code>). It can't do network filtering or exec argument inspection — those fall through to the adversary LLM reviewer.</p>
+                        <p>For the common case — Homebrew-installed agents like goose, pi, claude, node — DYLD mode gives you full enforcement across all layers. Seatbelt is the backup vault.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="faq-item">
+                <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+                    What's the adversary layer and when does it matter?
+                    <span class="faq-arrow">▾</span>
+                </button>
+                <div class="faq-answer">
+                    <div class="faq-answer-inner">
+                        <p>The adversary is an LLM that reviews every tool call the agent makes before it executes. It understands context — what you asked for, what the agent is doing — and can catch things that pattern matching misses.</p>
+                        <p><code>sandpit install &lt;agent&gt;</code> writes your <code>[adversary].rules</code> policy into the agent's config. The mechanistic rules (network domains, exec patterns, file blocks) are enforced by DYLD or seatbelt at runtime — the adversary focuses on higher-level judgment: "is this tool call consistent with the task?"</p>
+                        <p>The adversary matters most when:</p>
+                        <ul>
+                            <li>Novel exfiltration patterns not in your block list</li>
+                            <li>Social engineering via tool calls</li>
+                            <li>Agents running on binaries where neither DYLD nor seatbelt is available</li>
+                            <li>Multi-step attacks where individual commands look benign</li>
+                        </ul>
+                        <p>In the worst case (adversary-only mode), it's the sole defense. Like Ben Gates with just a lemon juice pen and a lighter.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="faq-item">
+                <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+                    How does this compare to other agent sandboxes?
+                    <span class="faq-arrow">▾</span>
+                </button>
+                <div class="faq-answer">
+                    <div class="faq-answer-inner">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th></th>
+                                    <th>sandpit</th>
+                                    <th>HTTP Proxy</th>
+                                    <th>Containers</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>Platform</td>
+                                    <td>macOS native</td>
+                                    <td>macOS/Linux</td>
+                                    <td>Linux (Docker)</td>
+                                </tr>
+                                <tr>
+                                    <td>Network</td>
+                                    <td>Transparent (<code>connect()</code>)</td>
+                                    <td>Requires opt-in</td>
+                                    <td>iptables</td>
+                                </tr>
+                                <tr>
+                                    <td>Breaks tools?</td>
+                                    <td>No</td>
+                                    <td>Yes</td>
+                                    <td>No macOS apps</td>
+                                </tr>
+                                <tr>
+                                    <td>Exec control</td>
+                                    <td>Argument-level</td>
+                                    <td>Binary-level</td>
+                                    <td>Seccomp</td>
+                                </tr>
+                                <tr>
+                                    <td>File control</td>
+                                    <td>DYLD/seatbelt</td>
+                                    <td>seatbelt/bwrap</td>
+                                    <td>Bind mounts</td>
+                                </tr>
+                                <tr>
+                                    <td>Setup</td>
+                                    <td><code>cargo build</code></td>
+                                    <td>Proxy + config</td>
+                                    <td>Docker + K3s</td>
+                                </tr>
+                                <tr>
+                                    <td>LLM review</td>
+                                    <td>Built-in ✅</td>
+                                    <td>No</td>
+                                    <td>No</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="faq-item">
+                <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+                    Is sandbox-exec deprecated?
+                    <span class="faq-arrow">▾</span>
+                </button>
+                <div class="faq-answer">
+                    <div class="faq-answer-inner">
+                        <p>Apple deprecated <code>sandbox-exec</code> in the man page years ago, but it still works on current macOS versions and is actively used by the system itself. Apple's Sandbox framework (SBPL profiles) isn't going anywhere — <code>sandbox-exec</code> is just the CLI interface to it.</p>
+                        <p>sandpit uses it as a fallback only. For most agents, DYLD mode is preferred and seatbelt never enters the picture.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="faq-item">
+                <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+                    Can an agent escape the sandbox?
+                    <span class="faq-arrow">▾</span>
+                </button>
+                <div class="faq-answer">
+                    <div class="faq-answer-inner">
+                        <p>Defense in depth means an agent would have to bypass multiple independent layers:</p>
+                        <ul>
+                            <li><strong>DYLD hooks:</strong> Userspace hooks can theoretically be bypassed by directly invoking syscalls (skipping libc). This is uncommon in practice — most tools use libc.</li>
+                            <li><strong>Seatbelt:</strong> Kernel-enforced. No userspace bypass possible for file operations.</li>
+                            <li><strong>Adversary LLM:</strong> Could potentially be prompt-injected, but it's a separate model instance with a fixed system prompt and your rules. The agent can't modify the reviewer's instructions.</li>
+                        </ul>
+                        <p>No sandbox is perfect. sandpit's goal is to make exfiltration hard enough that it's not the path of least resistance. Like the security at the National Archives — not literally impenetrable, but you'd need a very elaborate plan involving lemon juice and a hair dryer.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="faq-item">
+                <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+                    Will this work on Linux?
+                    <span class="faq-arrow">▾</span>
+                </button>
+                <div class="faq-answer">
+                    <div class="faq-answer-inner">
+                        <p>Not yet, but it's on the roadmap. The architecture maps cleanly:</p>
+                        <ul>
+                            <li><code>DYLD_INSERT_LIBRARIES</code> → <code>LD_PRELOAD</code> (same C hooks)</li>
+                            <li><code>sandbox-exec</code> (seatbelt) → bubblewrap (<code>bwrap</code>) with namespaces</li>
+                            <li>Adversary layer → same code, works anywhere</li>
+                        </ul>
+                        <p>On Linux it's actually <em>better</em> — bubblewrap doesn't strip <code>LD_PRELOAD</code>, so both layers can run simultaneously. And there's no SIP to contend with.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="faq-item">
+                <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+                    "I'm gonna sandbox the Declaration of Independence."
+                    <span class="faq-arrow">▾</span>
+                </button>
+                <div class="faq-answer">
+                    <div class="faq-answer-inner">
+                        <p>We know. That's why we're here.</p>
+                        <blockquote>
+                            "Of all the ideas that became the United States, there's a way to protect every single one of them. I'm not talking about the amendments. I'm talking about <code>sandpit.toml</code>."
+                        </blockquote>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-seal">⛱</div>
+            <p class="footer-copy">sandpit — macOS agent sandboxing. No treasure was harmed.</p>
+        </div>
+    </footer>
+</body>
+</html>

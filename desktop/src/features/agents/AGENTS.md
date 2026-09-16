@@ -389,3 +389,46 @@ matches the code is worse than no rule; a new pattern that isn't written down
 here will be broken by the next agent that never learns it existed. Reviewers:
 treat a config-behavior diff without a matching AGENTS.md diff (or an explicit
 "no rules changed" note) as incomplete.
+
+## Local Sandpit preview
+
+The `agentSecurity` experiment is default-off. Its native setting in
+`agents/security-defaults.json` is authoritative; the shared
+`useSecurityDefaultsQuery` gates every security configuration surface. Turning
+it off stops default assignment and hides controls, but never removes existing
+policies or weakens enforcement. The Experiments row preserves the saved default
+and reports persistence errors rather than optimistically enabling controls.
+
+Default security is a **copy-on-create** starting point for supported local
+agents, including template/team/import creation. Existing agents never inherit
+later default edits. The native creation boundary validates and copies the
+current default before saving a new instance. Corrupt or invalid defaults fail
+that creation; they never silently produce an unprotected supported agent.
+Policies never enter portable definitions, snapshots, or provider payloads.
+
+`AgentSecurityDialog` owns a controlled draft and one atomic Save. The shared
+`AgentSecurityField` renders Files, Internet, and collapsed Advanced lists.
+Cancel never writes. `Use current default` copies into the agent draft only;
+Save uses `update_managed_agent`. The dedicated Runtime security entry opens
+this dialog directly, including for persona-linked agents whose general Edit
+button opens a shared definition. Global defaults live in Settings → Agents.
+The creation form previews the default and directs customization to Runtime.
+
+Selected domains separates locked Required connections from Additional allowed
+domains. Required hosts come from the current relay and effective Buzz Agent
+provider endpoint, independently of the global security default. Endpoint
+resolution is shared with agent startup; never hardcode provider hosts in React.
+Only domains (or explicit localhost ports) reach React, never URL credentials,
+paths, or query strings. The draft and native save/create boundaries union required
+hosts into selected-domain policies, including Use current default. Global security
+defaults cannot subtract these hosts. Explicit Blocked mode still blocks all
+network access. Failed requirement discovery disables selected-domain Save;
+Cancel never persists additions. Later provider changes never silently widen a
+running policy; the next explicit security save resolves current requirements.
+
+Native catalog `supports_sandpit` is the capability authority; unknown catalog
+state cannot erase saved settings. Explicit changed per-agent policy writes
+require the experiment enabled. Policy changes stop the old local process
+before the atomic save and restart. `security_status` is local process-generation
+evidence from a private, agent-write-denied status directory, not relay presence
+or an optimistic reflection of the enabled switch.

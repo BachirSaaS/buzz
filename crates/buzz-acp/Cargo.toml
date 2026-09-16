@@ -16,6 +16,10 @@ name = "buzz-acp"
 path = "src/main.rs"
 
 [dependencies]
+buzz-security-policy = { path = "../buzz-security-policy" }
+# Private immutable security snapshots
+tempfile = "3"
+
 # Internal
 buzz-core = { workspace = true }
 buzz-sdk = { workspace = true }

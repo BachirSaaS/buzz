@@ -178,6 +178,13 @@ impl KnownAcpRuntime {
     }
 }
 
+impl KnownAcpRuntime {
+    /// Sandpit compatibility validated for the native agent in this local PoC.
+    pub(crate) fn supports_sandpit(&self) -> bool {
+        cfg!(target_os = "macos") && self.id == "buzz-agent"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::known_acp_runtime_exact;

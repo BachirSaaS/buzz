@@ -1,0 +1,8 @@
+/target
+CONTEXT.md
+SOLUTIONS.md
+sandpit.toml
+output.json
+
+# Local corporate preset; the build embeds examples/portable-default.toml instead.
+/examples/default.toml

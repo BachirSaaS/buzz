@@ -16,6 +16,7 @@ use crate::{
 
 use super::claude_config::apply_claude_model_env;
 mod path;
+mod security;
 pub(in crate::managed_agents) use path::build_augmented_path;
 pub(crate) use path::{compose_path_entries, should_skip_claude_executable, should_use_inherited};
 
@@ -292,6 +293,8 @@ pub fn build_managed_agent_summary(
         .to_string();
 
     Ok(ManagedAgentSummary {
+        security_policy: record.security_policy.clone(),
+        security_status: security::status(record, pair_runtime.map(|v| &**v)),
         pubkey: record.pubkey.clone(),
         name: record.name.clone(),
         persona_id: record.persona_id.clone(),
@@ -790,6 +793,13 @@ pub fn spawn_agent_child(
         }
     }
 
+    let security_launch = security::configure(
+        &mut command,
+        record,
+        effective_command,
+        &resolved_acp_command,
+    )?;
+
     // Stamp desktop ownership and an unpredictable harness-generation identity.
     let start_nonce = uuid::Uuid::new_v4().simple().to_string();
     command
@@ -860,6 +870,7 @@ pub fn spawn_agent_child(
     ));
     #[cfg(not(windows))]
     Ok(crate::managed_agents::ManagedAgentProcess {
+        security_launch,
         child,
         log_path,
         spawn_config,

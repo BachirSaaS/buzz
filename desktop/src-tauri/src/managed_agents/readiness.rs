@@ -1,7 +1,6 @@
 //! Agent readiness evaluation.
 //!
 //! # Overview
-//!
 //! Before spawning a managed agent (or before deciding whether to enter
 //! setup-mode nudge), the desktop must know whether the agent has every
 //! piece of configuration it will need to start successfully. This module
@@ -1492,6 +1491,7 @@ mod tests {
         );
         // Minimal record: only the fields resolve_effective_agent_env reads.
         let record = crate::managed_agents::types::ManagedAgentRecord {
+            security_policy: None,
             session_policy: Default::default(),
             description: None,
             pubkey: "test-pubkey".to_string(),

@@ -196,6 +196,7 @@ pub fn finish_spawn(
         );
     }
     super::ManagedAgentProcess {
+        security_launch: None,
         child,
         log_path,
         spawn_config,

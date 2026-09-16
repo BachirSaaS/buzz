@@ -462,7 +462,24 @@ impl AcpClient {
     ) -> Result<Self, AcpError> {
         use std::process::Stdio;
 
-        let mut cmd = tokio::process::Command::new(command);
+        let security =
+            crate::security::configured().map_err(|e| AcpError::Protocol(format!("{e:#}")))?;
+        if security.is_some()
+            && extra_env
+                .iter()
+                .any(|(key, _)| crate::security::reserved(key))
+        {
+            return Err(AcpError::Protocol(
+                "reserved security environment override".into(),
+            ));
+        }
+        let mut cmd = match security {
+            Some(policy) => policy
+                .command(command)
+                .await
+                .map_err(|e| AcpError::Protocol(format!("security unavailable: {e:#}")))?,
+            None => tokio::process::Command::new(command),
+        };
         cmd.args(args);
         if crate::config::normalize_agent_command_identity(command) == BUZZ_PI_ACP_NAME {
             if !args.iter().any(|arg| arg == "--") {
@@ -510,12 +527,18 @@ impl AcpClient {
         // key replacement) and inherited parent env (via the parent-presence
         // check) override them.
         for &(key, value) in crate::config::default_agent_env(command) {
+            if security.is_some_and(|policy| !policy.allows_env(key)) {
+                continue;
+            }
             if std::env::var_os(key).is_none() {
                 cmd.env(key, value);
             }
         }
 
         for (key, value) in extra_env {
+            if security.is_some_and(|policy| !policy.allows_env(key)) {
+                continue;
+            }
             if key == "CODEX_CONFIG" && codex_merge_active {
                 // Handled by build_codex_config_env; skip here to avoid double-setting.
                 continue;
@@ -629,6 +652,15 @@ impl AcpClient {
             .pointer("/_meta/steering/supported")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
+        if let Some(policy) =
+            crate::security::configured().map_err(|e| AcpError::Protocol(format!("{e:#}")))?
+        {
+            policy
+                .record_protected()
+                .map_err(|e| AcpError::Protocol(format!("cannot record security status: {e:#}")))?;
+            tracing::info!(policy_digest = %policy.digest, "security protected: kernel startup check and ACP initialization passed");
+            self.observe("security_protected", serde_json::json!({"policyDigest": policy.digest, "engine": "sandpit", "schemaVersion": 1}));
+        }
         tracing::debug!(target: "acp::init", "initialize response: {result}");
         Ok(result)
     }
