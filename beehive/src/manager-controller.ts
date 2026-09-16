@@ -31,7 +31,7 @@ export type ManagerResult =
   | { state: 'failed' | 'cancelled' | 'ignored'; reason: string };
 
 export type ManagerRequest = { id: number; action: string; values?: Record<string, string>; target?: string; revision?: number };
-export type ManagerItem = { startTarget?: string; startRevision?: number; target?: string; id: string; label: string; detail: string; evidence?: string; disabled?: Record<string, string> };
+export type ManagerItem = { names?: { agent?: string; host?: string; startHost?: string }; startTarget?: string; startRevision?: number; target?: string; id: string; label: string; detail: string; evidence?: string; disabled?: Record<string, string> };
 export type MoveDestination = { target: string; revision: number; label: string; reason?: string };
 export type ManagerSnapshot = { managementRelay?: 'connected' | 'disconnected'; diagnostics?: ManagerItem[]; local: ManagerItem[]; agents: (ManagerItem & { revision: number; configurations: string[]; destinations?: MoveDestination[] })[]; routing?: { owner: string; relay: string }; owner?: string; status: string; settings?: Settings; service?: ServiceStatus; hostRelay?: string; relayName?: string; profilePreview?: RegisteredAgent; models?: string[]; modelLabels?: Record<string,string>; runtimeExecutable?: string; harnesses?: DetectedHarness[]; databricksHost?: string };
 const short = (s: string) => s.length > 22 ? `${s.slice(0,8)}…${s.slice(-6)}` : s;
@@ -206,7 +206,7 @@ This choice does not change the current run.` };
       try { registered = readSettings(this.hostDirectory).agents.some(a => a.publicKey === agent.publicKey); } catch { /* Configuration error is shown in Local Host. */ }
       const local = this.localEnrollmentTarget(agent.publicKey);
       const unavailable = 'No unique assigned host report. Execution authority is unknown.';
-      return { startTarget: local, startRevision: local ? -1 : undefined, destinations: report ? this.moveDestinations(report) : [], id:agent.publicKey,target:shown?.id,label:`${agent.name} · ${shown ? this.fresh(report!) ? report!.body.phase : 'Unknown' : 'Unknown'}`,revision:shown?.revision ?? -1,configurations:shown?.configurations ?? [],disabled: { ...(shown?.disabled ?? { start:unavailable,stop:unavailable,restart:unavailable,move:unavailable,'select-config':unavailable }), ...(local ? {start:''} : {}) },evidence:JSON.stringify({ discovery:agent,report },null,2),detail:`${agent.name}
+      return { names: { agent: agent.name && agent.name !== agent.publicKey ? agent.name : short(agent.publicKey), host: report ? String((this.offers.get(report.host)?.body.configuration as {label?: string})?.label || short(report.host)) : undefined, startHost: local ? readHostIdentityPublic(this.hostDirectory).pairing.label : undefined }, startTarget: local, startRevision: local ? -1 : undefined, destinations: report ? this.moveDestinations(report) : [], id:agent.publicKey,target:shown?.id,label:`${agent.name} · ${shown ? this.fresh(report!) ? report!.body.phase : 'Unknown' : 'Unknown'}`,revision:shown?.revision ?? -1,configurations:shown?.configurations ?? [],disabled: { ...(shown?.disabled ?? { start:unavailable,stop:unavailable,restart:unavailable,move:unavailable,'select-config':unavailable }), ...(local ? {start:''} : {}) },evidence:JSON.stringify({ discovery:agent,report },null,2),detail:`${agent.name}
 Agent: ${agent.publicKey}
 Registered here: ${registered ? 'Yes' : 'No'}
 Relay presence: ${agent.status} (discovery only)

@@ -166,3 +166,36 @@ test('four sections navigate in both directions and remain readable at narrow wi
     assert.equal(scopes.at(-1),3);
   } finally { view.close(); }
 });
+
+test('empty lists have no selection, keep controls, and recover real rows', async () => {
+  const ui = await createTestRenderer({ width: 100, height: 30, exitOnCtrlC: false });
+  const view = new OpenTuiScreen(ui.renderer);
+  const selections: string[] = [];
+  view.onSelect = id => selections.push(id);
+  try {
+    view.show([], [{ label: 'Register agent', run() {} }]);
+    ui.mockInput.pressArrow('down'); ui.mockInput.pressKey('return'); await ui.renderOnce();
+    const frame = ui.captureCharFrame();
+    assert.match(frame, /0\/0/); assert.match(frame, /No items/); assert.match(frame, /Register agent/);
+    assert.ok(!frame.includes('1/1')); assert.deepEqual(selections, []);
+    view.show([{ id: 'real', label: 'Real agent', detail: 'Real detail' }], []);
+    await ui.renderOnce(); assert.match(ui.captureCharFrame(), /Real detail/);
+  } finally { view.close(); }
+});
+
+test('temporary notices retire nested work but retain newer results and errors', async () => {
+  const ui = await createTestRenderer({ width: 100, height: 30, exitOnCtrlC: false });
+  const view = new OpenTuiScreen(ui.renderer);
+  try {
+    view.notice('Idle status');
+    const outer = view.temporaryNotice('Working outer');
+    const inner = view.temporaryNotice('Working inner');
+    inner(); outer(); await ui.renderOnce();
+    assert.match(ui.captureCharFrame(), /Idle status/); assert.ok(!ui.captureCharFrame().includes('Working'));
+    const retire = view.temporaryNotice('Working'); view.notice('Submitted result'); retire();
+    await ui.renderOnce(); assert.match(ui.captureCharFrame(), /Submitted result/);
+    view.show([], [{ label: 'Cancel form', run: async () => {} }]);
+    ui.mockInput.pressKey('a'); ui.mockInput.pressKey('return'); await new Promise(resolve => setTimeout(resolve, 20));
+    await ui.renderOnce(); assert.ok(!ui.captureCharFrame().includes('Working'));
+  } finally { view.close(); }
+});

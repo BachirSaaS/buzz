@@ -4,8 +4,12 @@ import { createCliRenderer } from '@opentui/core';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { OpenTuiScreen, type ManagerAction } from './opentui-screen.ts';
-import type { ManagerRequest, ManagerSnapshot, ManagerResult } from './manager-controller.ts';
+import type { ManagerItem, ManagerRequest, ManagerSnapshot, ManagerResult } from './manager-controller.ts';
 
+function shortIdentity(value: string) { return value.length > 20 ? `${value.slice(0,8)}…${value.slice(-8)}` : value; }
+function targetNames(row: ManagerItem, start = false) {
+  return `Agent: ${row.names?.agent || shortIdentity(row.id)}\nHost: ${(start ? row.names?.startHost : undefined) || row.names?.host || 'Unknown'}`;
+}
 const renderer = await createCliRenderer({ exitOnCtrlC: false });
 const screen = new OpenTuiScreen(renderer);
 const output = createWriteStream('', { fd: 4 });
@@ -18,9 +22,9 @@ function request(action: string, values?: Record<string,string>, target?: string
   const id = ++sequence;
   const completion = new Promise<ManagerResult>(resolve => { pending = { id, resolve }; });
   const message: ManagerRequest = { id, action, values, target, revision };
-  screen.setPending(true); screen.notice(action === 'add-databricks' ? 'Signing in through your browser… Esc cancels the native helper. An OS credential write or browser window may remain; cancelled sign-in will not save a provider.' : 'Working… Esc stops waiting. Remote work and saved changes are not cancelled. Inspect before you try again.');
+  screen.setPending(true); const retire = screen.temporaryNotice(action === 'add-databricks' ? 'Signing in through your browser… Esc cancels the native helper. An OS credential write or browser window may remain; cancelled sign-in will not save a provider.' : 'Working… Esc stops waiting. Remote work and saved changes are not cancelled. Inspect before you try again.');
   output.write(JSON.stringify(message) + '\n');
-  return completion;
+  return completion.finally(retire);
 }
 async function routing(action: string, secret = false) {
   const retained = action !== 'configure' ? snapshot.routing : undefined;
@@ -28,7 +32,7 @@ async function routing(action: string, secret = false) {
   if (!retained) {
     let step = 0;
     while (step < 2) {
-      const label = step === 0 ? `${action === 'configure' ? 'Configure this computer' : 'Sign in as owner'} · 1 of 3\nOwner public key (npub or 64 hex characters). Do not enter a private key.` : 'Relay · 2 of 3\nRelay URL (ws:// or wss://)';
+      const label = step === 0 ? `${action === 'configure' ? 'Configure this computer' : 'Sign in'} · 1 of 3\nOwner public key (npub or 64 hex characters). Do not enter a private key.` : 'Relay · 2 of 3\nRelay URL (ws:// or wss://)';
       const answer = await screen.input(label, step === 0 ? owner : relay, false, false, value => step === 0 ? /^(?:[0-9a-fA-F]{64}|npub1[023456789acdefghjklmnpqrstuvwxyz]{58})$/.test(value.trim()) ? '' : 'Enter an npub or a public key with 64 hex characters.' : /^wss?:\/\//.test(value) ? '' : 'Enter a ws:// or wss:// relay URL.', step === 1 ? value => { relay = value; } : undefined);
       if (answer === undefined) return;
       if (answer === '\0back') { step = 0; continue; }
@@ -38,11 +42,11 @@ async function routing(action: string, secret = false) {
   }
   const values: Record<string,string> = { owner, relay };
   if (secret) {
-    const key = await screen.input('Owner private key (64 hex characters). It must match the owner public key. Saved in this computer’s secure credential store. Never sent to a host.', '', true);
+    const key = await screen.input('Import owner key\nMatching private key (64 hex characters) · OS credential store', '', true);
     if (key === undefined) return;
     values.secret = key;
   }
-  if (!await screen.confirm(action === 'configure' ? `Configure this computer · 3 of 3\nOwner: ${owner}\nRelay: ${relay}\nCreate a host identity in this computer’s secure credential store? This does not create an agent or start a host.` : `Owner: ${owner}\nRelay: ${relay}\n${retained ? 'Saved owner and relay cannot change here.\n' : ''}Access the owner key in this computer’s secure credential store? The system may ask for permission. An imported key must match the owner.`)) { delete values.secret; return; }
+  if (!await screen.confirm(`${action === 'configure' ? 'Configure this computer' : 'Sign in'}\nOwner: ${shortIdentity(owner)}\nRelay: ${relay}\n${action === 'configure' ? 'Create host identity in the OS credential store?' : 'Access owner key in the OS credential store?'}`)) { delete values.secret; return; }
   await request(action, values); delete values.secret;
 }
 async function registerForm(continuation?: string, agent?: string) {
@@ -58,7 +62,7 @@ async function registerForm(continuation?: string, agent?: string) {
     const result = await request('profile-preview',{secret,...(continuation ? {continuation} : {})});
     if (result.state !== 'completed') { settled = true; return; }
     const preview = snapshot.profilePreview; if (!preview) return;
-    if (!await screen.confirm(`Register agent\n${preview.profile?.name ?? 'Name unavailable'}\n${preview.publicKey}\n${preview.profileState === 'unavailable' ? 'Profile unavailable; public key verified locally.' : preview.profileState === 'none' ? 'No relay profile found.' : ''}\nRuntime: ${runtime.name}\nHarness: ${runtime.harness} · Model: ${runtime.model}\nProvider: ${snapshot.settings?.providers.find(p => p.id === runtime.providerId)?.name ?? 'Unknown'}\nEffort: ${runtime.effort ?? 'Inherit'} · Environment: ${Object.keys(runtime.environment ?? {}).join(', ') || 'None'}\n${continuation ? 'Register and continue Start on the selected host?' : 'Save registration? This does not assign or start the agent.'}`)) return;
+    if (!await screen.confirm(`Register agent\n${preview.profile?.name ?? 'Name unavailable'}\n${preview.publicKey}\n${preview.profileState === 'unavailable' ? 'Profile unavailable; public key verified locally.' : preview.profileState === 'none' ? 'No relay profile found.' : ''}\nRuntime: ${runtime.name}\nHarness: ${runtime.harness} · Model: ${runtime.model}\nProvider: ${snapshot.settings?.providers.find(p => p.id === runtime.providerId)?.name ?? 'Unknown'}\nEffort: ${runtime.effort ?? 'Inherit'} · Environment: ${Object.keys(runtime.environment ?? {}).join(', ') || 'None'}\n${continuation ? 'Register and continue Start on the selected host?' : 'Save registration?'}`)) return;
     await request('register-agent',{secret,runtime:runtime.id,...(continuation ? {continuation} : {})}); settled = true;
   } finally { secret = ''; if (continuation && !settled) await request('retire-continuation'); }
 }
@@ -87,25 +91,25 @@ function render() {
       if (type === 'Databricks v2') {
         const endpoint = await screen.input('Databricks workspace URL',snapshot.databricksHost ?? ''); if (!endpoint) return;
         const name = await screen.input('Provider name','Databricks'); if (!name) return;
-        if (await screen.confirm(`Sign in to ${name} in your browser? Tokens stay in Beehive’s OS store. No agent will start.`)) await request('add-databricks',{ name,endpoint });
+        if (await screen.confirm(`Sign in to provider\n${name}\nBrowser sign-in · Tokens saved in the OS credential store`)) await request('add-databricks',{ name,endpoint });
         return;
       }
       const providerType = type === 'Anthropic' ? 'anthropic' : type === 'OpenRouter' ? 'openrouter' : type === 'OpenAI-compatible' ? 'openai-compat' : 'openai';
       const endpoint = providerType === 'openai-compat' ? await screen.input('HTTPS endpoint') : providerType === 'anthropic' ? 'https://api.anthropic.com' : providerType === 'openrouter' ? 'https://openrouter.ai/api/v1' : 'https://api.openai.com/v1'; if (!endpoint) return;
       const wire = providerType === 'openai-compat' ? await screen.choose('API',['auto','chat','responses']) : undefined; if (providerType === 'openai-compat' && !wire) return;
       const name = await screen.input('Provider name',type); if (!name) return;
-      let secret = await screen.input(`${type} API key · Hidden · OS credential store`,'',true); if (!secret) return;
-      if (await screen.confirm(`Save provider ${name}? No agent will start.`)) await request('add-provider',{ name, secret, type:providerType, endpoint, ...(wire ? {wire} : {}) });
+      let secret = await screen.input(`Provider API key\n${type} · Hidden · OS credential store`,'',true); if (!secret) return;
+      if (await screen.confirm(`Save provider\n${name}`)) await request('add-provider',{ name, secret, type:providerType, endpoint, ...(wire ? {wire} : {}) });
       secret = '';
     } },
     { label: 'Add runtime', run: () => runtimeForm(screen, () => snapshot, request) },
     { label: 'Start', disabled: snapshot.service?.state === 'unknown' ? 'Host ownership is unknown. No process will be adopted.' : undefined, run: async () => {
       if (!configured) { await routing('configure'); return; }
-      if (await screen.confirm('Start the local host service? It keeps running when you quit. The OS may ask for key access. This does not start an agent.')) await request('host-start');
+      if (await screen.confirm('Start host\nLocal host service · Keeps running when you quit')) await request('host-start');
     } },
     { label: 'Stop', disabled: snapshot.service?.state !== 'running' ? 'A verified running host instance is required.' : undefined, run: async () => {
       const instance = snapshot.service?.instance; if (!instance) return;
-      if (await screen.confirm('Stop this host and its running agents?')) await request('host-stop',{ instance });
+      if (await screen.confirm('Stop host\nStop this host and its running agents?')) await request('host-stop',{ instance });
     } },
   ] : snapshot.owner ? [
     { label: 'Refresh agents', run: () => request('directory-refresh') },
@@ -115,17 +119,17 @@ function render() {
       const labels = runtimes.map(r => `${r.name} · ${r.model} · ${r.id}`);
       const choice = await screen.choose('Runtime for next start',labels); if (choice === undefined) return;
       const runtime = runtimes[labels.indexOf(choice)]; if (!runtime) return;
-      if (await screen.confirm(`Save ${runtime.name} for next Start? Current run is unchanged.`)) await request('select-runtime',{runtime:runtime.id},row.target,row.revision);
+      if (await screen.confirm(`Save runtime\n${runtime.name} · Next Start\n${targetNames(row)}`)) await request('select-runtime',{runtime:runtime.id},row.target,row.revision);
     } },
     { label: 'Choose configuration…', disabled: eligibility('select-config'), run: async () => {
       const row = snapshot.agents.find(r => r.id === selected); if (!row) return;
       const name = await screen.choose('Configuration for next start', row.configurations); if (name === undefined) return;
-      if (!await screen.confirm(`Use ${name} for the next start?\nHost and agent: ${row.target ?? 'Unknown'}\nRevision: ${row.revision}\nThis does not change the current run.`)) return;
+      if (!await screen.confirm(`Save configuration\n${name} · Next Start\n${targetNames(row)}\nRevision: ${row.revision}`)) return;
       await request('select-config', { name }, row.target, row.revision);
     } },
     ...(['start','stop','restart'] as const).map(action => ({ label: action[0]!.toUpperCase() + action.slice(1), disabled: eligibility(action), run: async () => {
       const row = snapshot.agents.find(r => r.id === selected); if (!row) return;
-      if (!await screen.confirm(`${action[0]!.toUpperCase() + action.slice(1)} agent?\nHost and agent: ${action === 'start' ? row.startTarget ?? row.target ?? 'Unknown' : row.target ?? 'Unknown'}\nRevision: ${row.revision}`)) return;
+      if (!await screen.confirm(`${action[0]!.toUpperCase() + action.slice(1)} agent?\n${targetNames(row, action === 'start')}\nRevision: ${row.revision}`)) return;
       const result = await request(action, undefined, action === 'start' ? row.startTarget ?? row.target : row.target, action === 'start' ? row.startRevision ?? row.revision : row.revision);
       if (result.state === 'registration-required') await registerForm(result.continuation,result.agent);
     } })),
@@ -137,7 +141,7 @@ function render() {
       const chosen = await screen.choose('Move · destination host / runtime',labels); if (chosen === undefined) return;
       const destination = destinations[labels.indexOf(chosen)]; if (!destination) return;
       if (destination.reason) { screen.notice(destination.reason); return; }
-      if (!await screen.confirm(`Move agent to ${destination.label}?
+      if (!await screen.confirm(`Move agent\n${targetNames(row)}\nDestination: ${destination.label}
 The source stops before destination launch. Workspace, session and credentials stay on their hosts.`)) return;
       await request('move',{destination:destination.target,destinationRevision:String(destination.revision)},row.target,row.revision);
     } },
@@ -165,12 +169,12 @@ The source stops before destination launch. Workspace, session and credentials s
   ];
   if (scope === 1 && !snapshot.owner) actions.push({ label: 'New private instructions draft…', run: async () => { const name = await screen.input('Private instructions · 1 of 2\nDraft name', '', false, false, v => v.trim() ? '' : 'Enter a draft name.'); if (name === undefined) return; const instructions = await screen.input(`Private instructions · 2 of 2\nDraft: ${name}\nSaved only on this computer. Not published or used by an agent. Do not enter passwords or keys.`, '', false, true, v => v.trim() ? '' : 'Enter instructions.'); if (instructions !== undefined) await request('draft', { name, instructions }); } });
   if (scope !== 0) actions.push({ label: 'Quit Beehive', run: () => screen.close() });
-  screen.show(vanished ? [{ id: selected, label: 'Selection unavailable', detail: 'Unavailable' }, ...rows] : rows.length ? rows : [{ id: 'empty', label: 'Empty', detail: '—' }], actions, selected);
+  screen.show(vanished ? [{ id: selected, label: 'Selection unavailable', detail: 'Unavailable' }, ...rows] : rows, actions, selected);
   const notice = scope === 0 ? `Host: ${snapshot.service?.state ?? 'unknown'} · Saved: ${snapshot.settings?.revision ?? 0} · Loaded: ${snapshot.service?.revision ?? 'not confirmed'}\n${snapshot.status}` : snapshot.status;
   if (lastStatus !== notice) { lastStatus = notice; screen.notice(notice); }
 }
 screen.onScope = value => { navigation.switch(value); scope = navigation.section; render(); if (scope === 2 && !snapshot.harnesses) void request('runtime-form'); };
-screen.onSelect = id => { if (id === 'empty') return; if (selected !== id) { if (id !== 'empty') navigation.select(id); selected = id; render(); } };
+screen.onSelect = id => { if (selected !== id) { navigation.select(id); selected = id; render(); } };
 const input = createInterface({ input: createReadStream('', { fd: 3 }) });
 input.on('line', line => {
   try {

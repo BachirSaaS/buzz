@@ -127,7 +127,7 @@ export class OpenTuiScreen {
   }
 
   private focusStyle() {
-    this.listFrame.title = `${this.list.focused ? '[List]' : 'List'} · ${this.list.getSelectedIndex() + 1}/${this.rows.length}`;
+    this.listFrame.title = `${this.list.focused ? '[List]' : 'List'} · ${this.rows.length ? this.list.getSelectedIndex() + 1 : 0}/${this.rows.length}`;
     this.scroll.title = managerSections[this.scope] ?? 'Details';
     this.controlsFrame.title = this.actions.focused ? '[Controls]' : 'Controls';
     for (const widget of [this.list, this.actions]) { widget.selectedBackgroundColor = widget.focused ? fg : bg; widget.selectedTextColor = widget.focused ? bg : fg; }
@@ -193,10 +193,10 @@ export class OpenTuiScreen {
     const action = captured ?? this.commands[index];
     if (!action || this.pending || this.busy || this.modal || this.small.visible || this.closed) return;
     if (action.disabled) { this.notice(action.disabled); return; }
-    this.busy = true; this.notice('Working… Esc cancels an open form. Quitting does not stop agents.');
+    this.busy = true; const retire = this.temporaryNotice('Working…');
     try { await action.run(); }
     catch { this.notice('Action failed. The result is unknown. Inspect the operation before you try again.'); }
-    finally { this.busy = false; }
+    finally { retire(); this.busy = false; }
   }
   show(rows: ManagerRow[], actions: ManagerAction[], selected?: string) {
     if (this.closed) return;
@@ -212,7 +212,18 @@ export class OpenTuiScreen {
     this.list.setSelectedIndex(index); this.detail.content = clean(rows[index]?.detail ?? 'No items.'); this.focusStyle();
 
   }
-  notice(text: string) { if (!this.closed) { this.lastNotice = clean(text); this.status.content = this.lastNotice; } }
+  private noticeToken: object = {};
+  /** Retire only this notice, restoring the enclosing scope or idle status. */
+  temporaryNotice(text: string) {
+    const previous = this.lastNotice, previousToken = this.noticeToken;
+    this.notice(text);
+    const token = this.noticeToken;
+    return () => {
+      if (this.noticeToken !== token || this.closed) return;
+      this.notice(previous); this.noticeToken = previousToken;
+    };
+  }
+  notice(text: string) { this.noticeToken = {}; if (!this.closed) { this.lastNotice = clean(text); this.status.content = this.lastNotice; } }
   unavailable(feature: string) { this.notice(`${feature} is unavailable in this build. No request was sent. Local Host shows this computer. Agents shows host reports.`); }
 
   choose(title: string, names: string[]): Promise<string | undefined> {

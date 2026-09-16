@@ -65,7 +65,12 @@ test('manager gates owner, exact selection/revision/freshness, unresolved operat
     assert.match(f.snapshot.agents[0]!.detail, /Configuration for next start/);
     assert.ok(!f.snapshot.agents[0]!.detail.includes('{'));
     assert.equal(f.snapshot.agents[0]!.disabled!.start, '');
+    assert.equal(f.snapshot.agents[0]!.names?.agent, 'Fixture agent');
+    assert.equal(f.snapshot.agents[0]!.names?.host, 'host-a');
+    f.receive(message('availability','host-a','',0,{ observedAt: Date.now(), configuration: { label: 'Readable host', relay: 'wss://example.invalid' } }));
+    assert.equal(f.snapshot.agents[0]!.names?.host, 'Readable host');
     const target = JSON.stringify(['host-a','agent-a']);
+    assert.equal(f.snapshot.agents[0]!.target, target, 'presentation cannot replace routing authority');
     await request('start',{ target, revision: 2 }); assert.match(f.snapshot.status,/selection changed/);
     await request('restart',{ target, revision: 2 }); assert.match(f.snapshot.status,/selection changed/); assert.equal(f.submitted.length,0);
     await request('start',{ target, revision: 3 }); assert.equal(f.submitted.length,1); assert.equal(f.submitted[0]!.type,'start');
