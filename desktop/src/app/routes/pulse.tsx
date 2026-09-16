@@ -28,6 +28,8 @@ type PulseRouteSearch = ReturnType<typeof parseProjectDetailSearch> & {
   view?: "create" | "edit" | "duplicate";
   pane?: string;
   feed?: string;
+  briefings?: "saved";
+  compose?: "message";
   conversation?: string;
   dm?: string;
   channel?: string;
@@ -65,6 +67,8 @@ function validatePulseSearch(
         ? search.view
         : undefined,
     pane: serializeWorkflowEditorPane(parseWorkflowEditorPane(search.pane)),
+    briefings: search.briefings === "saved" ? "saved" : undefined,
+    compose: search.compose === "message" ? "message" : undefined,
     feed: [
       "home",
       "search",

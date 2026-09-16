@@ -135,3 +135,6 @@ pub use workspace::*;
 
 mod pulse_summary;
 pub use pulse_summary::*;
+
+mod accumulator;
+pub use accumulator::*;

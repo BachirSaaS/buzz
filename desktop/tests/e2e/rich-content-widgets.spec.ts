@@ -33,7 +33,7 @@ async function expectWidgetHierarchy(widget: Locator) {
 }
 
 for (const appearance of ["light", "dark"] as const) {
-  test(`Block UI ${appearance} rich content widgets preserve hierarchy and Pulse bubbles`, async ({
+  test(`Block UI ${appearance} links render as compact message bubbles`, async ({
     page,
   }) => {
     await page.addInitScript((value) => {
@@ -44,7 +44,8 @@ for (const appearance of ["light", "dark"] as const) {
       {
         href: "https://github.com/block/buzz/pull/123",
         kind: "github-pull-request",
-        title: "Make agent activity easier to follow",
+        title:
+          "Make agent activity easier to follow across long-running conversations, reviews, decisions, and shared team projects",
       },
       {
         href: "https://docs.google.com/document/d/widget-spec/edit",
@@ -86,72 +87,70 @@ for (const appearance of ["light", "dark"] as const) {
       .click();
     const detail = page.getByTestId("pulse-combined-detail");
     for (const link of links) {
-      await detail.getByTestId("message-input").fill(link.href);
+      await detail
+        .getByTestId("message-input")
+        .fill(
+          `Here is the update I wanted to share with everyone before we continue the conversation and review the next steps together.\n${link.href}`,
+        );
       await expect(
         detail.locator("[data-composer-link-previews]"),
       ).toHaveAttribute("data-ready-snapshot-count", "1");
       await detail.getByTestId("send-message").click();
       const widget = detail
-        .locator(`[data-content-widget][data-link-preview="${link.kind}"]`)
+        .locator(`[data-link-preview="${link.kind}"]`)
         .last();
       await expect(widget).toBeVisible();
-      await expectWidgetHierarchy(widget);
+      await expect(widget).toHaveCSS("padding", "8px 14px");
+      await expect(widget).toHaveCSS("border-radius", "24px");
+      await expect(
+        widget.locator(
+          "img, [data-link-preview-thumbnail], [data-slot=attachment-description]",
+        ),
+      ).toHaveCount(0);
+      expect((await widget.boundingBox())?.height).toBeLessThanOrEqual(96);
+      expect((await widget.boundingBox())?.width).toBeLessThanOrEqual(384);
+      await expect(widget).toHaveCSS(
+        "background-color",
+        appearance === "light" ? "rgb(0, 0, 0)" : "rgb(255, 255, 255)",
+      );
+      const expectSentCardAtRightEdge = async () => {
+        await expect
+          .poll(() =>
+            widget.evaluate((el) => {
+              const group = el.closest("[data-link-preview-list]");
+              if (!group) throw new Error("Missing link preview group");
+              return Math.abs(
+                group.getBoundingClientRect().right -
+                  el.getBoundingClientRect().right,
+              );
+            }),
+          )
+          .toBeLessThan(1);
+      };
+      await expectSentCardAtRightEdge();
       await expect(
         widget.getByRole("link", { name: /^Open / }),
       ).toHaveAttribute("href", link.href);
       await expect(widget).toHaveCSS("font-family", /Inter/);
-      await expect(widget).toHaveCSS("border-width", "1px");
-      expect(
-        await widget.evaluate((el) => getComputedStyle(el).boxShadow),
-      ).not.toBe("none");
-      await expect(widget.locator("[data-link-preview-hostname]")).toHaveCount(
-        0,
-      );
+      await expect(widget).toHaveCSS("border-width", "0px");
+      await expect(widget).toHaveCSS("box-shadow", "none");
+      await expect(widget.locator("[data-link-preview-context]")).toBeVisible();
       await widget.scrollIntoViewIfNeeded();
-      expect(
-        await widget.evaluate((el) => {
-          const rect = el.getBoundingClientRect();
-          return document
-            .elementFromPoint(rect.right - 12, rect.bottom - 12)
-            ?.closest("a")
-            ?.getAttribute("href");
-        }),
-      ).toBe(link.href);
-      const menuButton = widget.getByRole("button", {
-        name: "Link display settings",
-      });
+      const anchor = widget.getByRole("link", { name: /^Open / });
+      await anchor.focus();
+      await expect(anchor).toBeFocused();
+      const menuButton = widget.getByRole("button", { name: "Link actions" });
       await menuButton.focus();
       await page.keyboard.press("Enter");
-      await page
-        .getByRole("menuitem", { name: "Show less", exact: true })
-        .click();
       await expect(
-        widget.locator('[data-slot="attachment-description"]'),
-      ).toHaveCount(0);
-      await expect(menuButton).toBeFocused();
-      await expect(page.getByRole("menu")).not.toBeVisible();
-      await menuButton.click();
-      await page
-        .getByRole("menuitem", { name: "Show more", exact: true })
-        .click();
-      await expect(
-        widget.locator('[data-slot="attachment-description"]'),
+        page.getByRole("menuitem", { name: "Remove preview", exact: true }),
       ).toBeVisible();
-      await expect(page.getByRole("menu")).not.toBeVisible();
-      await menuButton.click();
-      await page
-        .getByRole("menuitemradio", { name: "Compact preview", exact: true })
-        .click();
-      await expect(widget).not.toHaveAttribute("data-link-preview-inline");
-      await expect(page.getByRole("menu")).not.toBeVisible();
-      await menuButton.click();
-      await page
-        .getByRole("menuitemradio", { name: "Full preview", exact: true })
-        .click();
-      await expect(widget).toHaveAttribute("data-link-preview-inline", "");
+      await expect(page.getByRole("menuitemradio")).toHaveCount(0);
+      await page.keyboard.press("Escape");
+      await expect(menuButton).toBeFocused();
       if (link.kind === "github-pull-request") {
         await expect(widget.locator("[data-link-preview-context]")).toHaveText(
-          "block / buzz · #123",
+          "GitHub · Pull request · block / buzz · #123",
         );
         await expect(widget).not.toContainText(/Merged|Approved|Checks passed/);
       }
@@ -161,11 +160,21 @@ for (const appearance of ["light", "dark"] as const) {
       });
     }
     await page.setViewportSize({ width: 900, height: 900 });
-    await expectWidgetHierarchy(
-      detail
-        .locator('[data-content-widget][data-link-preview="generic-link"]')
-        .last(),
-    );
+    const lastBubble = detail
+      .locator('[data-link-preview="generic-link"]')
+      .last();
+    expect(
+      await lastBubble.evaluate((el) => el.scrollWidth > el.clientWidth),
+    ).toBe(false);
+    await lastBubble.getByRole("button", { name: "Link actions" }).click();
+    await page
+      .getByRole("menuitem", { name: "Remove preview", exact: true })
+      .click();
+    await page
+      .getByRole("alertdialog")
+      .getByRole("button", { name: "Remove preview", exact: true })
+      .click();
+    await expect(lastBubble).toHaveCount(0);
   });
 }
 
@@ -302,15 +311,11 @@ for (const appearance of ["light", "dark"] as const) {
     expect((await evidenceArea.boundingBox())?.height).toBeLessThanOrEqual(240);
     await expect(card.locator("[data-evidence-message-id]")).toHaveCount(2);
     await expect(
-      card.locator(
-        '[data-content-widget][data-link-preview="github-pull-request"]',
-      ),
+      card.locator('[data-link-preview="github-pull-request"]'),
     ).toBeVisible();
     await expect(card).toContainText("Improve Home navigation");
     await expect(
-      card.locator(
-        '[data-content-widget][data-link-preview="github-repository"]',
-      ),
+      card.locator('[data-link-preview="github-repository"]'),
     ).toBeVisible();
     await expect(
       card.getByRole("img", { name: "Navigation design", exact: true }),

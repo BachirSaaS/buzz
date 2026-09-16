@@ -1,6 +1,5 @@
 import { useState } from "react";
 
-import { useLinkPreviewStyle } from "@/shared/lib/linkPreviewStylePreference";
 import type { ResolvedLinkPreview } from "@/shared/lib/useResolvedLinkPreviews";
 import {
   AlertDialog,
@@ -30,7 +29,6 @@ export function LinkPreviewList({
 }) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [removed, setRemoved] = useState(false);
-  const style = useLinkPreviewStyle();
   if (removed || previews.length === 0) return null;
 
   const previewNoun = previews.length === 1 ? "preview" : "previews";
@@ -38,12 +36,9 @@ export function LinkPreviewList({
   return (
     <>
       <AttachmentGroup
-        className={
-          style === "compact"
-            ? "gap-4 max-w-full flex-row flex-wrap items-start overflow-visible pb-0"
-            : "gap-4 max-w-full flex-col items-start overflow-visible pb-0"
-        }
+        className="max-w-full flex-col items-start gap-1 overflow-visible pb-0"
         data-link-preview-list=""
+        data-link-preview-layout="bubble"
       >
         {previews.map((preview, index) => (
           <LinkPreviewAttachment

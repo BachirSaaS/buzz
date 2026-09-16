@@ -7,14 +7,8 @@ import {
   type ThreadViewMode,
 } from "@/features/channels/lib/threadViewModePreference";
 import { useCommunities } from "@/features/communities/useCommunities";
-import {
-  setLinkPreviewStyle,
-  useLinkPreviewStyle,
-  type LinkPreviewStyle,
-} from "@/shared/lib/linkPreviewStylePreference";
-import type { ResolvedLinkPreview } from "@/shared/lib/useResolvedLinkPreviews";
-import { LinkPreviewAttachmentPresentation } from "@/shared/ui/link-preview-attachment";
-import type { LinkPreviewImageLightboxProps } from "@/shared/ui/rich-link-preview-attachment";
+import { LinkPreviewWidget } from "@/shared/ui/link-preview-widget";
+import { useTheme } from "@/shared/theme/ThemeProvider";
 import {
   previewConversationDensity,
   setConversationDensity,
@@ -27,7 +21,6 @@ import {
   useFontSize,
   type FontSize,
 } from "@/shared/lib/fontSizePreference";
-import { useTheme } from "@/shared/theme/ThemeProvider";
 
 import { SettingsOptionRow } from "./SettingsOptionGroup";
 import { SegmentedControl } from "@/shared/ui/segmented-control";
@@ -47,15 +40,6 @@ const CONVERSATION_DENSITY_OPTIONS: {
   { value: "comfortable", label: "Comfortable" },
   { value: "spacious", label: "Spacious" },
 ];
-const LINK_PREVIEW_STYLE_OPTIONS: {
-  value: LinkPreviewStyle;
-  label: string;
-  description: string;
-}[] = [
-  { value: "compact", label: "Compact", description: "Compact link cards" },
-  { value: "rich", label: "Rich", description: "Link cards with images" },
-];
-
 function ConversationDensityPreviewMessage({
   avatar,
   author,
@@ -182,106 +166,42 @@ export function ConversationDisplaySettings() {
   );
 }
 
-/**
- * Static sample used by the settings preview card. The thumbnail is an inline
- * SVG data URL so the preview needs no network fetch or native image pipeline.
- */
-const LINK_PREVIEW_SAMPLE_BASE: Omit<ResolvedLinkPreview, "imageDataUrl"> = {
-  kind: "generic-link",
-  href: "https://example.com/product-updates",
-  provider: "example.com",
-  title: "Product updates — a fresh look at conversations",
-  typeLabel: "link",
-  description:
-    "Highlights from this release: refreshed conversation layout, quicker link handling, and readability improvements.",
-  imageState: "image",
-  imageDomain: "example.com",
-};
-
-/** Flat Block UI sample artwork; uploaded link images retain their own colors. */
-function blockuiSampleImage(isDark: boolean): string {
-  const surface = isDark ? "#282828" : "#e8e8e8";
-  const shape = isDark ? "#d1d1d1" : "#959595";
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 382 200"><rect width="382" height="200" fill="${surface}"/><rect x="76" y="64" width="72" height="72" rx="16" fill="${shape}"/><rect x="168" y="76" width="96" height="18" rx="4" fill="${shape}"/><rect x="168" y="106" width="138" height="18" rx="4" fill="${shape}"/></svg>`;
-  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
-}
-
-/** Lightbox stand-in for the settings sample — renders the image inert. */
-function SampleImageLightbox({
-  children,
-  className,
-}: LinkPreviewImageLightboxProps) {
-  return <div className={className}>{children}</div>;
-}
-
-function LinkPreviewSample({ style }: { style: LinkPreviewStyle }) {
-  const { isDark } = useTheme();
-  const preview = React.useMemo<ResolvedLinkPreview>(
-    () => ({
-      ...LINK_PREVIEW_SAMPLE_BASE,
-      imageDataUrl: blockuiSampleImage(isDark),
-    }),
-    [isDark],
-  );
-  return (
-    <div className="px-4 py-3" data-testid="link-preview-sample">
-      <div
-        aria-hidden="true"
-        className="relative overflow-hidden rounded-xl border border-border/65 bg-transparent"
-        data-testid="link-preview-sample-surface"
-        inert
-      >
-        <span className="absolute right-3.5 top-3 inline-flex items-center gap-1 text-2xs font-medium text-muted-foreground">
-          <Eye aria-hidden="true" className="size-3" />
-          Preview
-        </span>
-        <div className="p-4 pr-24">
-          <LinkPreviewAttachmentPresentation
-            ImageLightbox={SampleImageLightbox}
-            preview={preview}
-            showExpandControl={false}
-            style={style}
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
-
+/** A representative link bubble, kept inert in Appearance settings. */
 export function LinkPreviewStyleSetting() {
-  const style = useLinkPreviewStyle();
-  const [previewStyle, setPreviewStyle] =
-    React.useState<LinkPreviewStyle | null>(null);
-  const displayedStyle = previewStyle ?? style;
-  const activeOption =
-    LINK_PREVIEW_STYLE_OPTIONS.find(
-      (option) => option.value === displayedStyle,
-    ) ?? LINK_PREVIEW_STYLE_OPTIONS[0];
-
   return (
     <div data-testid="link-preview-style-group">
       <SettingsOptionRow>
         <div className="min-w-0">
           <p className="text-sm font-medium">Link previews</p>
-          <p
-            className="text-sm font-normal text-muted-foreground"
-            data-settings-subcopy
-          >
-            {activeOption.description}
+          <p className="text-sm text-muted-foreground" data-settings-subcopy>
+            Compact message bubbles with a title and source
           </p>
         </div>
-        <SegmentedControl
-          size="compact"
-          legend="Link previews"
-          onPreviewChange={setPreviewStyle}
-          onValueChange={setLinkPreviewStyle}
-          optionTestIdPrefix="link-preview-style"
-          options={LINK_PREVIEW_STYLE_OPTIONS}
-          testId="link-preview-style-control"
-          value={style}
-        />
       </SettingsOptionRow>
-      <LinkPreviewSample style={displayedStyle} />
+      <div className="px-4 py-3" data-testid="link-preview-sample">
+        <div
+          aria-hidden="true"
+          inert
+          data-testid="link-preview-sample-surface"
+          className="relative rounded-xl border border-border/65 p-4"
+        >
+          <span className="mb-3 flex items-center gap-1 text-2xs text-muted-foreground">
+            <Eye aria-hidden="true" className="size-3" />
+            Preview
+          </span>
+          <LinkPreviewWidget
+            preview={{
+              kind: "generic-link",
+              href: "https://example.com/product-updates",
+              provider: "example.com",
+              title: "Product updates — a fresh look at conversations",
+              typeLabel: "link",
+              description: "",
+              imageState: "none",
+            }}
+          />
+        </div>
+      </div>
     </div>
   );
 }

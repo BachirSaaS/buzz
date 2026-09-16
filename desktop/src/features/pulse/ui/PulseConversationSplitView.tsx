@@ -6,6 +6,7 @@ import { useFeatureEnabled } from "@/shared/features";
 import { classicSidebarGroups } from "../lib/classicSidebarGroups";
 import { useMessagesSidebarLayout } from "../lib/useMessagesSidebarLayout";
 import { MessagesSidebarHeader } from "./MessagesSidebarHeader";
+import { MessagesSidebarNewMenu } from "./MessagesSidebarNewMenu";
 import { MessagesSidebarSection } from "./MessagesSidebarSection";
 import { WorkspaceSidebarButton } from "@/shared/ui/workspace-sidebar-button";
 import * as React from "react";
@@ -29,6 +30,7 @@ import {
   scaleProfileAvatarStatusGeometry,
 } from "@/features/profile/ui/ProfileAvatarWithStatus";
 import { normalizePubkey } from "@/shared/lib/pubkey";
+import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 
 import { PulseChannelAvatar, PulseSidebarIcon } from "./PulseChannelAvatar";
 import { PulseChannelDetail } from "./PulseChannelDetail";
@@ -48,6 +50,11 @@ const AVATAR_STATUS_GEOMETRY = scaleProfileAvatarStatusGeometry(
   DEFAULT_HOVER_PROFILE_STATUS_GEOMETRY,
   AVATAR_SIZE,
 );
+
+const NewMessageScreen = React.lazy(async () => {
+  const module = await import("@/features/messages/ui/NewMessageScreen");
+  return { default: module.NewMessageScreen };
+});
 
 const SPLIT_VIEW_SEARCH_KEYS = [
   "feed",
@@ -81,7 +88,9 @@ export function PulseConversationSplitView({
   };
 }) {
   const { activeCommunity } = useCommunities();
-  const { starredChannelIds = EMPTY_STARRED_IDS } = useAppShell();
+  const { openBrowseChannels, starredChannelIds = EMPTY_STARRED_IDS } =
+    useAppShell();
+  const { goNewMessage } = useAppNavigation();
   const { sections, assignments } = useChannelSections(
     currentPubkey,
     activeCommunity?.relayUrl,
@@ -155,6 +164,7 @@ export function PulseConversationSplitView({
     navigation && navigation.view !== "conversation"
       ? undefined
       : (values[selectionKey] ?? selected?.id);
+  const composingMessage = values.compose === "message";
   React.useEffect(() => {
     if (!values[selectionKey] && selectedId) {
       applyPatch({ [selectionKey]: selectedId }, { replace: true });
@@ -287,10 +297,17 @@ export function PulseConversationSplitView({
               </WorkspaceSidebarButton>
             ),
           )}
+        {navigation ? (
+          <MessagesSidebarNewMenu
+            onChannel={openBrowseChannels}
+            onDirectMessage={() => void goNewMessage()}
+          />
+        ) : null}
         {allMessages && (
           <>
             <WorkspaceSidebarButton
               active={
+                !composingMessage &&
                 !selectedId &&
                 (!navigation || navigation.view === "conversation")
               }
@@ -336,7 +353,22 @@ export function PulseConversationSplitView({
           </p>
         )}
       </nav>
-      {!selectedId && allMessages ? (
+      {composingMessage ? (
+        <div
+          className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+          data-testid={`${testPrefix}-new-message`}
+        >
+          <React.Suspense
+            fallback={
+              <p role="status" className="p-6 text-sm text-muted-foreground">
+                Loading new message…
+              </p>
+            }
+          >
+            <NewMessageScreen />
+          </React.Suspense>
+        </div>
+      ) : !selectedId && allMessages ? (
         <div
           ref={allMessages.scrollRef}
           className="min-h-0 min-w-0 flex-1 overflow-y-auto"

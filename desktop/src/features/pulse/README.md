@@ -23,7 +23,9 @@ Input includes at most 30 recent conversations, three per channel, eight message
 While summaries load or fail, Home shows grouped channel overviews with useful original evidence. Overviews are explicitly labeled rather than presented as generated summaries. A separate retry remains available; relay failures retain an incomplete-activity warning. Agent requests inferred from messages are not authoritative runtime status.
 
 Messages uses a single combined conversation layout. The Messages heading has an ellipsis menu for Recents or Classic, remembered per identity and community. Recents uses activity order; Classic reuses the existing starred channels, custom sections (including their icons and order), Channels, enabled Forums, and Direct messages, with each section's saved sorting. Switching presentation preserves the selected conversation and saved organization. Search appears
-as a circular-icon row above All messages in the persistent sidebar. All messages
+as a circular-icon row above a New message menu in the persistent sidebar. The
+menu starts a direct message inside the conversation pane or opens the channel
+browser, where channels can be joined or created without leaving Messages. All messages
 opens the mixed DM and channel feed beside a 220px list of joined DMs and channels,
 sorted by the newest relay timestamp or loaded message. Selection is independent
 of list order, so incoming activity does not switch the open conversation. The

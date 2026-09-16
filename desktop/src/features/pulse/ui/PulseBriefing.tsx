@@ -1,4 +1,6 @@
 import { Action } from "@/shared/ui/action";
+import { useContentWidth } from "@/shared/lib/contentWidthPreference";
+import { cn } from "@/shared/lib/cn";
 import type { UserProfileSummary } from "@/shared/api/types";
 import { Skeleton } from "@/shared/ui/skeleton";
 import type { BriefingGroup, BriefingKind } from "../lib/pulseBriefing";
@@ -30,6 +32,7 @@ export function PulseBriefing({
   summarizing?: boolean;
   onRetrySummary?: () => void;
 }) {
+  const fullWidth = useContentWidth() !== "standard";
   return (
     <section aria-label="Your catch-up" data-testid="pulse-briefing">
       <h1 className="sr-only">Home</h1>
@@ -66,7 +69,12 @@ export function PulseBriefing({
           <span className="sr-only">Finding what needs your attention…</span>
         </div>
       ) : groups.length ? (
-        <div className="mx-auto grid w-full max-w-[640px] gap-1">
+        <div
+          className={cn(
+            "mx-auto grid w-full gap-1",
+            !fullWidth && "max-w-[640px]",
+          )}
+        >
           {groups.map((group) => (
             <HomeActivityCard
               key={group.kind}

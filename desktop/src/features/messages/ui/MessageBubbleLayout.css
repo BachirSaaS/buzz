@@ -44,6 +44,14 @@
 .message-bubble-body[data-message-bubble="outgoing"] [data-block-media] {
   justify-content: flex-end;
 }
+/* Link cards follow the sender's edge even when the caption is wider. */
+.message-bubble-body[data-message-bubble="outgoing"] [data-link-preview-list] {
+  justify-content: flex-end;
+}
+.message-bubble-body[data-message-bubble="outgoing"]
+  [data-link-preview-layout="bubble"] {
+  align-items: flex-end;
+}
 .message-bubble-body:has([data-block-media]) [data-bubble-caption],
 .message-bubble-body:not(:has([data-block-media])),
 .message-bubble-body:has([data-block-media])

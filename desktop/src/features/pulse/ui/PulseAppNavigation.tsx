@@ -27,9 +27,11 @@ const apps = {
 export function PulseAppNavigation({
   active,
   onSelect,
+  className,
 }: {
   active: PulseApp | "settings";
   onSelect: (app: PulseApp) => void;
+  className?: string;
 }) {
   const { onOpenSettings } = useAppShell();
   const projectsEnabled = useFeatureEnabled("projects");
@@ -44,7 +46,10 @@ export function PulseAppNavigation({
   );
   return (
     <div
-      className="pulse-dock-rail flex w-24 shrink-0 justify-center overflow-y-auto pb-2 pr-6"
+      className={cn(
+        "pulse-dock-rail flex w-24 shrink-0 justify-center overflow-y-auto pb-2 pr-6",
+        className,
+      )}
       data-testid="pulse-dock-rail"
       data-tauri-drag-region
     >

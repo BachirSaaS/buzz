@@ -864,6 +864,7 @@ pub fn run() {
             is_auto_update_supported,
             set_window_vibrancy,
             summarize_pulse_activity,
+            accumulator_request,
             #[cfg(target_os = "macos")]
             tray_menu::clear_tray_agent_activity,
             #[cfg(target_os = "macos")]

@@ -6,21 +6,21 @@ import {
 import { UserAvatar } from "@/shared/ui/UserAvatar";
 import { UserProfilePopover } from "@/features/profile/ui/UserProfilePopover";
 import { normalizePubkey } from "@/shared/lib/pubkey";
-import type { PulseConversation } from "../lib/unifiedFeed";
+import type { TimelineMessage } from "@/features/messages/types";
 
 /** Prominent source identities, using Block UI's overlapping group and count composition. */
 export function HomeParticipants({
-  sources,
+  messages: sourceMessages,
   evidenceIds,
   profiles,
 }: {
-  sources: PulseConversation[];
+  messages: TimelineMessage[];
   evidenceIds: string[];
   profiles: Record<string, UserProfileSummary>;
 }) {
-  const messages = sources
-    .flatMap((source) => source.messages)
-    .filter((message) => !message.pending && message.pubkey);
+  const messages = sourceMessages.filter(
+    (message) => !message.pending && message.pubkey,
+  );
   const ordered = [...messages].sort(
     (a, b) =>
       Number(evidenceIds.includes(b.id)) - Number(evidenceIds.includes(a.id)),

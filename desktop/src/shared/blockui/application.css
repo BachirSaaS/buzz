@@ -514,3 +514,33 @@ html[data-window-glass="true"] body {
 .pulse-workspace-surface {
   --background: var(--blockui-surface-card);
 }
+
+/* Rest 4px beyond the panel. Scale around the corner's circle center so hover
+ * grows the radius and moves the entire stroke outward, keeping it concentric. */
+.pulse-resize-handle {
+  --resize-radius: calc(var(--blockui-radius-lg) + 4px);
+  background: transparent;
+  pointer-events: none;
+}
+.pulse-resize-stroke {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: calc(var(--resize-radius) + 40px);
+  height: calc(var(--resize-radius) + 40px);
+  overflow: visible;
+  pointer-events: none;
+  transform-origin: 40px 40px;
+}
+
+/* Link summaries use message colors without a second card surface. */
+.link-message-bubble[data-link-preview][data-block-media] {
+  max-width: min(24rem, 100%);
+}
+.link-message-bubble {
+  background: var(--bubble-background, var(--blockui-surface-standard));
+  color: var(--bubble-foreground, var(--foreground));
+}
+.dark .link-message-bubble {
+  background: var(--bubble-background, var(--muted));
+}

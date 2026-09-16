@@ -81,10 +81,10 @@ test("appearance samples preview locally and commit only on selection", async ({
 }) => {
   await openAppearance(page);
 
-  const linkControl = page.getByTestId("link-preview-style-control");
-  const richOption = page.getByTestId("link-preview-style-rich");
   const linkSample = page.getByTestId("link-preview-sample");
-  await expect(linkSample.locator("[data-link-preview-inline]")).toHaveCount(0);
+  await expect(linkSample.locator("[data-link-preview]")).toBeVisible();
+  await expect(linkSample.locator("img")).toHaveCount(0);
+  await expect(page.getByTestId("link-preview-style-control")).toHaveCount(0);
   await expect(page.getByTestId("link-preview-sample-surface")).toHaveAttribute(
     "inert",
     "",
@@ -92,35 +92,6 @@ test("appearance samples preview locally and commit only on selection", async ({
   const sampleLink = linkSample.locator("a").first();
   await sampleLink.evaluate((element) => element.focus());
   await expect(sampleLink).not.toBeFocused();
-  await scrubTo(linkControl, richOption);
-  await expect(linkSample.locator("[data-link-preview-inline]")).toBeVisible();
-  await expect(linkSample.getByText("Show less")).toHaveCount(0);
-  await expect(page.getByText("Link cards with images")).toBeVisible();
-  await expect
-    .poll(() =>
-      page.evaluate(
-        (key) => window.localStorage.getItem(key),
-        LINK_PREVIEW_STYLE_STORAGE_KEY,
-      ),
-    )
-    .toBe("compact");
-  await page.evaluate(() => window.dispatchEvent(new Event("blur")));
-  await expect(linkSample.locator("[data-link-preview-inline]")).toHaveCount(0);
-  await expect(page.getByTestId("link-preview-style-compact")).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
-
-  await richOption.click();
-  await expect(linkSample.locator("[data-link-preview-inline]")).toBeVisible();
-  await expect
-    .poll(() =>
-      page.evaluate(
-        (key) => window.localStorage.getItem(key),
-        LINK_PREVIEW_STYLE_STORAGE_KEY,
-      ),
-    )
-    .toBe("rich");
 
   const threadControl = page.getByTestId("thread-layout-control");
   const focusOption = page.getByTestId("thread-layout-focus");
@@ -162,21 +133,18 @@ test("appearance previews stay grouped and responsive", async ({ page }) => {
   const preferencesCard = page.getByTestId("appearance-preferences-card");
   const linkGroup = page.getByTestId("link-preview-style-group");
   const threadGroup = page.getByTestId("thread-layout-group");
-  const linkControl = page.getByTestId("link-preview-style-control");
   const threadControl = page.getByTestId("thread-layout-control");
 
   await expect(linkGroup.getByText("Preview", { exact: true })).toBeVisible();
   await expect(threadGroup.getByText("Preview", { exact: true })).toBeVisible();
 
-  const [cardBox, linkControlBox, threadControlBox] = await Promise.all([
+  const [cardBox, threadControlBox] = await Promise.all([
     preferencesCard.boundingBox(),
-    linkControl.boundingBox(),
     threadControl.boundingBox(),
   ]);
-  if (!cardBox || !linkControlBox || !threadControlBox) {
+  if (!cardBox || !threadControlBox) {
     throw new Error("Responsive Appearance geometry is missing");
   }
-  expect(linkControlBox.width).toBeGreaterThan(cardBox.width - 40);
   expect(threadControlBox.width).toBeGreaterThan(cardBox.width - 40);
 
   await waitForAnimations(page);

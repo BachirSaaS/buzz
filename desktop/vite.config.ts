@@ -2,6 +2,7 @@ import path from "node:path";
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
+import { chiefProxy } from "./scripts/chiefProxy";
 import { pulseBriefingPlugin } from "./scripts/pulseBriefingPlugin";
 
 const host = process.env.TAURI_DEV_HOST;
@@ -36,6 +37,7 @@ export default defineConfig(async ({ mode, command }) => {
       }),
       react(),
       pulseBriefingPlugin(pulseSummaryProvider),
+      chiefProxy(),
     ],
     resolve: {
       alias: {

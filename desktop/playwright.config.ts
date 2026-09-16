@@ -24,6 +24,8 @@ export default defineConfig({
         "**/rich-content-widgets.spec.ts",
         "**/agents-browse.spec.ts",
         "**/pulse-unified.spec.ts",
+        "**/chief-briefings.spec.ts",
+        "**/content-resize.spec.ts",
         "**/owned-agent-discovery.spec.ts",
         "**/thread-head-stale-edit.spec.ts",
         "**/sidebar-offcanvas-rail.spec.ts",

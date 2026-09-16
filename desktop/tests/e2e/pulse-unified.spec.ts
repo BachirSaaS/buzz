@@ -5,6 +5,68 @@ import { readFileSync } from "node:fs";
 
 const agentKey = "c1".repeat(32);
 
+test("Appearance content width fills workspaces with an eight pixel inset and persists", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await installMockBridge(page);
+  await page.goto("/#/pulse?feed=conversation");
+  const frame = page.getByTestId("pulse-main-container");
+  const dock = page.getByTestId("pulse-app-navigation");
+  await expect(frame).toHaveCSS("max-width", "960px");
+  await dock.getByRole("button", { name: "Settings", exact: true }).click();
+  await page
+    .getByTestId("settings-sidebar")
+    .getByRole("button", { name: "Appearance", exact: true })
+    .click();
+  await page.getByTestId("content-width-full").click();
+  const expectFullWidth = async () => {
+    await expect(frame).toHaveAttribute("data-content-width", "full");
+    await expect(frame).toHaveCSS("max-width", "none");
+    await expect
+      .poll(() =>
+        frame.evaluate((el) => {
+          const rect = el.getBoundingClientRect();
+          const dock = document
+            .querySelector('[data-testid="pulse-app-navigation"]')
+            ?.getBoundingClientRect();
+          const chrome = document
+            .querySelector('[data-testid="app-top-chrome"]')
+            ?.getBoundingClientRect();
+          if (!dock || !chrome) throw new Error("Workspace chrome unavailable");
+          return [
+            rect.left - dock.right,
+            innerWidth - rect.right,
+            innerHeight - rect.bottom,
+            rect.top - chrome.bottom,
+          ].map(Math.round);
+        }),
+      )
+      .toEqual([8, 8, 8, 8]);
+  };
+  await expectFullWidth();
+  await dock.getByRole("button", { name: "Messages", exact: true }).click();
+  await expectFullWidth();
+  await page.reload();
+  await expectFullWidth();
+  await dock.getByRole("button", { name: "Home", exact: true }).click();
+  await expectFullWidth();
+  await expect(page.getByTestId("pulse-briefing")).toBeVisible();
+  const cards = page.getByTestId("pulse-briefing").locator(":scope > div.grid");
+  await expect(cards).toHaveCSS("max-width", "none");
+  await waitForAnimations(page);
+  await page.screenshot({
+    path: "test-results/pulse-prototype/content-full-width.png",
+  });
+  await page.setViewportSize({ width: 700, height: 900 });
+  await expectFullWidth();
+  await dock.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByTestId("content-width-standard").click();
+  await expect(frame).toHaveAttribute("data-content-width", "standard");
+  await dock.getByRole("button", { name: "Home", exact: true }).click();
+  await expect(frame).toHaveCSS("max-width", "640px");
+});
+
 test("shared mesh background renders across workspaces and respects reduced motion", async ({
   page,
 }) => {
@@ -161,6 +223,54 @@ test("Messages layout menu carries over classic sections and remembers the choic
       sectionKey,
     ),
   ).toEqual(organization);
+});
+
+test("New message starts a direct message or opens the channel chooser", async ({
+  page,
+}) => {
+  await installMockBridge(page);
+  await page.goto("/#/pulse?feed=conversation");
+
+  const list = page.getByTestId("pulse-combined-list");
+  const search = list.getByRole("button", { name: "Search", exact: true });
+  const newMessage = list.getByRole("button", {
+    name: "New message",
+    exact: true,
+  });
+  await expect(newMessage).toBeVisible();
+  await expect
+    .poll(async () => {
+      const searchBounds = await search.boundingBox();
+      const newMessageBounds = await newMessage.boundingBox();
+      if (!searchBounds || !newMessageBounds) return false;
+      return newMessageBounds.y >= searchBounds.y + searchBounds.height;
+    })
+    .toBe(true);
+
+  await newMessage.click();
+  await page.getByRole("menuitem", { name: "Channel", exact: true }).click();
+  await expect(page.getByTestId("channel-browser-dialog")).toBeVisible();
+  await expect(page.getByTestId("channel-browser-search")).toBeFocused();
+  await page.getByTestId("browse-channel-general").click();
+  await expect(page.getByTestId("channel-browser-dialog")).toHaveCount(0);
+  await expect(page.getByTestId("pulse-combined-detail")).toHaveAttribute(
+    "data-channel-id",
+    "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50",
+  );
+  await expect(page).toHaveURL(/#\/pulse/);
+
+  await page.goto("/#/pulse?feed=conversation");
+  await newMessage.click();
+  await page
+    .getByRole("menuitem", { name: "Direct message", exact: true })
+    .click();
+  await expect(page.getByTestId("new-message-page")).toBeVisible();
+  await expect(page.getByTestId("new-dm-search")).toBeFocused();
+  await expect(page.getByTestId("pulse-combined-list")).toBeVisible();
+  await expect(page.getByTestId("pulse-combined-new-message")).toContainText(
+    "To:",
+  );
+  await expect(page).toHaveURL(/#\/pulse\?.*compose=message/);
 });
 
 test("dock follows Settings experiments immediately and after reopening", async ({

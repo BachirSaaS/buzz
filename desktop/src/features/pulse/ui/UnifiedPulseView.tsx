@@ -33,8 +33,12 @@ import { buildHomeBriefing, type BriefingKind } from "../lib/pulseBriefing";
 import { PulseBriefing } from "./PulseBriefing";
 import { buildSummaryInput } from "../lib/pulseSummary";
 import { usePulseSummary } from "../usePulseSummary";
+import { SavedBriefings } from "@/features/accumulator/SavedBriefings";
+import { useRelayOrigin } from "@/shared/lib/useRelayOrigin";
+
 const FEED_SEARCH_KEYS = [
   "feed",
+  "briefings",
   ...PULSE_CONVERSATION_KEYS,
   ...PULSE_WORKSPACE_KEYS,
 ] as const;
@@ -45,6 +49,7 @@ export function UnifiedPulseView({
   currentPubkey?: string;
 }) {
   const feed = useUnifiedPulseFeed(currentPubkey);
+  const relayOrigin = useRelayOrigin();
   const reads = useAppShell();
   const [briefingFilter, setBriefingFilter] =
     React.useState<BriefingKind | null>(null);
@@ -360,6 +365,21 @@ export function UnifiedPulseView({
               className="min-h-0 flex-1 overflow-y-auto"
               data-testid="pulse-home"
             >
+              {relayOrigin && currentPubkey && (
+                <SavedBriefings
+                  key={`${relayOrigin}:${currentPubkey}`}
+                  scope={{ relay: relayOrigin, pubkey: currentPubkey }}
+                  profiles={feed.profiles}
+                  onOpen={(event) => {
+                    if (!event.channel || !setFilter("conversation")) return;
+                    applyPatch({
+                      conversation: event.channel,
+                      thread: event.thread_root ?? event.id,
+                      messageId: event.id,
+                    });
+                  }}
+                />
+              )}
               {content}
             </div>
           ) : (

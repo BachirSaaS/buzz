@@ -53,6 +53,10 @@ export function workspaceNavigationTarget(
       feed = "workflows";
       params = { workflowId: target.params?.workflowId };
       break;
+    case "/messages/new":
+      feed = "conversation";
+      params = { compose: "message", conversation: undefined };
+      break;
     case "/channels/$channelId":
       // Draft auto-send still uses the canonical route that owns its lifecycle.
       if (target.search?.autoSend) return target;
