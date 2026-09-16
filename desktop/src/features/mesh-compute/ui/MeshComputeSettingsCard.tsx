@@ -102,13 +102,31 @@ export function MeshComputeSettingsCard() {
   );
   const [isCustomModelEditing, setIsCustomModelEditing] = React.useState(false);
   const [advancedOpen, setAdvancedOpen] = React.useState(false);
-  const [actionInFlight, setActionInFlight] = React.useState(false);
+  const actionSequence = React.useRef(0);
   const [pendingAction, setPendingAction] = React.useState<
     "start" | "stop" | null
   >(null);
+  const actionInFlight = pendingAction !== null;
   const [actionError, setActionError] = React.useState<string | null>(null);
   const { progress: downloadProgress, reset: resetDownloadProgress } =
     useMeshDownloadProgress();
+
+  // A start command can keep waiting on inference readiness after polling
+  // proves the runtime is running (or failed and needs stopping to retry).
+  // Release the action lock on that authoritative status, and retire the
+  // command so its late result/error/finally cannot overwrite a subsequent stop.
+  React.useEffect(() => {
+    if (
+      pendingAction === "start" &&
+      status?.mode === "serve" &&
+      (status.state === "running" || status.state === "failed")
+    ) {
+      actionSequence.current += 1;
+      setPendingAction(null);
+      resetDownloadProgress();
+      setSnapshotRefreshKey((current) => current + 1);
+    }
+  }, [pendingAction, status?.mode, status?.state, resetDownloadProgress]);
 
   // Fetch installed models. Called on mount and whenever the running state
   // changes (a fresh start may have downloaded a new model). Stale-tolerant —
@@ -195,7 +213,9 @@ export function MeshComputeSettingsCard() {
   // remain in flight after status already proves this machine is running. Do
   // not leave the visual state spinning during that window.
   const isSuccessfullySharing =
-    status?.mode === "serve" && status.state === "running";
+    pendingAction !== "stop" &&
+    status?.mode === "serve" &&
+    status.state === "running";
   const isTransitioning =
     !isSuccessfullySharing &&
     (pendingAction !== null ||
@@ -203,16 +223,20 @@ export function MeshComputeSettingsCard() {
       status?.state === "stopping");
 
   async function handleToggle(next: boolean) {
-    // Never let the Share switch tear down a consume session. The switch is
-    // already disabled while consuming, but status can be stale between polls,
-    // so refuse a stop that isn't stopping OUR serve node as a belt-and-braces
-    // guard (the backend enforces this authoritatively too).
-    if (!next && !isSharing) {
+    // Never let the Share switch tear down a consume session: refuse a stop
+    // that isn't stopping OUR serve node (the backend checks this too).
+    // Keep stop locked through command completion, even if polling says off:
+    // teardown removes the runtime before persisting the disabled config.
+    if (
+      actionInFlight ||
+      status?.state === "stopping" ||
+      (!next && !isSharing)
+    ) {
       return;
     }
+    const sequence = ++actionSequence.current;
     setActionError(null);
     setPendingAction(next ? "start" : "stop");
-    setActionInFlight(true);
     try {
       if (next) {
         const maxVram =
@@ -225,19 +249,25 @@ export function MeshComputeSettingsCard() {
               ? maxVram
               : undefined,
         });
+        if (sequence !== actionSequence.current) return;
         update(nextStatus);
       } else {
         const nextStatus = await meshStopNode();
+        if (sequence !== actionSequence.current) return;
         update(nextStatus);
       }
       refresh();
       setSnapshotRefreshKey((current) => current + 1);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : String(err));
+      if (sequence === actionSequence.current) {
+        setActionError(err instanceof Error ? err.message : String(err));
+        refresh();
+      }
     } finally {
-      setActionInFlight(false);
-      setPendingAction(null);
-      resetDownloadProgress();
+      if (sequence === actionSequence.current) {
+        setPendingAction(null);
+        resetDownloadProgress();
+      }
     }
   }
 
@@ -336,6 +366,7 @@ export function MeshComputeSettingsCard() {
                 // client can start sharing once a valid local model is selected.
                 // Unknown occupants remain protected from replacement.
                 actionInFlight ||
+                status?.state === "stopping" ||
                 (isSharing
                   ? false
                   : slotOccupied && !isConsuming
