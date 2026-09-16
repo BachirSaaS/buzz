@@ -171,7 +171,6 @@ The source stops before destination launch. Workspace, session and credentials s
       if (snapshot.models) await screen.choose('Models', snapshot.models.map(id=>snapshot.modelLabels?.[id] && snapshot.modelLabels[id] !== id ? `${snapshot.modelLabels[id]} · ${id}` : id));
     } },
   ];
-  if (scope === 1 && !snapshot.owner) actions.push({ label: 'New private instructions draft…', run: async () => { const name = await screen.input('Private instructions · 1 of 2\nDraft name', '', false, false, v => v.trim() ? '' : 'Enter a draft name.'); if (name === undefined) return; const instructions = await screen.input(`Private instructions · 2 of 2\nDraft: ${name}\nSaved only on this computer. Not published or used by an agent. Do not enter passwords or keys.`, '', false, true, v => v.trim() ? '' : 'Enter instructions.'); if (instructions !== undefined) await request('draft', { name, instructions }); } });
   if (scope !== 0) actions.push({ label: 'Quit Beehive', run: () => screen.close() });
   screen.show(vanished ? [{ id: selected, label: 'Selection unavailable', detail: 'Unavailable' }, ...rows] : rows, actions, selected);
   const notice = scope === 0 ? `Host: ${snapshot.service?.state ?? 'unknown'} · Saved: ${snapshot.settings?.revision ?? 0} · Loaded: ${snapshot.service?.revision ?? 'not confirmed'}\n${snapshot.status}` : snapshot.status;
