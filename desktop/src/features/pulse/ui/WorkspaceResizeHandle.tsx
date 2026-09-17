@@ -42,8 +42,11 @@ export function WorkspaceResizeHandle(
   return (
     <Action
       {...props}
-      aria-label="Resize content"
-      title="Drag to resize · Double-click to reset"
+      aria-label={props["aria-label"] ?? "Resize content"}
+      title={
+        props.title ??
+        "Drag to resize · Arrow keys to adjust · Double-click to reset"
+      }
       data-testid="content-resize-handle"
       className="pulse-resize-handle absolute -bottom-2 -right-2 z-20 size-14 touch-none select-none cursor-nwse-resize rounded-full focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-white/50"
       onPointerEnter={(event) => {

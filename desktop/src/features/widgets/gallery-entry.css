@@ -1,0 +1,10 @@
+html {
+  --buzz-type-rem: 1rem;
+  background: #f5f5f5;
+}
+html.dark {
+  background: #101010;
+}
+body {
+  margin: 0;
+}

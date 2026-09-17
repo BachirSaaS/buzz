@@ -23,7 +23,10 @@
     "test:e2e:release-smoke": "pnpm build:e2e && playwright test --config=playwright.release-smoke.config.ts",
     "test:e2e:report": "playwright show-report",
     "tauri:build": "node ./scripts/tauri-command.mjs build",
-    "check:blockui": "node ./scripts/check-blockui.mjs"
+    "check:blockui": "node ./scripts/check-blockui.mjs",
+    "dev:widgets": "vite --config widget-gallery.vite.config.ts",
+    "build:widgets": "vite build --config widget-gallery.vite.config.ts",
+    "test:widgets": "pnpm build:widgets && playwright test --config playwright.widgets.config.ts"
   },
   "dependencies": {
     "@base-ui/react": "1.8.0",

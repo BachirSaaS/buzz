@@ -32,11 +32,13 @@ type ActiveHuddle = {
 type HuddleIndicatorProps = {
   channelId: string;
   className?: string;
-  renderMode?: "button" | "menu-item";
+  renderMode?: "button" | "menu-item" | "labeled";
   /** Called when the user clicks the button and no huddle is active (start). */
   onStart?: () => void;
   /** Whether the start action is disabled (e.g., permissions, already starting). */
   startDisabled?: boolean;
+  /** Only the active channel surface owns the global huddle shortcut. */
+  listenForShortcut?: boolean;
 };
 
 /**
@@ -50,6 +52,7 @@ export function HuddleIndicator({
   renderMode = "button",
   onStart,
   startDisabled,
+  listenForShortcut = true,
 }: HuddleIndicatorProps) {
   const { activeEphemeralChannelId, joinHuddle, isStarting } = useHuddle();
   const queryClient = useQueryClient();
@@ -217,6 +220,7 @@ export function HuddleIndicator({
   }, []);
 
   React.useEffect(() => {
+    if (!listenForShortcut) return;
     function handleHuddleShortcut(event: Event) {
       const { channelId: shortcutChannelId } = (
         event as CustomEvent<HuddleShortcutDetail>
@@ -263,6 +267,7 @@ export function HuddleIndicator({
     onStart,
     queryClient,
     startDisabled,
+    listenForShortcut,
   ]);
 
   // No active huddle — render the start button (if onStart provided).
@@ -295,11 +300,14 @@ export function HuddleIndicator({
               data-testid="channel-start-huddle-trigger"
               disabled={startDisabled || isStarting}
               onClick={() => onStart()}
-              size="icon"
+              size={renderMode === "labeled" ? "default" : "icon"}
               type="button"
               variant="outline"
             >
               <Headphones />
+              {renderMode === "labeled" && (
+                <span>{isStarting ? "Starting…" : "Start huddle"}</span>
+              )}
             </Button>
           </span>
         </TooltipTrigger>
@@ -357,14 +365,18 @@ export function HuddleIndicator({
           className={cn("relative", className)}
           disabled={isJoining || isStarting}
           onClick={() => void doJoin()}
-          size="icon"
+          size={renderMode === "labeled" ? "default" : "icon"}
           type="button"
           variant="outline"
         >
           <Headphones />
-          <span className="absolute inset-0 animate-pulse rounded-lg ring-2 ring-border/70" />
+          {renderMode === "labeled" ? (
+            <span>{isJoining ? "Joining…" : "Join huddle"}</span>
+          ) : (
+            <span className="absolute inset-0 animate-pulse rounded-lg ring-2 ring-border/70" />
+          )}
           {/* Participant count badge */}
-          {participantCount > 0 && (
+          {participantCount > 0 && renderMode !== "labeled" && (
             <span className="absolute -right-1 -top-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full border border-border bg-background px-0.5 text-2xs font-bold text-muted-foreground">
               {participantCount}
             </span>

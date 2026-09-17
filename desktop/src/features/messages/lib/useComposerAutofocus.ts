@@ -37,8 +37,17 @@ export function useComposerAutofocus(
   React.useEffect(() => {
     if (disabledRef.current) return;
     if (typeof document === "undefined") return;
+    // A lazy-mounted conversation must not steal focus from navigation that
+    // the user opened while the conversation was loading.
+    if (
+      document.querySelector('[data-slot="popover-content"][data-state="open"]')
+    )
+      return;
     const active = document.activeElement as HTMLElement | null;
     if (active && active !== document.body) {
+      // A conversation loading during keyboard window manipulation must not
+      // take focus from the divider or corner/title controls.
+      if (active.closest('[role="separator"], [data-canvas-gesture]')) return;
       const tag = active.tagName;
       if (
         tag === "INPUT" ||

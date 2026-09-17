@@ -101,7 +101,7 @@ for (const appearance of ["light", "dark"] as const) {
         .last();
       await expect(widget).toBeVisible();
       await expect(widget).toHaveCSS("padding", "8px 14px");
-      await expect(widget).toHaveCSS("border-radius", "24px");
+      await expect(widget).toHaveCSS("border-radius", "16px");
       await expect(
         widget.locator(
           "img, [data-link-preview-thumbnail], [data-slot=attachment-description]",

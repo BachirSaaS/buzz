@@ -1,3 +1,4 @@
+import { PulseCanvasControls } from "./PulseCanvasControls";
 import { ArrowUp, Inbox, Search } from "lucide-react";
 import * as React from "react";
 import { TerminalSurfaceContext } from "@/features/terminal/TerminalSurfaceContext";
@@ -18,7 +19,10 @@ import {
   PULSE_WORKSPACE_KEYS,
   CLEAR_WORKSPACE_PANELS,
 } from "../lib/workspaceNavigation";
-import type { PulseApp } from "./PulseAppNavigation";
+import type {
+  PulseApp,
+  PulseNavigationDestination,
+} from "./PulseAppNavigation";
 import { PulseWorkspaceFrame } from "./PulseWorkspaceFrame";
 import { PulseWorkspacePage } from "./PulseWorkspacePage";
 import { PulseCombinedView } from "./PulseCombinedView";
@@ -35,6 +39,12 @@ import { buildSummaryInput } from "../lib/pulseSummary";
 import { usePulseSummary } from "../usePulseSummary";
 import { SavedBriefings } from "@/features/accumulator/SavedBriefings";
 import { useRelayOrigin } from "@/shared/lib/useRelayOrigin";
+import {
+  useCanvasLayout,
+  MAX_CANVAS_WINDOWS,
+  type CanvasView,
+} from "../lib/canvasLayout";
+import { PulseCanvas } from "./PulseCanvas";
 
 const FEED_SEARCH_KEYS = [
   "feed",
@@ -50,6 +60,10 @@ export function UnifiedPulseView({
 }) {
   const feed = useUnifiedPulseFeed(currentPubkey);
   const relayOrigin = useRelayOrigin();
+  const canvasScope =
+    relayOrigin && currentPubkey ? `${relayOrigin}:${currentPubkey}` : null;
+  const canvas = useCanvasLayout(canvasScope);
+  const [canvasPicker, setCanvasPicker] = React.useState(false);
   const reads = useAppShell();
   const [briefingFilter, setBriefingFilter] =
     React.useState<BriefingKind | null>(null);
@@ -100,14 +114,21 @@ export function UnifiedPulseView({
     : filter === "home"
       ? "home"
       : "messages";
-  const lastMessageView = React.useRef<PulseView>("conversation");
-  React.useEffect(() => {
-    if (filter === "conversation" || filter === "search")
-      lastMessageView.current = filter;
-  }, [filter]);
-  const selectApp = (app: PulseApp) => {
-    if (app === activeApp) return;
-    setFilter(app === "messages" ? lastMessageView.current : app);
+  const selectApp = (
+    app: PulseApp,
+    destination?: PulseNavigationDestination,
+  ) => {
+    const next =
+      destination?.feed ?? (app === "messages" ? "conversation" : app);
+    if (!setFilter(next)) return false;
+    applyPatch({
+      conversation:
+        destination?.conversation ??
+        (destination?.compose ? null : values.conversation),
+      projectId: destination?.projectId ?? null,
+      compose: destination?.compose ?? null,
+    });
+    return true;
   };
   const [search, setSearch] = React.useState("");
   const [scrollElement, setScrollElement] =
@@ -351,6 +372,55 @@ export function UnifiedPulseView({
       onSelect={selectApp}
       expanded={expanded}
       testId="unified-pulse"
+      viewControls={
+        canvas.state.windows.length > 0 ||
+        canvas.state.layout === "freeform" ? (
+          <PulseCanvasControls state={canvas.state} save={canvas.save} />
+        ) : undefined
+      }
+      onAddView={() => setCanvasPicker(true)}
+      canAddView={
+        Boolean(currentPubkey) &&
+        canvas.state.windows.length < MAX_CANVAS_WINDOWS
+      }
+      renderCanvas={(main) => (
+        <PulseCanvas
+          key={canvasScope}
+          mainMaxWidth={activeApp === "home" ? 720 : 960}
+          fixedMain={activeApp === "home"}
+          mainTitle={activeApp.charAt(0).toUpperCase() + activeApp.slice(1)}
+          state={canvas.state}
+          save={canvas.save}
+          feed={feed}
+          currentPubkey={currentPubkey}
+          picker={canvasPicker}
+          setPicker={setCanvasPicker}
+          onOpen={(view: CanvasView, thread) => {
+            if (
+              !setFilter(
+                view.kind === "project"
+                  ? "projects"
+                  : view.kind === "agents"
+                    ? "agents"
+                    : "conversation",
+              )
+            )
+              return;
+            applyPatch(
+              view.kind === "project"
+                ? { projectId: view.target ?? null }
+                : view.kind === "agents"
+                  ? {}
+                  : {
+                      conversation: view.target ?? null,
+                      thread: thread ?? null,
+                    },
+            );
+          }}
+        >
+          {main}
+        </PulseCanvas>
+      )}
     >
       <div className="pulse-conversation-workspace flex min-h-0 flex-1">
         <div

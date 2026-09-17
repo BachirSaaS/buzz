@@ -2,10 +2,13 @@ import type { ReactNode } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { allowNavigation } from "@/app/navigation/navigationGuard";
 import { parseProjectDetailSearch } from "@/features/projects/lib/projectDetailSearch";
-import type { PulseApp } from "./PulseAppNavigation";
+import type {
+  PulseApp,
+  PulseNavigationDestination,
+} from "./PulseAppNavigation";
 import { PulseWorkspaceFrame } from "./PulseWorkspaceFrame";
 
-/** Settings keeps the app dock and returns to the last selected conversation. */
+/** Settings keeps the top navigation and returns to the last selected conversation. */
 export function PulseSettingsWorkspace({
   children,
   lastPulseSearch,
@@ -14,10 +17,14 @@ export function PulseSettingsWorkspace({
   lastPulseSearch: Record<string, unknown>;
 }) {
   const navigate = useNavigate();
-  const selectApp = (app: PulseApp) => {
-    const feed = app === "messages" ? "conversation" : app;
+  const selectApp = (
+    app: PulseApp,
+    destination?: PulseNavigationDestination,
+  ) => {
+    const feed =
+      destination?.feed ?? (app === "messages" ? "conversation" : app);
     if (!allowNavigation({ kind: "route", href: `/pulse?feed=${feed}` }))
-      return;
+      return false;
     void navigate({
       to: "/pulse",
       search: {
@@ -27,6 +34,7 @@ export function PulseSettingsWorkspace({
             ? lastPulseSearch.conversation
             : undefined,
         feed,
+        ...destination,
       },
     });
   };

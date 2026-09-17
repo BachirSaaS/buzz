@@ -801,6 +801,7 @@ function AppShellContent() {
                       canGoForward={canGoForward}
                       hasCommunityRail={hasCommunityRail && !hasAppDock}
                       hideSidebarTrigger={hasAppDock}
+                      workspaceNavigation={hasAppDock}
                       onGoBack={goBack}
                       onGoForward={goForward}
                     />

@@ -1,0 +1,303 @@
+.widget-scope .agent-identity {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.widget-scope .agent-glyph {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+  background: var(--widget-soft);
+}
+.widget-scope .agent-glyph svg {
+  width: 24px;
+  height: 24px;
+}
+.widget-scope .agent-name,
+.widget-scope .tool-title,
+.widget-scope .communication-row-title {
+  font-weight: 500;
+}
+.widget-scope .agent-state {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.widget-scope .agent-state-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--widget-secondary);
+  flex-shrink: 0;
+}
+.widget-scope .agent-state-dot.is-active {
+  background: var(--widget-chart);
+  box-shadow: 0 0 0 8px color-mix(in srgb, var(--widget-chart) 10%, transparent);
+}
+.widget-scope .agent-tool-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.widget-scope .agent-tool {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  padding: 16px;
+  border: 0;
+  border-radius: 16px;
+  background: var(--widget-soft);
+  text-align: left;
+}
+.widget-scope .agent-tool:hover {
+  background: var(--widget-line);
+}
+.widget-scope .agent-tool > span:nth-child(2) {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.widget-scope .tool-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.widget-scope .tool-state svg,
+.widget-scope .tool-arrow {
+  width: 16px;
+  height: 16px;
+}
+.widget-scope .tool-arrow {
+  color: var(--widget-secondary);
+}
+.widget-scope .agent-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+.widget-scope .agent-metric-value {
+  font-size: var(--widget-type-title);
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+}
+.widget-scope .tool-detail {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.widget-scope .communication-action {
+  width: 100%;
+  min-height: 48px;
+  background: var(--widget-ink);
+  color: var(--widget-surface);
+  font:
+    500 var(--widget-type-detail) / 1.4 "Widget Cash Sans",
+    sans-serif;
+  box-shadow: none;
+  border-radius: 999px;
+}
+.widget-scope .communication-action:hover:not(:disabled) {
+  background: var(--widget-ink);
+  opacity: 0.85;
+}
+.widget-scope .huddle-illustration {
+  min-height: 104px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 32px;
+  color: var(--widget-ink);
+}
+.widget-scope .huddle-illustration > svg {
+  width: 64px;
+  height: 64px;
+  stroke-width: 1.5;
+}
+.widget-scope .huddle-wave {
+  height: 64px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.widget-scope .huddle-wave span {
+  display: block;
+  width: 4px;
+  border-radius: 8px;
+  background: currentColor;
+}
+.widget-scope .huddle-description {
+  margin-top: 8px;
+}
+.widget-scope .huddle-people {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.widget-scope .huddle-avatar-stack {
+  display: flex;
+  padding-left: 8px;
+}
+.widget-scope .huddle-person {
+  margin-left: -8px;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 2px solid var(--widget-surface);
+  border-radius: 50%;
+  background: var(--widget-soft);
+  font-size: var(--widget-type-detail);
+  overflow: hidden;
+}
+.widget-scope .huddle-person:nth-child(2n) {
+  background: var(--widget-line);
+}
+.widget-scope .huddle-person img,
+.widget-scope .communication-row .avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.widget-scope .huddle-action {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.widget-scope .huddle-action > span {
+  width: 100%;
+}
+.widget-scope .communication-list {
+  display: flex;
+  flex-direction: column;
+}
+.widget-scope .communication-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  width: 100%;
+  padding: 24px 0;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--widget-line);
+  text-align: left;
+}
+.widget-scope .communication-row:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+.widget-scope .communication-row:last-child {
+  padding-bottom: 0;
+}
+.widget-scope .communication-row:hover .communication-row-title {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.widget-scope .communication-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.widget-scope .communication-body {
+  margin-top: 4px;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
+}
+.widget-scope .communication-arrow {
+  width: 16px;
+  height: 16px;
+  margin-top: 4px;
+  color: var(--widget-secondary);
+}
+.widget-scope .communication-replies {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+.widget-scope .communication-replies svg {
+  width: 16px;
+  height: 16px;
+}
+.widget-scope .communication-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.widget-scope .widget-select {
+  position: relative;
+  width: 100%;
+}
+.widget-scope .widget-select select {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 40px 8px 16px;
+  color: var(--widget-ink);
+  border: 1px solid var(--widget-line);
+  border-radius: 16px;
+  background: var(--widget-surface);
+  appearance: none;
+  font:
+    400 var(--widget-type-detail) / 1.4 "Widget Cash Sans",
+    sans-serif;
+}
+.widget-scope .widget-select option {
+  font: inherit;
+}
+.widget-scope .widget-select svg {
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
+}
+.widget-scope .gallery-collections {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 32px;
+}
+.widget-scope .gallery-collections [aria-pressed="true"] {
+  background: var(--widget-ink);
+  color: var(--widget-surface);
+}
+.widget-scope .huddle-room-controls {
+  display: flex;
+  gap: 8px;
+}
+.widget-scope .huddle-room-controls > * {
+  flex: 1;
+}
+
+/* Shared Buzz image loading, with widget sizing in both canvas and standalone gallery. */
+.widget-scope .widget-person-avatar {
+  display: flex;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: inherit;
+  font-size: var(--widget-type-detail);
+  box-shadow: none;
+}
+.widget-scope .widget-person-avatar [data-slot="avatar-fallback"] {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--widget-soft);
+  color: var(--widget-secondary);
+  font-weight: 500;
+}

@@ -1,6 +1,34 @@
 # Pulse prototype briefing
 
-Pulse on this branch uses the combined conversation layout from `am-pulse-proto` with Block UI tokens and components. Home, Messages, and Agents live in the dock; Projects and Workflows appear only when their Settings → Experiments toggles are enabled. Changes apply immediately, including in Settings. The dock sits 12px left of its rail center without shifting the content. Home owns the catch-up; Search, All messages, and individual conversations live inside Messages. Native app and staging launches open `/pulse` (Home), independent of the legacy Pulse experiment toggle. Open `/pulse?feed=conversation` to begin with All messages.
+The 48px title bar now contains 24px navigation buttons for Home, Messages,
+Projects, Agents, and Apps. Hovering a button for 80ms opens a popover without taking focus; its first row opens the
+main view, and destination rows jump straight to a conversation or project.
+Messages shows up to six recent joined conversations with real unread markers,
+plus New message and Search. Projects shows recently opened projects (scoped to
+identity and relay), falling back to the available project list on first use.
+Agents shows live availability and working status, with shortcuts to direct chats. Apps contains enabled Workflows. The account avatar opens Settings. Layout controls and the avatar occupy a dedicated right-hand title-bar slot, so project controls cannot shift them when switching apps.
+Adjacent menus open immediately, with a 350ms warm window after hover dismissal. A transparent bridge and 180ms leave grace keep the pointer path forgiving. Clicking a hover preview pins it; a second click, outside click, or Escape dismisses it. Touch uses tap. Keyboard entry is instant, with Enter/Space, arrow navigation, and Escape focus return. High-frequency menus have no entry or exit animation; pointer presses have subtle reduced-motion-aware feedback.
+
+The content below the title bar has 24px padding on every side. Home is always a centered, full-height scroll view with a 720px maximum width, independent of saved window geometry or layout. It has no move/resize handles and never changes stacking order. Added windows sit above it and can be arranged around it; tiled presets use the side margins. Other standalone tiled main views have a 960px maximum. Without companions the main view is centered. With companions the canvas fills the padded area and panels share the space left over. Drag the gap between columns to resize adjacent windows, or focus it and use arrow keys (Shift for larger steps), Home/End for the bounds, and Enter or double-click to reset. Split layouts use those widths as defaults; dragging a divider can grow the main window beyond them while keeping neighboring panels usable. Standalone tiled main windows retain their caps. Movable Freeform windows can stretch to the canvas edge, with or without companions. Escape cancels a drag. Sizes are stored once when a drag completes, per layout and community/identity. Narrow canvases stack with no resize handles. The old content-width setting is superseded by this layout. The canvas supports up to three companion windows beside the main app. Use
+the **+** button beside Apps to search joined channels, DMs by participant name,
+projects (when enabled), or Agent activity. Focus, Grid, Columns, and Freeform controls appear in the top bar when panels are open or Freeform is active and
+arrange the windows; arrow controls reorder companions and Close removes them. Narrow canvases stack vertically. Closing the
+last companion restores the centered main workspace. There is no canvas footer caption.
+
+Channel and DM companions embed the same full conversation view as the main pane, including message history, composer, and in-place threads. Threads, profiles, and forum posts have panel-local navigation state; opening or closing them leaves the main pane and other companions unchanged. The header has no promote-to-main shortcut. Project summaries and recent agent conversations still use the existing feed. Layouts store only view IDs and the selected preset, atomically in local
+storage per relay and identity. They survive navigation and reloads. Unavailable
+views retain a close/retry affordance. Placement uses presets and reorder controls;
+Freeform restores the curved bottom-right resize grip on every movable window. Dragging a corner out of a tiled layout lifts the current arrangement into Freeform. Drag the unframed grip outside a window’s top-left corner to move it, click or focus a window to bring it forward, and resize its corner in both dimensions. Move grips show no visible text or container and match the resize corner’s white 50% resting opacity, 80% pointer hover opacity, and reduced-motion-aware spring feedback. Both grips are available in tiled and Freeform layouts; dragging lifts tiled windows into Freeform. Home remains fixed. New windows enter at the front of the stack. Arrow keys work on move/resize handles (Shift for larger steps); Escape cancels a gesture. Windows stay inside the padded canvas. Switching to a tiled layout restores that layout; returning to Freeform restores saved positions and dimensions without remounting conversations. Closing a window clears its placement and stacking metadata.
+
+**+ → Widgets** adds Location, Weather, News, Music, Flight, Inbox, Mood board,
+Up next, or Activity, or the complete **All widgets** collection. These are
+interactive design previews with clearly labeled sample data. Widget surfaces
+use Cash Sans, 24px corners/insets, and content-driven heights. Music plays a
+local instrumental; weather, inbox, photos, events, and activity have local
+interactive previews. The collection scrolls inside a single companion window.
+See `../widgets/README.md` for the composition contract and optional gallery.
+
+Pulse on this branch uses the combined conversation layout from `am-pulse-proto` with Block UI tokens and components. Projects and Workflows appear only when their Settings → Experiments toggles are enabled. Changes apply immediately, including in Settings. Home owns the catch-up; Search, All messages, and individual conversations live inside Messages. Native app and staging launches open `/pulse` (Home), independent of the legacy Pulse experiment toggle. Open `/pulse?feed=conversation` to begin with All messages.
 
 The shell still uses the historical `/pulse` route. Conversation detail embeds the shared `ChannelRouteScreen` and its real timeline, composer, and thread handlers; the older `/channels` shell still exists. Relay identity is shared by the staging launcher, while agent defaults and Buzz-agent OAuth remain app-local. A public npub alone does not transfer provider configuration or credentials. Codex uses the existing CLI sign-in plus Buzz's ACP adapter; Databricks needs a configured host and authentication in staging.
 
@@ -8,7 +36,7 @@ Home groups the past 48 hours of subscribed channel activity into focus areas. E
 
 Home cards sit directly on the app canvas, separated by 4px, without an outer panel or visible page/card headers. The Home heading and time range remain available to screen readers. Loading, summary retry, and incomplete-activity messages remain visible when applicable.
 
-The scroll frame shares the cards' 640px maximum width and 24px corners, so cards clip against a matching rounded viewport. Card footers contain prototype-only Snooze and Reply icon buttons plus the working conversation link; actions wrap on narrow windows. Summary/overview provenance is an accessible card label rather than visible footer text.
+The scroll frame fills the workspace with 24px corners. Card footers contain prototype-only Snooze and Reply icon buttons plus the working conversation link; actions wrap on narrow windows. Summary/overview provenance is an accessible card label rather than visible footer text.
 
 People from the source threads appear above each recap, with evidence authors first. The composition uses Block UI's AvatarGroup and overflow count: up to three 64px avatars with 16px overlap, followed by a +N count. These dimensions are Buzz's composition on the 8px grid, not additional upstream size tokens. People retain circular avatars and agents retain their squircle identity. Each avatar opens the existing profile panel with pointer or keyboard input. Contextual message objects render at 50% scale within Home only, clipped to a 240px-high evidence area; image viewers, profile panels, and the conversation action retain their normal size.
 
@@ -30,7 +58,7 @@ opens the mixed DM and channel feed beside a 220px list of joined DMs and channe
 sorted by the newest relay timestamp or loaded message. Selection is independent
 of list order, so incoming activity does not switch the open conversation. The
 selected conversation lives in the URL and survives reloads; conversation detail
-and draft storage stay within the 960px container. Older variation links open
+and draft storage stay in the full workspace. Older variation links open
 this same combined layout.
 
 Conversation detail uses message bubbles: incoming messages align left on the Block UI standard surface,
@@ -41,8 +69,8 @@ and pending-send status use the existing message components and handlers.
 Threads drill into the conversation area at every width; Back returns to the
 conversation while the Pulse sidebar stays visible. Terminal sessions dock on the
 right of the conversation. Opening a terminal, channel settings, profile, or agent
-side panel expands the container to the available window width; closing the last
-side panel restores the 960px limit. The terminal retains its sessions, keyboard
+side panel shares the available window width; closing the last
+side panel returns that space to the conversation. The terminal retains its sessions, keyboard
 shortcut, maximize, and close controls. Narrow windows show it over the content.
 
 The surrounding canvas uses the Block UI app background. Message rows

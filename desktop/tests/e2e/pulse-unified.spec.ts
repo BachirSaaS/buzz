@@ -3,69 +3,30 @@ import { installMockBridge, TEST_IDENTITIES } from "../helpers/bridge";
 import { waitForAnimations } from "../helpers/animations";
 import { readFileSync } from "node:fs";
 
-const agentKey = "c1".repeat(32);
-
-test("Appearance content width fills workspaces with an eight pixel inset and persists", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 1440, height: 1000 });
-  await installMockBridge(page);
-  await page.goto("/#/pulse?feed=conversation");
-  const frame = page.getByTestId("pulse-main-container");
-  const dock = page.getByTestId("pulse-app-navigation");
-  await expect(frame).toHaveCSS("max-width", "960px");
-  await dock.getByRole("button", { name: "Settings", exact: true }).click();
-  await page
-    .getByTestId("settings-sidebar")
-    .getByRole("button", { name: "Appearance", exact: true })
-    .click();
-  await page.getByTestId("content-width-full").click();
-  const expectFullWidth = async () => {
-    await expect(frame).toHaveAttribute("data-content-width", "full");
-    await expect(frame).toHaveCSS("max-width", "none");
-    await expect
-      .poll(() =>
-        frame.evaluate((el) => {
-          const rect = el.getBoundingClientRect();
-          const dock = document
-            .querySelector('[data-testid="pulse-app-navigation"]')
-            ?.getBoundingClientRect();
-          const chrome = document
-            .querySelector('[data-testid="app-top-chrome"]')
-            ?.getBoundingClientRect();
-          if (!dock || !chrome) throw new Error("Workspace chrome unavailable");
-          return [
-            rect.left - dock.right,
-            innerWidth - rect.right,
-            innerHeight - rect.bottom,
-            rect.top - chrome.bottom,
-          ].map(Math.round);
-        }),
-      )
-      .toEqual([8, 8, 8, 8]);
-  };
-  await expectFullWidth();
-  await dock.getByRole("button", { name: "Messages", exact: true }).click();
-  await expectFullWidth();
-  await page.reload();
-  await expectFullWidth();
-  await dock.getByRole("button", { name: "Home", exact: true }).click();
-  await expectFullWidth();
-  await expect(page.getByTestId("pulse-briefing")).toBeVisible();
-  const cards = page.getByTestId("pulse-briefing").locator(":scope > div.grid");
-  await expect(cards).toHaveCSS("max-width", "none");
-  await waitForAnimations(page);
-  await page.screenshot({
-    path: "test-results/pulse-prototype/content-full-width.png",
+async function openWorkspaceApp(page: Page, name: string) {
+  const nav = page.getByTestId("pulse-app-navigation");
+  const tab =
+    name === "Settings"
+      ? "Account and settings"
+      : name === "Workflows"
+        ? "Apps"
+        : name;
+  await nav.getByRole("button", { name: tab, exact: true }).click();
+  const dialog = page.getByRole("dialog", {
+    name: tab === "Account and settings" ? tab : `${tab} destinations`,
+    exact: true,
   });
-  await page.setViewportSize({ width: 700, height: 900 });
-  await expectFullWidth();
-  await dock.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByTestId("content-width-standard").click();
-  await expect(frame).toHaveAttribute("data-content-width", "standard");
-  await dock.getByRole("button", { name: "Home", exact: true }).click();
-  await expect(frame).toHaveCSS("max-width", "640px");
-});
+  await dialog
+    .getByRole("button", {
+      name: ["Home", "Messages", "Projects", "Agents"].includes(name)
+        ? `Open ${name}`
+        : name,
+      exact: true,
+    })
+    .click();
+}
+
+const agentKey = "c1".repeat(32);
 
 test("shared mesh background renders across workspaces and respects reduced motion", async ({
   page,
@@ -84,10 +45,7 @@ test("shared mesh background renders across workspaces and respects reduced moti
   const bounds = await background.boundingBox();
   expect(bounds?.width).toBe(page.viewportSize()?.width);
   expect(bounds?.height).toBe(page.viewportSize()?.height);
-  await expect(page.getByTestId("app-top-chrome")).toHaveCSS(
-    "background-color",
-    "rgba(0, 0, 0, 0)",
-  );
+  await expect(page.getByTestId("app-top-chrome")).toHaveCSS("height", "48px");
   await expect(page.getByTestId("app-sidebar-layer")).toHaveCSS(
     "background-color",
     "rgba(0, 0, 0, 0)",
@@ -100,10 +58,7 @@ test("shared mesh background renders across workspaces and respects reduced moti
   await page.screenshot({
     path: "test-results/pulse-prototype/mesh-messages-light.png",
   });
-  await page
-    .getByTestId("pulse-app-navigation")
-    .getByRole("button", { name: "Settings", exact: true })
-    .click();
+  await openWorkspaceApp(page, "Settings");
   await expect(page.getByTestId("settings-sidebar")).toBeVisible();
   await expect(background.locator("canvas")).toHaveCount(1);
   await page.evaluate(() => document.documentElement.classList.add("dark"));
@@ -273,51 +228,37 @@ test("New message starts a direct message or opens the channel chooser", async (
   await expect(page).toHaveURL(/#\/pulse\?.*compose=message/);
 });
 
-test("dock follows Settings experiments immediately and after reopening", async ({
+test("top navigation follows Settings experiments immediately and after reopening", async ({
   page,
 }) => {
   await installMockBridge(page, {}, { seedPreviewFeatures: false });
   await page.goto("/#/pulse");
-  const dock = page.getByTestId("pulse-app-navigation");
-  const entry = (name: string) =>
-    dock.getByRole("button", { name, exact: true });
-  await expect(entry("Home")).toBeVisible();
-  await expect(entry("Messages")).toBeVisible();
-  await expect(entry("Agents")).toBeVisible();
-  await expect(entry("Projects")).toHaveCount(0);
-  await expect(entry("Workflows")).toHaveCount(0);
-  await expect(
-    page.getByText("Pulse is a preview feature.", { exact: false }),
-  ).toHaveCount(0);
-
-  await entry("Settings").click();
-  await page.getByTestId("settings-nav-experimental").click();
-  for (const [id, name] of [
-    ["projects", "Projects"],
-    ["workflows", "Workflows"],
-  ]) {
-    await page.getByTestId(`feature-toggle-${id}`).click();
-    await expect(entry(name)).toBeVisible();
+  const nav = page.getByTestId("pulse-app-navigation");
+  const expectFeatures = async (enabled: boolean) => {
+    await expect(
+      nav.getByRole("button", { name: "Projects", exact: true }),
+    ).toHaveCount(enabled ? 1 : 0);
+    await nav.getByRole("button", { name: "Apps", exact: true }).click();
+    const apps = page.getByRole("dialog", { name: "Apps destinations" });
+    await expect(
+      nav.getByRole("button", { name: "Agents", exact: true }),
+    ).toBeVisible();
+    await expect(
+      apps.getByRole("button", { name: "Workflows", exact: true }),
+    ).toHaveCount(enabled ? 1 : 0);
+    await page.keyboard.press("Escape");
+  };
+  await expectFeatures(false);
+  for (const enabled of [true, false]) {
+    await openWorkspaceApp(page, "Settings");
+    await page.getByTestId("settings-nav-experimental").click();
+    for (const id of ["projects", "workflows"])
+      await page.getByTestId(`feature-toggle-${id}`).click();
+    await expectFeatures(enabled);
+    await openWorkspaceApp(page, "Home");
+    await page.reload();
+    await expectFeatures(enabled);
   }
-  await entry("Home").click();
-  await page.reload();
-  await expect(entry("Projects")).toBeVisible();
-  await expect(entry("Workflows")).toBeVisible();
-
-  await entry("Settings").click();
-  await page.getByTestId("settings-nav-experimental").click();
-  for (const [id, name] of [
-    ["projects", "Projects"],
-    ["workflows", "Workflows"],
-  ]) {
-    await page.getByTestId(`feature-toggle-${id}`).click();
-    await expect(entry(name)).toHaveCount(0);
-  }
-  await entry("Messages").click();
-  await page.reload();
-  await expect(entry("Projects")).toHaveCount(0);
-  await expect(entry("Workflows")).toHaveCount(0);
-  await expect(page.getByTestId("pulse-combined-list")).toBeVisible();
 });
 
 test("native launch destination opens Home by default", async ({ page }) => {
@@ -547,8 +488,7 @@ async function seed(
         expect.objectContaining({ key: "pulse-unified", status: "success" }),
       ]),
     );
-  if (!options.home)
-    await page.getByRole("button", { name: "Messages", exact: true }).click();
+  if (!options.home) await openWorkspaceApp(page, "Messages");
 }
 
 test.use({ viewport: { width: 1440, height: 1000 } });
@@ -607,18 +547,18 @@ test("Home briefing prioritizes agent requests and focuses matching conversation
       async () =>
         (await page.getByTestId("pulse-main-container").boundingBox())?.width,
     )
-    .toBe(960);
+    .toBe((page.viewportSize()?.width ?? 0) - 16);
   await expect(page.getByTestId("pulse-main-container")).toHaveCSS(
     "border-radius",
     "24px",
   );
   await expect(page.getByTestId("unified-pulse")).toHaveCSS(
     "padding-top",
-    "0px",
+    "8px",
   );
   await expect(page.getByTestId("unified-pulse")).toHaveCSS(
     "padding-bottom",
-    "40px",
+    "8px",
   );
   await expect(page.getByTestId("unified-pulse")).toHaveCSS(
     "background-color",
@@ -870,7 +810,7 @@ test("DM split view switches conversations, preserves drafts, and sends to the s
   await page
     .getByTestId("unified-pulse")
     .screenshot({ path: "test-results/pulse-prototype/04-dm-split.png" });
-  await page.getByRole("button", { name: "Home", exact: true }).click();
+  await openWorkspaceApp(page, "Home");
   await expect(page.getByTestId("pulse-combined-detail")).toHaveCount(0);
   await expect(page.getByTestId("pulse-briefing")).toBeVisible();
   await expect(page.getByTestId("pulse-conversation")).toHaveCount(0);
@@ -888,7 +828,9 @@ test("channel rail opens conversations and preserves drafts", async ({
   await expect(list).toHaveCSS("width", "220px");
   const all = list.getByRole("button", { name: "All messages", exact: true });
   const aggregate = page.getByTestId("pulse-all-messages-feed");
-  await expect(list.getByRole("button").nth(2)).toHaveText("All messages");
+  await expect(
+    list.getByRole("button", { name: "All messages", exact: true }),
+  ).toBeVisible();
   await expect(all).toHaveAttribute("aria-current", "true");
   await expect(
     aggregate
@@ -904,7 +846,7 @@ test("channel rail opens conversations and preserves drafts", async ({
       async () =>
         (await page.getByTestId("pulse-combined-view").boundingBox())?.width,
     )
-    .toBeLessThanOrEqual(960);
+    .toBeLessThanOrEqual((page.viewportSize()?.width ?? 0) - 16);
   await waitForAnimations(page);
   await page
     .getByTestId("unified-pulse")
@@ -948,7 +890,9 @@ test("conversation rail stays visible while the feed scrolls and after reload", 
 }) => {
   await seed(page);
   const segments = page.getByTestId("pulse-combined-list");
-  await expect(segments.getByRole("button").first()).toHaveText("Search");
+  await expect(
+    segments.getByRole("button", { name: "Search", exact: true }),
+  ).toBeVisible();
   await waitForAnimations(page);
   await page
     .getByTestId("unified-pulse")
@@ -974,7 +918,7 @@ test("conversation rail stays visible while the feed scrolls and after reload", 
   await expect(
     page.getByRole("button", { name: "Toggle Sidebar", exact: true }),
   ).toHaveCount(0);
-  await page.getByRole("button", { name: "Home", exact: true }).click();
+  await openWorkspaceApp(page, "Home");
   await expect(page.getByTestId("pulse-briefing")).toBeVisible();
   await expect(page.getByTestId("pulse-conversation")).toHaveCount(0);
 });
@@ -993,7 +937,7 @@ test("Home renders more than three summary rows", async ({ page }) => {
   const first = await boundsOf(highlights.nth(0));
   const second = await boundsOf(highlights.nth(1));
   expect(second.y - first.y - first.height).toBe(4);
-  expect(first.y).toBe((await boundsOf(main)).y);
+  expect(first.y).toBeGreaterThanOrEqual((await boundsOf(main)).y);
   expect(first.width).toBe((await boundsOf(main)).width);
   await waitForAnimations(page);
   await page.screenshot({
@@ -1058,17 +1002,19 @@ test("combined conversations preserve recency, selection, and drafts for legacy 
     "Organize messages",
   );
   await expect(list.getByRole("button").nth(1)).toHaveText("Search");
-  await expect(list.getByRole("button").nth(2)).toHaveText("All messages");
+  await expect(
+    list.getByRole("button", { name: "All messages", exact: true }),
+  ).toBeVisible();
   await list.getByRole("button", { name: "Search", exact: true }).click();
   await expect(
     page.getByRole("searchbox", { name: "Search loaded feed" }),
   ).toBeVisible();
   await expect(list).toBeVisible();
   await expect(all).not.toHaveAttribute("aria-current", "true");
-  await page.getByRole("button", { name: "Home", exact: true }).click();
+  await openWorkspaceApp(page, "Home");
   await expect(page.getByTestId("pulse-briefing")).toBeVisible();
   await expect(page.getByTestId("pulse-conversation")).toHaveCount(0);
-  await page.getByRole("button", { name: "Messages", exact: true }).click();
+  await openWorkspaceApp(page, "Messages");
   await all.click();
   await expect(all).toHaveAttribute("aria-current", "true");
   await expect(
@@ -1084,7 +1030,7 @@ test("combined conversations preserve recency, selection, and drafts for legacy 
   await expect(list).toHaveCSS("width", "220px");
   await expect(page.getByTestId("pulse-main-container")).toHaveCSS(
     "max-width",
-    "960px",
+    "none",
   );
   const alice = list.locator('[data-channel-name="alice-tyler"]');
   const engineering = list.locator('[data-channel-name="engineering"]');
@@ -1365,6 +1311,7 @@ test("bubbles have equal corners, unwrapped media, and aligned reply indicators"
     ).toBeLessThan(1);
     const summary = row.getByTestId("message-thread-summary");
     await expect(summary).toBeVisible();
+    await summary.evaluate((el) => el.scrollIntoView({ block: "center" }));
     await summary.hover();
     await expect(row.getByTestId("message-thread-summary-surface")).toHaveCount(
       0,
@@ -1638,7 +1585,7 @@ test("side panels expand Pulse and terminal docks beside the conversation", asyn
     .click();
   const container = page.getByTestId("pulse-main-container");
   const detail = page.getByTestId("pulse-combined-detail");
-  await expect(container).toHaveCSS("max-width", "960px");
+  await expect(container).toHaveCSS("max-width", "none");
   await expect(container).toHaveCSS("border-width", "0px");
   await detail
     .getByRole("button", { name: "Open Buzz Term", exact: true })
@@ -1663,8 +1610,7 @@ test("side panels expand Pulse and terminal docks beside the conversation", asyn
   );
   expect(terminalBounds.height).toBeGreaterThan(700);
   const expandedBounds = await boundsOf(container);
-  const appsBounds = await boundsOf(page.getByTestId("pulse-dock-rail"));
-  expect(expandedBounds.x).toBe(appsBounds.x + appsBounds.width + 8);
+  expect(expandedBounds.x).toBe(8);
   expect(expandedBounds.x + expandedBounds.width).toBe(1592);
   const chatHeader = detail.getByTestId("chat-header");
   const terminalHeader = terminal.getByTestId("terminal-header");
@@ -1722,7 +1668,7 @@ test("side panels expand Pulse and terminal docks beside the conversation", asyn
     ),
   ).toMatchObject({ inert: true, width: "none", opacity: expect.any(Number) });
   await expect(terminal).toHaveCount(0);
-  await expect(container).toHaveCSS("max-width", "960px");
+  await expect(container).toHaveCSS("max-width", "none");
   await detail.getByTestId("channel-management-trigger").click();
   const settings = page.getByTestId("channel-management-sheet");
   await expect(settings).toBeVisible();
@@ -1735,7 +1681,7 @@ test("side panels expand Pulse and terminal docks beside the conversation", asyn
     path: "test-results/pulse-prototype/15-expanded-settings.png",
   });
   await settings.getByRole("button", { name: /close/i }).first().click();
-  await expect(container).toHaveCSS("max-width", "960px");
+  await expect(container).toHaveCSS("max-width", "none");
   await detail
     .getByRole("button", { name: "Open Buzz Term", exact: true })
     .click();
@@ -1748,7 +1694,7 @@ test("side panels expand Pulse and terminal docks beside the conversation", asyn
   await expect(terminal).toHaveCSS("transform", "none");
   await expect(terminal).toHaveCSS("transition-property", "opacity");
   await page.keyboard.press("Control+j");
-  await expect(container).toHaveCSS("max-width", "960px");
+  await expect(container).toHaveCSS("max-width", "none");
 });
 
 test("bubbles follow the theme and anchor reactions and hover controls without row fill", async ({
@@ -2172,22 +2118,21 @@ test("workspace entrypoints keep projects, agents, and workflows in the main pan
   await expect(
     apps.getByRole("button", { name: "Messages", exact: true }),
   ).toHaveCSS("background-color", await themeColor(page, "--primary"));
-  await expect(apps.locator("button > svg")).toHaveCount(6);
+  await expect(apps.locator(".pulse-nav-tab")).toHaveCount(5);
   for (const width of [1600, 1280, 900]) {
     await page.setViewportSize({ width, height: 960 });
     const box = await boundsOf(main);
     expect(box.x + box.width / 2).toBeCloseTo(width / 2, 0);
     const navBox = await boundsOf(apps);
-    expect(box.x).toBeGreaterThanOrEqual(navBox.x + navBox.width);
+    expect(box.y).toBeGreaterThan(navBox.y + navBox.height);
   }
   await page.setViewportSize({ width: 1440, height: 960 });
   await expect(
-    rail
-      .getByRole("button")
-      .filter({ has: page.locator("svg") })
-      .first(),
+    rail.getByRole("button", { name: "Search", exact: true }),
   ).toHaveText("Search");
-  await expect(rail.getByRole("button").nth(1)).toHaveText("All messages");
+  await expect(
+    rail.getByRole("button", { name: "All messages", exact: true }),
+  ).toBeVisible();
   expect(
     await apps
       .getByRole("button")
@@ -2199,8 +2144,9 @@ test("workspace entrypoints keep projects, agents, and workflows in the main pan
     "Messages",
     "Projects",
     "Agents",
-    "Workflows",
-    "Settings",
+    "Apps",
+    "Add view",
+    "Account and settings",
   ]);
   for (const name of ["Projects", "Agents", "Workflows"]) {
     await expect(rail.getByRole("button", { name, exact: true })).toHaveCount(
@@ -2212,14 +2158,16 @@ test("workspace entrypoints keep projects, agents, and workflows in the main pan
     ["Agents", "agents-page-content"],
     ["Workflows", "workflows-view"],
   ]) {
-    const entry = apps.getByRole("button", { name, exact: true });
-    await entry.focus();
-    await page.keyboard.press("Enter");
+    const entry = apps.getByRole("button", {
+      name: name === "Workflows" ? "Apps" : name,
+      exact: true,
+    });
+    await openWorkspaceApp(page, name);
     const panel = main.getByTestId(`pulse-workspace-${name.toLowerCase()}`);
     await expect(panel.getByTestId(contentTestId)).toBeVisible();
     await expect(entry).toHaveAttribute("aria-current", "page");
     await expect(apps).toBeVisible();
-    await expect(main).toHaveCSS("max-width", "960px");
+    await expect(main).toHaveCSS("max-width", "none");
     await expect(page).toHaveURL(
       new RegExp(`#/pulse\\?.*feed=${name.toLowerCase()}`),
     );
@@ -2229,7 +2177,7 @@ test("workspace entrypoints keep projects, agents, and workflows in the main pan
     const appBox = await boundsOf(apps);
     const mainBox = await boundsOf(main);
     const panelBox = await boundsOf(panel);
-    expect(mainBox.x).toBeGreaterThanOrEqual(appBox.x + appBox.width + 8);
+    expect(mainBox.y).toBeGreaterThan(appBox.y + appBox.height);
     expect(panelBox.width).toBeCloseTo(mainBox.width, 0);
     expect(mainBox.x + mainBox.width / 2).toBeCloseTo(720, 0);
     await page.reload();
@@ -2246,7 +2194,7 @@ test("workspace entrypoints keep projects, agents, and workflows in the main pan
   await page.goBack();
   await expect(editor).toHaveCount(0);
   await expect(main.getByTestId("workflows-view")).toBeVisible();
-  await apps.getByRole("button", { name: "Projects", exact: true }).click();
+  await openWorkspaceApp(page, "Projects");
   const projectsRail = main.getByTestId("pulse-projects-list");
   await expect(projectsRail).toBeVisible();
   await expect(projectsRail).toHaveCSS("width", "220px");
@@ -2312,24 +2260,24 @@ test("workspace entrypoints keep projects, agents, and workflows in the main pan
   await page.goBack();
   await main.getByTestId("projects-section-projects").click();
   await expect(project).toBeVisible();
-  await apps.getByRole("button", { name: "Messages", exact: true }).click();
+  await openWorkspaceApp(page, "Messages");
   await expect(rail).toBeVisible();
   await rail.locator('[data-channel-name="bob-tyler"]').click();
   await expect(main.getByTestId("message-input")).toBeVisible();
   await expect(main.getByTestId("pulse-workspace-projects")).toHaveCount(0);
   const composer = main.getByTestId("message-input");
   await composer.fill("Keep this draft while switching apps");
-  await apps.getByRole("button", { name: "Agents", exact: true }).click();
+  await openWorkspaceApp(page, "Agents");
   await expect(rail).toHaveCount(0);
-  await apps.getByRole("button", { name: "Messages", exact: true }).click();
+  await openWorkspaceApp(page, "Messages");
   await expect(composer).toHaveText("Keep this draft while switching apps");
   await waitForAnimations(page);
   await page
     .getByTestId("unified-pulse")
     .screenshot({ path: "test-results/pulse-prototype/apps-messages.png" });
-  await page.getByRole("button", { name: "Home", exact: true }).click();
+  await openWorkspaceApp(page, "Home");
   await expect(main.getByTestId("pulse-briefing")).toBeVisible();
-  await apps.getByRole("button", { name: "Projects", exact: true }).click();
+  await openWorkspaceApp(page, "Projects");
   await main.getByTestId("projects-section-projects").click();
   await expect(project).toBeVisible();
   await waitForAnimations(page);
@@ -2586,10 +2534,7 @@ test("workspace profile panels share the main container's frame and remain resiz
   page,
 }) => {
   await seed(page);
-  await page
-    .getByTestId("pulse-app-navigation")
-    .getByRole("button", { name: "Projects", exact: true })
-    .click();
+  await openWorkspaceApp(page, "Projects");
   // Exercise a profile deep link through the real Pulse route and profile panel.
   await page.evaluate((pubkey) => {
     const [path, query] = location.hash.split("?");
@@ -2628,7 +2573,7 @@ test("workspace profile panels share the main container's frame and remain resiz
     .toBeGreaterThan(panelBox.width + 20);
   await panel.getByRole("button", { name: "Close panel", exact: true }).click();
   await expect(panel).toHaveCount(0);
-  await expect(main).toHaveCSS("max-width", "960px");
+  await expect(main).toHaveCSS("max-width", "none");
   const restored = await boundsOf(main);
   expect(restored.x + restored.width / 2).toBeCloseTo(720, 0);
 });
@@ -2643,8 +2588,11 @@ test("global search opens with the keyboard across Pulse apps and restores focus
     exact: true,
   });
   for (const name of ["Messages", "Projects", "Agents", "Workflows"]) {
-    const entry = apps.getByRole("button", { name, exact: true });
-    await entry.click();
+    const entry = apps.getByRole("button", {
+      name: name === "Workflows" ? "Apps" : name,
+      exact: true,
+    });
+    await openWorkspaceApp(page, name);
     await entry.focus();
     await page.keyboard.press("ControlOrMeta+k");
     await expect(dialog).toBeVisible();
@@ -2656,7 +2604,7 @@ test("global search opens with the keyboard across Pulse apps and restores focus
     await expect(dialog).toHaveCount(0);
     await expect(entry).toBeFocused();
   }
-  await apps.getByRole("button", { name: "Messages", exact: true }).click();
+  await openWorkspaceApp(page, "Messages");
   await page
     .getByTestId("pulse-combined-list")
     .locator('[data-channel-name="alice-tyler"]')
@@ -2700,7 +2648,7 @@ test("global search results stay in Pulse and open the selected conversation or 
     await expect(page.getByTestId("pulse-combined-list")).toBeVisible();
     await expect(page.getByTestId("sidebar-pinned-header")).toHaveCount(0);
   };
-  await apps.getByRole("button", { name: "Projects", exact: true }).click();
+  await openWorkspaceApp(page, "Projects");
   await search("general");
   await dialog
     .locator('[data-search-section="channels"] .search-result-row')
@@ -2812,12 +2760,13 @@ for (const appearance of ["light", "dark"] as const) {
       await themeColor(page, "--blockui-surface-card"),
     );
     await expect(page.getByTestId("app-top-chrome")).toHaveCSS(
-      "background-color",
-      await themeColor(page, "--blockui-surface-app"),
+      "height",
+      "48px",
     );
-    const shadow = await dock.evaluate((el) => getComputedStyle(el).boxShadow);
-    expect(shadow).not.toBe("none");
-    await expect(main).toHaveCSS("box-shadow", shadow);
+    await expect(dock).toHaveCSS("box-shadow", "none");
+    expect(
+      await main.evaluate((el) => getComputedStyle(el).boxShadow),
+    ).not.toBe("none");
     const channelIcon = page
       .getByTestId("pulse-combined-list")
       .locator('[data-channel-name="general"] > span[aria-hidden]')
@@ -2851,78 +2800,6 @@ for (const appearance of ["light", "dark"] as const) {
       .toBeGreaterThan(before.radius);
   });
 }
-
-test("app dock preserves keyboard navigation and equal window insets", async ({
-  page,
-}) => {
-  await seed(page);
-  await expect(
-    page.getByRole("button", { name: "Refresh messages" }),
-  ).toHaveCount(0);
-  const dock = page.getByTestId("pulse-app-navigation");
-  const main = page.getByTestId("pulse-main-container");
-  const radii = await dock.evaluate((el) => {
-    const style = getComputedStyle(el);
-    const tile = el.querySelector("button");
-    if (!tile) throw new Error("Missing dock tile");
-    return {
-      outer: parseFloat(style.borderRadius),
-      inner: parseFloat(getComputedStyle(tile).borderRadius),
-      padding: parseFloat(style.paddingTop),
-    };
-  });
-  expect(radii.outer).toBe(radii.inner + radii.padding);
-  for (const width of [900, 1440]) {
-    await page.setViewportSize({ width, height: 900 });
-    const box = await boundsOf(main);
-    expect(box.y).toBe(40);
-    expect((await boundsOf(dock)).y).toBe(box.y);
-    expect(900 - box.y - box.height).toBe(40);
-    expect((await boundsOf(dock)).width).toBeLessThan(90);
-    const railBox = await boundsOf(page.getByTestId("pulse-dock-rail"));
-    const dockBox = await boundsOf(dock);
-    expect(
-      railBox.x + railBox.width / 2 - (dockBox.x + dockBox.width / 2),
-    ).toBe(12);
-    for (const label of [
-      "Home",
-      "Messages",
-      "Projects",
-      "Agents",
-      "Workflows",
-      "Settings",
-    ]) {
-      const button = dock.getByRole("button", { name: label, exact: true });
-      await expect(button).toBeVisible();
-      expect((await boundsOf(button)).width).toBe(40);
-    }
-  }
-  const projects = dock.getByRole("button", { name: "Projects", exact: true });
-  await projects.focus();
-  await page.keyboard.press("Enter");
-  await expect(projects).toHaveAttribute("aria-current", "page");
-  await expect(page.getByTestId("pulse-workspace-projects")).toBeVisible();
-  await dock.getByRole("button", { name: "Settings", exact: true }).click();
-  await expect(page.getByTestId("settings-panel-appearance")).toBeVisible();
-  await expect(
-    dock.getByRole("button", { name: "Settings", exact: true }),
-  ).toHaveAttribute("aria-current", "page");
-  expect((await boundsOf(dock)).y).toBe((await boundsOf(main)).y);
-  await expect(page.getByTestId("global-back")).toBeVisible();
-  await page.getByTestId("settings-nav-notifications").click();
-  await expect(page.getByTestId("settings-panel-notifications")).toBeVisible();
-  await dock.getByRole("button", { name: "Settings", exact: true }).click();
-  await expect(page.getByTestId("settings-panel-notifications")).toBeVisible();
-  await page.getByTestId("global-back").click();
-  await expect(page.getByTestId("pulse-workspace-projects")).toBeVisible();
-  await page.getByTestId("global-forward").click();
-  await expect(page.getByTestId("settings-panel-notifications")).toBeVisible();
-  await dock.getByRole("button", { name: "Messages", exact: true }).click();
-  await expect(page.getByTestId("pulse-combined-list")).toBeVisible();
-  await expect(
-    dock.getByRole("button", { name: "Messages", exact: true }),
-  ).toHaveAttribute("aria-current", "page");
-});
 
 test("macOS glass reveals native material and respects increased contrast", async ({
   page,
@@ -3015,7 +2892,7 @@ for (const appearance of ["light", "dark"] as const) {
     await expect(
       briefing.getByTestId("pulse-briefing-highlight").first(),
     ).toContainText("Activity highlight 1");
-    await dock.getByRole("button", { name: "Messages", exact: true }).click();
+    await openWorkspaceApp(page, "Messages");
     await expect(page.getByTestId("pulse-combined-list")).toBeVisible();
     await expect(
       page.getByRole("button", { name: "For you", exact: true }),
@@ -3025,18 +2902,17 @@ for (const appearance of ["light", "dark"] as const) {
       .locator('[data-channel-name="alice-tyler"]')
       .click();
     await page.getByTestId("message-input").fill("Keep my draft across Home");
-    await home.focus();
-    await page.keyboard.press("Enter");
+    await openWorkspaceApp(page, "Home");
     await expect(page).toHaveURL(/feed=home/);
     await page.reload();
     await expect(home).toHaveAttribute("aria-current", "page");
-    await dock.getByRole("button", { name: "Messages", exact: true }).click();
+    await openWorkspaceApp(page, "Messages");
     await expect(page.getByTestId("message-input")).toHaveText(
       "Keep my draft across Home",
     );
-    await dock.getByRole("button", { name: "Settings", exact: true }).click();
+    await openWorkspaceApp(page, "Settings");
     await expect(page.getByTestId("settings-panel-appearance")).toBeVisible();
-    await home.click();
+    await openWorkspaceApp(page, "Home");
     await expect(page.getByTestId("pulse-home")).toBeVisible();
     await page.goBack();
     await expect(page.getByTestId("settings-panel-appearance")).toBeVisible();

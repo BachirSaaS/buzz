@@ -16,6 +16,7 @@ type AppTopChromeProps = {
   onGoForward: () => void;
   hasCommunityRail?: boolean;
   hideSidebarTrigger?: boolean;
+  workspaceNavigation?: boolean;
 };
 
 // Fixed px on purpose (button box + glyph): these controls sit beside the
@@ -60,6 +61,7 @@ export function AppTopChrome({
   onGoForward,
   hasCommunityRail = false,
   hideSidebarTrigger = false,
+  workspaceNavigation = false,
 }: AppTopChromeProps) {
   const topChromeRef = React.useRef<HTMLDivElement>(null);
   const isFullscreen = useIsFullscreen();
@@ -78,7 +80,8 @@ export function AppTopChrome({
       ? "pl-[32px]"
       : "pl-[80px]"
     : "pl-3";
-  const navRowAlignmentClass = macChrome ? "translate-y-[3px]" : null;
+  const navRowAlignmentClass =
+    macChrome && !workspaceNavigation ? "translate-y-[3px]" : null;
 
   React.useLayoutEffect(() => {
     const topChrome = topChromeRef.current;
@@ -121,7 +124,9 @@ export function AppTopChrome({
       ref={topChromeRef}
       className={cn(
         "relative z-45 flex shrink-0 cursor-default select-none items-center pr-3 text-sidebar-foreground",
-        topChromeBackdrop.height,
+        workspaceNavigation
+          ? "h-[48px] gap-3 border-b border-border/30 bg-background/40"
+          : topChromeBackdrop.height,
         navRowPaddingClass,
       )}
       data-tauri-drag-region
@@ -132,36 +137,44 @@ export function AppTopChrome({
         } as React.CSSProperties
       }
     >
-      <div className={cn("flex items-center gap-0.5", navRowAlignmentClass)}>
-        {!hideSidebarTrigger && <TopChromeSidebarTrigger />}
-        <Button
-          aria-label="Go back"
-          className={HISTORY_ICON_BUTTON_CLASS}
-          data-testid="global-back"
-          disabled={!canGoBack}
-          onClick={onGoBack}
-          size="icon"
-          variant="ghost"
-        >
-          <ChevronLeft />
-        </Button>
-        <Button
-          aria-label="Go forward"
-          className={HISTORY_ICON_BUTTON_CLASS}
-          data-testid="global-forward"
-          disabled={!canGoForward}
-          onClick={onGoForward}
-          size="icon"
-          variant="ghost"
-        >
-          <ChevronRight />
-        </Button>
-      </div>
+      {!workspaceNavigation && (
+        <div className={cn("flex items-center gap-0.5", navRowAlignmentClass)}>
+          {!hideSidebarTrigger && <TopChromeSidebarTrigger />}
+          <Button
+            aria-label="Go back"
+            className={HISTORY_ICON_BUTTON_CLASS}
+            data-testid="global-back"
+            disabled={!canGoBack}
+            onClick={onGoBack}
+            size="icon"
+            variant="ghost"
+          >
+            <ChevronLeft />
+          </Button>
+          <Button
+            aria-label="Go forward"
+            className={HISTORY_ICON_BUTTON_CLASS}
+            data-testid="global-forward"
+            disabled={!canGoForward}
+            onClick={onGoForward}
+            size="icon"
+            variant="ghost"
+          >
+            <ChevronRight />
+          </Button>
+        </div>
+      )}
       <div
         className={cn("flex min-w-0 flex-1 items-center", navRowAlignmentClass)}
         data-tauri-drag-region
         id="app-top-chrome-content"
       />
+      {workspaceNavigation && (
+        <div
+          id="app-top-chrome-trailing"
+          className="flex shrink-0 items-center gap-3"
+        />
+      )}
     </div>
   );
 }

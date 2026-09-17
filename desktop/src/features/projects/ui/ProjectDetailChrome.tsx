@@ -92,7 +92,7 @@ export function ProjectDetailChrome({
   return (
     <AppTopChromePortal>
       <div
-        className="flex min-w-0 flex-1 items-center justify-between gap-3 pl-2"
+        className={`flex min-w-0 items-center justify-between gap-3 pl-2 ${showBreadcrumb ? "flex-1" : "shrink-0"}`}
         data-tauri-drag-region
         data-testid="project-detail-chrome"
       >
@@ -163,7 +163,7 @@ export function ProjectsWorkspaceChrome({
   return (
     <AppTopChromePortal>
       <div
-        className="flex min-w-0 flex-1 items-center justify-between gap-3 pl-2"
+        className={`flex min-w-0 items-center justify-between gap-3 pl-2 ${showBreadcrumb ? "flex-1" : "shrink-0"}`}
         data-tauri-drag-region
         data-testid="projects-workspace-chrome"
       >

@@ -118,7 +118,13 @@ export function NewMessageScreen() {
 
   React.useEffect(() => {
     isMountedRef.current = true;
-    searchInputRef.current?.focus({ preventScroll: true });
+    // A lazy mount must not dismiss navigation opened while this view loaded.
+    if (
+      !document.querySelector(
+        '[data-slot="popover-content"][data-state="open"]',
+      )
+    )
+      searchInputRef.current?.focus({ preventScroll: true });
 
     return () => {
       isMountedRef.current = false;

@@ -33,6 +33,10 @@ import { ViewLoadingFallback } from "@/shared/ui/ViewLoadingFallback";
 type ChannelRouteScreenProps = {
   /** Render within Pulse's conversation pane with in-place thread navigation. */
   embedded?: boolean;
+  /** Override route navigation for independently embedded forum panels. */
+  onSelectForumPost?: (postId: string) => void;
+  /** Close an independently embedded forum post without navigating the app. */
+  onCloseForumPost?: () => void;
   autoSendDraftKey: string | null;
   channelId: string;
   searchHighlight: SearchHighlightNavigation | null | undefined;
@@ -115,6 +119,8 @@ async function fetchRouteTargetEvents(
 
 export function ChannelRouteScreen({
   embedded = false,
+  onSelectForumPost,
+  onCloseForumPost,
   autoSendDraftKey,
   channelId,
   searchHighlight,
@@ -318,12 +324,18 @@ export function ChannelRouteScreen({
       autoSendDraftKey={autoSendDraftKey}
       currentIdentity={identityQuery.data}
       currentProfile={profileQuery.data}
-      onCloseForumPost={() => {
-        void closeForumPost(channelId);
-      }}
-      onSelectForumPost={(postId) => {
-        void goForumPost(channelId, postId);
-      }}
+      onCloseForumPost={
+        onCloseForumPost ??
+        (() => {
+          void closeForumPost(channelId);
+        })
+      }
+      onSelectForumPost={
+        onSelectForumPost ??
+        ((postId) => {
+          void goForumPost(channelId, postId);
+        })
+      }
       selectedForumPostId={selectedPostId}
       targetForumReplyId={targetReplyId}
       targetMessageEvents={targetMessageEvents}

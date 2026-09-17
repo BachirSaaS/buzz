@@ -82,7 +82,7 @@ export function LinkPreviewWidget({
   return (
     <div
       className={cn(
-        "link-message-bubble relative isolate flex w-fit max-w-sm items-start gap-2 rounded-blockui-lg px-3.5 py-2 font-sans text-message leading-snug",
+        "link-message-bubble relative isolate flex w-fit max-w-sm items-start gap-2 rounded-blockui-md px-3.5 py-2 font-sans text-message leading-snug",
         className,
       )}
       data-block-media=""

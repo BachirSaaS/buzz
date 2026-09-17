@@ -1,0 +1,173 @@
+.pulse-canvas {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  container-type: inline-size;
+}
+.pulse-canvas-grid {
+  display: grid;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  gap: 8px;
+  width: 100%;
+  margin-inline: auto;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+.pulse-canvas-primary {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 0;
+  min-width: 0;
+  justify-content: center;
+}
+.pulse-canvas:not([data-window-count="0"]) .pulse-canvas-grid {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  grid-auto-rows: minmax(0, 1fr);
+}
+.pulse-canvas[data-layout="focus"][data-window-count="2"]
+  .pulse-canvas-primary {
+  grid-row: span 2;
+}
+.pulse-canvas[data-layout="focus"][data-window-count="3"]
+  .pulse-canvas-primary {
+  grid-row: span 3;
+}
+.pulse-canvas[data-layout="grid"]:not([data-window-count="0"])
+  .pulse-canvas-grid {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+}
+.pulse-canvas[data-layout="grid"][data-window-count="2"] .pulse-canvas-primary {
+  grid-row: span 2;
+}
+.pulse-canvas[data-layout="columns"]:not([data-window-count="0"])
+  .pulse-canvas-grid {
+  grid-template-columns: minmax(400px, 2fr);
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(240px, 1fr);
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+.pulse-canvas-window {
+  width: 100%;
+}
+/* Pointer capture keeps resizing direct, even when crossing a conversation. */
+.pulse-canvas-divider {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 10;
+  width: 12px;
+  transform: translateX(-50%);
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+  outline: none;
+}
+.pulse-canvas-divider::after {
+  content: "";
+  position: absolute;
+  inset: 12px 5px;
+  border-radius: 2px;
+  background: transparent;
+}
+.pulse-canvas-divider:focus-visible::after,
+.pulse-canvas[data-resizing] .pulse-canvas-divider::after {
+  background: color-mix(in srgb, var(--foreground) 35%, transparent);
+}
+@media (hover: hover) and (pointer: fine) {
+  .pulse-canvas-divider:hover::after {
+    background: color-mix(in srgb, var(--foreground) 25%, transparent);
+  }
+}
+.pulse-canvas-window[data-view-kind="widget"] {
+  align-self: start;
+  max-height: 100%;
+  box-shadow: none;
+}
+@container (max-width: 760px) {
+  .pulse-canvas-divider {
+    display: none;
+  }
+  .pulse-canvas:not([data-window-count="0"]) .pulse-canvas-grid {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    overflow: auto;
+  }
+  .pulse-canvas:not([data-window-count="0"]) .pulse-canvas-primary,
+  .pulse-canvas-window {
+    flex: 0 0 480px;
+  }
+  .pulse-canvas-window[data-view-kind="widget"] {
+    flex: 0 0 auto;
+    width: 100%;
+    max-height: 720px;
+  }
+}
+
+/* Freeform keeps the same mounted conversations; only their placement changes. */
+.pulse-canvas[data-layout="freeform"] .pulse-canvas-grid {
+  display: block;
+  overflow: visible;
+  padding: 0;
+}
+.pulse-canvas[data-layout="freeform"]
+  :is(.pulse-canvas-primary, .pulse-canvas-window) {
+  flex: none;
+  max-height: none;
+}
+.pulse-canvas[data-layout="freeform"] .pulse-canvas-window > div {
+  box-shadow:
+    0 12px 36px #0000001a,
+    0 2px 8px #0000000d;
+}
+.canvas-move-handle {
+  background: transparent;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.canvas-move-handle:active {
+  cursor: grabbing;
+}
+
+/* Only standalone tiled windows retain their reading-width caps. */
+.pulse-canvas:not([data-window-count="0"]),
+.pulse-canvas[data-layout="freeform"] {
+  --canvas-main-max: none;
+}
+
+/* Home is the anchored reading surface, independent of window layout/stacking. */
+.pulse-canvas[data-fixed-main] .pulse-canvas-primary {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  z-index: 0;
+  pointer-events: none;
+}
+.pulse-canvas[data-fixed-main] .pulse-canvas-main-window {
+  pointer-events: auto;
+}
+.pulse-canvas[data-fixed-main] .pulse-canvas-window {
+  z-index: 1;
+}
+@container (min-width: 761px) {
+  .pulse-canvas[data-fixed-main]:not([data-layout="freeform"])
+    .pulse-canvas-grid {
+    grid-template-columns: clamp(240px, calc((100% - 752px) / 2), 400px) minmax(
+        0,
+        1fr
+      ) clamp(240px, calc((100% - 752px) / 2), 400px);
+    grid-auto-flow: row;
+    overflow: visible;
+    padding: 0;
+  }
+}

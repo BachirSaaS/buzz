@@ -29,7 +29,6 @@ import { CommunityMembersSettingsCard } from "@/features/community-members/ui/Co
 import { CustomEmojiSettingsCard } from "@/features/custom-emoji/ui/CustomEmojiSettingsCard";
 import { LocalArchiveSettingsCard } from "@/features/local-archive/ui/LocalArchiveSettingsCard";
 import { useTheme } from "@/shared/theme/ThemeProvider";
-import { ContentWidthSetting } from "./ContentWidthSetting";
 import {
   ConversationDisplaySettings,
   LinkPreviewStyleSetting,
@@ -255,7 +254,6 @@ function ThemeSettingsCard() {
           data-testid="appearance-preferences-card"
         >
           <ConversationDisplaySettings />
-          <ContentWidthSetting />
           <LinkPreviewStyleSetting />
           <ThreadLayoutSetting />
         </SettingsOptionGroup>

@@ -1,5 +1,6 @@
 import * as React from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
+import { LocalHistorySearchContext } from "./LocalHistorySearchProvider";
 
 /**
  * URL-search-param-backed UI state, so it lives in the history stack:
@@ -17,6 +18,8 @@ export type HistorySearchSetterOptions = {
 };
 
 export function useHistorySearchState<K extends string>(keys: readonly K[]) {
+  const local = React.useContext(LocalHistorySearchContext);
+  const applyLocalPatch = local?.applyPatch;
   const navigate = useNavigate();
   const search = useSearch({ strict: false } as never) as Partial<
     Record<K, string>
@@ -24,7 +27,7 @@ export function useHistorySearchState<K extends string>(keys: readonly K[]) {
 
   const values = {} as Record<K, string | null>;
   for (const key of keys) {
-    values[key] = search[key] ?? null;
+    values[key] = (local ? local.values[key] : search[key]) ?? null;
   }
 
   const currentValuesRef = React.useRef(values);
@@ -42,6 +45,14 @@ export function useHistorySearchState<K extends string>(keys: readonly K[]) {
       patch: Partial<Record<K, string | null>>,
       options?: HistorySearchSetterOptions,
     ) => {
+      if (applyLocalPatch) {
+        const scopedPatch: Partial<Record<K, string | null>> = {};
+        for (const key of keysRef.current) {
+          if (patch[key] !== undefined) scopedPatch[key] = patch[key];
+        }
+        applyLocalPatch(scopedPatch);
+        return;
+      }
       const pending = pendingRef.current;
       if (pending) {
         Object.assign(pending.patch, patch);
@@ -92,7 +103,7 @@ export function useHistorySearchState<K extends string>(keys: readonly K[]) {
         } as never);
       });
     },
-    [navigate],
+    [navigate, applyLocalPatch],
   );
 
   return { applyPatch, values };
