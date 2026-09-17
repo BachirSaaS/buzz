@@ -2825,6 +2825,160 @@ async fn armed_pool_rejects_old_channel_inserts_through_public_api() {
     db.pool.close().await;
 }
 
+#[tokio::test]
+#[ignore = "requires Postgres"]
+async fn replica_floor_writer_transaction_holds_shared_lock_and_validates_timestamp() {
+    let admin = PgPool::connect(&admin_url().await)
+        .await
+        .expect("connect admin");
+    let (seed_pool, name) = create_scratch_db(&admin, "floor_writer_foundation").await;
+
+    let base = admin_url().await;
+    let idx = base.rfind('/').expect("db url has a path segment");
+    let scratch_url = format!("{}/{}", &base[..idx], name);
+    let db = Db::new(&DbConfig {
+        database_url: scratch_url,
+        max_connections: 2,
+        ..DbConfig::default()
+    })
+    .await
+    .expect("connect armed Db");
+
+    let now_secs = chrono::Utc::now().timestamp() as u64;
+    let floor = crate::replica_fence::CREATED_AT_FLOOR_SECS as u64;
+    let stale_ts = chrono::DateTime::from_timestamp((now_secs - floor - 120) as i64, 0)
+        .expect("valid stale timestamp");
+    let error = db
+        .begin_replica_floor_channel_write_transaction(stale_ts)
+        .await
+        .expect_err("below-floor timestamp must reject");
+    assert!(
+        matches!(&error, DbError::InvalidData(message) if message.contains("below active replica floor")),
+        "expected floor rejection, got: {error:#}"
+    );
+
+    let fresh_ts = chrono::DateTime::from_timestamp(now_secs as i64, 0).expect("valid timestamp");
+    let writer = db
+        .begin_replica_floor_channel_write_transaction(fresh_ts)
+        .await
+        .expect("open compliant floor-guarded writer tx");
+
+    let mut contender = db.pool.begin().await.expect("begin exclusive contender");
+    let exclusive_taken: bool = sqlx::query_scalar("SELECT pg_try_advisory_xact_lock($1)")
+        .bind(crate::replica_fence::REPLICA_FLOOR_LOCK_KEY)
+        .fetch_one(&mut *contender)
+        .await
+        .expect("probe exclusive floor lock");
+    assert!(
+        !exclusive_taken,
+        "compliant writer must hold the shared replica-floor advisory lock"
+    );
+
+    contender
+        .rollback()
+        .await
+        .expect("rollback exclusive contender");
+    writer.rollback().await.expect("rollback writer tx");
+    db.pool.close().await;
+    drop_scratch_db(&admin, seed_pool, &name).await;
+}
+
+#[tokio::test]
+#[ignore = "requires Postgres"]
+async fn replica_floor_probe_waits_for_shared_writer_and_records_after_release() {
+    let admin = PgPool::connect(&admin_url().await)
+        .await
+        .expect("connect admin");
+    let (seed_pool, name) = create_scratch_db(&admin, "floor_probe_foundation").await;
+
+    let base = admin_url().await;
+    let idx = base.rfind('/').expect("db url has a path segment");
+    let scratch_url = format!("{}/{}", &base[..idx], name);
+    let db = Db::new(&DbConfig {
+        database_url: scratch_url,
+        max_connections: 2,
+        ..DbConfig::default()
+    })
+    .await
+    .expect("connect armed Db");
+
+    let token_before: i64 = sqlx::query_scalar("SELECT token FROM replica_heartbeat WHERE id = 1")
+        .fetch_one(&db.pool)
+        .await
+        .expect("read token before probe");
+
+    let writer = db
+        .begin_replica_floor_channel_write_transaction(
+            chrono::Utc::now() + chrono::Duration::seconds(60),
+        )
+        .await
+        .expect("open compliant floor-guarded writer tx");
+
+    let probe_pool = db.pool.clone();
+    let probe_fence = std::sync::Arc::clone(db.fence());
+    let probing = tokio::spawn(async move {
+        crate::replica_fence::probe_once(&probe_pool, probe_fence.as_ref()).await
+    });
+    let mut probing = probing;
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(100), &mut probing)
+            .await
+            .is_err(),
+        "probe must wait for the exclusive floor lock while compliant writer is open"
+    );
+
+    writer
+        .rollback()
+        .await
+        .expect("release shared floor writer");
+    let entry = tokio::time::timeout(std::time::Duration::from_secs(5), probing)
+        .await
+        .expect("probe must complete after writer release")
+        .expect("probe task")
+        .expect("probe succeeds");
+
+    assert_eq!(
+        entry.token,
+        token_before + 1,
+        "existing handshake must publish one token via probe_once"
+    );
+    assert_eq!(
+        db.fence().verified_through(),
+        Some(entry.fence_wall),
+        "probe entry must be retained in the in-memory fence ring"
+    );
+
+    let error = db
+        .begin_replica_floor_channel_write_transaction(
+            entry.fence_wall - chrono::Duration::microseconds(1),
+        )
+        .await
+        .expect_err("later below-wall timestamp must reject");
+    assert!(
+        matches!(&error, DbError::InvalidData(message) if message.contains("below active replica floor")),
+        "expected below-floor rejection, got: {error:#}"
+    );
+
+    db.pool.close().await;
+    drop_scratch_db(&admin, seed_pool, &name).await;
+}
+
+#[test]
+fn replica_floor_boundary_matches_trigger_contract() {
+    let boundary = chrono::DateTime::from_timestamp(1_700_000_000, 0).expect("valid boundary ts");
+    assert!(
+        !channel_event_is_below_replica_floor(boundary, boundary),
+        "exact floor boundary must be admitted (trigger rejects only strict below-floor rows)"
+    );
+    assert!(
+        channel_event_is_below_replica_floor(
+            boundary - chrono::Duration::microseconds(1),
+            boundary
+        ),
+        "rows strictly older than floor boundary must reject"
+    );
+}
+
 /// `spawn_fence_probe` must verify the floor guard before letting the
 /// probe run — catalog shape AND observed behavior — and refuse on
 /// sabotage. This is the production gate for a relay running with

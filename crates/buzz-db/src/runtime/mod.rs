@@ -562,6 +562,13 @@ pub const DEFAULT_LOCK_TIMEOUT_MS: u64 = 5_000;
 /// Default writer `idle_in_transaction_session_timeout` in milliseconds.
 pub const DEFAULT_IDLE_TXN_TIMEOUT_MS: u64 = 60_000;
 
+fn channel_event_is_below_replica_floor(
+    event_created_at: DateTime<Utc>,
+    floor_cutoff: DateTime<Utc>,
+) -> bool {
+    event_created_at < floor_cutoff
+}
+
 impl DbConfig {
     /// Overlay writer session timeouts from the shared `BUZZ_DB_*_TIMEOUT_MS`
     /// environment variables. Missing or invalid values retain the existing
@@ -1141,6 +1148,81 @@ impl Db {
         sqlx::Transaction::begin(connection, None)
             .await
             .map_err(Into::into)
+    }
+
+    /// Begin an event-write transaction and take the shared community
+    /// deletion/admission lock before any tenant mutation.
+    pub async fn begin_community_write_transaction(
+        &self,
+        community: CommunityId,
+    ) -> Result<sqlx::Transaction<'static, sqlx::Postgres>> {
+        let mut tx = self.begin_event_write_transaction().await?;
+        self.deletion_store()
+            .guard_transaction(&mut tx, community)
+            .await?;
+        Ok(tx)
+    }
+
+    /// Begin one event-write transaction and guard multiple communities in
+    /// deterministic UUID order under shared deletion/admission locks.
+    ///
+    /// The sorted lock order prevents opposite-order callers from deadlocking
+    /// when they need overlapping communities in one transaction.
+    pub async fn begin_community_write_transaction_batch(
+        &self,
+        communities: &[CommunityId],
+    ) -> Result<sqlx::Transaction<'static, sqlx::Postgres>> {
+        if communities.is_empty() {
+            return Err(DbError::InvalidData(
+                "community write transaction batch requires at least one community".to_string(),
+            ));
+        }
+        let mut tx = self.begin_event_write_transaction().await?;
+        let mut ordered = communities.to_vec();
+        ordered.sort_unstable();
+        ordered.dedup();
+        let store = self.deletion_store();
+        for community in ordered {
+            store.guard_transaction(&mut tx, community).await?;
+        }
+        Ok(tx)
+    }
+
+    /// Begin a channel-event write transaction that takes the shared
+    /// application-owned replica-floor lock and pre-validates `created_at`
+    /// against the active floor from the writer-session GUC.
+    ///
+    /// The commit-time trigger remains authoritative while this foundation
+    /// exists; this pre-check is a dual-enforcement guardrail for obvious
+    /// below-floor inputs before commit.
+    pub async fn begin_replica_floor_channel_write_transaction(
+        &self,
+        event_created_at: DateTime<Utc>,
+    ) -> Result<sqlx::Transaction<'static, sqlx::Postgres>> {
+        let mut tx = self.begin_event_write_transaction().await?;
+        sqlx::query("SELECT pg_advisory_xact_lock_shared($1)")
+            .bind(replica_fence::REPLICA_FLOOR_LOCK_KEY)
+            .execute(&mut *tx)
+            .await?;
+        let (floor_secs, floor_cutoff): (Option<f64>, DateTime<Utc>) = sqlx::query_as(
+            r#"SELECT nullif(current_setting('buzz.created_at_floor', true), '')::double precision,
+                      clock_timestamp() - make_interval(
+                        secs => COALESCE(
+                          nullif(current_setting('buzz.created_at_floor', true), '')::double precision,
+                          0.0
+                        )
+                      )"#,
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        if floor_secs.is_some_and(|secs| {
+            secs > 0.0 && channel_event_is_below_replica_floor(event_created_at, floor_cutoff)
+        }) {
+            return Err(DbError::InvalidData(format!(
+                "channel event created_at {event_created_at} is below active replica floor {floor_cutoff}"
+            )));
+        }
+        Ok(tx)
     }
 
     /// Begin an event-write transaction through the pre-operation API name.
