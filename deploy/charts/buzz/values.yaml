@@ -120,11 +120,11 @@ relay:
   requireAuthToken: true
   requireRelayMembership: true
   allowNipOaAuth: true
-  # NIP-FI enterprise-auth mode. "enforce" makes the relay require
-  # client-attached federated identity evidence and advertise only the
-  # privacy-safe NIP-11 requirement shape (no issuer/audience/provider URLs).
-  # "deny_protected" is fail-closed repair posture and intentionally does not
-  # advertise a usable client-auth contract.
+  # NIP-FI enterprise-auth advertisement mode. "shadow" changes only the
+  # relay's NIP-11 document: it advertises the privacy-safe federated-identity
+  # limitation/descriptor for client discovery/readiness while admission remains
+  # unchanged. "enforce" is reserved but the relay rejects it until NIP-FI
+  # validation and protected-ingress enforcement are implemented.
   nipFiMode: "off"
   pubkeyAllowlist: false
   corsOrigins: []

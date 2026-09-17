@@ -72,6 +72,19 @@ pub struct AdminConfig {
     pub web_dir: Option<std::path::PathBuf>,
 }
 
+/// NIP-FI advertisement mode for the NIP-11 relay document.
+///
+/// This setting controls discovery only. It does not enable NIP-FI assertion
+/// validation, protected-ingress checks, or any other admission enforcement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NipFiAdvertisementMode {
+    /// Do not advertise any federated-identity requirement.
+    Off,
+    /// Advertise the privacy-safe federated-identity limitation and descriptor
+    /// so clients can discover and prepare for the enterprise-auth contract.
+    Shadow,
+}
+
 /// Relay-hosted policy content presented on join surfaces.
 #[derive(Debug, Clone)]
 pub struct JoinPolicyConfig {
@@ -209,13 +222,13 @@ pub struct Config {
     /// are permitted regardless of auth method (API token, NIP-42).
     pub require_relay_membership: bool,
 
-    /// NIP-FI federated-identity mode selected for this relay deployment.
+    /// NIP-FI advertisement mode selected for this relay deployment.
     ///
-    /// `Enforce` is the configured enterprise-auth requirement source of truth
-    /// used by NIP-11 discovery. Other modes do not advertise a requirement:
-    /// `Off` is unconfigured, and `DenyProtected` is an operator fail-closed
-    /// repair posture rather than a usable client-auth contract.
-    pub nip_fi_mode: buzz_auth::NipFiMode,
+    /// This controls NIP-11 discovery only. `Shadow` emits the privacy-safe
+    /// federated-identity limitation/descriptor while admission remains
+    /// unchanged. `Enforce` is intentionally rejected by config parsing until
+    /// relay-side NIP-FI validation and protected-ingress enforcement exist.
+    pub nip_fi_mode: NipFiAdvertisementMode,
 
     /// Whether this deployment can serve huddle (voice) audio.
     ///
@@ -498,25 +511,34 @@ fn parse_optional_bool(name: &str) -> Result<bool, ConfigError> {
     parse_bool(name, false)
 }
 
-fn parse_nip_fi_mode_value(raw: Option<&str>) -> Result<buzz_auth::NipFiMode, ConfigError> {
+fn parse_nip_fi_mode_value(raw: Option<&str>) -> Result<NipFiAdvertisementMode, ConfigError> {
     match raw.map(str::trim).map(str::to_ascii_lowercase).as_deref() {
-        None | Some("") | Some("off") => Ok(buzz_auth::NipFiMode::Off),
-        Some("enforce") => Ok(buzz_auth::NipFiMode::Enforce),
-        Some("deny_protected") | Some("deny-protected") => Ok(buzz_auth::NipFiMode::DenyProtected),
+        None | Some("") | Some("off") => Ok(NipFiAdvertisementMode::Off),
+        Some("shadow") => Ok(NipFiAdvertisementMode::Shadow),
+        Some("enforce") => Err(ConfigError::InvalidValue(
+            "BUZZ_NIP_FI_MODE=enforce is reserved for future relay-side NIP-FI enforcement, but enforcement is not implemented; use \"shadow\" for discovery-only NIP-11 advertisement"
+                .to_string(),
+        )),
         Some(other) => Err(ConfigError::InvalidValue(format!(
-            "BUZZ_NIP_FI_MODE must be \"off\", \"enforce\", or \"deny_protected\"; got {other:?}"
+            "BUZZ_NIP_FI_MODE must be \"off\" or \"shadow\"; \"enforce\" is reserved but unimplemented; got {other:?}"
         ))),
     }
 }
 
-fn parse_nip_fi_mode() -> Result<buzz_auth::NipFiMode, ConfigError> {
-    match std::env::var("BUZZ_NIP_FI_MODE") {
+fn parse_nip_fi_mode_from(
+    lookup: impl Fn(&str) -> Result<String, std::env::VarError>,
+) -> Result<NipFiAdvertisementMode, ConfigError> {
+    match lookup("BUZZ_NIP_FI_MODE") {
         Err(std::env::VarError::NotPresent) => parse_nip_fi_mode_value(None),
         Err(error) => Err(ConfigError::InvalidValue(format!(
             "BUZZ_NIP_FI_MODE must be valid UTF-8: {error}"
         ))),
         Ok(raw) => parse_nip_fi_mode_value(Some(&raw)),
     }
+}
+
+fn parse_nip_fi_mode() -> Result<NipFiAdvertisementMode, ConfigError> {
+    parse_nip_fi_mode_from(|name| std::env::var(name))
 }
 
 fn ensure_git_repo_path(
@@ -1422,7 +1444,7 @@ mod tests {
         );
         assert_eq!(
             config.nip_fi_mode,
-            buzz_auth::NipFiMode::Off,
+            NipFiAdvertisementMode::Off,
             "NIP-FI mode should default to off"
         );
         assert!(
@@ -2109,31 +2131,50 @@ mod tests {
     }
 
     #[test]
-    fn nip_fi_mode_defaults_off_and_accepts_enforcement_modes() {
+    fn nip_fi_mode_defaults_off_and_accepts_shadow() {
         assert_eq!(
             parse_nip_fi_mode_value(None).unwrap(),
-            buzz_auth::NipFiMode::Off
+            NipFiAdvertisementMode::Off
         );
         assert_eq!(
             parse_nip_fi_mode_value(Some("")).unwrap(),
-            buzz_auth::NipFiMode::Off
+            NipFiAdvertisementMode::Off
         );
         assert_eq!(
             parse_nip_fi_mode_value(Some("off")).unwrap(),
-            buzz_auth::NipFiMode::Off
+            NipFiAdvertisementMode::Off
         );
         assert_eq!(
-            parse_nip_fi_mode_value(Some("ENFORCE")).unwrap(),
-            buzz_auth::NipFiMode::Enforce
+            parse_nip_fi_mode_value(Some(" SHADOW ")).unwrap(),
+            NipFiAdvertisementMode::Shadow
         );
-        assert_eq!(
-            parse_nip_fi_mode_value(Some(" deny_protected ")).unwrap(),
-            buzz_auth::NipFiMode::DenyProtected
-        );
-        assert_eq!(
-            parse_nip_fi_mode_value(Some("deny-protected")).unwrap(),
-            buzz_auth::NipFiMode::DenyProtected
-        );
+    }
+
+    #[test]
+    fn nip_fi_mode_rejects_enforce_as_unimplemented() {
+        let result = parse_nip_fi_mode_value(Some("enforce"));
+        assert!(matches!(
+            result,
+            Err(ConfigError::InvalidValue(ref message))
+                if message.contains("BUZZ_NIP_FI_MODE=enforce")
+                    && message.contains("enforcement is not implemented")
+                    && message.contains("shadow")
+        ));
+    }
+
+    #[test]
+    fn nip_fi_mode_from_env_rejects_enforce_at_config_load() {
+        let result = parse_nip_fi_mode_from(|name| {
+            assert_eq!(name, "BUZZ_NIP_FI_MODE");
+            Ok("enforce".to_string())
+        });
+
+        assert!(matches!(
+            result,
+            Err(ConfigError::InvalidValue(ref message))
+                if message.contains("BUZZ_NIP_FI_MODE=enforce")
+                    && message.contains("enforcement is not implemented")
+        ));
     }
 
     #[test]
@@ -2143,6 +2184,8 @@ mod tests {
             result,
             Err(ConfigError::InvalidValue(ref message))
                 if message.contains("BUZZ_NIP_FI_MODE")
+                    && message.contains("off")
+                    && message.contains("shadow")
         ));
     }
 

@@ -21,10 +21,16 @@ impl NIP11Requirements {
         }
     }
 
-    fn from_nip11_facts(relay_membership: bool, nip_fi_mode: buzz_auth::NipFiMode) -> Self {
+    fn from_nip11_facts(
+        relay_membership: bool,
+        nip_fi_mode: crate::config::NipFiAdvertisementMode,
+    ) -> Self {
         Self {
             relay_membership,
-            federated_identity: matches!(nip_fi_mode, buzz_auth::NipFiMode::Enforce),
+            federated_identity: matches!(
+                nip_fi_mode,
+                crate::config::NipFiAdvertisementMode::Shadow
+            ),
         }
     }
 }
@@ -91,8 +97,8 @@ pub struct RelayInfo {
     /// provider-agnostic; provider credentials remain server-side.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gif: Option<GifDescriptor>,
-    /// NIP-FI federated identity requirement descriptor. Present only when
-    /// this deployment requires client-attached federated identity evidence.
+    /// NIP-FI federated identity requirement descriptor. Present only in
+    /// discovery shadow mode, while admission remains unchanged.
     /// The descriptor is privacy-safe by construction: no issuer, audience,
     /// provider, login, assertion, tenant, or deployment-local identifiers.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -135,8 +141,10 @@ pub struct RelayLimitation {
     pub payment_required: bool,
     /// Whether writes are restricted to authorized pubkeys.
     pub restricted_writes: bool,
-    /// Whether this deployment requires NIP-FI federated identity assertions.
-    /// Omitted when false to preserve the pre-NIP-FI wire shape.
+    /// Whether this deployment advertises a NIP-FI federated identity
+    /// limitation for client discovery/readiness. This is discovery-only;
+    /// admission remains unchanged. Omitted when false to preserve the
+    /// pre-NIP-FI wire shape.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub federated_identity: bool,
     /// NIP-ER: how the relay delivers due reminders ("push" or "lazy").
@@ -198,9 +206,9 @@ impl RelayInfo {
     /// the caller so `build` itself stays static-input.
     ///
     /// `requirements` controls which configured server-side requirements are
-    /// advertised. It is a pre-derived deployment scalar: callers must set
-    /// `federated_identity` only when this relay's configured deployment
-    /// already enforces client-attached NIP-FI evidence. When
+    /// advertised. `federated_identity` is a discovery-only shadow signal for
+    /// client readiness; it does not imply this relay validates NIP-FI
+    /// assertions or enforces protected-ingress admission. When
     /// `relay_membership` is set, NIP-43 (relay membership) is added to
     /// `supported_nips`; only set it when the relay actually emits and gates on
     /// NIP-43 events — i.e. has a stable key AND enforces membership. NIP-43
@@ -738,11 +746,10 @@ mod tests {
     }
 
     #[test]
-    fn nip_fi_requirement_is_derived_only_from_enforce_mode() {
+    fn nip_fi_requirement_is_derived_only_from_shadow_mode() {
         let cases = [
-            (buzz_auth::NipFiMode::Off, false),
-            (buzz_auth::NipFiMode::DenyProtected, false),
-            (buzz_auth::NipFiMode::Enforce, true),
+            (crate::config::NipFiAdvertisementMode::Off, false),
+            (crate::config::NipFiAdvertisementMode::Shadow, true),
         ];
 
         for (mode, expected) in cases {
@@ -755,7 +762,7 @@ mod tests {
     }
 
     async fn test_state_for_nip11_mode(
-        mode: buzz_auth::NipFiMode,
+        mode: crate::config::NipFiAdvertisementMode,
     ) -> (crate::state::AppState, crate::state::AuditShutdownHandle) {
         let mut config = crate::config::Config::from_env().expect("default config loads");
         config.nip_fi_mode = mode;
@@ -793,11 +800,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn nip11_document_advertises_nip_fi_for_enforce_mode_only() {
+    async fn nip11_document_advertises_nip_fi_for_shadow_mode_only() {
         for (mode, should_advertise) in [
-            (buzz_auth::NipFiMode::Off, false),
-            (buzz_auth::NipFiMode::DenyProtected, false),
-            (buzz_auth::NipFiMode::Enforce, true),
+            (crate::config::NipFiAdvertisementMode::Off, false),
+            (crate::config::NipFiAdvertisementMode::Shadow, true),
         ] {
             let (state, audit_shutdown) = test_state_for_nip11_mode(mode).await;
             let json = serde_json::to_value(nip11_document(&state, "").await).expect("serialize");

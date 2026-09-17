@@ -70,8 +70,8 @@
         "allowNipOaAuth": { "type": "boolean" },
         "nipFiMode": {
           "type": "string",
-          "enum": ["off", "enforce", "deny_protected", "deny-protected"],
-          "description": "NIP-FI enterprise-auth mode. enforce advertises only the privacy-safe NIP-11 federated_identity requirement shape; provider and issuer details stay outside chart values."
+          "enum": ["off", "shadow", "enforce"],
+          "description": "NIP-FI enterprise-auth advertisement mode. shadow advertises the privacy-safe NIP-11 federated_identity limitation/descriptor for client discovery while admission remains unchanged. enforce is reserved but rejected by the relay until enforcement is implemented."
         },
         "huddleAudioAvailable": {
           "type": ["boolean", "null"],
