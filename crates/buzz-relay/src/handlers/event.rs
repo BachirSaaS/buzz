@@ -2988,12 +2988,17 @@ mod relay_banner_fanout_tests {
     use tokio_util::sync::CancellationToken;
     use uuid::Uuid;
 
-    async fn setup_state() -> (Arc<AppState>, sqlx::PgPool) {
+    async fn setup_state() -> (
+        tokio::sync::MutexGuard<'static, ()>,
+        Arc<AppState>,
+        sqlx::PgPool,
+    ) {
+        let guard = crate::test_support::RELAY_BANNER_TEST_LOCK.lock().await;
         let pool = sqlx::PgPool::connect(&crate::test_support::database_url())
             .await
             .expect("connect test DB");
         let state = crate::state::tests::test_state_with_database_pool(pool.clone()).await;
-        (state, pool)
+        (guard, state, pool)
     }
 
     async fn insert_test_community(pool: &sqlx::PgPool, host_prefix: &str) -> CommunityId {
@@ -3039,10 +3044,85 @@ mod relay_banner_fanout_tests {
         (conn_id, rx)
     }
 
+    async fn recv_banner_event(rx: &mut mpsc::Receiver<WsMessage>) -> nostr::Event {
+        let frame = rx.recv().await.expect("banner frame");
+        let WsMessage::Text(frame) = frame else {
+            panic!("expected text frame");
+        };
+        let frame: serde_json::Value = serde_json::from_str(&frame).expect("EVENT frame JSON");
+        assert_eq!(frame[0], "EVENT");
+        serde_json::from_value(frame[2].clone()).expect("banner event")
+    }
+
+    fn banner_content(event: &nostr::Event) -> serde_json::Value {
+        serde_json::from_str(&event.content).expect("banner content JSON")
+    }
+
+    #[tokio::test]
+    #[ignore = "requires Postgres"]
+    async fn relay_banner_scope_shrink_clears_old_audience_before_new_active() {
+        let (_guard, state, pool) = setup_state().await;
+        let retained = insert_test_community(&pool, "banner-shrink-retained").await;
+        let removed = insert_test_community(&pool, "banner-shrink-removed").await;
+        let (_retained_conn, mut retained_rx) = register_banner_sub(&state, retained, vec![11; 32]);
+        let (_removed_conn, mut removed_rx) = register_banner_sub(&state, removed, vec![12; 32]);
+
+        let initial = state
+            .db
+            .admin_upsert_relay_banner(buzz_db::RelayBannerUpsert {
+                severity: buzz_db::RelayBannerSeverity::Info,
+                message: "all communities".to_owned(),
+                max_displays: 1,
+                scope: buzz_db::RelayBannerScope::AllCommunities,
+                actor_pubkey: vec![1; 32],
+            })
+            .await
+            .expect("insert initial banner");
+        let replacement = state
+            .db
+            .admin_upsert_relay_banner(buzz_db::RelayBannerUpsert {
+                severity: buzz_db::RelayBannerSeverity::Warning,
+                message: "retained only".to_owned(),
+                max_displays: 1,
+                scope: buzz_db::RelayBannerScope::Communities(vec![retained]),
+                actor_pubkey: vec![1; 32],
+            })
+            .await
+            .expect("replace banner");
+        assert_eq!(
+            replacement.previous.as_ref().map(|banner| banner.id),
+            Some(initial.active.id)
+        );
+        let disabled = replacement.previous.as_ref().expect("disabled previous");
+        let disabled_event =
+            crate::api::banners::banner_disabled_event(&state.relay_keypair, disabled, None)
+                .expect("disabled event");
+        let active_event =
+            crate::api::banners::banner_event(&state.relay_keypair, &replacement.active, None)
+                .expect("active event");
+
+        fan_out_relay_banner_event(&state, disabled, &disabled_event, false).await;
+        fan_out_relay_banner_event(&state, &replacement.active, &active_event, true).await;
+
+        let retained_clear = recv_banner_event(&mut retained_rx).await;
+        assert!(retained_clear
+            .tags
+            .iter()
+            .any(|tag| tag.kind().to_string() == "status" && tag.content() == Some("disabled")));
+        let retained_active = recv_banner_event(&mut retained_rx).await;
+        assert_eq!(banner_content(&retained_active)["text"], "retained only");
+        let removed_clear = recv_banner_event(&mut removed_rx).await;
+        assert!(removed_clear
+            .tags
+            .iter()
+            .any(|tag| tag.kind().to_string() == "status" && tag.content() == Some("disabled")));
+        assert!(removed_rx.try_recv().is_err());
+    }
+
     #[tokio::test]
     #[ignore = "requires Postgres"]
     async fn relay_banner_upsert_live_routes_only_to_eligible_users() {
-        let (state, pool) = setup_state().await;
+        let (_guard, state, pool) = setup_state().await;
         let included = insert_test_community(&pool, "banner-fanout-included").await;
         let excluded = insert_test_community(&pool, "banner-fanout-excluded").await;
         let (_eligible_conn, mut eligible_rx) = register_banner_sub(&state, included, vec![7; 32]);
@@ -3057,7 +3137,8 @@ mod relay_banner_fanout_tests {
                 actor_pubkey: vec![1; 32],
             })
             .await
-            .expect("upsert banner");
+            .expect("upsert banner")
+            .active;
         let event = crate::api::banners::banner_event(&state.relay_keypair, &banner, None)
             .expect("banner event");
 
@@ -3067,14 +3148,23 @@ mod relay_banner_fanout_tests {
         let WsMessage::Text(frame) = frame else {
             panic!("expected text frame");
         };
-        assert!(frame.contains("\"live\""));
+        let frame: serde_json::Value = serde_json::from_str(&frame).expect("EVENT frame JSON");
+        assert_eq!(frame[0], "EVENT");
+        assert_eq!(frame[1], "banner");
+        let content: serde_json::Value = serde_json::from_str(
+            frame[2]["content"]
+                .as_str()
+                .expect("banner event content string"),
+        )
+        .expect("banner content JSON");
+        assert_eq!(content["text"], "live");
         assert!(excluded_rx.try_recv().is_err());
     }
 
     #[tokio::test]
     #[ignore = "requires Postgres"]
     async fn relay_banner_disable_live_routes_using_pre_disable_eligibility() {
-        let (state, pool) = setup_state().await;
+        let (_guard, state, pool) = setup_state().await;
         let eligible_community = insert_test_community(&pool, "banner-disable-eligible").await;
         let excluded_community = insert_test_community(&pool, "banner-disable-excluded").await;
         let exhausted_user = vec![8; 32];
@@ -3096,7 +3186,8 @@ mod relay_banner_fanout_tests {
                 actor_pubkey: vec![1; 32],
             })
             .await
-            .expect("upsert banner");
+            .expect("upsert banner")
+            .active;
         assert_eq!(
             state
                 .db
@@ -3126,13 +3217,21 @@ mod relay_banner_fanout_tests {
 
         fan_out_relay_banner_event(&state, &disabled, &event, false).await;
 
+        let frame = exhausted_rx
+            .recv()
+            .await
+            .expect("exhausted user clear frame");
+        let WsMessage::Text(frame) = frame else {
+            panic!("expected text frame");
+        };
+        assert!(frame.contains("\"status\",\"disabled\""));
+        assert!(frame.contains("\"scope\",\"communities\""));
         let frame = eligible_rx.recv().await.expect("live disable frame");
         let WsMessage::Text(frame) = frame else {
             panic!("expected text frame");
         };
         assert!(frame.contains("\"status\",\"disabled\""));
         assert!(frame.contains("\"scope\",\"communities\""));
-        assert!(exhausted_rx.try_recv().is_err());
         assert!(excluded_rx.try_recv().is_err());
     }
 }

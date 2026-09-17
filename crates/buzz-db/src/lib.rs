@@ -80,7 +80,8 @@ pub use event::{EventQuery, DEFAULT_MAX_PAGE_LIMIT};
 pub use reaction::ReactionEventInsertOutcome;
 pub use relay_banners::{
     RelayBannerDismissOutcome, RelayBannerRecord, RelayBannerScope, RelayBannerSeverity,
-    RelayBannerTargetScope, RelayBannerUpsert, RelayBannerViewOutcome, MAX_BANNER_MESSAGE_CHARS,
+    RelayBannerTargetScope, RelayBannerUpsert, RelayBannerUpsertOutcome, RelayBannerViewOutcome,
+    MAX_BANNER_MESSAGE_CHARS,
 };
 pub use reminder::DueReminder;
 pub use usage::UsageMetricsLeader;
