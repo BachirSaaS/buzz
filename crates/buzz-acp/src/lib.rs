@@ -2804,14 +2804,17 @@ async fn tokio_main() -> Result<()> {
     let _isolated_turn_task =
         if let Some(socket) = std::env::var_os("BUZZ_ACP_ISOLATED_TURN_SOCKET") {
             let path = std::path::PathBuf::from(socket);
+            // A requested endpoint is part of startup's contract: binding and
+            // permissions must succeed before direct relay service continues.
+            let listener = isolated_turn::bind(&path).await?;
             let startup = Arc::new(PoolStartup::single_from_config(&config));
             let isolated_ctx = ctx.clone();
             let max_ms = config.max_turn_duration_secs.saturating_mul(1000);
             Some(tokio::spawn(async move {
-                let result = isolated_turn::serve(&path, max_ms, move |request| {
+                let result = isolated_turn::serve(listener, max_ms, move |request, cancel| {
                     let startup = startup.clone();
                     let ctx = isolated_ctx.clone();
-                    async move { execute_isolated_turn(&startup, &ctx, request).await }
+                    async move { execute_isolated_turn(&startup, &ctx, request, cancel).await }
                 })
                 .await;
                 if let Err(error) = result {
@@ -5500,6 +5503,7 @@ async fn execute_isolated_turn(
     startup: &PoolStartup,
     ctx: &PromptContext,
     request: isolated_turn::ExecuteRequest,
+    cancel: tokio::sync::oneshot::Receiver<()>,
 ) -> Result<Option<String>> {
     let (acp, protocol_version, agent_name) = spawn_and_init(
         &startup.command,
@@ -5525,7 +5529,8 @@ async fn execute_isolated_turn(
         protocol_version,
     };
     let duration = Duration::from_millis(request.deadline_ms);
-    let result = pool::run_isolated_prompt(&mut agent, ctx, &request.prompt, duration).await;
+    let result =
+        pool::run_isolated_prompt(&mut agent, ctx, &request.prompt, duration, cancel).await;
     agent.acp.shutdown().await;
     let stop = match result {
         Ok(stop) => stop,

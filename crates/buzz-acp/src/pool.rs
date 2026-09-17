@@ -1761,6 +1761,7 @@ pub(crate) async fn run_isolated_prompt(
     ctx: &PromptContext,
     prompt: &str,
     max_duration: Duration,
+    cancel: tokio::sync::oneshot::Receiver<()>,
 ) -> Result<StopReason, AcpError> {
     let session_id = create_session_and_apply_model(
         agent,
@@ -1775,9 +1776,23 @@ pub(crate) async fn run_isolated_prompt(
         },
     )
     .await?;
+    let cancelled = {
+        let prompt = agent.acp.session_prompt_with_idle_timeout(
+            &session_id,
+            prompt,
+            ctx.idle_timeout,
+            max_duration,
+        );
+        tokio::pin!(prompt);
+        tokio::select! {
+            result = &mut prompt => return result,
+            _ = cancel => true,
+        }
+    };
+    debug_assert!(cancelled);
     agent
         .acp
-        .session_prompt_with_idle_timeout(&session_id, prompt, ctx.idle_timeout, max_duration)
+        .cancel_with_cleanup_grace(&session_id, Duration::from_secs(5))
         .await
 }
 
