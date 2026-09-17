@@ -5500,7 +5500,7 @@ async fn execute_isolated_turn(
     startup: &PoolStartup,
     ctx: &PromptContext,
     request: isolated_turn::ExecuteRequest,
-) -> Result<String> {
+) -> Result<Option<String>> {
     let (acp, protocol_version, agent_name) = spawn_and_init(
         &startup.command,
         &startup.args,
@@ -5527,15 +5527,22 @@ async fn execute_isolated_turn(
     let duration = Duration::from_millis(request.deadline_ms);
     let result = pool::run_isolated_prompt(&mut agent, ctx, &request.prompt, duration).await;
     agent.acp.shutdown().await;
-    let stop = result.map_err(|error| anyhow::anyhow!(error))?;
+    let stop = match result {
+        Ok(stop) => stop,
+        Err(
+            acp::AcpError::IdleTimeout(_)
+            | acp::AcpError::HardTimeout { .. }
+            | acp::AcpError::CancelDrainTimeout(_),
+        ) => return Ok(None),
+        Err(error) => return Err(anyhow::anyhow!(error)),
+    };
     Ok(match stop {
-        acp::StopReason::EndTurn => "end_turn",
-        acp::StopReason::Cancelled => "cancelled",
-        acp::StopReason::MaxTokens => "max_tokens",
-        acp::StopReason::MaxTurnRequests => "max_turn_requests",
-        acp::StopReason::Refusal => "refusal",
-    }
-    .to_string())
+        acp::StopReason::Cancelled => None,
+        acp::StopReason::EndTurn => Some("end_turn".to_string()),
+        acp::StopReason::MaxTokens => Some("max_tokens".to_string()),
+        acp::StopReason::MaxTurnRequests => Some("max_turn_requests".to_string()),
+        acp::StopReason::Refusal => Some("refusal".to_string()),
+    })
 }
 
 async fn initialize_agent_pool(

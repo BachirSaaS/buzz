@@ -28,9 +28,15 @@ pub(crate) struct ExecuteRequest {
 #[derive(Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub(crate) enum ExecuteResult {
-    Completed { stop_reason: String },
+    Completed {
+        #[serde(rename = "stopReason")]
+        stop_reason: String,
+    },
     Cancelled,
-    Failed { retryable: bool, message: String },
+    Failed {
+        retryable: bool,
+        message: String,
+    },
     Busy,
 }
 
@@ -41,7 +47,7 @@ pub(crate) async fn serve<F, Fut>(
 ) -> anyhow::Result<()>
 where
     F: Fn(ExecuteRequest) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = anyhow::Result<String>> + Send + 'static,
+    Fut: Future<Output = anyhow::Result<Option<String>>> + Send + 'static,
 {
     validate_parent(path)?;
     if tokio::fs::symlink_metadata(path).await.is_ok() {
@@ -76,9 +82,9 @@ async fn handle<F, Fut>(
 ) -> anyhow::Result<()>
 where
     F: Fn(ExecuteRequest) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = anyhow::Result<String>> + Send + 'static,
+    Fut: Future<Output = anyhow::Result<Option<String>>> + Send + 'static,
 {
-    let request: ExecuteRequest = read_frame(&mut stream).await?;
+    let mut request: ExecuteRequest = read_frame(&mut stream).await?;
     if request.version != 1
         || request.request_id.is_empty()
         || request.prompt.is_empty()
@@ -96,15 +102,15 @@ where
     let Ok(_permit) = active.try_acquire_owned() else {
         return write_frame(&mut stream, &ExecuteResult::Busy).await;
     };
-    let deadline = std::time::Duration::from_millis(request.deadline_ms.min(max_ms));
+    request.deadline_ms = request.deadline_ms.min(max_ms);
     tracing::info!(request_id = %request.request_id, "isolated turn started");
-    let result = match tokio::time::timeout(deadline, execute(request)).await {
-        Ok(Ok(stop_reason)) => ExecuteResult::Completed { stop_reason },
-        Ok(Err(error)) => ExecuteResult::Failed {
+    let result = match execute(request).await {
+        Ok(Some(stop_reason)) => ExecuteResult::Completed { stop_reason },
+        Ok(None) => ExecuteResult::Cancelled,
+        Err(error) => ExecuteResult::Failed {
             retryable: true,
             message: bounded(&error.to_string()),
         },
-        Err(_) => ExecuteResult::Cancelled,
     };
     write_frame(&mut stream, &result).await
 }
@@ -149,4 +155,45 @@ fn validate_parent(path: &Path) -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn version_one_request_rejects_configuration_fields() {
+        let valid = br#"{"version":1,"requestId":"r1","prompt":"work\nnow","deadlineMs":5000}"#;
+        let request: ExecuteRequest = serde_json::from_slice(valid).expect("valid v1 request");
+        assert_eq!(request.request_id, "r1");
+        assert_eq!(request.prompt, "work\nnow");
+        let selected_process =
+            br#"{"version":1,"requestId":"r1","prompt":"work","deadlineMs":5000,"command":"sh"}"#;
+        assert!(serde_json::from_slice::<ExecuteRequest>(selected_process).is_err());
+    }
+
+    #[test]
+    fn terminal_result_has_fixed_tagged_shape() {
+        assert_eq!(
+            serde_json::to_value(ExecuteResult::Completed {
+                stop_reason: "end_turn".into()
+            })
+            .expect("serialize result"),
+            serde_json::json!({"kind":"completed","stopReason":"end_turn"})
+        );
+        assert_eq!(
+            serde_json::to_value(ExecuteResult::Failed {
+                retryable: true,
+                message: "provider unavailable".into()
+            })
+            .expect("serialize result"),
+            serde_json::json!({"kind":"failed","retryable":true,"message":"provider unavailable"})
+        );
+    }
+
+    #[test]
+    fn error_text_is_bounded_by_characters() {
+        let message = "é".repeat(MAX_ERROR_CHARS + 1);
+        assert_eq!(bounded(&message).chars().count(), MAX_ERROR_CHARS);
+    }
 }
