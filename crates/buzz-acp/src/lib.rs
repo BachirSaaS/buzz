@@ -4,6 +4,7 @@ mod acp;
 mod config;
 mod engram_fetch;
 mod filter;
+mod isolated_turn;
 mod observer;
 mod pool;
 mod pool_lifecycle;
@@ -2800,6 +2801,27 @@ async fn tokio_main() -> Result<()> {
         relay_url: config.relay_url.clone(),
     });
 
+    let _isolated_turn_task =
+        if let Some(socket) = std::env::var_os("BUZZ_ACP_ISOLATED_TURN_SOCKET") {
+            let path = std::path::PathBuf::from(socket);
+            let startup = Arc::new(PoolStartup::single_from_config(&config));
+            let isolated_ctx = ctx.clone();
+            let max_ms = config.max_turn_duration_secs.saturating_mul(1000);
+            Some(tokio::spawn(async move {
+                let result = isolated_turn::serve(&path, max_ms, move |request| {
+                    let startup = startup.clone();
+                    let ctx = isolated_ctx.clone();
+                    async move { execute_isolated_turn(&startup, &ctx, request).await }
+                })
+                .await;
+                if let Err(error) = result {
+                    tracing::error!("isolated-turn endpoint stopped: {error}");
+                }
+            }))
+        } else {
+            None
+        };
+
     if !config.memory_enabled {
         tracing::info!(
             target: "engram::core",
@@ -5441,6 +5463,7 @@ async fn shutdown_agent_pool(pool: &mut AgentPool) {
     }
 }
 
+#[derive(Clone)]
 struct PoolStartup {
     agents: u32,
     command: String,
@@ -5453,6 +5476,12 @@ struct PoolStartup {
 }
 
 impl PoolStartup {
+    fn single_from_config(config: &Config) -> Self {
+        let mut startup = Self::from_config(config, None);
+        startup.agents = 1;
+        startup
+    }
+
     fn from_config(config: &Config, observer: Option<observer::ObserverHandle>) -> Self {
         Self {
             agents: config.agents,
@@ -5465,6 +5494,48 @@ impl PoolStartup {
             observer,
         }
     }
+}
+
+async fn execute_isolated_turn(
+    startup: &PoolStartup,
+    ctx: &PromptContext,
+    request: isolated_turn::ExecuteRequest,
+) -> Result<String> {
+    let (acp, protocol_version, agent_name) = spawn_and_init(
+        &startup.command,
+        &startup.args,
+        &startup.extra_env,
+        startup.has_generated_codex_config,
+        0,
+        None,
+    )
+    .await?;
+    let mut agent = OwnedAgent {
+        index: 0,
+        acp,
+        state: SessionState::default(),
+        model_capabilities: None,
+        desired_model: startup.model.clone(),
+        model_overridden: false,
+        desired_model_request_id: None,
+        desired_model_pending_ack: false,
+        startup_effort: startup.effort_level.clone(),
+        agent_name,
+        goose_system_prompt_supported: None,
+        protocol_version,
+    };
+    let duration = Duration::from_millis(request.deadline_ms);
+    let result = pool::run_isolated_prompt(&mut agent, ctx, &request.prompt, duration).await;
+    agent.acp.shutdown().await;
+    let stop = result.map_err(|error| anyhow::anyhow!(error))?;
+    Ok(match stop {
+        acp::StopReason::EndTurn => "end_turn",
+        acp::StopReason::Cancelled => "cancelled",
+        acp::StopReason::MaxTokens => "max_tokens",
+        acp::StopReason::MaxTurnRequests => "max_turn_requests",
+        acp::StopReason::Refusal => "refusal",
+    }
+    .to_string())
 }
 
 async fn initialize_agent_pool(

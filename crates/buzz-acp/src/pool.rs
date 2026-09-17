@@ -1754,6 +1754,33 @@ async fn create_session_and_apply_model(
     Ok(resp.session_id)
 }
 
+/// Run one caller-rendered prompt in a fresh initialized agent process.
+/// The caller owns the complete prompt, so this does not fetch relay context.
+pub(crate) async fn run_isolated_prompt(
+    agent: &mut OwnedAgent,
+    ctx: &PromptContext,
+    prompt: &str,
+    max_duration: Duration,
+) -> Result<StopReason, AcpError> {
+    let session_id = create_session_and_apply_model(
+        agent,
+        ctx,
+        None,
+        NewSessionChannelContext {
+            huddle_instructions: None,
+            canvas: None,
+            name: None,
+            scope: None,
+            channel_type: None,
+        },
+    )
+    .await?;
+    agent
+        .acp
+        .session_prompt_with_idle_timeout(&session_id, prompt, ctx.idle_timeout, max_duration)
+        .await
+}
+
 fn mcp_servers_with_git_origin(
     servers: &[McpServer],
     channel_id: Option<Uuid>,
