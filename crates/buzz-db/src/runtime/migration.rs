@@ -493,6 +493,7 @@ mod postgres_tests {
             "relay_banners",
             "relay_banner_communities",
             "relay_banner_user_state",
+            "relay_banner_view_acks",
         ] {
             if normalized[insert_pos..].contains(&format!("'{value}'")) {
                 globals.insert(value.to_owned());
@@ -1833,6 +1834,7 @@ mod postgres_tests {
         expected_fences.remove("rate_limit_violations");
         expected_fences.insert("relay_banner_communities".to_owned());
         expected_fences.insert("relay_banner_user_state".to_owned());
+        expected_fences.insert("relay_banner_view_acks".to_owned());
         assert_eq!(
             expected_fences, schema.fence_attachments,
             "write-fence attachment targets differ after recovery policy"
@@ -2275,6 +2277,7 @@ mod postgres_tests {
             "relay_banners",
             "relay_banner_communities",
             "relay_banner_user_state",
+            "relay_banner_view_acks",
         ] {
             assert_eq!(
                 columns(&desired, table).await,

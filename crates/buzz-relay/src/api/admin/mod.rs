@@ -7,6 +7,7 @@
 mod auth;
 mod error;
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use auth::{
@@ -568,13 +569,16 @@ async fn upsert_banner(
         }
         buzz_db::RelayBannerScope::AllCommunities
     } else {
-        let ids = body.community_ids.unwrap_or_default();
+        let mut ids = body.community_ids.unwrap_or_default();
+        ids.sort_unstable();
+        ids.dedup();
         if ids.is_empty() {
             return Err(ApiError::bad_request(
                 "invalid_scope",
                 "communityIds must be non-empty when targetScope is communities",
             ));
         }
+        validate_active_banner_communities(&state, &ids).await?;
         buzz_db::RelayBannerScope::Communities(
             ids.into_iter()
                 .map(buzz_core::CommunityId::from_uuid)
@@ -593,6 +597,7 @@ async fn upsert_banner(
         })
         .await
         .map_err(map_banner_db_error)?;
+    fan_out_relay_banner_update(&state, &banner, false).await;
     Ok(Json(AdminBannerResponse::from(banner)))
 }
 
@@ -613,11 +618,112 @@ async fn disable_banner(
         .await?,
     )?;
     require_operator(&principal)?;
-    let disabled = state
+    let disabled_banner = state
         .db
         .admin_disable_active_relay_banner(&principal.pubkey)
         .await?;
-    Ok(Json(serde_json::json!({ "disabled": disabled })))
+    if let Some(banner) = disabled_banner.as_ref() {
+        fan_out_relay_banner_update(&state, banner, true).await;
+    }
+    Ok(Json(
+        serde_json::json!({ "disabled": disabled_banner.is_some() }),
+    ))
+}
+
+async fn validate_active_banner_communities(
+    state: &crate::state::AppState,
+    ids: &[Uuid],
+) -> Result<(), ApiError> {
+    let active = state.db.admin_list_banner_communities().await?;
+    let active: HashSet<Uuid> = active
+        .into_iter()
+        .map(|community| *community.id.as_uuid())
+        .collect();
+    if ids.iter().all(|id| active.contains(id)) {
+        Ok(())
+    } else {
+        Err(ApiError::bad_request(
+            "invalid_scope",
+            "communityIds must refer to active communities",
+        ))
+    }
+}
+
+async fn fan_out_relay_banner_update(
+    state: &crate::state::AppState,
+    banner: &buzz_db::RelayBannerRecord,
+    disabled: bool,
+) {
+    let created_at = nostr::Timestamp::from(banner.updated_at.timestamp().max(0) as u64);
+    let event = if disabled {
+        match crate::api::banners::banner_disabled_event(
+            &state.relay_keypair,
+            banner,
+            Some(created_at),
+        ) {
+            Ok(event) => event,
+            Err(error) => {
+                tracing::warn!("Relay banner disable event signing failed: {error}");
+                return;
+            }
+        }
+    } else {
+        match crate::api::banners::banner_event(&state.relay_keypair, banner, Some(created_at)) {
+            Ok(event) => event,
+            Err(error) => {
+                tracing::warn!("Relay banner event signing failed: {error}");
+                return;
+            }
+        }
+    };
+    publish_relay_banner_update(state, banner, &event).await;
+    crate::handlers::event::fan_out_relay_banner_event(state, banner, &event, !disabled).await;
+}
+
+async fn publish_relay_banner_update(
+    state: &crate::state::AppState,
+    banner: &buzz_db::RelayBannerRecord,
+    event: &nostr::Event,
+) {
+    let communities = if banner.target_all_communities {
+        match state.db.admin_list_banner_communities().await {
+            Ok(communities) => communities
+                .into_iter()
+                .map(|community| community.id)
+                .collect(),
+            Err(error) => {
+                tracing::warn!("Relay banner community list failed during fan-out: {error}");
+                return;
+            }
+        }
+    } else {
+        banner.community_ids.clone()
+    };
+    for community_id in communities {
+        let Some(host) = state
+            .db
+            .lookup_community_host(community_id)
+            .await
+            .unwrap_or_else(|error| {
+                tracing::warn!(%community_id, "Relay banner community host lookup failed: {error}");
+                None
+            })
+        else {
+            continue;
+        };
+        let tenant = buzz_core::TenantContext::resolved(community_id, host);
+        state.mark_local_event(community_id, &event.id);
+        if let Err(error) = state
+            .pubsub
+            .publish_event(&tenant, buzz_pubsub::EventTopic::Global, event)
+            .await
+        {
+            state
+                .local_event_ids
+                .invalidate(&(community_id, event.id.to_bytes()));
+            tracing::warn!(%community_id, "Relay banner Redis publish failed: {error}");
+        }
+    }
 }
 
 fn map_banner_db_error(error: buzz_db::DbError) -> ApiError {

@@ -222,6 +222,15 @@ pub async fn handle_req(
     }
 
     if filters_are_relay_banner_only(&filters) {
+        register_subscription(
+            &state,
+            &conn,
+            conn_id,
+            &sub_id,
+            &filters,
+            authorized_requested_channels.as_ref(),
+        )
+        .await;
         match crate::api::banners::active_banner_event_for_user(&state, &conn.tenant, &pubkey_bytes)
             .await
         {
@@ -306,46 +315,15 @@ pub async fn handle_req(
         return;
     }
 
-    {
-        let mut subs = conn.subscriptions.lock().await;
-        subs.insert(sub_id.clone(), filters.clone());
-    }
-
-    let replaced = if let Some(channel_ids) = authorized_requested_channels.as_ref() {
-        state.sub_registry.register_channels_scoped(
-            conn.tenant.community(),
-            conn_id,
-            sub_id.clone(),
-            filters.clone(),
-            channel_ids.clone(),
-        )
-    } else {
-        state.sub_registry.register_scoped(
-            conn.tenant.community(),
-            conn_id,
-            sub_id.clone(),
-            filters.clone(),
-            None,
-        )
-    };
-    if let Some(replaced) = replaced {
-        release_subscription_topics(&state, &conn.tenant, &replaced.scope).await;
-    }
-    if let Some(channel_ids) = authorized_requested_channels.as_ref() {
-        for &channel_id in channel_ids {
-            state
-                .pubsub
-                .retain_topic(&conn.tenant, EventTopic::Channel(channel_id))
-                .await;
-        }
-    } else {
-        state
-            .pubsub
-            .retain_topic(&conn.tenant, EventTopic::Global)
-            .await;
-    }
-
-    debug!(conn_id = %conn_id, sub_id = %sub_id, "Subscription registered");
+    register_subscription(
+        &state,
+        &conn,
+        conn_id,
+        &sub_id,
+        &filters,
+        authorized_requested_channels.as_ref(),
+    )
+    .await;
 
     // NIP-01 OR semantics: execute one DB query per filter and deduplicate results
     // by event ID. Collapsing all filters into a single query would merge their
@@ -1169,6 +1147,56 @@ pub(crate) fn extract_channel_ids_from_filters(filters: &[Filter]) -> Option<Vec
         }
     }
     Some(channel_ids)
+}
+
+async fn register_subscription(
+    state: &AppState,
+    conn: &ConnectionState,
+    conn_id: uuid::Uuid,
+    sub_id: &str,
+    filters: &[Filter],
+    authorized_requested_channels: Option<&Vec<uuid::Uuid>>,
+) {
+    {
+        let mut subs = conn.subscriptions.lock().await;
+        subs.insert(sub_id.to_owned(), filters.to_vec());
+    }
+
+    let replaced = if let Some(channel_ids) = authorized_requested_channels {
+        state.sub_registry.register_channels_scoped(
+            conn.tenant.community(),
+            conn_id,
+            sub_id.to_owned(),
+            filters.to_vec(),
+            channel_ids.clone(),
+        )
+    } else {
+        state.sub_registry.register_scoped(
+            conn.tenant.community(),
+            conn_id,
+            sub_id.to_owned(),
+            filters.to_vec(),
+            None,
+        )
+    };
+    if let Some(replaced) = replaced {
+        release_subscription_topics(state, &conn.tenant, &replaced.scope).await;
+    }
+    if let Some(channel_ids) = authorized_requested_channels {
+        for &channel_id in channel_ids {
+            state
+                .pubsub
+                .retain_topic(&conn.tenant, EventTopic::Channel(channel_id))
+                .await;
+        }
+    } else {
+        state
+            .pubsub
+            .retain_topic(&conn.tenant, EventTopic::Global)
+            .await;
+    }
+
+    debug!(conn_id = %conn_id, sub_id = %sub_id, "Subscription registered");
 }
 
 fn filters_are_huddle_liveness_only(filters: &[Filter]) -> bool {

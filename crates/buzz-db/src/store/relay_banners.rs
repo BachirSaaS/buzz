@@ -9,6 +9,7 @@ use buzz_datastore_tracing::datastore_span;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{Postgres, Row as _, Transaction};
+use std::collections::HashSet;
 use uuid::Uuid;
 
 use crate::{Db, Result};
@@ -139,6 +140,8 @@ pub enum RelayBannerViewOutcome {
     Accepted {
         /// Display count after accepting this view.
         display_count: i32,
+        /// True only when this acknowledgement consumed a new display.
+        changed: bool,
     },
     /// The banner was already permanently dismissed by this user.
     Dismissed,
@@ -188,6 +191,12 @@ impl RelayBannerUpsert {
                     "relay banner community scope must be non-empty".to_owned(),
                 ));
             }
+            let mut seen = HashSet::with_capacity(ids.len());
+            if ids.iter().any(|id| !seen.insert(*id)) {
+                return Err(crate::DbError::InvalidData(
+                    "relay banner community scope must not contain duplicates".to_owned(),
+                ));
+            }
         }
         Ok(())
     }
@@ -203,16 +212,18 @@ async fn acquire_banner_lock(tx: &mut Transaction<'_, Postgres>) -> Result<()> {
 async fn banner_internal_id_for_public_id(
     tx: &mut Transaction<'_, Postgres>,
     public_id: Uuid,
+    require_active: bool,
 ) -> Result<Option<i64>> {
     sqlx::query_scalar::<_, i64>(
         r#"
         SELECT id
         FROM relay_banners
         WHERE public_id = $1
-          AND disabled_at IS NULL
+          AND (NOT $2 OR disabled_at IS NULL)
         "#,
     )
     .bind(public_id)
+    .bind(require_active)
     .fetch_optional(&mut **tx)
     .await
     .map_err(Into::into)
@@ -244,6 +255,47 @@ async fn banner_targets_community(
     )
     .bind(banner_id)
     .bind(community_id.as_uuid())
+    .fetch_one(&mut **tx)
+    .await?;
+    Ok(eligible)
+}
+
+async fn relay_banner_user_eligible_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    banner_id: i64,
+    community_id: CommunityId,
+    pubkey: &[u8],
+    require_active: bool,
+) -> Result<bool> {
+    let eligible = sqlx::query_scalar::<_, bool>(
+        r#"
+        SELECT EXISTS (
+            SELECT 1
+            FROM relay_banners b
+            LEFT JOIN relay_banner_user_state us
+              ON us.banner_id = b.id
+             AND us.community_id = $2
+             AND us.pubkey = $3
+            WHERE b.id = $1
+              AND (NOT $4 OR b.disabled_at IS NULL)
+              AND (
+                    b.target_all_communities
+                 OR EXISTS (
+                        SELECT 1
+                        FROM relay_banner_communities bc
+                        WHERE bc.banner_id = b.id
+                          AND bc.community_id = $2
+                    )
+              )
+              AND us.dismissed_at IS NULL
+              AND COALESCE(us.display_count, 0) < b.max_displays
+        )
+        "#,
+    )
+    .bind(banner_id)
+    .bind(community_id.as_uuid())
+    .bind(pubkey)
+    .bind(require_active)
     .fetch_one(&mut **tx)
     .await?;
     Ok(eligible)
@@ -316,6 +368,44 @@ impl Db {
         .fetch_all(&mut *connection)
         .await?;
         rows.into_iter().map(row_to_banner).collect()
+    }
+
+    /// Returns a banner by its public id, including disabled history.
+    #[datastore_span(name = "relay_banner_by_public_id", system = "postgresql")]
+    pub async fn relay_banner_by_public_id(
+        &self,
+        public_id: Uuid,
+    ) -> Result<Option<RelayBannerRecord>> {
+        let mut connection = crate::observability::acquire_writer(
+            &self.pool,
+            crate::observability::WriterOperation::Authorization,
+        )
+        .await?;
+        let row = sqlx::query(
+            r#"
+            SELECT
+                b.id,
+                b.public_id,
+                b.severity,
+                b.message,
+                b.max_displays,
+                b.target_all_communities,
+                b.created_by,
+                b.created_at,
+                b.updated_at,
+                b.disabled_at,
+                COALESCE(array_agg(bc.community_id ORDER BY bc.community_id)
+                    FILTER (WHERE bc.community_id IS NOT NULL), ARRAY[]::uuid[]) AS community_ids
+            FROM relay_banners b
+            LEFT JOIN relay_banner_communities bc ON bc.banner_id = b.id
+            WHERE b.public_id = $1
+            GROUP BY b.id
+            "#,
+        )
+        .bind(public_id)
+        .fetch_optional(&mut *connection)
+        .await?;
+        row.map(row_to_banner).transpose()
     }
 
     /// Returns the currently active deployment banner, if any.
@@ -439,7 +529,10 @@ impl Db {
 
     /// Disables the currently active deployment banner, preserving history and state.
     #[datastore_span(name = "admin_disable_active_relay_banner", system = "postgresql")]
-    pub async fn admin_disable_active_relay_banner(&self, actor_pubkey: &[u8]) -> Result<bool> {
+    pub async fn admin_disable_active_relay_banner(
+        &self,
+        actor_pubkey: &[u8],
+    ) -> Result<Option<RelayBannerRecord>> {
         let connection = crate::observability::acquire_writer(
             &self.pool,
             crate::observability::WriterOperation::Authorization,
@@ -447,18 +540,79 @@ impl Db {
         .await?;
         let mut tx = sqlx::Transaction::begin(connection, None).await?;
         acquire_banner_lock(&mut tx).await?;
-        let result = sqlx::query(
+        let Some(active) = sqlx::query(
+            r#"
+            SELECT
+                b.id,
+                b.public_id,
+                b.severity,
+                b.message,
+                b.max_displays,
+                b.target_all_communities,
+                b.created_by,
+                b.created_at,
+                b.updated_at,
+                b.disabled_at,
+                COALESCE(array_agg(bc.community_id ORDER BY bc.community_id)
+                    FILTER (WHERE bc.community_id IS NOT NULL), ARRAY[]::uuid[]) AS community_ids
+            FROM relay_banners b
+            LEFT JOIN relay_banner_communities bc ON bc.banner_id = b.id
+            WHERE b.disabled_at IS NULL
+            GROUP BY b.id
+            ORDER BY b.id DESC
+            LIMIT 1
+            "#,
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        else {
+            tx.commit().await?;
+            return Ok(None);
+        };
+        let mut active = row_to_banner(active)?;
+        let updated = sqlx::query(
             r#"
             UPDATE relay_banners
             SET disabled_at = now(), disabled_by = $1, updated_at = now(), updated_by = $1
-            WHERE disabled_at IS NULL
+            WHERE id = $2 AND disabled_at IS NULL
+            RETURNING updated_at, disabled_at
             "#,
         )
         .bind(actor_pubkey)
-        .execute(&mut *tx)
+        .bind(active.id)
+        .fetch_one(&mut *tx)
+        .await?;
+        active.updated_at = updated.try_get("updated_at")?;
+        active.disabled_at = updated.try_get("disabled_at")?;
+        tx.commit().await?;
+        Ok(Some(active))
+    }
+
+    /// Returns whether this user would receive the banner in this community.
+    #[datastore_span(name = "relay_banner_user_eligible", system = "postgresql")]
+    pub async fn relay_banner_user_eligible(
+        &self,
+        banner_id: i64,
+        community_id: CommunityId,
+        pubkey: &[u8],
+        require_active: bool,
+    ) -> Result<bool> {
+        let connection = crate::observability::acquire_writer(
+            &self.pool,
+            crate::observability::WriterOperation::Authorization,
+        )
+        .await?;
+        let mut tx = sqlx::Transaction::begin(connection, None).await?;
+        let eligible = relay_banner_user_eligible_in_tx(
+            &mut tx,
+            banner_id,
+            community_id,
+            pubkey,
+            require_active,
+        )
         .await?;
         tx.commit().await?;
-        Ok(result.rows_affected() > 0)
+        Ok(eligible)
     }
 
     /// Resolves the active banner eligible for this user in this community.
@@ -522,6 +676,7 @@ impl Db {
         community_id: CommunityId,
         public_id: Uuid,
         pubkey: &[u8],
+        view_id: Uuid,
     ) -> Result<RelayBannerViewOutcome> {
         let connection = crate::observability::acquire_writer(
             &self.pool,
@@ -529,13 +684,68 @@ impl Db {
         )
         .await?;
         let mut tx = sqlx::Transaction::begin(connection, None).await?;
-        let Some(banner_id) = banner_internal_id_for_public_id(&mut tx, public_id).await? else {
+        let Some(banner_id) = banner_internal_id_for_public_id(&mut tx, public_id, true).await?
+        else {
             tx.rollback().await?;
             return Ok(RelayBannerViewOutcome::NotEligible);
         };
         if !banner_targets_community(&mut tx, banner_id, community_id).await? {
             tx.rollback().await?;
             return Ok(RelayBannerViewOutcome::NotEligible);
+        }
+
+        let inserted_view = sqlx::query_scalar::<_, bool>(
+            r#"
+            INSERT INTO relay_banner_view_acks
+                (banner_id, community_id, pubkey, view_id)
+            SELECT $1, $2, $3, $4
+            WHERE EXISTS (
+                SELECT 1
+                FROM relay_banners b
+                WHERE b.id = $1
+                  AND b.disabled_at IS NULL
+                  AND (b.target_all_communities OR EXISTS (
+                        SELECT 1
+                        FROM relay_banner_communities bc
+                        WHERE bc.banner_id = b.id AND bc.community_id = $2
+                  ))
+            )
+            ON CONFLICT (banner_id, community_id, pubkey, view_id) DO NOTHING
+            RETURNING TRUE
+            "#,
+        )
+        .bind(banner_id)
+        .bind(community_id.as_uuid())
+        .bind(pubkey)
+        .bind(view_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .unwrap_or(false);
+
+        if !inserted_view {
+            let state = sqlx::query(
+                r#"
+                SELECT us.display_count, us.dismissed_at IS NOT NULL AS dismissed
+                FROM relay_banner_user_state us
+                WHERE us.banner_id = $1 AND us.community_id = $2 AND us.pubkey = $3
+                "#,
+            )
+            .bind(banner_id)
+            .bind(community_id.as_uuid())
+            .bind(pubkey)
+            .fetch_optional(&mut *tx)
+            .await?;
+            tx.commit().await?;
+            return Ok(match state {
+                Some(row) if row.try_get::<bool, _>("dismissed")? => {
+                    RelayBannerViewOutcome::Dismissed
+                }
+                Some(row) => RelayBannerViewOutcome::Accepted {
+                    display_count: row.try_get("display_count")?,
+                    changed: false,
+                },
+                None => RelayBannerViewOutcome::NotEligible,
+            });
         }
 
         let row = sqlx::query(
@@ -568,6 +778,7 @@ impl Db {
         let outcome = if let Some(row) = row {
             RelayBannerViewOutcome::Accepted {
                 display_count: row.try_get("display_count")?,
+                changed: true,
             }
         } else {
             let state = sqlx::query(
@@ -592,6 +803,13 @@ impl Db {
                 None => RelayBannerViewOutcome::NotEligible,
             }
         };
+        if !matches!(
+            outcome,
+            RelayBannerViewOutcome::Accepted { changed: true, .. }
+        ) {
+            tx.rollback().await?;
+            return Ok(outcome);
+        }
         tx.commit().await?;
         Ok(outcome)
     }
@@ -610,7 +828,8 @@ impl Db {
         )
         .await?;
         let mut tx = sqlx::Transaction::begin(connection, None).await?;
-        let Some(banner_id) = banner_internal_id_for_public_id(&mut tx, public_id).await? else {
+        let Some(banner_id) = banner_internal_id_for_public_id(&mut tx, public_id, true).await?
+        else {
             tx.rollback().await?;
             return Ok(RelayBannerDismissOutcome::NotEligible);
         };
@@ -686,15 +905,19 @@ mod tests {
         Db::from_pool(pool)
     }
 
-    async fn make_community(pool: &PgPool) -> CommunityId {
+    pub(crate) async fn insert_test_community(pool: &PgPool, host_prefix: &str) -> CommunityId {
         let id = Uuid::new_v4();
         sqlx::query("INSERT INTO communities (id, host) VALUES ($1, $2)")
             .bind(id)
-            .bind(format!("banner-{}.example", id.simple()))
+            .bind(format!("{host_prefix}-{}.example", id.simple()))
             .execute(pool)
             .await
             .expect("insert community");
         CommunityId::from_uuid(id)
+    }
+
+    async fn make_community(pool: &PgPool) -> CommunityId {
+        insert_test_community(pool, "banner").await
     }
 
     fn actor(byte: u8) -> Vec<u8> {
@@ -772,6 +995,60 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "requires Postgres"]
+    async fn duplicate_community_scope_is_rejected() {
+        let db = setup_db().await;
+        let community = make_community(&db.pool).await;
+        let result = db
+            .admin_upsert_relay_banner(RelayBannerUpsert {
+                severity: RelayBannerSeverity::Info,
+                message: "duplicates".to_owned(),
+                max_displays: 1,
+                scope: RelayBannerScope::Communities(vec![community, community]),
+                actor_pubkey: actor(15),
+            })
+            .await;
+
+        assert!(
+            matches!(result, Err(crate::DbError::InvalidData(message)) if message.contains("duplicates"))
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires Postgres"]
+    async fn disabled_banner_remains_eligible_when_active_requirement_is_lifted() {
+        let db = setup_db().await;
+        let community = make_community(&db.pool).await;
+        let user = actor(16);
+        let banner = db
+            .admin_upsert_relay_banner(RelayBannerUpsert {
+                severity: RelayBannerSeverity::Warning,
+                message: "disable eligibility".to_owned(),
+                max_displays: 2,
+                scope: RelayBannerScope::AllCommunities,
+                actor_pubkey: actor(17),
+            })
+            .await
+            .expect("insert banner");
+        let disabled = db
+            .admin_disable_active_relay_banner(&actor(17))
+            .await
+            .expect("disable banner")
+            .expect("active banner");
+
+        assert_eq!(disabled.id, banner.id);
+        assert!(disabled.disabled_at.is_some());
+        assert!(db
+            .relay_banner_user_eligible(banner.id, community, &user, false)
+            .await
+            .expect("pre-disable eligibility lookup"));
+        assert!(!db
+            .relay_banner_user_eligible(banner.id, community, &user, true)
+            .await
+            .expect("active eligibility lookup"));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires Postgres"]
     async fn view_ack_consumes_display_and_then_exhausts() {
         let db = setup_db().await;
         let community = make_community(&db.pool).await;
@@ -806,13 +1083,16 @@ mod tests {
             "repeated delivery lookups without view ack must not exhaust max_displays"
         );
         assert_eq!(
-            db.ack_relay_banner_view(community, banner.public_id, &user)
+            db.ack_relay_banner_view(community, banner.public_id, &user, Uuid::new_v4())
                 .await
                 .expect("first view"),
-            RelayBannerViewOutcome::Accepted { display_count: 1 }
+            RelayBannerViewOutcome::Accepted {
+                display_count: 1,
+                changed: true
+            }
         );
         assert_eq!(
-            db.ack_relay_banner_view(community, banner.public_id, &user)
+            db.ack_relay_banner_view(community, banner.public_id, &user, Uuid::new_v4())
                 .await
                 .expect("second view"),
             RelayBannerViewOutcome::Exhausted { display_count: 1 }
@@ -822,6 +1102,135 @@ mod tests {
             .await
             .expect("post-exhaust lookup")
             .is_none());
+    }
+
+    #[tokio::test]
+    #[ignore = "requires Postgres"]
+    async fn view_ack_same_key_retry_does_not_consume_again() {
+        let db = setup_db().await;
+        let community = make_community(&db.pool).await;
+        let user = actor(9);
+        let view_id = Uuid::new_v4();
+        let banner = db
+            .admin_upsert_relay_banner(RelayBannerUpsert {
+                severity: RelayBannerSeverity::Info,
+                message: "retry".to_owned(),
+                max_displays: 2,
+                scope: RelayBannerScope::AllCommunities,
+                actor_pubkey: actor(10),
+            })
+            .await
+            .expect("insert banner");
+
+        assert_eq!(
+            db.ack_relay_banner_view(community, banner.public_id, &user, view_id)
+                .await
+                .expect("first view"),
+            RelayBannerViewOutcome::Accepted {
+                display_count: 1,
+                changed: true
+            }
+        );
+        assert_eq!(
+            db.ack_relay_banner_view(community, banner.public_id, &user, view_id)
+                .await
+                .expect("retry view"),
+            RelayBannerViewOutcome::Accepted {
+                display_count: 1,
+                changed: false
+            }
+        );
+        assert!(db
+            .active_relay_banner_for_user(community, &user)
+            .await
+            .expect("still eligible after duplicate")
+            .is_some());
+    }
+
+    #[tokio::test]
+    #[ignore = "requires Postgres"]
+    async fn distinct_view_keys_increment_until_cap() {
+        let db = setup_db().await;
+        let community = make_community(&db.pool).await;
+        let user = actor(11);
+        let banner = db
+            .admin_upsert_relay_banner(RelayBannerUpsert {
+                severity: RelayBannerSeverity::Warning,
+                message: "cap".to_owned(),
+                max_displays: 2,
+                scope: RelayBannerScope::AllCommunities,
+                actor_pubkey: actor(12),
+            })
+            .await
+            .expect("insert banner");
+
+        assert_eq!(
+            db.ack_relay_banner_view(community, banner.public_id, &user, Uuid::new_v4())
+                .await
+                .expect("first view"),
+            RelayBannerViewOutcome::Accepted {
+                display_count: 1,
+                changed: true
+            }
+        );
+        assert_eq!(
+            db.ack_relay_banner_view(community, banner.public_id, &user, Uuid::new_v4())
+                .await
+                .expect("second view"),
+            RelayBannerViewOutcome::Accepted {
+                display_count: 2,
+                changed: true
+            }
+        );
+        assert_eq!(
+            db.ack_relay_banner_view(community, banner.public_id, &user, Uuid::new_v4())
+                .await
+                .expect("third view"),
+            RelayBannerViewOutcome::Exhausted { display_count: 2 }
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires Postgres"]
+    async fn concurrent_same_view_key_consumes_once() {
+        let db = setup_db().await;
+        let community = make_community(&db.pool).await;
+        let user = actor(13);
+        let view_id = Uuid::new_v4();
+        let banner = db
+            .admin_upsert_relay_banner(RelayBannerUpsert {
+                severity: RelayBannerSeverity::Urgent,
+                message: "concurrent".to_owned(),
+                max_displays: 2,
+                scope: RelayBannerScope::AllCommunities,
+                actor_pubkey: actor(14),
+            })
+            .await
+            .expect("insert banner");
+
+        let (first, second) = tokio::join!(
+            db.ack_relay_banner_view(community, banner.public_id, &user, view_id),
+            db.ack_relay_banner_view(community, banner.public_id, &user, view_id),
+        );
+        let changed = [first.expect("first"), second.expect("second")]
+            .into_iter()
+            .filter(|outcome| {
+                matches!(
+                    outcome,
+                    RelayBannerViewOutcome::Accepted { changed: true, .. }
+                )
+            })
+            .count();
+        assert_eq!(changed, 1);
+        assert_eq!(
+            db.ack_relay_banner_view(community, banner.public_id, &user, Uuid::new_v4())
+                .await
+                .expect("second distinct view"),
+            RelayBannerViewOutcome::Accepted {
+                display_count: 2,
+                changed: true
+            }
+        );
     }
 
     #[tokio::test]
@@ -854,7 +1263,7 @@ mod tests {
             RelayBannerDismissOutcome::Dismissed { changed: false }
         );
         assert_eq!(
-            db.ack_relay_banner_view(community, banner.public_id, &user)
+            db.ack_relay_banner_view(community, banner.public_id, &user, Uuid::new_v4())
                 .await
                 .expect("view after dismiss"),
             RelayBannerViewOutcome::Dismissed

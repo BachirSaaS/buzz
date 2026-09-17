@@ -53,10 +53,24 @@ CREATE TABLE relay_banner_user_state (
 CREATE INDEX idx_relay_banner_user_state_pubkey
     ON relay_banner_user_state (community_id, pubkey, banner_id);
 
+CREATE TABLE relay_banner_view_acks (
+    banner_id BIGINT NOT NULL REFERENCES relay_banners(id) ON DELETE CASCADE,
+    community_id UUID NOT NULL REFERENCES communities(id) ON DELETE CASCADE,
+    pubkey BYTEA NOT NULL CHECK (length(pubkey) = 32),
+    view_id UUID NOT NULL,
+    viewed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (banner_id, community_id, pubkey, view_id)
+);
+
+CREATE INDEX idx_relay_banner_view_acks_pubkey
+    ON relay_banner_view_acks (community_id, pubkey, banner_id);
+
 INSERT INTO _operator_global_tables (table_name, reason) VALUES
     ('relay_banners', 'deployment-global operator-configured banner; no community_id intentionally'),
     ('relay_banner_communities', 'deployment-global banner targeting allowlist; community_id is target provenance only'),
-    ('relay_banner_user_state', 'deployment-global per-user banner display state; community_id scopes the targeted impression only');
+    ('relay_banner_user_state', 'deployment-global per-user banner display state; community_id scopes the targeted impression only'),
+    ('relay_banner_view_acks', 'deployment-global per-render banner idempotency keys; community_id scopes the targeted impression only');
 
 SELECT attach_community_write_fence('relay_banner_communities');
 SELECT attach_community_write_fence('relay_banner_user_state');
+SELECT attach_community_write_fence('relay_banner_view_acks');

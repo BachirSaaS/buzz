@@ -11,6 +11,7 @@ use axum::{
 use buzz_core::TenantContext;
 use serde::Serialize;
 use serde_json::Value;
+use uuid::Uuid;
 
 use crate::api::{api_error, bridge, internal_error, relay_members};
 use crate::state::AppState;
@@ -19,6 +20,8 @@ use crate::state::AppState;
 pub(crate) const BANNER_ACTIVE_PATH: &str = "/api/banners/current";
 /// Client route for acknowledging a successful banner render/view.
 pub(crate) const BANNER_VIEW_ROUTE: &str = "/api/banners/{banner_id}/view";
+/// Header carrying a client-stable UUID for idempotent view retries.
+pub(crate) const BANNER_VIEW_ID_HEADER: &str = "x-buzz-banner-view-id";
 /// Client route for dismissing a banner.
 pub(crate) const BANNER_DISMISS_ROUTE: &str = "/api/banners/{banner_id}/dismiss";
 
@@ -43,6 +46,8 @@ pub(crate) struct BannerResponse {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct BannerAckResponse {
     status: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    changed: Option<bool>,
 }
 
 impl From<buzz_db::RelayBannerRecord> for BannerResponse {
@@ -61,6 +66,7 @@ impl From<buzz_db::RelayBannerRecord> for BannerResponse {
 pub(crate) fn banner_event(
     relay_keypair: &nostr::Keys,
     banner: &buzz_db::RelayBannerRecord,
+    created_at: Option<nostr::Timestamp>,
 ) -> Result<nostr::Event, String> {
     let id = banner.public_id.to_string();
     let scope = if banner.target_all_communities {
@@ -80,13 +86,50 @@ pub(crate) fn banner_event(
         nostr::Tag::parse(["d", id.as_str()]).map_err(|e| e.to_string())?,
         nostr::Tag::parse(["scope", scope]).map_err(|e| e.to_string())?,
     ];
-    nostr::EventBuilder::new(
+    let builder = nostr::EventBuilder::new(
         nostr::Kind::Custom(buzz_core::kind::KIND_RELAY_BANNER as u16),
         content,
     )
-    .tags(tags)
-    .sign_with_keys(relay_keypair)
-    .map_err(|e| e.to_string())
+    .tags(tags);
+    let builder = if let Some(created_at) = created_at {
+        builder.custom_created_at(created_at)
+    } else {
+        builder
+    };
+    builder
+        .sign_with_keys(relay_keypair)
+        .map_err(|e| e.to_string())
+}
+
+pub(crate) fn banner_disabled_event(
+    relay_keypair: &nostr::Keys,
+    banner: &buzz_db::RelayBannerRecord,
+    created_at: Option<nostr::Timestamp>,
+) -> Result<nostr::Event, String> {
+    let id = banner.public_id.to_string();
+    let scope = if banner.target_all_communities {
+        "all"
+    } else {
+        "communities"
+    };
+    let tags = vec![
+        nostr::Tag::parse(["d", id.as_str()]).map_err(|e| e.to_string())?,
+        nostr::Tag::parse(["scope", scope]).map_err(|e| e.to_string())?,
+        nostr::Tag::parse(["status", "disabled"]).map_err(|e| e.to_string())?,
+    ];
+    let builder = nostr::EventBuilder::new(
+        nostr::Kind::Custom(buzz_core::kind::KIND_RELAY_BANNER as u16),
+        "",
+    )
+    .tags(tags);
+    let builder = if let Some(created_at) = created_at {
+        builder.custom_created_at(created_at)
+    } else {
+        builder
+    };
+    builder
+        .sign_with_keys(relay_keypair)
+        .map_err(|e| e.to_string())
 }
 
 pub(crate) async fn active_banner_event_for_user(
@@ -102,7 +145,7 @@ pub(crate) async fn active_banner_event_for_user(
     else {
         return Ok(None);
     };
-    banner_event(&state.relay_keypair, &banner).map(Some)
+    banner_event(&state.relay_keypair, &banner, None).map(Some)
 }
 
 pub(crate) async fn get_active_banner(
@@ -144,25 +187,33 @@ pub(crate) async fn ack_banner_view(
     if !body.is_empty() {
         return Err(non_empty_ack_body_error());
     }
+    let view_id = parse_view_id(&headers)?;
     match state
         .db
-        .ack_relay_banner_view(tenant.community(), banner_id, pubkey.as_bytes())
+        .ack_relay_banner_view(tenant.community(), banner_id, pubkey.as_bytes(), view_id)
         .await
         .map_err(|e| internal_error(&format!("banner view ack: {e}")))?
     {
-        buzz_db::RelayBannerViewOutcome::Accepted { .. } => {
-            metrics::counter!(
-                "buzz_relay_banner_views_total",
-                "community" => tenant.host().to_owned()
-            )
-            .increment(1);
-            Ok(Json(BannerAckResponse { status: "accepted" }))
+        buzz_db::RelayBannerViewOutcome::Accepted { changed, .. } => {
+            if changed {
+                metrics::counter!(
+                    "buzz_relay_banner_views_total",
+                    "community" => tenant.host().to_owned()
+                )
+                .increment(1);
+            }
+            Ok(Json(BannerAckResponse {
+                status: "accepted",
+                changed: Some(changed),
+            }))
         }
         buzz_db::RelayBannerViewOutcome::Dismissed => Ok(Json(BannerAckResponse {
             status: "dismissed",
+            changed: None,
         })),
         buzz_db::RelayBannerViewOutcome::Exhausted { .. } => Ok(Json(BannerAckResponse {
             status: "exhausted",
+            changed: None,
         })),
         buzz_db::RelayBannerViewOutcome::NotEligible => Err(api_error(
             axum::http::StatusCode::NOT_FOUND,
@@ -207,6 +258,7 @@ pub(crate) async fn ack_banner_dismiss(
             }
             Ok(Json(BannerAckResponse {
                 status: "dismissed",
+                changed: Some(changed),
             }))
         }
         buzz_db::RelayBannerDismissOutcome::NotEligible => Err(api_error(
@@ -257,6 +309,29 @@ async fn authenticate_client_request(
     ))
 }
 
+fn parse_view_id(headers: &HeaderMap) -> Result<Uuid, (axum::http::StatusCode, Json<Value>)> {
+    let Some(raw) = headers
+        .get(BANNER_VIEW_ID_HEADER)
+        .and_then(|value| value.to_str().ok())
+    else {
+        return Err(invalid_view_id_error());
+    };
+    let Ok(view_id) = Uuid::parse_str(raw) else {
+        return Err(invalid_view_id_error());
+    };
+    if raw != view_id.hyphenated().to_string() || view_id.is_nil() {
+        return Err(invalid_view_id_error());
+    }
+    Ok(view_id)
+}
+
+fn invalid_view_id_error() -> (axum::http::StatusCode, Json<Value>) {
+    api_error(
+        axum::http::StatusCode::BAD_REQUEST,
+        "missing or invalid banner view id",
+    )
+}
+
 fn non_empty_ack_body_error() -> (axum::http::StatusCode, Json<Value>) {
     api_error(
         axum::http::StatusCode::BAD_REQUEST,
@@ -288,7 +363,7 @@ mod tests {
     fn banner_event_uses_published_contract() {
         let keys = nostr::Keys::generate();
         let banner = banner_record(false);
-        let event = banner_event(&keys, &banner).expect("banner event");
+        let event = banner_event(&keys, &banner, None).expect("banner event");
 
         assert_eq!(
             event.kind.as_u16() as u32,
@@ -323,10 +398,43 @@ mod tests {
     }
 
     #[test]
+    fn disabled_banner_event_uses_clear_contract() {
+        let keys = nostr::Keys::generate();
+        let banner = banner_record(false);
+        let event = banner_disabled_event(&keys, &banner, None).expect("disabled event");
+
+        assert_eq!(
+            event.kind.as_u16() as u32,
+            buzz_core::kind::KIND_RELAY_BANNER
+        );
+        assert!(event.content.is_empty());
+        assert_eq!(
+            event
+                .tags
+                .iter()
+                .find(|tag| tag.kind().to_string() == "scope")
+                .and_then(|tag| tag.content()),
+            Some("communities")
+        );
+        assert_eq!(
+            event
+                .tags
+                .iter()
+                .find(|tag| tag.kind().to_string() == "status")
+                .and_then(|tag| tag.content()),
+            Some("disabled")
+        );
+        assert!(event
+            .tags
+            .iter()
+            .all(|tag| tag.kind().to_string() != "text"));
+    }
+
+    #[test]
     fn all_community_banner_event_has_all_scope() {
         let keys = nostr::Keys::generate();
         let banner = banner_record(true);
-        let event = banner_event(&keys, &banner).expect("banner event");
+        let event = banner_event(&keys, &banner, None).expect("banner event");
 
         assert_eq!(
             event
@@ -342,6 +450,40 @@ mod tests {
     fn banner_ack_routes_are_uuid_path_routes() {
         assert_eq!(BANNER_VIEW_ROUTE, "/api/banners/{banner_id}/view");
         assert_eq!(BANNER_DISMISS_ROUTE, "/api/banners/{banner_id}/dismiss");
+    }
+
+    #[test]
+    fn parse_view_id_requires_canonical_non_nil_uuid() {
+        let mut headers = HeaderMap::new();
+        assert!(parse_view_id(&headers).is_err());
+
+        headers.insert(BANNER_VIEW_ID_HEADER, "not-a-uuid".parse().expect("header"));
+        assert!(parse_view_id(&headers).is_err());
+
+        headers.insert(
+            BANNER_VIEW_ID_HEADER,
+            "00000000-0000-0000-0000-000000000000"
+                .parse()
+                .expect("header"),
+        );
+        assert!(parse_view_id(&headers).is_err());
+
+        headers.insert(
+            BANNER_VIEW_ID_HEADER,
+            "12345678123456781234567812345678".parse().expect("header"),
+        );
+        assert!(parse_view_id(&headers).is_err());
+
+        headers.insert(
+            BANNER_VIEW_ID_HEADER,
+            "12345678-1234-5678-1234-567812345678"
+                .parse()
+                .expect("header"),
+        );
+        assert_eq!(
+            parse_view_id(&headers).expect("valid canonical uuid"),
+            Uuid::parse_str("12345678-1234-5678-1234-567812345678").expect("uuid")
+        );
     }
 
     #[test]
