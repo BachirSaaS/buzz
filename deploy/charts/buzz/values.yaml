@@ -120,6 +120,12 @@ relay:
   requireAuthToken: true
   requireRelayMembership: true
   allowNipOaAuth: true
+  # NIP-FI enterprise-auth mode. "enforce" makes the relay require
+  # client-attached federated identity evidence and advertise only the
+  # privacy-safe NIP-11 requirement shape (no issuer/audience/provider URLs).
+  # "deny_protected" is fail-closed repair posture and intentionally does not
+  # advertise a usable client-auth contract.
+  nipFiMode: "off"
   pubkeyAllowlist: false
   corsOrigins: []
   # Huddle audio is safe only for single-pod relay deployments until an SFU

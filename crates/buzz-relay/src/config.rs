@@ -209,6 +209,14 @@ pub struct Config {
     /// are permitted regardless of auth method (API token, NIP-42).
     pub require_relay_membership: bool,
 
+    /// NIP-FI federated-identity mode selected for this relay deployment.
+    ///
+    /// `Enforce` is the configured enterprise-auth requirement source of truth
+    /// used by NIP-11 discovery. Other modes do not advertise a requirement:
+    /// `Off` is unconfigured, and `DenyProtected` is an operator fail-closed
+    /// repair posture rather than a usable client-auth contract.
+    pub nip_fi_mode: buzz_auth::NipFiMode,
+
     /// Whether this deployment can serve huddle (voice) audio.
     ///
     /// Huddle audio frames are relayed peer-to-peer *within a single pod*
@@ -490,6 +498,27 @@ fn parse_optional_bool(name: &str) -> Result<bool, ConfigError> {
     parse_bool(name, false)
 }
 
+fn parse_nip_fi_mode_value(raw: Option<&str>) -> Result<buzz_auth::NipFiMode, ConfigError> {
+    match raw.map(str::trim).map(str::to_ascii_lowercase).as_deref() {
+        None | Some("") | Some("off") => Ok(buzz_auth::NipFiMode::Off),
+        Some("enforce") => Ok(buzz_auth::NipFiMode::Enforce),
+        Some("deny_protected") | Some("deny-protected") => Ok(buzz_auth::NipFiMode::DenyProtected),
+        Some(other) => Err(ConfigError::InvalidValue(format!(
+            "BUZZ_NIP_FI_MODE must be \"off\", \"enforce\", or \"deny_protected\"; got {other:?}"
+        ))),
+    }
+}
+
+fn parse_nip_fi_mode() -> Result<buzz_auth::NipFiMode, ConfigError> {
+    match std::env::var("BUZZ_NIP_FI_MODE") {
+        Err(std::env::VarError::NotPresent) => parse_nip_fi_mode_value(None),
+        Err(error) => Err(ConfigError::InvalidValue(format!(
+            "BUZZ_NIP_FI_MODE must be valid UTF-8: {error}"
+        ))),
+        Ok(raw) => parse_nip_fi_mode_value(Some(&raw)),
+    }
+}
+
 fn ensure_git_repo_path(
     raw: impl Into<std::path::PathBuf>,
 ) -> Result<std::path::PathBuf, ConfigError> {
@@ -669,6 +698,8 @@ impl Config {
         let require_relay_membership = std::env::var("BUZZ_REQUIRE_RELAY_MEMBERSHIP")
             .map(|v| v == "true" || v == "1")
             .unwrap_or(false);
+
+        let nip_fi_mode = parse_nip_fi_mode()?;
 
         // Defaults true → single-pod (N=1) keeps today's huddle behavior. A
         // horizontally-scaled deployment sets this false; see the field doc.
@@ -1234,6 +1265,7 @@ impl Config {
             metrics_port,
             pubkey_allowlist_enabled,
             require_relay_membership,
+            nip_fi_mode,
             huddle_audio_available,
             mesh,
             mesh_demo_echo,
@@ -1387,6 +1419,11 @@ mod tests {
         assert!(
             config.join_policy.is_none(),
             "join_policy should default to None so policy prompts and acceptance receipts are opt-in"
+        );
+        assert_eq!(
+            config.nip_fi_mode,
+            buzz_auth::NipFiMode::Off,
+            "NIP-FI mode should default to off"
         );
         assert!(
             config.huddle_audio_available,
@@ -2068,6 +2105,44 @@ mod tests {
             result,
             Err(ConfigError::InvalidValue(ref message))
                 if message.contains("BUZZ_AGE_ATTESTATION_REQUIRED")
+        ));
+    }
+
+    #[test]
+    fn nip_fi_mode_defaults_off_and_accepts_enforcement_modes() {
+        assert_eq!(
+            parse_nip_fi_mode_value(None).unwrap(),
+            buzz_auth::NipFiMode::Off
+        );
+        assert_eq!(
+            parse_nip_fi_mode_value(Some("")).unwrap(),
+            buzz_auth::NipFiMode::Off
+        );
+        assert_eq!(
+            parse_nip_fi_mode_value(Some("off")).unwrap(),
+            buzz_auth::NipFiMode::Off
+        );
+        assert_eq!(
+            parse_nip_fi_mode_value(Some("ENFORCE")).unwrap(),
+            buzz_auth::NipFiMode::Enforce
+        );
+        assert_eq!(
+            parse_nip_fi_mode_value(Some(" deny_protected ")).unwrap(),
+            buzz_auth::NipFiMode::DenyProtected
+        );
+        assert_eq!(
+            parse_nip_fi_mode_value(Some("deny-protected")).unwrap(),
+            buzz_auth::NipFiMode::DenyProtected
+        );
+    }
+
+    #[test]
+    fn nip_fi_mode_rejects_unknown_values() {
+        let result = parse_nip_fi_mode_value(Some("sometimes"));
+        assert!(matches!(
+            result,
+            Err(ConfigError::InvalidValue(ref message))
+                if message.contains("BUZZ_NIP_FI_MODE")
         ));
     }
 

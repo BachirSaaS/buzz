@@ -68,6 +68,11 @@
         "requireAuthToken": { "type": "boolean" },
         "requireRelayMembership": { "type": "boolean" },
         "allowNipOaAuth": { "type": "boolean" },
+        "nipFiMode": {
+          "type": "string",
+          "enum": ["off", "enforce", "deny_protected", "deny-protected"],
+          "description": "NIP-FI enterprise-auth mode. enforce advertises only the privacy-safe NIP-11 federated_identity requirement shape; provider and issuer details stay outside chart values."
+        },
         "huddleAudioAvailable": {
           "type": ["boolean", "null"],
           "description": "Whether relay huddle audio is available. null means chart default: true for one replica, false for replicaCount > 1. Explicit true with replicaCount > 1 means the operator accepts/owns external multi-pod audio/SFU behavior."
