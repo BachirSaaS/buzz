@@ -118,13 +118,13 @@ where
     let (cancel_tx, cancel_rx) = oneshot::channel();
     let execution = execute(request, cancel_rx);
     tokio::pin!(execution);
-    let result = tokio::select! {
-        result = &mut execution => result,
+    let (result, disconnected) = tokio::select! {
+        result = &mut execution => (result, false),
         read = stream.read_u8() => {
             let _ = cancel_tx.send(());
             let result = execution.await;
             tracing::debug!(?read, "isolated-turn client disconnected");
-            result
+            (result, true)
         }
     };
     let result = match result {
@@ -136,9 +136,10 @@ where
         },
     };
     // Execution cleanup above is authoritative even when the peer is gone.
-    match write_frame(&mut stream, &result).await {
-        Err(error) if error.downcast_ref::<std::io::Error>().is_some() => Ok(()),
-        other => other,
+    if disconnected {
+        Ok(())
+    } else {
+        write_frame(&mut stream, &result).await
     }
 }
 
