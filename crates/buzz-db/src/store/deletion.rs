@@ -4144,6 +4144,43 @@ mod postgres_tests {
 
     #[tokio::test]
     #[ignore = "requires Postgres"]
+    async fn community_fence_singleton_and_batch_share_fenced_admission_contract() {
+        let (db, store) = store().await;
+        let (request, _) = inventoried_request(&db, &store).await;
+        store
+            .approve(request.id, "approver", None)
+            .await
+            .expect("approve");
+        let claim = store
+            .claim_specific(request.id, "executor", DEFAULT_LEASE_DURATION)
+            .await
+            .expect("claim")
+            .expect("won claim");
+
+        store.begin_quiescing(&claim.lease).await.expect("quiesce");
+        store.fence(&claim.lease).await.expect("fence");
+
+        let singleton_error = db
+            .begin_community_write_transaction(request.community_id)
+            .await
+            .expect_err("fenced community must reject singleton admission");
+        assert!(
+            matches!(&singleton_error, DbError::AccessDenied(message) if message.contains("write-fenced")),
+            "expected singleton write-fenced denial, got: {singleton_error:#}"
+        );
+
+        let batch_error = db
+            .begin_community_write_transaction_batch(&[request.community_id])
+            .await
+            .expect_err("fenced community must reject singleton batch admission");
+        assert!(
+            matches!(&batch_error, DbError::AccessDenied(message) if message.contains("write-fenced")),
+            "expected batch write-fenced denial, got: {batch_error:#}"
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires Postgres"]
     async fn community_fence_batch_begin_rejects_empty_input() {
         let (db, _) = store().await;
         let error = db

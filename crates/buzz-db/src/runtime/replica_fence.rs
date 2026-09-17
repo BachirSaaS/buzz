@@ -1046,10 +1046,60 @@ mod postgres_tests {
         tx.rollback().await.expect("rollback");
     }
 
+    /// The sample must not capture `S` while a compliant shared writer lock is
+    /// still held. It must block until release, then sample.
+    #[tokio::test]
+    #[ignore = "requires Postgres"]
+    async fn sample_writer_waits_for_shared_floor_lock_before_sampling_time() {
+        let (admin, pool, name) = scratch_db().await;
+
+        let mut blocker = pool.begin().await.expect("begin shared-lock blocker");
+        sqlx::query("SELECT pg_advisory_xact_lock_shared($1)")
+            .bind(REPLICA_FLOOR_LOCK_KEY)
+            .execute(&mut *blocker)
+            .await
+            .expect("hold shared floor lock");
+
+        let sample_pool = pool.clone();
+        let sampling = tokio::spawn(async move { sample_writer(&sample_pool).await });
+        let mut sampling = sampling;
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), &mut sampling)
+                .await
+                .is_err(),
+            "sample_writer should block while a shared floor lock is held"
+        );
+
+        let marker_before_release: DateTime<Utc> = sqlx::query_scalar("SELECT clock_timestamp()")
+            .fetch_one(&pool)
+            .await
+            .expect("capture marker while lock held");
+
+        blocker
+            .rollback()
+            .await
+            .expect("release shared-lock blocker");
+
+        let sample = tokio::time::timeout(Duration::from_secs(5), sampling)
+            .await
+            .expect("sample should complete after shared lock release")
+            .expect("sampling task")
+            .expect("sample writer");
+        assert!(
+            sample.sampled_at >= marker_before_release,
+            "sample time {:?} must be at or after marker {:?}",
+            sample.sampled_at,
+            marker_before_release
+        );
+
+        drop_scratch_db(&admin, pool, &name).await;
+    }
+
     /// An unprivileged probe role sees NULL `state`/`xact_start` for other
     /// sessions' rows in `pg_stat_activity`. The oldest-xact term is then
     /// untrustworthy and the sample must fail closed (`MaskedActivity`) —
     /// never silently `MIN()` the hidden row away.
+
     #[tokio::test]
     #[ignore = "requires Postgres"]
     async fn cluster_global_sample_writer_fails_closed_when_activity_is_masked() {

@@ -25,16 +25,16 @@ replica-floor ordering while preserving current trigger/function enforcement.
    - Added `REPLICA_FLOOR_LOCK_KEY` and retained the existing
      `probe_once/sample_writer` heartbeat publication model as the sole
      token/fence-wall publication mechanism.
-   - Added `Db::begin_replica_floor_channel_write_transaction(created_at)`:
-     shared floor lock + GUC/clock pre-validation (`buzz.created_at_floor` +
-     `clock_timestamp()`-derived cutoff) under current trigger backstop.
+   - Added `Db::begin_replica_floor_locked_event_write_transaction()`:
+     shared replica-floor transaction lock only (no caller timestamp preflight),
+     while retaining the existing commit-time trigger/GUC backstop.
    - Updated the existing probe handshake to acquire the exclusive floor lock
      **before** sampling `S`, activity scan, and heartbeat token commit.
    - Added tests proving:
      - compliant shared writer blocks probe progress,
      - probe resumes and records normal token/fence-wall after writer release,
-     - below-wall later input rejects,
-     - boundary behavior follows strict `<` semantics.
+     - `sample_writer` cannot sample `S` until a held shared lock releases
+       (timestamp marker proof with bounded synchronization).
 
 ## Explicitly not in this change
 

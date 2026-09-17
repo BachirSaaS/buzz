@@ -442,13 +442,14 @@ shape is an explicit transition, not a flag day:
 - **Trajectory:** converge from trigger/function/FK-enforced fencing toward
   application-owned transaction protocols, while keeping existing DB backstops
   in place until coverage and fleet gates are proven.
-- **Community fence:** supported writers acquire shared community deletion locks;
-  deletion lifecycle transitions acquire the matching exclusive lock. Multi-
-  community writers acquire locks in stable UUID order.
-- **Replica floor:** compliant channel-event writers take the shared replica-floor
-  lock and validate against the active `buzz.created_at_floor` +
-  `clock_timestamp()` contract; the writer probe handshake takes the exclusive
-  counterpart before `S`/activity/token.
+- **Community fence (transition foundation):** runtime admission APIs now offer
+  shared community deletion locks, while deletion lifecycle transitions take the
+  matching exclusive lock. Multi-community batches lock in stable UUID order;
+  unmigrated paths still rely on trigger/function backstops.
+- **Replica floor (transition foundation):** runtime now provides a shared
+  replica-floor lock helper for compliant channel-event writers, and the writer
+  probe handshake takes the exclusive counterpart before `S`/activity/token.
+  Commit-time trigger+GUC enforcement remains authoritative for all paths.
 - **Dual enforcement (current):** application-owned lock+precheck paths run in
   front of the existing trigger/function enforcement; commit-time trigger checks
   remain authoritative during this phase.

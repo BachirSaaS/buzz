@@ -2827,7 +2827,7 @@ async fn armed_pool_rejects_old_channel_inserts_through_public_api() {
 
 #[tokio::test]
 #[ignore = "requires Postgres"]
-async fn replica_floor_writer_transaction_holds_shared_lock_and_validates_timestamp() {
+async fn replica_floor_writer_transaction_holds_shared_lock() {
     let admin = PgPool::connect(&admin_url().await)
         .await
         .expect("connect admin");
@@ -2844,22 +2844,8 @@ async fn replica_floor_writer_transaction_holds_shared_lock_and_validates_timest
     .await
     .expect("connect armed Db");
 
-    let now_secs = chrono::Utc::now().timestamp() as u64;
-    let floor = crate::replica_fence::CREATED_AT_FLOOR_SECS as u64;
-    let stale_ts = chrono::DateTime::from_timestamp((now_secs - floor - 120) as i64, 0)
-        .expect("valid stale timestamp");
-    let error = db
-        .begin_replica_floor_channel_write_transaction(stale_ts)
-        .await
-        .expect_err("below-floor timestamp must reject");
-    assert!(
-        matches!(&error, DbError::InvalidData(message) if message.contains("below active replica floor")),
-        "expected floor rejection, got: {error:#}"
-    );
-
-    let fresh_ts = chrono::DateTime::from_timestamp(now_secs as i64, 0).expect("valid timestamp");
     let writer = db
-        .begin_replica_floor_channel_write_transaction(fresh_ts)
+        .begin_replica_floor_locked_event_write_transaction()
         .await
         .expect("open compliant floor-guarded writer tx");
 
@@ -2908,9 +2894,7 @@ async fn replica_floor_probe_waits_for_shared_writer_and_records_after_release()
         .expect("read token before probe");
 
     let writer = db
-        .begin_replica_floor_channel_write_transaction(
-            chrono::Utc::now() + chrono::Duration::seconds(60),
-        )
+        .begin_replica_floor_locked_event_write_transaction()
         .await
         .expect("open compliant floor-guarded writer tx");
 
@@ -2948,35 +2932,8 @@ async fn replica_floor_probe_waits_for_shared_writer_and_records_after_release()
         "probe entry must be retained in the in-memory fence ring"
     );
 
-    let error = db
-        .begin_replica_floor_channel_write_transaction(
-            entry.fence_wall - chrono::Duration::microseconds(1),
-        )
-        .await
-        .expect_err("later below-wall timestamp must reject");
-    assert!(
-        matches!(&error, DbError::InvalidData(message) if message.contains("below active replica floor")),
-        "expected below-floor rejection, got: {error:#}"
-    );
-
     db.pool.close().await;
     drop_scratch_db(&admin, seed_pool, &name).await;
-}
-
-#[test]
-fn replica_floor_boundary_matches_trigger_contract() {
-    let boundary = chrono::DateTime::from_timestamp(1_700_000_000, 0).expect("valid boundary ts");
-    assert!(
-        !channel_event_is_below_replica_floor(boundary, boundary),
-        "exact floor boundary must be admitted (trigger rejects only strict below-floor rows)"
-    );
-    assert!(
-        channel_event_is_below_replica_floor(
-            boundary - chrono::Duration::microseconds(1),
-            boundary
-        ),
-        "rows strictly older than floor boundary must reject"
-    );
 }
 
 /// `spawn_fence_probe` must verify the floor guard before letting the

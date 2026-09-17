@@ -5,17 +5,6 @@
 -- partition children as standalone CREATE TABLE statements. Every pgschema
 -- apply caller must run this idempotent script so fresh bootstraps converge on
 -- the same live database contract as migration-managed databases.
---
--- Supported-writer operational contract (current transition):
---   * Direct owner SQL mutation is unsupported unless explicitly reviewed.
---   * Reviewed backfills/reconciliation must use relay-owned transaction/lock
---     protocols where available (community shared/exclusive fences, stable lock
---     order across communities, shared/exclusive replica-floor ordering), or
---     run while replica routing fences are intentionally held closed.
---   * Role separation is deliberate: schema reconciliation lives here; serving
---     admission/fencing remains in runtime/store code paths with their metrics
---     and startup verification gates.
-
 DO $$
 BEGIN
     IF NOT EXISTS (
