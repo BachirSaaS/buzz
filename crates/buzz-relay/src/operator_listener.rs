@@ -315,7 +315,7 @@ async fn retry_or_fail(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex, MutexGuard};
+    use std::sync::{Arc, Mutex};
 
     use buzz_core::CommunityId;
     use chrono::Utc;
@@ -338,13 +338,11 @@ mod tests {
         body: Vec<u8>,
     }
 
-    static TEST_LOCK: Mutex<()> = Mutex::new(());
+    static TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
     static MIGRATIONS: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
 
-    fn test_lock() -> MutexGuard<'static, ()> {
-        TEST_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    async fn test_lock() -> tokio::sync::MutexGuard<'static, ()> {
+        TEST_LOCK.lock().await
     }
 
     #[async_trait::async_trait]
@@ -448,7 +446,7 @@ mod tests {
         #[tokio::test]
         #[ignore = "requires Postgres"]
         async fn matcher_iteration_expands_triggered_mention() {
-            let _test_lock = test_lock();
+            let _test_lock = test_lock().await;
             let (pool, state) = setup().await;
             let community = make_community(&pool).await;
             let listener = Keys::generate();
@@ -493,7 +491,7 @@ mod tests {
         #[tokio::test]
         #[ignore = "requires Postgres"]
         async fn delivery_worker_posts_signed_notification_and_completes() {
-            let _test_lock = test_lock();
+            let _test_lock = test_lock().await;
             let (pool, mut state) = setup().await;
             let listener = Keys::generate();
             let target = Keys::generate();
@@ -549,7 +547,7 @@ mod tests {
         #[tokio::test]
         #[ignore = "requires Postgres"]
         async fn delivery_worker_persists_retry_after_failure() {
-            let _test_lock = test_lock();
+            let _test_lock = test_lock().await;
             let (pool, mut state) = setup().await;
             let listener = Keys::generate();
             let target = Keys::generate();

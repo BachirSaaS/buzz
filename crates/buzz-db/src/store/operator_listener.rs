@@ -740,7 +740,7 @@ mod postgres_tests {
         register_pubkeys(
             &pool,
             listener.public_key().as_bytes(),
-            &[target_bytes.clone()],
+            std::slice::from_ref(&target_bytes),
         )
         .await
         .expect("register target");
