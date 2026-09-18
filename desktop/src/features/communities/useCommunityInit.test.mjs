@@ -1,30 +1,78 @@
 import assert from "node:assert/strict";
-import { after, before, mock, test } from "node:test";
-
+import { after, afterEach, before, mock, test } from "node:test";
 import { JSDOM } from "jsdom";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   url: "http://localhost",
 });
 
-before(() => {
+let renderHook;
+let waitFor;
+let cleanup;
+let act;
+let useCommunityInit;
+let relayClient;
+const calls = [];
+const pendingTrust = [];
+let holdTrust = false;
+const a = { id: "a", relayUrl: "wss://a.example", name: "A" };
+const b = { id: "b", relayUrl: "wss://b.example", name: "B" };
+
+before(async () => {
   Object.assign(globalThis, {
+    window: dom.window,
     document: dom.window.document,
     HTMLElement: dom.window.HTMLElement,
-    IS_REACT_ACT_ENVIRONMENT: true,
     localStorage: dom.window.localStorage,
-    window: dom.window,
+    IS_REACT_ACT_ENVIRONMENT: true,
   });
+  dom.window.__TAURI_INTERNALS__ = {
+    invoke: async (command, args) => {
+      calls.push([command, args]);
+      if (command === "set_agent_avatar_communities" && holdTrust) {
+        await new Promise((resolve, reject) => {
+          pendingTrust.push({ resolve, reject });
+        });
+      }
+      if (command === "get_identity") return { pubkey: "a".repeat(64) };
+      if (command === "get_relay_url") return b.relayUrl;
+      if (command === "enterprise_login_gate") return { status: "notRequired" };
+      return undefined;
+    },
+    transformCallback: () => 1,
+  };
+  globalThis.__TAURI_INTERNALS__ = dom.window.__TAURI_INTERNALS__;
+  ({ renderHook, waitFor, cleanup, act } = await import(
+    "@testing-library/react"
+  ));
+  ({ useCommunityInit } = await import("./useCommunityInit.ts"));
+  ({ relayClient } = await import("@/shared/api/relayClient"));
+});
+
+afterEach(async () => {
+  cleanup();
+  holdTrust = false;
+  await act(async () => {
+    for (const deferred of pendingTrust) deferred.resolve();
+  });
+  pendingTrust.length = 0;
+  calls.length = 0;
+  localStorage.clear();
 });
 
 after(() => dom.window.close());
 
 function installTauriInvoke(handler) {
-  const previous = globalThis.window.__TAURI_INTERNALS__;
+  const previousWindow = globalThis.window.__TAURI_INTERNALS__;
+  const previousGlobal = globalThis.__TAURI_INTERNALS__;
   globalThis.window.__TAURI_INTERNALS__ = { invoke: handler };
+  globalThis.__TAURI_INTERNALS__ = globalThis.window.__TAURI_INTERNALS__;
   return () => {
-    if (previous === undefined) delete globalThis.window.__TAURI_INTERNALS__;
-    else globalThis.window.__TAURI_INTERNALS__ = previous;
+    if (previousWindow === undefined)
+      delete globalThis.window.__TAURI_INTERNALS__;
+    else globalThis.window.__TAURI_INTERNALS__ = previousWindow;
+    if (previousGlobal === undefined) delete globalThis.__TAURI_INTERNALS__;
+    else globalThis.__TAURI_INTERNALS__ = previousGlobal;
   };
 }
 
@@ -44,6 +92,12 @@ function neverSettles() {
   return new Promise(() => {});
 }
 
+function mount(communities) {
+  return renderHook((list) => useCommunityInit(b, "b", false, false, list), {
+    initialProps: communities,
+  });
+}
+
 test("useCommunityInit gates enterprise login before applying the community", async () => {
   const { cleanup, renderHook, waitFor } = await import(
     "@testing-library/react"
@@ -55,6 +109,7 @@ test("useCommunityInit gates enterprise login before applying the community", as
     if (command === "get_identity") {
       return { pubkey: "pubkey-1", display_name: "Tester" };
     }
+    if (command === "set_agent_avatar_communities") return null;
     if (command === "enterprise_login_gate") {
       return { status: "notRequired" };
     }
@@ -74,13 +129,18 @@ test("useCommunityInit gates enterprise login before applying the community", as
 
     assert.deepEqual(
       calls.map(([command]) => command),
-      ["get_identity", "enterprise_login_gate", "apply_workspace"],
+      [
+        "get_identity",
+        "set_agent_avatar_communities",
+        "enterprise_login_gate",
+        "apply_workspace",
+      ],
     );
-    assert.deepEqual(calls[1], [
+    assert.deepEqual(calls[2], [
       "enterprise_login_gate",
       { relayUrl: community.relayUrl },
     ]);
-    assert.deepEqual(calls[2], [
+    assert.deepEqual(calls[3], [
       "apply_workspace",
       {
         relayUrl: community.relayUrl,
@@ -110,6 +170,7 @@ test("useCommunityInit blocks community apply when enterprise login gate fails",
     if (command === "get_identity") {
       return { pubkey: "pubkey-1", display_name: "Tester" };
     }
+    if (command === "set_agent_avatar_communities") return null;
     if (command === "enterprise_login_gate") {
       throw new Error("enterprise login unavailable");
     }
@@ -130,7 +191,7 @@ test("useCommunityInit blocks community apply when enterprise login gate fails",
 
     assert.deepEqual(
       calls.map(([command]) => command),
-      ["get_identity", "enterprise_login_gate"],
+      ["get_identity", "set_agent_avatar_communities", "enterprise_login_gate"],
     );
     assert.equal(consoleError.mock.calls.length, 1);
     hook.unmount();
@@ -160,6 +221,7 @@ test("useCommunityInit cancels an owned pending Builderlab login on superseded i
     if (command === "get_identity") {
       return { pubkey: "pubkey-1", display_name: "Tester" };
     }
+    if (command === "set_agent_avatar_communities") return null;
     if (command === "enterprise_login_gate") {
       return args.relayUrl === communityA.relayUrl
         ? { status: "required" }
@@ -246,6 +308,7 @@ test("useCommunityInit waits for explicit enterprise browser consent", async () 
     if (command === "get_identity") {
       return { pubkey: "pubkey-1", display_name: "Tester" };
     }
+    if (command === "set_agent_avatar_communities") return null;
     if (command === "enterprise_login_gate") return { status: "required" };
     if (command === "get_builderlab_auth") return null;
     if (command === "start_builderlab_login") {
@@ -268,7 +331,12 @@ test("useCommunityInit waits for explicit enterprise browser consent", async () 
     );
     assert.deepEqual(
       calls.map(([command]) => command),
-      ["get_identity", "enterprise_login_gate", "get_builderlab_auth"],
+      [
+        "get_identity",
+        "set_agent_avatar_communities",
+        "enterprise_login_gate",
+        "get_builderlab_auth",
+      ],
     );
 
     await act(async () => {
@@ -280,6 +348,7 @@ test("useCommunityInit waits for explicit enterprise browser consent", async () 
       calls.map(([command]) => command),
       [
         "get_identity",
+        "set_agent_avatar_communities",
         "enterprise_login_gate",
         "get_builderlab_auth",
         "start_builderlab_login",
@@ -305,6 +374,7 @@ test("useCommunityInit exposes authoritative enterprise profile when both corpor
     if (command === "get_identity") {
       return { pubkey: "pubkey-1", display_name: "Tester" };
     }
+    if (command === "set_agent_avatar_communities") return null;
     if (command === "enterprise_login_gate") return { status: "required" };
     if (command === "get_builderlab_auth") return null;
     if (command === "start_builderlab_login") {
@@ -338,3 +408,122 @@ test("useCommunityInit exposes authoritative enterprise profile when both corpor
     mock.reset();
   }
 });
+
+test("inactive relay removal/edit/add refreshes trust without reapplying or disconnecting active community", async () => {
+  let disconnects = 0;
+  const original = relayClient.disconnect;
+  relayClient.disconnect = () => {
+    disconnects += 1;
+  };
+  try {
+    const { result, rerender } = mount([a, b]);
+    await waitFor(() => assert.equal(result.current.isReady, true));
+    assert.equal(calls.filter(([cmd]) => cmd === "apply_workspace").length, 1);
+    for (const list of [
+      [b],
+      [{ ...a, relayUrl: "wss://new-a.example" }, b],
+      [a, b],
+    ]) {
+      const before = calls.filter(
+        ([cmd]) => cmd === "set_agent_avatar_communities",
+      ).length;
+      rerender(list);
+      await waitFor(() =>
+        assert.equal(
+          calls.filter(([cmd]) => cmd === "set_agent_avatar_communities")
+            .length,
+          before + 1,
+        ),
+      );
+      assert.equal(result.current.isReady, true);
+      assert.equal(
+        calls.filter(([cmd]) => cmd === "apply_workspace").length,
+        1,
+      );
+      assert.equal(disconnects, 0);
+    }
+    const count = calls.length;
+    rerender([{ ...b, name: "New label" }, a]);
+    assert.equal(calls.length, count);
+    const updates = calls.filter(
+      ([cmd]) => cmd === "set_agent_avatar_communities",
+    );
+    assert.deepEqual(updates[1][1].relayUrls, ["https://b.example"]);
+  } finally {
+    relayClient.disconnect = original;
+  }
+});
+
+test("initial workspace restore waits for avatar trust IPC", async () => {
+  holdTrust = true;
+  const { result } = mount([a, b]);
+  await waitFor(() => assert.equal(pendingTrust.length, 1));
+  // Let identity resolution and any unguarded apply settle while trust is held.
+  await act(async () => {});
+  assert.equal(
+    calls.some(([cmd]) => cmd === "apply_workspace"),
+    false,
+  );
+  await act(async () => pendingTrust[0].resolve());
+  await waitFor(() => assert.equal(result.current.isReady, true));
+  assert.equal(calls.filter(([cmd]) => cmd === "apply_workspace").length, 1);
+});
+
+test("source removal during pending trust serializes IPC and blocks restore until the latest update", async (t) => {
+  holdTrust = true;
+  const disconnect = t.mock.method(relayClient, "disconnect", () => {});
+  const { result, rerender } = mount([a, b]);
+  await waitFor(() => assert.equal(pendingTrust.length, 1));
+  await act(async () => {});
+
+  rerender([b]);
+  await act(async () => {});
+  assert.equal(
+    pendingTrust.length,
+    1,
+    "P2 must not dispatch before P1 settles",
+  );
+  assert.equal(result.current.isReady, false);
+
+  await act(async () => pendingTrust[0].resolve());
+  await waitFor(() => assert.equal(pendingTrust.length, 2));
+  assert.deepEqual(
+    calls
+      .filter(([cmd]) => cmd === "set_agent_avatar_communities")
+      .map(([, args]) => args.relayUrls),
+    [["https://a.example", "https://b.example"], ["https://b.example"]],
+  );
+  assert.equal(
+    calls.filter(([cmd]) => cmd === "apply_workspace").length,
+    0,
+    "P1 alone must not release restoration while source removal is pending",
+  );
+  assert.equal(result.current.isReady, false);
+
+  await act(async () => pendingTrust[1].resolve());
+  await waitFor(() => assert.equal(result.current.isReady, true));
+  assert.equal(calls.filter(([cmd]) => cmd === "apply_workspace").length, 1);
+  assert.equal(disconnect.mock.callCount(), 0);
+});
+
+for (const failingUpdate of [0, 1]) {
+  test(`trust update ${failingUpdate + 1} rejection does not release queued restoration`, async (t) => {
+    holdTrust = true;
+    t.mock.method(console, "error", () => {});
+    const { result, rerender } = mount([a, b]);
+    await waitFor(() => assert.equal(pendingTrust.length, 1));
+    rerender([b]);
+    await act(async () => {});
+    if (failingUpdate === 1) {
+      await act(async () => pendingTrust[0].resolve());
+      await waitFor(() => assert.equal(pendingTrust.length, 2));
+    }
+    await act(async () =>
+      pendingTrust[failingUpdate].reject(new Error("IPC failed")),
+    );
+    assert.equal(result.current.isReady, false);
+    assert.ok(result.current.error);
+    assert.equal(calls.filter(([cmd]) => cmd === "apply_workspace").length, 0);
+    assert.equal(pendingTrust.length, failingUpdate + 1);
+  });
+}
