@@ -363,7 +363,7 @@ test("useCommunityInit waits for explicit enterprise browser consent", async () 
   }
 });
 
-test("useCommunityInit exposes authoritative enterprise profile when both corporate fields are present", async () => {
+test("useCommunityInit exposes authoritative enterprise profile when both identity profile fields are present", async () => {
   const { cleanup, renderHook, waitFor, act } = await import(
     "@testing-library/react"
   );
@@ -380,8 +380,8 @@ test("useCommunityInit exposes authoritative enterprise profile when both corpor
     if (command === "start_builderlab_login") {
       return {
         expiresAt: "2026-09-18T21:00:00Z",
-        corporateUsername: " seiler ",
-        corporateDisplayName: " Brad Seiler ",
+        username: " seiler ",
+        name: " Brad Seiler ",
       };
     }
     if (command === "apply_workspace") return null;
