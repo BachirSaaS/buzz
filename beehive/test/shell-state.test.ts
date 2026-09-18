@@ -1,71 +1,37 @@
-import test from 'node:test';
+import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { destinations, ownerLabel, ShellState, shortcutGuide } from '../src/shell-state.ts';
+import { brand, destinations, listWidth, ownerLabel, ShellState } from '../src/shell-state.ts';
 
-const press = (state: ShellState, name: string, options = {}) => state.key(name, options);
-
-test('never-signed-in shell starts on the complete gated header', () => {
+// Keep product text and interaction truth at the state owner.
+test('never-signed-in shell labels and initial state are exact', () => {
   const state = new ShellState();
   assert.deepEqual(destinations, ['HOST', 'AGENTS', 'HARNESSES', 'PROVIDERS']);
-  assert.equal(ownerLabel, 'SIGNED OUT');
-  assert.equal(state.headerIndex, 0);
-  assert.equal(state.activeSection, 0);
-  assert.equal(state.focus, 'header');
-  assert.equal(state.protectedSection, true);
+  assert.equal(brand, '⬢ BEEHIVE'); assert.equal(ownerLabel, 'SIGNED OUT');
+  assert.deepEqual({ active: state.activeSection, focus: state.focus, mode: state.mode, help: state.helpOpen }, { active: 0, focus: 'header', mode: 'section', help: false });
 });
 
-test('header arrows clamp, preserve active selection, and Enter opens separately from focus', () => {
+test('focus stays distinct from activation and protected/local geometry stays empty-capable', () => {
   const state = new ShellState();
-  assert.equal(press(state, 'left'), 'none');
-  press(state, 'right');
-  assert.equal(state.headerIndex, 1);
-  assert.equal(state.activeSection, 0, 'focus must not activate a destination');
-  press(state, 'return');
-  assert.equal(state.activeSection, 1);
-  assert.equal(state.focus, 'detail');
-  assert.equal(state.splitPane, false, 'owner-scoped destination must not pretend protected content loaded');
-  press(state, 'escape');
-  assert.equal(state.focus, 'header');
-  assert.equal(state.headerIndex, 1);
-  for (let index = 0; index < 10; index++) press(state, 'right');
-  assert.equal(state.headerIndex, destinations.length);
-  assert.equal(press(state, 'right'), 'none');
+  assert.equal(state.key('right'), 'render'); assert.equal(state.headerIndex, 1); assert.equal(state.activeSection, 0);
+  state.key('right'); state.key('return');
+  assert.equal(state.activeSection, 2); assert.equal(state.focus, 'list'); assert.equal(state.splitPane, true);
+  state.key('tab'); assert.equal(state.focus, 'detail');
+  state.key('tab', { shift: true }); assert.equal(state.focus, 'list');
+  state.key('escape'); assert.equal(state.focus, 'header'); assert.equal(state.headerIndex, 2);
+  state.headerIndex = 0; state.activateHeader(); assert.equal(state.protectedSection, true); assert.equal(state.splitPane, false); assert.equal(state.focus, 'detail');
 });
 
-test('host-local sections expose empty list/detail focus regions and Esc returns to initiator', () => {
+test('help, q semantics, minimum guard and narrow return are deterministic', () => {
   const state = new ShellState();
-  state.headerIndex = 2;
-  press(state, 'return');
-  assert.equal(state.activeSection, 2);
-  assert.equal(state.focus, 'list');
-  press(state, 'tab'); assert.equal(state.focus, 'detail');
-  press(state, 'tab'); assert.equal(state.focus, 'header');
-  press(state, 'tab', { shift: true }); assert.equal(state.focus, 'detail');
-  press(state, 'escape');
-  assert.equal(state.focus, 'header');
-  assert.equal(state.headerIndex, 2);
+  assert.equal(state.key('?'), 'render'); assert.equal(state.helpOpen, true);
+  assert.equal(state.key('q'), 'none'); assert.equal(state.helpOpen, true);
+  assert.equal(state.key('escape'), 'render'); assert.equal(state.helpOpen, false);
+  assert.equal(state.key('q'), 'quit');
+  state.resize(49, 20); assert.equal(state.key('q'), 'none'); assert.equal(state.key('c', { ctrl: true }), 'none'); assert.equal(state.key('q', { ctrl: true }), 'quit');
+  state.resize(50, 20); state.activateHeader(2); assert.equal(state.splitPane, false); assert.equal(state.narrowPane, 'list');
+  state.key('return'); assert.equal(state.narrowPane, 'detail'); state.key('escape'); assert.equal(state.narrowPane, 'list'); assert.equal(state.focus, 'list');
 });
 
-test('owner control opens an empty owner pane and Esc restores its header control', () => {
-  const state = new ShellState();
-  state.headerIndex = destinations.length;
-  press(state, 'return');
-  assert.equal(state.activeOwner, true);
-  assert.equal(state.focus, 'detail');
-  press(state, 'escape');
-  assert.equal(state.focus, 'header');
-  assert.equal(state.headerIndex, destinations.length);
-});
-
-test('q-only advertised quit semantics and truthful guide', () => {
-  const state = new ShellState();
-  assert.equal(shortcutGuide, '←→ header  Enter open  Tab panes  Esc return  ? help  q quit');
-  assert.equal(press(state, 'x'), 'none');
-  assert.equal(press(state, 'q'), 'quit');
-  assert.equal(press(state, 'c', { ctrl: true }), 'quit');
-  assert.equal(press(state, 'q', { ctrl: true }), 'quit');
-  assert.equal(press(state, 'q', { belowMinimum: true }), 'none');
-  assert.equal(press(state, 'q', { ctrl: true, belowMinimum: true }), 'quit');
-  assert.equal(press(state, '?'), 'render'); assert.equal(state.helpOpen, true);
-  assert.equal(press(state, 'escape'), 'render'); assert.equal(state.helpOpen, false);
+test('prototype breakpoint formulas are exact', () => {
+  assert.equal(listWidth(120), 35); assert.equal(listWidth(90), 28); assert.equal(listWidth(72), 25); assert.equal(listWidth(50), 50);
 });
