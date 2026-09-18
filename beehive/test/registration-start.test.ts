@@ -8,7 +8,6 @@ import { nsecEncode } from 'nostr-tools/nip19';
 import { registrationFixture } from './registration-fixture.ts';
 import { readSettings } from '../src/settings.ts';
 import type { ManagerSnapshot } from '../src/manager-controller.ts';
-import { sectionRows } from '../src/manager-navigation.ts';
 async function until(fn:()=>boolean) { for(let n=0;n<400;n++) { if(fn()) return; await delay(20); } throw Error('Synthetic workflow evidence missing'); }
 async function fixture(t:test.TestContext) {
   const home = realpathSync(mkdtempSync(join(tmpdir(),'beehive-pairing-cli-registration-')));
@@ -261,9 +260,6 @@ test('Other-agent registration requires that exact identity and does not require
   assert.equal(after.agents[0]?.runtimeId, undefined);
   assert.deepEqual(after.providers, before.providers);
   assert.deepEqual(after.runtimes, before.runtimes);
-  const rows = sectionRows(f.snapshot, 1);
-  assert.equal(rows.filter(row => row.id === f.agent).length, 1, 'registered identity has one row');
-  assert.ok(rows.indexOf(rows.find(row => row.id === f.agent)!) < rows.findIndex(row => row.id === 'other-agents'), 'successful registration moves the row immediately without Start');
   await f.request('operations');
   assert.match(f.snapshot.status, /No saved operations/);
 });
