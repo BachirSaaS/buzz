@@ -3118,6 +3118,9 @@ async fn try_autonomous_reconnect(
     observer_control_tx: &mpsc::Sender<Event>,
     auth_tag: Option<&nostr::Tag>,
 ) -> ReconnectOutcome {
+    // Connection loss/reconnect initiation immediately invalidates every EOSE
+    // admission from the old socket, including while retries are still pending.
+    state.admitted_routes.write().await.clear();
     state.requeue_observer_in_flight();
     // 5 attempts, up to 16s base backoff. Shares delay values with the
     // initial-connect retry in `HarnessRelay::connect()` (STARTUP_CONNECT_BACKOFFS) —
@@ -3250,6 +3253,8 @@ async fn wait_for_reconnect(
     skip_drain: bool,
     auth_tag: Option<&nostr::Tag>,
 ) -> ReconnectOutcome {
+    // Never retain authority from the socket being replaced during backoff.
+    state.admitted_routes.write().await.clear();
     state.requeue_observer_in_flight();
     if !skip_drain {
         // Drain commands until we get Reconnect (or Shutdown).

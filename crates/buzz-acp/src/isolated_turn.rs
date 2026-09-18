@@ -165,6 +165,31 @@ async fn write_frame<T: Serialize>(stream: &mut UnixStream, value: &T) -> anyhow
     Ok(())
 }
 
+/// Execute only when an optional destination has current relay-route authority.
+///
+/// The read guard remains held through `execute`, making the authority check and
+/// execution boundary atomic with respect to unsubscribe/reconnect writers.
+pub(crate) async fn execute_with_route_authority<F, Fut, T>(
+    authority: &Arc<tokio::sync::RwLock<std::collections::HashSet<uuid::Uuid>>>,
+    destination: Option<uuid::Uuid>,
+    execute: F,
+) -> anyhow::Result<T>
+where
+    F: FnOnce() -> Fut,
+    Fut: Future<Output = anyhow::Result<T>>,
+{
+    let _route_fence = if let Some(destination) = destination {
+        let guard = authority.clone().read_owned().await;
+        if !guard.contains(&destination) {
+            anyhow::bail!("isolated-turn destination is not admitted");
+        }
+        Some(guard)
+    } else {
+        None
+    };
+    execute().await
+}
+
 fn bounded(message: &str) -> String {
     message.chars().take(MAX_ERROR_CHARS).collect()
 }
@@ -306,6 +331,72 @@ mod tests {
         assert_eq!(response, serde_json::json!({"kind":"busy"}));
         task.await.expect("handler join").expect("handler result");
         drop(permit);
+    }
+
+    #[tokio::test]
+    async fn endpoint_route_authority_matrix_counts_execution_exactly() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let admitted = uuid::Uuid::new_v4();
+        let wrong = uuid::Uuid::new_v4();
+        let authority = Arc::new(tokio::sync::RwLock::new(std::collections::HashSet::new()));
+        let executions = Arc::new(AtomicUsize::new(0));
+
+        async fn request(
+            authority: Arc<tokio::sync::RwLock<std::collections::HashSet<uuid::Uuid>>>,
+            executions: Arc<AtomicUsize>,
+            destination: Option<uuid::Uuid>,
+        ) -> serde_json::Value {
+            let (mut client, server) = UnixStream::pair().expect("socket pair");
+            let task = tokio::spawn(handle(
+                server,
+                Arc::new(Semaphore::new(1)),
+                60_000,
+                Arc::new(move |request: ExecuteRequest, _cancel| {
+                    let authority = authority.clone();
+                    let executions = executions.clone();
+                    async move {
+                        execute_with_route_authority(&authority, request.destination, || async {
+                            executions.fetch_add(1, Ordering::SeqCst);
+                            Ok(Some("end_turn".into()))
+                        })
+                        .await
+                    }
+                }),
+            ));
+            let bytes = serde_json::to_vec(&serde_json::json!({
+                "version": 1, "requestId": "route-matrix", "prompt": "work",
+                "deadlineMs": 60_000, "destination": destination
+            }))
+            .expect("serialize request");
+            client
+                .write_u32(bytes.len() as u32)
+                .await
+                .expect("write length");
+            client.write_all(&bytes).await.expect("write request");
+            let response = read_frame(&mut client).await.expect("terminal response");
+            task.await.expect("handler join").expect("handler result");
+            response
+        }
+
+        for destination in [Some(admitted), Some(wrong)] {
+            let response = request(authority.clone(), executions.clone(), destination).await;
+            assert_eq!(response["kind"], "failed");
+            assert_eq!(response["retryable"], true);
+            assert_eq!(executions.load(Ordering::SeqCst), 0);
+        }
+        authority.write().await.insert(admitted);
+        let response = request(authority.clone(), executions.clone(), Some(admitted)).await;
+        assert_eq!(response["kind"], "completed");
+        assert_eq!(executions.load(Ordering::SeqCst), 1);
+        authority.write().await.remove(&admitted);
+        let response = request(authority.clone(), executions.clone(), Some(admitted)).await;
+        assert_eq!(response["kind"], "failed");
+        assert_eq!(response["retryable"], true);
+        assert_eq!(executions.load(Ordering::SeqCst), 1);
+        let response = request(authority, executions.clone(), None).await;
+        assert_eq!(response["kind"], "completed");
+        assert_eq!(executions.load(Ordering::SeqCst), 2);
     }
 
     #[cfg(unix)]

@@ -5516,62 +5516,54 @@ async fn execute_isolated_turn(
     cancel: tokio::sync::oneshot::Receiver<()>,
 ) -> Result<Option<String>> {
     // Version-1 requests without destination retain their original behavior.
-    // For destination-bearing private turns, this owned read guard is held
-    // through process initialization. A CLOSED/unsubscribe/reconnect writer
-    // therefore linearizes either before this check (deny, zero spawn) or after
-    // the admitted spawn boundary; no policy mirror participates.
-    let _route_fence = if let Some(destination) = request.destination {
-        let guard = route_authority.clone().read_owned().await;
-        if !guard.contains(&destination) {
-            anyhow::bail!("isolated-turn destination is not admitted");
-        }
-        Some(guard)
-    } else {
-        None
-    };
-    let (acp, protocol_version, agent_name) = spawn_and_init(
-        &startup.command,
-        &startup.args,
-        &startup.extra_env,
-        startup.has_generated_codex_config,
-        0,
-        None,
-    )
-    .await?;
-    let mut agent = OwnedAgent {
-        index: 0,
-        acp,
-        state: SessionState::default(),
-        model_capabilities: None,
-        desired_model: startup.model.clone(),
-        model_overridden: false,
-        desired_model_request_id: None,
-        desired_model_pending_ack: false,
-        startup_effort: startup.effort_level.clone(),
-        agent_name,
-        goose_system_prompt_supported: None,
-        protocol_version,
-    };
-    let duration = Duration::from_millis(request.deadline_ms);
-    let result =
-        pool::run_isolated_prompt(&mut agent, ctx, &request.prompt, duration, cancel).await;
-    agent.acp.shutdown().await;
-    let stop = match result {
-        Ok(stop) => stop,
-        Err(
-            acp::AcpError::IdleTimeout(_)
-            | acp::AcpError::HardTimeout { .. }
-            | acp::AcpError::CancelDrainTimeout(_),
-        ) => return Ok(None),
-        Err(error) => return Err(anyhow::anyhow!(error)),
-    };
-    Ok(match stop {
-        acp::StopReason::Cancelled => None,
-        acp::StopReason::EndTurn => Some("end_turn".to_string()),
-        acp::StopReason::MaxTokens => Some("max_tokens".to_string()),
-        acp::StopReason::MaxTurnRequests => Some("max_turn_requests".to_string()),
-        acp::StopReason::Refusal => Some("refusal".to_string()),
+    // Destination-bearing requests hold the production authority fence through
+    // process initialization, so denied routes cannot reach the spawn seam.
+    isolated_turn::execute_with_route_authority(route_authority, request.destination, || async {
+        let (acp, protocol_version, agent_name) = spawn_and_init(
+            &startup.command,
+            &startup.args,
+            &startup.extra_env,
+            startup.has_generated_codex_config,
+            0,
+            None,
+        )
+        .await?;
+        let mut agent = OwnedAgent {
+            index: 0,
+            acp,
+            state: SessionState::default(),
+            model_capabilities: None,
+            desired_model: startup.model.clone(),
+            model_overridden: false,
+            desired_model_request_id: None,
+            desired_model_pending_ack: false,
+            startup_effort: startup.effort_level.clone(),
+            agent_name,
+            goose_system_prompt_supported: None,
+            protocol_version,
+        };
+        let duration = Duration::from_millis(request.deadline_ms);
+        let result =
+            pool::run_isolated_prompt(&mut agent, ctx, &request.prompt, duration, cancel).await;
+        agent.acp.shutdown().await;
+        let stop = match result {
+            Ok(stop) => stop,
+            Err(
+                acp::AcpError::IdleTimeout(_)
+                | acp::AcpError::HardTimeout { .. }
+                | acp::AcpError::CancelDrainTimeout(_),
+            ) => return Ok(None),
+            Err(error) => return Err(anyhow::anyhow!(error)),
+        };
+        Ok(match stop {
+            acp::StopReason::Cancelled => None,
+            acp::StopReason::EndTurn => Some("end_turn".to_string()),
+            acp::StopReason::MaxTokens => Some("max_tokens".to_string()),
+            acp::StopReason::MaxTurnRequests => Some("max_turn_requests".to_string()),
+            acp::StopReason::Refusal => Some("refusal".to_string()),
+        })
     })
+    .await
 }
 
 async fn initialize_agent_pool(
