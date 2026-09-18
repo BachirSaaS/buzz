@@ -2,6 +2,7 @@ import { Action } from "@/shared/ui/action";
 import { useState } from "react";
 import { activityDays } from "./data";
 import { Widget } from "./Widget";
+import { useWidgetSize } from "./WidgetSizing";
 
 /** One daily measure; day selection changes both the value and progress. */
 export function ActivityWidget({
@@ -12,6 +13,7 @@ export function ActivityWidget({
   goal?: number;
 }) {
   const [selected, setSelected] = useState(Math.max(0, days.length - 1));
+  const size = useWidgetSize();
   const day = days[selected];
   const steps = day?.steps ?? 0;
   const fraction = goal > 0 ? Math.min(1, Math.max(0, steps / goal)) : 0;
@@ -45,24 +47,28 @@ export function ActivityWidget({
             strokeDasharray={`${fraction * 100} 100`}
             transform="rotate(-90 48 48)"
           />
-          <text x="48" y="53" textAnchor="middle">
-            {Math.round(fraction * 100)}%
-          </text>
         </svg>
       </div>
-      <fieldset className="activity-days" aria-label="Activity by day">
-        {days.map((item, index) => (
-          <Action
-            type="button"
-            key={item.day}
-            onClick={() => setSelected(index)}
-            aria-pressed={selected === index}
-            aria-label={`${item.day}, ${item.steps.toLocaleString("en-US")} steps`}
-          >
-            {item.day}
-          </Action>
-        ))}
-      </fieldset>
+      {size !== "small" && (
+        <fieldset className="activity-days" aria-label="Activity by day">
+          {days.map((item, index) => (
+            <Action
+              type="button"
+              key={item.day}
+              onClick={() => setSelected(index)}
+              aria-pressed={selected === index}
+              aria-label={`${item.day}, ${item.steps.toLocaleString("en-US")} steps`}
+            >
+              {item.day}
+              {size === "large" && (
+                <span className="day-steps small">
+                  {(item.steps / 1000).toFixed(1)}k
+                </span>
+              )}
+            </Action>
+          ))}
+        </fieldset>
+      )}
     </Widget>
   );
 }

@@ -1,4 +1,5 @@
 import type { CanvasFrame, CanvasLayout } from "./canvasLayout";
+import { removeInteriorContent } from "./parentWindows";
 
 export type CanvasBounds = { width: number; height: number };
 
@@ -70,17 +71,38 @@ export function withoutCanvasWindow(
   state: CanvasLayout,
   id: string,
 ): CanvasLayout {
-  const next = {
-    ...state,
-    windows: state.windows.filter((window) => window !== id),
+  return removeInteriorContent(state, id);
+}
+
+export type WindowCorner = "nw" | "ne" | "sw" | "se";
+/** Resize from a corner while keeping its opposite corner fixed and reachable. */
+export function resizeCanvasFrame(
+  frame: CanvasFrame,
+  dx: number,
+  dy: number,
+  corner: WindowCorner,
+  bounds: CanvasBounds,
+): CanvasFrame {
+  const right = frame.x + frame.width,
+    bottom = frame.y + frame.height;
+  const west = corner.includes("w"),
+    north = corner.includes("n");
+  const minWidth = Math.min(240, bounds.width),
+    minHeight = Math.min(180, bounds.height);
+  const x = west
+    ? Math.max(0, Math.min(right - minWidth, frame.x + dx))
+    : frame.x;
+  const y = north
+    ? Math.max(0, Math.min(bottom - minHeight, frame.y + dy))
+    : frame.y;
+  return {
+    x,
+    y,
+    width: west
+      ? right - x
+      : Math.max(minWidth, Math.min(bounds.width - x, frame.width + dx)),
+    height: north
+      ? bottom - y
+      : Math.max(minHeight, Math.min(bounds.height - y, frame.height + dy)),
   };
-  if (state.freeform) {
-    const frames = { ...state.freeform.frames };
-    delete frames[id];
-    next.freeform = {
-      frames,
-      order: state.freeform.order.filter((window) => window !== id),
-    };
-  }
-  return next;
 }

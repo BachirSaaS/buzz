@@ -1,16 +1,31 @@
 import { useCallback, useMemo, useSyncExternalStore } from "react";
+import { parsePanelLayout, type LayoutState } from "./panelLayout";
+import { migrateConnectedWindows } from "./parentWindows";
 import { toast } from "sonner";
 
-export type CanvasViewKind = "channel" | "dm" | "project" | "agents" | "widget";
+export type CanvasViewKind =
+  | "app"
+  | "channel"
+  | "dm"
+  | "project"
+  | "agents"
+  | "widget";
 export type CanvasView = {
   id: string;
   kind: CanvasViewKind;
   title: string;
   target?: string;
+  aliases?: string[];
+  description?: string;
 };
 export type CanvasLayout = {
   layout: "focus" | "grid" | "columns" | "freeform";
   windows: string[];
+  /** False for workspaces whose every window is explicitly added. */
+  main?: false;
+  routes?: Record<string, Record<string, string>>;
+  panels?: Record<string, LayoutState>;
+  interiors?: Record<string, LayoutState>;
   widths?: Partial<Record<CanvasLayout["layout"], number[]>>;
   freeform?: { frames: Record<string, CanvasFrame>; order: string[] };
 };
@@ -21,6 +36,12 @@ export type CanvasFrame = {
   height: number;
 };
 export const MAX_CANVAS_WINDOWS = 3;
+/** All content IDs, including the implicit main only in older workspaces. */
+export const canvasContentIds = (state: CanvasLayout): string[] =>
+  state.main === false ? state.windows : ["main", ...state.windows];
+/** Four total views, whether or not the workspace has a legacy main. */
+export const canvasWindowLimit = (state: CanvasLayout) =>
+  MAX_CANVAS_WINDOWS + (state.main === false ? 1 : 0);
 const EMPTY: CanvasLayout = { layout: "focus", windows: [] };
 const CHANGE = "buzz-canvas-layout-changed";
 
@@ -33,13 +54,52 @@ export function parseCanvasLayout(raw: string | null): CanvasLayout {
       !value ||
       !["focus", "grid", "columns", "freeform"].includes(value.layout) ||
       !Array.isArray(value.windows) ||
-      value.windows.length > MAX_CANVAS_WINDOWS ||
+      // Preserve existing companions when restoring Home’s permanent summary.
+      value.windows.length > MAX_CANVAS_WINDOWS + 1 ||
       value.windows.some(
         (id: unknown) => typeof id !== "string" || id.length > 512,
       ) ||
       new Set(value.windows).size !== value.windows.length
     )
       return EMPTY;
+    const ids =
+      value.main === false ? value.windows : ["main", ...value.windows];
+    const routes: NonNullable<CanvasLayout["routes"]> = {};
+    for (const id of ids) {
+      const route = value.routes?.[id];
+      if (route && typeof route === "object" && !Array.isArray(route))
+        routes[id] = Object.fromEntries(
+          Object.entries(route)
+            .slice(0, 40)
+            .filter(
+              ([key, val]) =>
+                key.length < 80 &&
+                typeof val === "string" &&
+                val.length <= 2048,
+            ),
+        ) as Record<string, string>;
+    }
+    const panels: Record<string, LayoutState> = {};
+    for (const scope of ["home", "workspace"])
+      for (const preset of ["focus", "grid", "columns"]) {
+        const key = `${scope}:${preset}`;
+        const parsed = parsePanelLayout(value.panels?.[key]);
+        if (parsed) panels[key] = parsed;
+      }
+    const interiors: Record<string, LayoutState> = {};
+    const interiorTabs = new Set<string>();
+    for (const owner of ids) {
+      const parsed = parsePanelLayout(value.interiors?.[owner]);
+      const tabs = parsed?.groups.flatMap((g) => g.tabs) ?? [];
+      if (
+        parsed &&
+        tabs.includes(owner) &&
+        tabs.every((id) => ids.includes(id) && !interiorTabs.has(id))
+      ) {
+        interiors[owner] = parsed;
+        for (const id of tabs) interiorTabs.add(id);
+      }
+    }
     const widths: NonNullable<CanvasLayout["widths"]> = {};
     for (const layout of ["focus", "grid", "columns"] as const) {
       const sizes = value.widths?.[layout];
@@ -58,7 +118,6 @@ export function parseCanvasLayout(raw: string | null): CanvasLayout {
         widths[layout] = sizes;
     }
     const frames: Record<string, CanvasFrame> = {};
-    const ids = ["main", ...value.windows];
     for (const id of ids) {
       const frame = value.freeform?.frames?.[id];
       if (
@@ -90,12 +149,16 @@ export function parseCanvasLayout(raw: string | null): CanvasLayout {
           ),
         ]
       : [];
-    return {
+    return migrateConnectedWindows({
       layout: value.layout,
       windows: value.windows,
+      ...(value.main === false ? { main: false as const } : {}),
+      routes,
       widths,
+      panels,
+      interiors,
       ...(value.freeform ? { freeform: { frames, order } } : {}),
-    };
+    });
   } catch {
     return EMPTY;
   }

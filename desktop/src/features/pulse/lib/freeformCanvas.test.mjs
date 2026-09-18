@@ -61,3 +61,29 @@ test("freeform placements round-trip, malformed geometry is dropped, and close r
   assert.deepEqual(closed.freeform.frames, { main: good });
   assert.deepEqual(closed.freeform.order, ["main"]);
 });
+
+test("closing content removes its tab and selection from every saved layout atomically", async () => {
+  const { initialLayout, combineTab, parsePanelLayout } = await import(
+    "./panelLayout.ts"
+  );
+  const panels = combineTab(
+    initialLayout(["main", "agents", "widget:weather"]),
+    "agents",
+    "main",
+    "agents",
+  );
+  const state = {
+    layout: "columns",
+    windows: ["agents", "widget:weather"],
+    panels: { "workspace:columns": panels },
+  };
+  const next = withoutCanvasWindow(state, "agents");
+  assert.ok(parsePanelLayout(next.panels["workspace:columns"]));
+  assert.equal(
+    next.panels["workspace:columns"].groups.find((g) => g.id === "main")
+      .selected,
+    "main",
+  );
+  assert.ok(!JSON.stringify(next.panels).includes("agents"));
+  assert.deepEqual(parseCanvasLayout(JSON.stringify(next)).panels, next.panels);
+});

@@ -32,6 +32,7 @@ export const CLEAR_WORKSPACE_PANELS = Object.fromEntries(
 export function workspaceNavigationTarget(
   target: AppNavigationTarget,
   conversation: string | null,
+  workspace?: string | null,
 ): AppNavigationTarget {
   let feed: PulseView;
   let params: Record<string, string | undefined> = {};
@@ -83,6 +84,7 @@ export function workspaceNavigationTarget(
       ...target.search,
       feed,
       ...params,
+      ...(workspace ? { workspace } : {}),
     },
   };
 }

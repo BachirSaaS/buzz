@@ -323,14 +323,34 @@
 /* Pulse keeps clearance inside the scroll content and floats its composer. */
 [data-testid="pulse-message-view"] {
   --message-scroll-end-gap: 16px;
+  --pulse-composer-inset: 8px;
+  --pulse-composer-radius: max(
+    0px,
+    calc(
+      var(--window-radius, var(--blockui-radius-lg)) -
+      var(--pulse-composer-inset)
+    )
+  );
 }
 
 [data-testid="pulse-message-view"] .composer-dock {
-  --composer-dock-quiet-inset: 8px;
+  --composer-dock-quiet-inset: var(--pulse-composer-inset);
 }
 
 [data-testid="pulse-message-view"] .composer-dock footer {
-  padding-inline: 8px;
+  padding-inline: var(--pulse-composer-inset);
+}
+
+[data-testid="pulse-message-view"] [data-testid="message-composer"],
+[data-testid="pulse-message-view"] [data-testid="composer-dock-backdrop"] > div,
+[data-testid="pulse-message-view"] [data-testid="drop-zone-overlay"] {
+  border-radius: var(--pulse-composer-radius);
+}
+
+[data-testid="pulse-message-view"]
+  :is([data-testid="reply-target"], [data-testid="edit-target"]) {
+  border-top-left-radius: var(--pulse-composer-radius);
+  border-top-right-radius: var(--pulse-composer-radius);
 }
 
 [data-testid="pulse-message-view"] [data-testid="message-composer"] {
@@ -341,7 +361,7 @@
 }
 
 [data-testid="pulse-message-view"] [data-testid="composer-dock-backdrop"] {
-  inset-inline: 8px;
+  inset-inline: var(--pulse-composer-inset);
 }
 
 [data-testid="pulse-message-view"] .composer-overlay-corner-masks::before,

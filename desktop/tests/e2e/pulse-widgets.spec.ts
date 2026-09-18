@@ -15,7 +15,7 @@ test("add the widget collection to Pulse, interact, reload, and remove it", asyn
   await installMockBridge(page);
   await page.goto("/#/pulse");
   await page.getByTestId("canvas-add-view").click();
-  const picker = page.getByRole("dialog", { name: "Add a view" });
+  const picker = page.getByRole("dialog", { name: "Add a window" });
   await picker.getByRole("button", { name: "Widgets", exact: true }).click();
   await expect(
     picker.getByRole("region", { name: "Available views" }).getByRole("button"),
@@ -68,10 +68,45 @@ test("add the widget collection to Pulse, interact, reload, and remove it", asyn
     exact: true,
   });
   await expect(flight.getByText("SFO", { exact: true })).toBeVisible();
-  const height = await flight.evaluate(
-    (el) => el.getBoundingClientRect().height,
-  );
+  const card = flight.locator('[data-widget="Flight"]');
+  const height = await card.evaluate((el) => el.getBoundingClientRect().height);
   expect(height).toBeLessThan(440);
+  const resize = flight.getByRole("button", {
+    name: "Resize Flight window se",
+    exact: true,
+  });
+  await resize.focus();
+  for (
+    let step = 0;
+    step < 24 && (await card.getAttribute("data-size")) !== "small";
+    step++
+  ) {
+    await page.keyboard.press("Shift+ArrowLeft");
+  }
+  await expect(card).toHaveAttribute("data-size", "small");
+  await expect(card.getByText("San Francisco", { exact: true })).toHaveCount(0);
+  for (
+    let step = 0;
+    step < 24 && (await card.getAttribute("data-size")) !== "medium";
+    step++
+  ) {
+    await page.keyboard.press("Shift+ArrowRight");
+  }
+  await expect(card).toHaveAttribute("data-size", "medium");
+  await expect(card.getByText("San Francisco", { exact: true })).toBeVisible();
+  // This companion starts against the right edge; grow toward the open canvas.
+  await flight
+    .getByRole("button", { name: "Resize Flight window nw", exact: true })
+    .focus();
+  for (
+    let step = 0;
+    step < 24 && (await card.getAttribute("data-size")) !== "large";
+    step++
+  ) {
+    await page.keyboard.press("Shift+ArrowLeft");
+  }
+  await expect(card).toHaveAttribute("data-size", "large");
+  await expect(card.getByText("Departs", { exact: true })).toBeVisible();
   await page.setViewportSize({ width: 740, height: 900 });
   const box = await flight.boundingBox();
   expect(box).not.toBeNull();
@@ -129,7 +164,7 @@ test("Buzz widgets follow scoped agent activity, navigate conversations, and sta
   });
   await page.goto("/#/pulse");
   await page.getByTestId("canvas-add-view").click();
-  const picker = page.getByRole("dialog", { name: "Add a view" });
+  const picker = page.getByRole("dialog", { name: "Add a window" });
   await picker
     .getByRole("textbox", { name: "Search views" })
     .fill("Buzz widgets");
@@ -142,13 +177,29 @@ test("Buzz widgets follow scoped agent activity, navigate conversations, and sta
   });
   await expect(collection.locator("[data-widget]")).toHaveCount(5);
   const huddle = collection.locator('[data-widget="Huddle"]');
+  await collection
+    .getByRole("button", { name: "Resize Buzz widgets window se", exact: true })
+    .focus();
+  for (
+    let step = 0;
+    step < 24 && (await huddle.getAttribute("data-size")) !== "small";
+    step++
+  ) {
+    await page.keyboard.press("Shift+ArrowLeft");
+  }
+  await expect(huddle).toHaveAttribute("data-size", "small");
+  await huddle.locator(".huddle-avatar-launcher").click();
   await huddle
     .getByRole("combobox", { name: "Huddle conversation" })
     .selectOption({ label: "#general" });
+  // Selecting a different room remounts its roster and closes the old details.
+  if (!(await huddle.getByRole("combobox").isVisible()))
+    await huddle.locator(".huddle-avatar-launcher").click();
   const selectedChannel = await huddle.getByRole("combobox").inputValue();
   await expect(
     huddle.getByRole("button", { name: "Start huddle", exact: true }),
   ).toBeEnabled();
+  await page.keyboard.press("Escape");
   // The widget must not register as another owner of the active channel's shortcut.
   await page.evaluate(
     (channelId) =>
@@ -158,8 +209,12 @@ test("Buzz widgets follow scoped agent activity, navigate conversations, and sta
     selectedChannel,
   );
   await collection
+    .getByRole("button", { name: "Agent options", exact: true })
+    .click();
+  await collection
     .getByRole("combobox", { name: "Agent to follow" })
     .selectOption(agentPubkey);
+  await page.keyboard.press("Escape");
   await page.evaluate(
     ({ agentPubkey, channelId }) => {
       window.__BUZZ_E2E_SEED_ACTIVE_TURNS__?.({
@@ -224,15 +279,10 @@ test("Buzz widgets follow scoped agent activity, navigate conversations, and sta
   await expect(page.getByRole("dialog")).toContainText("pnpm test");
   await page.keyboard.press("Escape");
   const conversations = collection.locator('[data-widget="Conversations"]');
-  await expect(
-    conversations.locator(".communication-row").first(),
-  ).toBeVisible();
-  await conversations.locator(".communication-row").first().click();
+  await expect(conversations.locator(".avatar-launcher").first()).toBeVisible();
+  await conversations.locator(".avatar-launcher").first().click();
   await expect(page).toHaveURL(/conversation=/);
   await expect(page).toHaveURL(/thread=/);
-  await expect(
-    huddle.getByRole("button", { name: "Start huddle", exact: true }),
-  ).toBeEnabled();
   await agent.scrollIntoViewIfNeeded();
   await waitForAnimations(page);
   await agent.screenshot({
@@ -250,6 +300,7 @@ test("Buzz widgets follow scoped agent activity, navigate conversations, and sta
       ),
     ),
   ).toHaveLength(0);
+  await huddle.locator(".huddle-avatar-launcher").click();
   await huddle
     .getByRole("button", { name: "Start huddle", exact: true })
     .focus();
@@ -311,7 +362,7 @@ for (const broken of [false, true]) {
     );
     await page.goto("/#/pulse");
     await page.getByTestId("canvas-add-view").click();
-    const picker = page.getByRole("dialog", { name: "Add a view" });
+    const picker = page.getByRole("dialog", { name: "Add a window" });
     await picker
       .getByRole("textbox", { name: "Search views" })
       .fill("Conversations");

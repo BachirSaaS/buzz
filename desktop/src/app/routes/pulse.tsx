@@ -28,6 +28,7 @@ type PulseRouteSearch = ReturnType<typeof parseProjectDetailSearch> & {
   view?: "create" | "edit" | "duplicate";
   pane?: string;
   feed?: string;
+  workspace?: string;
   briefings?: "saved";
   compose?: "message";
   conversation?: string;
@@ -54,6 +55,11 @@ function validatePulseSearch(
       ? search[key]
       : undefined;
   return {
+    workspace:
+      typeof search.workspace === "string" &&
+      /^[a-zA-Z0-9-]{1,80}$/.test(search.workspace)
+        ? search.workspace
+        : undefined,
     agentSection: search.agentSection === "browse" ? "browse" : undefined,
     ...parseProjectDetailSearch(search),
     projectId: stringValue("projectId"),

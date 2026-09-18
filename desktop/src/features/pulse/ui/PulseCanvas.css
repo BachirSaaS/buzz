@@ -146,6 +146,15 @@
 }
 
 /* Home is the anchored reading surface, independent of window layout/stacking. */
+.pulse-home-scroll {
+  border-radius: var(--window-radius);
+}
+.pulse-home-scroll .home-activity-card {
+  border: 0;
+  border-radius: var(--window-radius);
+  background: var(--blockui-surface-card);
+  box-shadow: 0 2px 8px #0000000d;
+}
 .pulse-canvas[data-fixed-main] .pulse-canvas-primary {
   position: absolute;
   inset: 0;

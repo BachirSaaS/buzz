@@ -1,13 +1,77 @@
 # Widget gallery
 
-Fourteen small, interactive web widgets built with Block UI foundations and Cash Sans.
+Fourteen interactive web widgets, each with small, medium, and large compositions,
+built with Block UI foundations and Cash Sans.
 In Buzz Pulse, choose **+ → Widgets** and add an individual widget, **Buzz widgets**,
 or **All widgets**.
 They use the existing canvas layout, reorder, close, and community-scoped persistence.
 Widget heights follow their content; the collection scrolls within its window.
+The new-window chooser renders these same small compositions through `WidgetPreview.tsx`,
+using isolated gallery samples for Buzz cards. Previews are inert; each card has one
+selection button, and the Music preview does not mount an audio player.
 
 For visual review, a secondary browser-only gallery has Buzz and Everyday collections.
 This entry has no Tauri, relay, or account dependency.
+Its Small / Medium / Large controls switch density across the collection;
+Compare sizes places the three compositions beside each other.
+
+Inside Pulse, each widget follows its available width: small below 320px,
+medium from 320px to 431px, and large from 432px. Resizing preserves component
+state and existing live adapters. Heights remain content-driven.
+
+| Widget | Small | Medium | Large |
+| --- | --- | --- | --- |
+| Agent activity | Quiet identity/status, latest tool, usage; selection in options | Two tools, agent context, usage capacity | Three tools and current operation detail |
+| Huddle | Large grouped avatars open the group selector and start/join controls | More avatars, same single action | Named roster and same action |
+| Mentions | Three avatar launchers | Three single-line previews | Expanded previews and reply counts when available |
+| Conversations | Three single/group avatar launchers | Three compact rows with grouped avatars | Longer previews |
+| Active channels | Recent participants as avatar launchers | Three channel previews | Longer previews |
+| Location | Full-bleed map and place | More map area and zoom controls | Expanded map area |
+| Weather | Conditions, forecast on demand | Five daily highs | Daily highs and lows |
+| News | Lead story | Three headlines | Images and lead story summary |
+| Music | Compact art, play/pause, scrubber | Larger art and ten-second skip controls | Album artwork leads |
+| Flight | Airport codes, dates and local times | City names | Explicit departure/arrival labels |
+| Inbox | Latest sender and subject | Three subjects and times | Message previews |
+| Mood board | Two photos | Four-photo grid | One lead image with three supporting photos |
+| Up next | Event and one time line | Grouped attendees | Named attendees and purpose |
+| Activity | Daily value, goal and ring | Day selection | Day totals for comparison |
+
+Conversation identity uses single/grouped avatars instead of DM/group badges.
+Workspace member counts and duplicate event/huddle labels are omitted.
+Small communication cards have one primary heading above their avatars, without text previews. Each avatar button
+has a destination label and hover title; loading/error/empty states remain explicit.
+
+## Drop into another Buzz view
+
+Use `CanvasWidgets.tsx` for existing Buzz data and actions. It imports the styles,
+adds the scoped wrapper, and sizes each widget. It does not own canvas window chrome.
+
+```tsx
+import { CanvasWidgets } from "@/features/widgets/CanvasWidgets";
+
+<CanvasWidgets
+  target="buzz"
+  size="small"
+  feed={feed}
+  currentPubkey={currentPubkey}
+  onOpen={openConversation}
+/>
+```
+
+`feed` is the existing `useUnifiedPulseFeed` result (`CanvasFeed`); `onOpen` has
+the signature `(view: CanvasView, thread?: string) => void` and belongs to the host.
+Render within Buzz's existing query, identity, and huddle providers. Set `target`
+to `agent-activity`, `huddle`, `mentions`, `conversations`, or `channels` for one
+widget; `buzz` renders all five. Omit `size` for automatic width-based sizing,
+or choose `small`, `medium`, or `large` explicitly.
+
+For custom data, compose `AgentActivityWidget`, `HuddleWidget`, or
+`CommunicationWidget` from `BuzzWidgets.tsx` inside `WidgetSizing` and a
+`widget-scope` element; import `widgets.css` and the app's shared Block UI theme.
+`CompactAgentActivity.tsx` owns the quiet small agent presentation.
+`BuzzCanvasWidgets.tsx`, `LiveAgentWidget.tsx`, and `LiveHuddleWidget.tsx` contain
+the live adapters. `BuzzWidgetGallery.tsx` is the standalone gallery fixture layer,
+not the integration entry point.
 
 From the repository root:
 

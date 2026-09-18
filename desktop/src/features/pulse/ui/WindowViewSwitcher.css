@@ -1,0 +1,19 @@
+.window-view-switch-trigger {
+  cursor: pointer;
+  border-radius: 6px;
+}
+.window-view-switch-trigger:hover,
+.window-view-switch-trigger[data-state="open"] {
+  background: var(--muted);
+}
+.window-view-switch-trigger:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+/* A frequently used switcher should respond immediately to every input. */
+.window-view-switcher[data-state] {
+  animation: none;
+  transition: none;
+  max-height: var(--radix-popover-content-available-height);
+  overflow-y: auto;
+}

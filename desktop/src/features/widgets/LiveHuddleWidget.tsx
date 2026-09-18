@@ -14,16 +14,18 @@ import { useChannelMembersQuery } from "@/features/channels/hooks";
 import { getDmHuddleMemberPubkeys } from "@/features/channels/lib/dmHuddleMembers";
 import { canStartHuddleInChannel } from "@/features/channels/lib/huddleAvailability";
 import { NativeSelect } from "@/shared/blockui/components/native-select";
-import type { Channel } from "@/shared/api/types";
+import type { Channel, UserProfileSummary } from "@/shared/api/types";
 import { HuddleWidget } from "./BuzzWidgets";
 import { Control, Widget } from "./Widget";
 
 /** Launch or join a real huddle in an existing joined conversation. */
 export function LiveHuddleWidget({
   channels,
+  profiles,
   currentPubkey,
 }: {
   channels: Channel[];
+  profiles: Record<string, UserProfileSummary>;
   currentPubkey?: string;
 }) {
   const [selected, setSelected] = useState("");
@@ -49,6 +51,7 @@ export function LiveHuddleWidget({
     <ChannelHuddle
       key={channel.id}
       channel={channel}
+      profiles={profiles}
       currentPubkey={currentPubkey}
       selection={
         <NativeSelect
@@ -72,10 +75,12 @@ export function LiveHuddleWidget({
 
 function ChannelHuddle({
   channel,
+  profiles,
   currentPubkey,
   selection,
 }: {
   channel: Channel;
+  profiles: Record<string, UserProfileSummary>;
   currentPubkey?: string;
   selection: React.ReactNode;
 }) {
@@ -130,10 +135,11 @@ function ChannelHuddle({
       setError(formatHuddleActionError(cause, "start"));
     }
   };
-  const people = (members.data ?? []).slice(0, 4).map((member) => ({
+  const people = (members.data ?? []).map((member) => ({
     id: member.pubkey,
     name:
       member.pubkey === currentPubkey ? "You" : member.displayName || "Member",
+    avatar: profiles[member.pubkey]?.avatarUrl,
   }));
   const action = activeEphemeralChannelId ? (
     <Control
@@ -157,10 +163,11 @@ function ChannelHuddle({
     <HuddleWidget
       title={
         channel.channelType === "dm"
-          ? "Bring your group together for a quick conversation."
-          : `A quick conversation with #${channel.name}.`
+          ? channel.participants.join(", ") || "Group conversation"
+          : `#${channel.name}`
       }
       people={people}
+      active={Boolean(activeEphemeralChannelId)}
       count={members.data?.length ?? channel.memberCount}
       selection={selection}
       error={

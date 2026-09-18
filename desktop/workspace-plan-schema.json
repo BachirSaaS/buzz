@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "name": { "type": "string" },
+    "layout": { "type": "string", "enum": ["focus", "columns", "grid"] },
+    "windowIds": { "type": "array", "items": { "type": "string" } },
+    "unresolved": { "type": "array", "items": { "type": "string" } }
+  },
+  "required": ["name", "layout", "windowIds", "unresolved"]
+}

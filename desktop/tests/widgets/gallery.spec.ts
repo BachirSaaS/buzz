@@ -15,7 +15,7 @@ test("all nine widgets honor typography, intrinsic sizing, and narrow layouts", 
   await expect(page.locator(".hero-number")).toHaveCSS("font-size", "56px");
   await expect(page.locator(".track-details h3")).toHaveCSS(
     "font-size",
-    "24px",
+    "16px",
   );
   await expect(page.locator('[data-widget="Music"]')).toHaveCSS(
     "background-color",

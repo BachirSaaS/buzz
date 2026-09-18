@@ -1,6 +1,5 @@
-import { FolderGit2, ArrowUpRight } from "lucide-react";
+import { CanvasAppWindow } from "./CanvasAppWindow";
 import type { CanvasView } from "../lib/canvasLayout";
-import type { Project } from "@/features/projects/projectModels";
 import type { useUnifiedPulseFeed } from "../useUnifiedPulseFeed";
 import { Button } from "@/shared/ui/button";
 import { ConversationCard } from "./ConversationCard";
@@ -13,16 +12,28 @@ export type CanvasFeed = ReturnType<typeof useUnifiedPulseFeed>;
 export function CanvasWindowContent({
   view,
   feed,
-  projects,
+  route,
+  saveRoute,
   currentPubkey,
   onOpen,
 }: {
   view: CanvasView;
   feed: CanvasFeed;
-  projects: Project[];
+  route?: Record<string, string>;
+  saveRoute: (route: Record<string, string>) => boolean;
   currentPubkey?: string;
   onOpen: (view: CanvasView, thread?: string) => void;
 }) {
+  if (view.kind === "app" || view.kind === "project")
+    return (
+      <CanvasAppWindow
+        view={view}
+        route={route}
+        saveRoute={saveRoute}
+        feed={feed}
+        currentPubkey={currentPubkey}
+      />
+    );
   if (view.kind === "channel" || view.kind === "dm")
     return (
       <PulseChannelDetail
@@ -40,41 +51,6 @@ export function CanvasWindowContent({
         onOpen={onOpen}
       />
     );
-  if (view.kind === "project") {
-    const project = projects.find((item) => item.id === view.target);
-    return (
-      <div className="space-y-5 p-5">
-        <div className="flex size-12 items-center justify-center rounded-2xl bg-muted">
-          <FolderGit2 aria-hidden className="size-6" />
-        </div>
-        <div>
-          <h3 className="text-lg font-semibold">{project?.name}</h3>
-          <p className="mt-2 text-sm text-muted-foreground">
-            {project?.description ||
-              "Your project, repositories, and conversations in one place."}
-          </p>
-        </div>
-        <div className="space-y-2">
-          {project?.repositories.map((repo) => (
-            <div key={repo.id} className="rounded-xl bg-muted/40 p-3">
-              <p className="text-sm font-medium">{repo.name}</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {repo.description || repo.defaultBranch}
-              </p>
-            </div>
-          ))}
-          {!project?.repositories.length && (
-            <p className="text-sm text-muted-foreground">
-              No linked repositories yet.
-            </p>
-          )}
-        </div>
-        <Button variant="outline" size="sm" onClick={() => onOpen(view)}>
-          Open project <ArrowUpRight aria-hidden className="size-4" />
-        </Button>
-      </div>
-    );
-  }
   const conversations = feed.conversations
     .filter((item) =>
       view.kind === "agents" ? item.isAgent : item.channel?.id === view.target,

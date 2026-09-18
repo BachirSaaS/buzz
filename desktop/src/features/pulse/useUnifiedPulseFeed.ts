@@ -1,3 +1,5 @@
+import { usePulsePreferences } from "./lib/usePulsePreferences";
+import { useRelayOrigin } from "@/shared/lib/useRelayOrigin";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as React from "react";
 import { useChannelsQuery } from "@/features/channels/hooks";
@@ -20,10 +22,17 @@ export function useUnifiedPulseFeed(currentPubkey?: string) {
   const agentPubkeys = useKnownAgentPubkeys();
   const relaySelf = useRelaySelfQuery();
   const connection = useRelayConnection();
-  const [excludedIds, setExcludedIds] = React.useState<ReadonlySet<string>>(
-    () => new Set(),
+  const relay = useRelayOrigin();
+  const preferences = usePulsePreferences(
+    relay && currentPubkey ? `${relay}:${currentPubkey}` : null,
   );
-  const [includeNotes, setIncludeNotes] = React.useState(true);
+  const excludedIds = React.useMemo(
+    () => new Set(preferences.values.excludedSources),
+    [preferences.values.excludedSources],
+  );
+  const includeNotes = preferences.values.includeNotes;
+  const setIncludeNotes = (value: boolean) =>
+    preferences.update((current) => ({ ...current, includeNotes: value }));
   const channels = React.useMemo(
     () =>
       (channelsQuery.data ?? [])
@@ -109,12 +118,12 @@ export function useUnifiedPulseFeed(currentPubkey?: string) {
     ],
   );
   const toggleSource = (id: string) =>
-    setExcludedIds((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+    preferences.update((current) => ({
+      ...current,
+      excludedSources: current.excludedSources.includes(id)
+        ? current.excludedSources.filter((source) => source !== id)
+        : [...current.excludedSources, id],
+    }));
   return {
     query,
     channels,

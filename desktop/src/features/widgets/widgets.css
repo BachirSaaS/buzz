@@ -960,7 +960,10 @@
   font-family: "Widget Cash Sans", sans-serif;
 }
 
-.widget-scope .canvas-widget-single .widget-heading {
+.widget-scope
+  .canvas-widget-single
+  .widget:not([data-size="small"])
+  .widget-heading {
   display: none;
 }
 .widget-scope .canvas-widget-collection {

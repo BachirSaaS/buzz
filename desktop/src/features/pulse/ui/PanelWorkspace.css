@@ -1,0 +1,335 @@
+.panel-dock-stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  isolation: isolate;
+}
+.panel-dock-placement {
+  position: absolute;
+  left: 0;
+  top: 0;
+  min-width: 0;
+  min-height: 0;
+  transition: transform 180ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.panel-dock-stage[data-resizing] .panel-dock-placement,
+.panel-dock-placement[data-dragging] {
+  transition: none;
+}
+.panel-dock-placement[data-frontmost] {
+  z-index: 3;
+}
+.panel-dock-surface {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background: var(--background);
+  border-radius: var(--blockui-radius-lg);
+  box-shadow: 0 2px 8px #0000000d;
+}
+.panel-dock-header {
+  display: flex;
+  align-items: center;
+  height: 40px;
+  min-height: 40px;
+  flex-shrink: 0;
+  gap: 8px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.panel-dock-tabs {
+  display: flex;
+  flex-shrink: 1;
+  min-width: 0;
+  overflow-x: auto;
+}
+.panel-dock-tab {
+  max-width: 180px;
+  min-width: 0;
+  padding: 4px 8px;
+  background: transparent;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: grab;
+  touch-action: none;
+}
+.panel-dock-tab[data-active] {
+  font-weight: 500;
+  color: var(--foreground);
+}
+.panel-dock-tab:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+.panel-dock-header-space {
+  flex: 1;
+  min-width: 24px;
+  align-self: stretch;
+}
+.panel-dock-close {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+}
+.panel-dock-content,
+.canvas-content-slot,
+.canvas-content-host {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  height: 100%;
+}
+.panel-dock-content[hidden] {
+  display: none;
+}
+.canvas-content-host[data-scroll] {
+  overflow-y: auto;
+}
+.panel-dock-divider {
+  position: absolute;
+  width: 12px;
+  transform: translateX(-50%);
+  z-index: 4;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+}
+.panel-dock-divider[data-axis="vertical"] {
+  height: 12px;
+  transform: translateY(-50%);
+  cursor: row-resize;
+}
+.panel-dock-divider::after {
+  content: "";
+  position: absolute;
+  inset: 8px 5px;
+  border-radius: 2px;
+}
+.panel-dock-divider[data-axis="vertical"]::after {
+  inset: 5px 8px;
+}
+.panel-dock-divider:focus-visible::after,
+.panel-dock-divider:hover::after,
+.panel-dock-stage[data-resizing] .panel-dock-divider::after {
+  background: color-mix(in srgb, var(--foreground) 35%, transparent);
+}
+.panel-dock-stage[data-dragging] .panel-dock-divider {
+  visibility: hidden;
+}
+.panel-dock-stage[data-dragging],
+.panel-dock-stage[data-dragging] * {
+  cursor: grabbing;
+  user-select: none;
+}
+.panel-dock-ghost,
+.panel-dock-marker,
+.panel-dock-edge {
+  position: absolute;
+  z-index: 10;
+  pointer-events: none;
+}
+.panel-dock-ghost {
+  left: 0;
+  top: 0;
+  opacity: 0.85;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: var(--muted);
+  white-space: nowrap;
+}
+.panel-dock-marker {
+  width: 2px;
+  background: var(--primary);
+  border-radius: 2px;
+}
+.panel-dock-edge {
+  width: 24px;
+  height: 3px;
+  transform: translate(-50%, -50%);
+  border-radius: 2px;
+  background: var(--foreground);
+}
+.panel-dock-edge:is([data-edge="left"], [data-edge="right"]) {
+  width: 3px;
+  height: 24px;
+}
+.panel-dock-stage > [hidden] {
+  display: none;
+}
+.pulse-canvas-docked {
+  position: absolute;
+  inset: 0;
+}
+.pulse-canvas[data-fixed-main] .pulse-canvas-docked {
+  left: auto;
+  width: clamp(240px, calc((100% - 752px) / 2), 400px);
+  z-index: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .panel-dock-placement {
+    transition: none;
+  }
+}
+
+.panel-window-title {
+  min-width: 0;
+  padding: 4px 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.panel-window-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  color: var(--muted-foreground);
+}
+.panel-window-action:hover:not(:disabled) {
+  background: var(--muted);
+  color: var(--foreground);
+}
+.panel-window-action:active:not(:disabled) {
+  transform: scale(0.97);
+}
+.panel-window-action:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.panel-window-action:disabled {
+  opacity: 0.3;
+}
+.pulse-canvas-main-window > .panel-dock-surface {
+  flex: 1;
+  min-height: 0;
+}
+
+/* Only the parent owns the surface and clipping radius. */
+.pulse-canvas {
+  --window-radius: max(0px, calc(var(--blockui-radius-lg) - 8px));
+  --background: var(--blockui-surface-card);
+}
+.pulse-canvas :is(.panel-dock-surface, .pulse-canvas-window) {
+  border-radius: var(--window-radius);
+  background: var(--blockui-surface-card);
+}
+.parent-window-interior {
+  position: relative;
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+.parent-window-view {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 0;
+  background: var(--blockui-surface-card);
+}
+.parent-window-view .canvas-content-host > *,
+.parent-window-view .pulse-workspace-surface {
+  border-radius: 0;
+}
+.parent-window-divider::after {
+  inset: 0 5.5px;
+  border-radius: 0;
+  background: var(--border);
+}
+.parent-window-divider[data-axis="vertical"]::after {
+  inset: 5.5px 0;
+}
+.panel-dock-header:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+.window-corner-handle {
+  position: absolute;
+  z-index: 5;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  touch-action: none;
+  cursor: nwse-resize;
+}
+.window-corner-handle svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.window-corner-handle[data-corner="se"] {
+  right: -4px;
+  bottom: -4px;
+}
+.window-corner-handle[data-corner="nw"] {
+  left: -4px;
+  top: -4px;
+}
+.window-corner-handle[data-corner="ne"] {
+  right: -4px;
+  top: -4px;
+  cursor: nesw-resize;
+}
+.window-corner-handle[data-corner="sw"] {
+  left: -4px;
+  bottom: -4px;
+  cursor: nesw-resize;
+}
+.window-corner-handle[data-corner="nw"] svg {
+  transform: rotate(180deg);
+}
+.window-corner-handle[data-corner="ne"] svg {
+  transform: rotate(270deg);
+}
+.window-corner-handle[data-corner="sw"] svg {
+  transform: rotate(90deg);
+}
+.window-corner-stroke {
+  opacity: 0;
+}
+.window-corner-handle:is(:hover, :focus-visible) .window-corner-stroke {
+  opacity: 0.8;
+}
+.window-corner-handle:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+/* Only the curved edge captures the pointer, leaving toolbar actions clear. */
+.window-corner-handle,
+.window-corner-handle svg {
+  pointer-events: none;
+}
+.window-corner-handle [data-resize-hit] {
+  pointer-events: stroke;
+}
+/* Interior leaves are absolute; standalone tiled parents need their own height. */
+.pulse-canvas:not([data-layout="freeform"]) .pulse-canvas-window {
+  height: 100%;
+}
+.pulse-canvas:not([data-layout="freeform"])
+  .pulse-canvas-window[data-view-kind="widget"] {
+  height: min(520px, 100%);
+}

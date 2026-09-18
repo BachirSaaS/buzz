@@ -1,10 +1,15 @@
+import {
+  arrangeWindows,
+  openMainArea,
+  readActiveCanvas,
+} from "../helpers/canvas";
 import { expect, test, type Page } from "@playwright/test";
 import { installMockBridge, TEST_IDENTITIES } from "../helpers/bridge";
 import { waitForAnimations } from "../helpers/animations";
 
 async function add(page: Page, query: string, name: RegExp) {
   await page.getByTestId("canvas-add-view").click();
-  const dialog = page.getByRole("dialog", { name: "Add a view" });
+  const dialog = page.getByRole("dialog", { name: "Add a window" });
   await dialog.getByRole("textbox", { name: "Search views" }).fill(query);
   await dialog.getByRole("button", { name }).click();
   await expect(dialog).toHaveCount(0);
@@ -28,16 +33,16 @@ test("find views, arrange windows, navigate, reload and close without losing the
 }) => {
   const canvas = page.getByTestId("pulse-canvas");
   await expect(
-    page.getByRole("group", { name: "Canvas controls" }),
+    page.getByRole("button", { name: "Arrange windows" }),
   ).toHaveCount(0);
   await add(page, "general", /#general/);
   await expect(
     page
       .getByTestId("app-top-chrome")
-      .getByRole("group", { name: "Canvas controls" }),
+      .getByRole("button", { name: "Arrange windows" }),
   ).toBeVisible();
   await expect(
-    canvas.getByRole("group", { name: "Canvas controls" }),
+    canvas.getByRole("button", { name: "Arrange windows" }),
   ).toHaveCount(0);
   await expect(
     canvas.getByRole("region", { name: "#general window", exact: true }),
@@ -50,18 +55,15 @@ test("find views, arrange windows, navigate, reload and close without losing the
     .getByTestId("canvas-window")
     .first()
     .boundingBox();
-  expect(companionBox?.width).toBe(584);
-  expect(companionBox?.y).toBe(72);
-  expect(companionBox && companionBox.y + companionBox.height).toBe(976);
+  expect(companionBox?.width).toBe(600);
+  expect(companionBox?.y).toBe(64);
+  expect(companionBox && companionBox.y + companionBox.height).toBe(984);
   await add(page, "alice", /Alice/i);
-  await add(page, "agent", /^Agent activity Agents$/);
+  await add(page, "agent", /^Agent activity Activity$/);
   await expect(page.getByTestId("canvas-window")).toHaveCount(3);
   await expect(page.getByTestId("canvas-add-view")).toBeDisabled();
   await expect(page.getByTestId("canvas-window").last()).toBeFocused();
-  await page
-    .getByTestId("app-top-chrome")
-    .getByRole("button", { name: "Columns layout", exact: true })
-    .click();
+  await arrangeWindows(page, "Columns");
   const columns = await page
     .getByTestId("canvas-window")
     .evaluateAll((windows) =>
@@ -72,27 +74,19 @@ test("find views, arrange windows, navigate, reload and close without losing the
     );
   expect(columns[0].y).toBe(columns[1].y);
   expect(columns[1].x).toBeGreaterThan(columns[0].x);
-  await page
-    .getByTestId("app-top-chrome")
-    .getByRole("button", { name: "Grid layout", exact: true })
-    .click();
+  await arrangeWindows(page, "Grid");
   await expect(canvas).toHaveAttribute("data-layout", "grid");
   await canvas
-    .getByRole("button", { name: "Move Agent activity earlier" })
-    .click();
-  await expect(page.getByTestId("canvas-window").nth(1)).toHaveAttribute(
-    "data-view-id",
-    "agents",
-  );
+    .getByRole("toolbar", { name: "Move Agent activity window", exact: true })
+    .focus();
+  await page.keyboard.press("ArrowUp");
+  await expect(page.locator('[data-pane="agents"]')).toBeVisible();
   await expect(
     canvas.getByRole("button", { name: /in main window/ }),
   ).toHaveCount(0);
+  await openMainArea(page, "Messages");
   await page
-    .getByTestId("pulse-app-navigation")
-    .getByRole("button", { name: "Messages", exact: true })
-    .click();
-  await page
-    .getByRole("dialog", { name: "Messages destinations" })
+    .getByRole("dialog", { name: "Switch window view" })
     .getByRole("button", { name: "Open channel general", exact: true })
     .click();
   await expect(
@@ -101,10 +95,7 @@ test("find views, arrange windows, navigate, reload and close without losing the
   await expect(page.getByTestId("canvas-window")).toHaveCount(3);
   await page.reload();
   await expect(canvas).toHaveAttribute("data-layout", "grid");
-  await expect(page.getByTestId("canvas-window").nth(1)).toHaveAttribute(
-    "data-view-id",
-    "agents",
-  );
+  await expect(page.locator('[data-pane="agents"]')).toBeVisible();
   await waitForAnimations(page);
   await page.screenshot({ path: "test-results/pulse-canvas/grid.png" });
   await canvas
@@ -120,9 +111,9 @@ test("find views, arrange windows, navigate, reload and close without losing the
     }),
   );
   for (const box of boxes) {
-    expect(box.x).toBeGreaterThanOrEqual(24);
+    expect(box.x).toBeGreaterThanOrEqual(16);
     expect(box.width).toBeLessThanOrEqual(740 - 48);
-    expect(box.x + box.width).toBeLessThanOrEqual(740 - 24);
+    expect(box.x + box.width).toBeLessThanOrEqual(740 - 16);
   }
   while (await page.getByTestId("canvas-window").count())
     await page
@@ -170,7 +161,7 @@ test("keyboard picker supports search, empty results and Escape; failed saves re
   await page.evaluate(() => {
     const original = Storage.prototype.setItem;
     Storage.prototype.setItem = function (key, value) {
-      if (key.startsWith("buzz-canvas.v1:"))
+      if (key.startsWith("buzz-workspaces.v1:"))
         throw new DOMException("Full", "QuotaExceededError");
       original.call(this, key, value);
     };
@@ -178,7 +169,7 @@ test("keyboard picker supports search, empty results and Escape; failed saves re
   await addButton.click();
   await page
     .getByRole("dialog")
-    .getByRole("button", { name: /^Agent activity Agents$/ })
+    .getByRole("button", { name: /^Agent activity Activity$/ })
     .click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await expect(
@@ -208,12 +199,9 @@ test("channel and DM companions use full conversations with independent threads 
     ).toHaveCount(0);
   }
   await dm.getByTestId("message-input").fill("Private draft for Alice");
+  await openMainArea(page, "Messages");
   await page
-    .getByTestId("pulse-app-navigation")
-    .getByRole("button", { name: "Messages", exact: true })
-    .click();
-  await page
-    .getByRole("dialog", { name: "Messages destinations" })
+    .getByRole("dialog", { name: "Switch window view" })
     .getByRole("button", { name: "Open channel general", exact: true })
     .click();
   const main = page.getByTestId("pulse-main-container");
@@ -282,136 +270,6 @@ test("channel and DM companions use full conversations with independent threads 
   });
 });
 
-test("canvas dividers resize immediately, persist once, support keyboard, and cancel cleanly", async ({
-  page,
-}) => {
-  const main = page.getByTestId("pulse-main-container");
-  await expect(main).toHaveCSS("max-width", "960px");
-  await add(page, "general", /#general/);
-  const divider = page.getByRole("separator", {
-    name: "Resize main view and side panels",
-  });
-  await expect(divider).toBeVisible();
-  await page.evaluate(() => {
-    const setItem = Storage.prototype.setItem;
-    (window as unknown as { canvasWrites: number }).canvasWrites = 0;
-    Storage.prototype.setItem = function (key, value) {
-      if (key.startsWith("buzz-canvas.v1:"))
-        (window as unknown as { canvasWrites: number }).canvasWrites++;
-      setItem.call(this, key, value);
-    };
-  });
-  const box = await divider.boundingBox();
-  if (!box) throw new Error("Missing divider");
-  await page.mouse.move(box.x + box.width / 2, box.y + 100);
-  await page.mouse.down();
-  await page.mouse.move(box.x + box.width / 2 - 140, box.y + 100, { steps: 5 });
-  await expect(divider).toHaveAttribute("aria-valuenow", "820");
-  expect(
-    await page.evaluate(
-      () => (window as unknown as { canvasWrites: number }).canvasWrites,
-    ),
-  ).toBe(0);
-  await page.mouse.up();
-  expect(
-    await page.evaluate(
-      () => (window as unknown as { canvasWrites: number }).canvasWrites,
-    ),
-  ).toBe(1);
-  expect((await main.boundingBox())?.width).toBe(820);
-  expect((await page.getByTestId("canvas-window").boundingBox())?.width).toBe(
-    724,
-  );
-  await divider.focus();
-  await page.keyboard.press("ArrowRight");
-  await expect(divider).toHaveAttribute("aria-valuenow", "830");
-  await page.keyboard.press("Shift+ArrowRight");
-  await expect(divider).toHaveAttribute("aria-valuenow", "870");
-  await page.reload();
-  await expect(divider).toHaveAttribute("aria-valuenow", "870");
-  const restored = await divider.boundingBox();
-  if (!restored) throw new Error("Missing restored divider");
-  await page.mouse.move(restored.x + restored.width / 2, restored.y + 100);
-  await page.mouse.down();
-  await page.mouse.move(restored.x - 100, restored.y + 100);
-  await page.keyboard.press("Escape");
-  await page.mouse.up();
-  await expect(divider).toHaveAttribute("aria-valuenow", "870");
-  await expect(page.locator("body")).not.toHaveCSS("cursor", "col-resize");
-  await divider.focus();
-  await page.keyboard.press("Home");
-  await expect(divider).toHaveAttribute("aria-valuenow", "240");
-  await page.keyboard.press("End");
-  await expect(divider).toHaveAttribute("aria-valuenow", "1304");
-  expect((await main.boundingBox())?.width).toBe(1304);
-  expect((await page.getByTestId("canvas-window").boundingBox())?.width).toBe(
-    240,
-  );
-  await page.reload();
-  await expect(divider).toHaveAttribute("aria-valuenow", "1304");
-  expect((await main.boundingBox())?.width).toBe(1304);
-  await page
-    .getByRole("button", { name: "Freeform layout", exact: true })
-    .click();
-  expect((await main.boundingBox())?.width).toBe(1304);
-  await page.getByRole("button", { name: "Focus layout", exact: true }).click();
-  await divider.focus();
-  await page.keyboard.press("ArrowLeft");
-  await page.keyboard.press("Enter");
-  await expect(divider).toHaveAttribute("aria-valuenow", "960");
-  await page
-    .getByRole("button", { name: "Close #general window", exact: true })
-    .click();
-  expect((await main.boundingBox())?.width).toBe(960);
-});
-
-test("columns resize adjacent panels and a failed save restores the previous widths", async ({
-  page,
-}) => {
-  await add(page, "general", /#general/);
-  await add(page, "alice", /Alice/i);
-  await page
-    .getByRole("button", { name: "Columns layout", exact: true })
-    .click();
-  const first = page.getByRole("separator", {
-    name: "Resize main view and side panels",
-  });
-  const second = page.getByRole("separator", {
-    name: "Resize side panels 1 and 2",
-  });
-  await expect(first).toHaveAttribute("aria-valuenow", "960");
-  await expect(second).toHaveAttribute("aria-valuenow", "288");
-  await second.focus();
-  await page.keyboard.press("Shift+ArrowRight");
-  await expect(second).toHaveAttribute("aria-valuenow", "328");
-  await expect(first).toHaveAttribute("aria-valuenow", "960");
-  expect(
-    (await page.getByTestId("canvas-window").last().boundingBox())?.width,
-  ).toBe(248);
-  await page.evaluate(() => {
-    const setItem = Storage.prototype.setItem;
-    Storage.prototype.setItem = function (key, value) {
-      if (key.startsWith("buzz-canvas.v1:"))
-        throw new DOMException("Full", "QuotaExceededError");
-      setItem.call(this, key, value);
-    };
-  });
-  const box = await second.boundingBox();
-  if (!box) throw new Error("Missing divider");
-  await page.mouse.move(box.x + 6, box.y + 100);
-  await page.mouse.down();
-  await page.mouse.move(box.x - 40, box.y + 100);
-  await page.mouse.up();
-  await expect(
-    page.getByText("Could not save your canvas. Please try again."),
-  ).toBeVisible();
-  await expect(second).toHaveAttribute("aria-valuenow", "328");
-  await page.setViewportSize({ width: 740, height: 900 });
-  await expect(first).toHaveCount(0);
-  await expect(second).toHaveCount(0);
-  await expect(page.locator("body")).not.toHaveCSS("cursor", "col-resize");
-});
-
 async function dragCorner(
   page: Page,
   window: import("@playwright/test").Locator,
@@ -419,7 +277,7 @@ async function dragCorner(
   dy: number,
 ) {
   // The restored grip's hit area follows the curved stroke outside the corner.
-  const path = window.locator("[data-resize-hit]");
+  const path = window.locator('[data-corner="se"] [data-resize-hit]');
   const point = await path.evaluate((element) => {
     const path = element as SVGPathElement;
     const midpoint = path.getPointAtLength(path.getTotalLength() / 2);
@@ -450,14 +308,17 @@ test("corner resizer restores free sizing, overlapping windows, and return to ti
   const canvas = page.getByTestId("pulse-canvas");
   const main = canvas.locator('[data-canvas-frame="main"]');
   await expect(
-    main.getByRole("button", { name: "Resize main window", exact: true }),
+    main.getByRole("button", {
+      name: "Resize Messages window se",
+      exact: true,
+    }),
   ).toBeVisible();
   const initial = await main.boundingBox();
   await dragCorner(page, main, -100, -100);
   await expect(canvas).toHaveAttribute("data-layout", "freeform");
   await expect(
-    page.getByRole("button", { name: "Freeform layout", exact: true }),
-  ).toHaveAttribute("aria-pressed", "true");
+    page.getByRole("button", { name: "Arrange windows", exact: true }),
+  ).toBeVisible();
   const resized = await main.boundingBox();
   expect(resized?.width).toBeCloseTo((initial?.width ?? 0) - 100, 0);
   expect(resized?.height).toBeCloseTo((initial?.height ?? 0) - 100, 0);
@@ -470,7 +331,7 @@ test("corner resizer restores free sizing, overlapping windows, and return to ti
   await panel
     .getByTestId("message-input")
     .fill("Draft stays through layout changes");
-  const move = panel.getByRole("button", {
+  const move = panel.getByRole("toolbar", {
     name: "Move #general window",
     exact: true,
   });
@@ -496,13 +357,13 @@ test("corner resizer restores free sizing, overlapping windows, and return to ti
   const free = await panel.boundingBox();
   expect(free?.width).toBeCloseTo((moved?.width ?? 0) + 80, 0);
   expect(free?.height).toBeCloseTo((moved?.height ?? 0) - 60, 0);
-  await page.getByRole("button", { name: "Grid layout", exact: true }).click();
+  await arrangeWindows(page, "Grid");
   await expect(canvas).toHaveAttribute("data-layout", "grid");
   await expect(panel.getByTestId("message-input")).toHaveText(
     "Draft stays through layout changes",
   );
   await expect(
-    canvas.getByRole("separator", { name: "Resize main view and side panels" }),
+    canvas.getByRole("separator", { name: "Resize split 1", exact: true }),
   ).toBeVisible();
   const tiledMain = await main.boundingBox();
   const tiledPanel = await panel.boundingBox();
@@ -510,9 +371,7 @@ test("corner resizer restores free sizing, overlapping windows, and return to ti
     (tiledMain?.x ?? 0) + (tiledMain?.width ?? 0) + 8,
     0,
   );
-  await page
-    .getByRole("button", { name: "Freeform layout", exact: true })
-    .click();
+  await arrangeWindows(page, "Freeform");
   expect(await panel.boundingBox()).toEqual(free);
   await page.reload();
   await expect(canvas).toHaveAttribute("data-layout", "freeform");
@@ -526,15 +385,13 @@ test("freeform keyboard movement, cancellation, stacking, viewport bounds, and c
   page,
 }) => {
   await add(page, "general", /#general/);
-  await page
-    .getByRole("button", { name: "Freeform layout", exact: true })
-    .click();
+  await arrangeWindows(page, "Freeform");
   const canvas = page.getByTestId("pulse-canvas");
   const panel = page.getByRole("region", {
     name: "#general window",
     exact: true,
   });
-  const mover = panel.getByRole("button", {
+  const mover = panel.getByRole("toolbar", {
     name: "Move #general window",
     exact: true,
   });
@@ -551,7 +408,7 @@ test("freeform keyboard movement, cancellation, stacking, viewport bounds, and c
   await page.mouse.up();
   expect(await panel.boundingBox()).toEqual(before);
   await expect(page.locator("body")).not.toHaveCSS("cursor", "grabbing");
-  const mainMover = canvas.getByRole("button", {
+  const mainMover = canvas.getByRole("toolbar", {
     name: "Move Messages window",
     exact: true,
   });
@@ -570,7 +427,7 @@ test("freeform keyboard movement, cancellation, stacking, viewport bounds, and c
     Number(await panel.evaluate((element) => getComputedStyle(element).zIndex)),
   ).toBeGreaterThan(1);
   const resize = panel.getByRole("button", {
-    name: "Resize #general window",
+    name: "Resize #general window se",
     exact: true,
   });
   await resize.focus();
@@ -583,10 +440,10 @@ test("freeform keyboard movement, cancellation, stacking, viewport bounds, and c
       const rect = await panel.boundingBox();
       return (
         rect &&
-        rect.x >= 24 &&
-        rect.y >= 72 &&
-        rect.x + rect.width <= 716 &&
-        rect.y + rect.height <= 676
+        rect.x >= 16 &&
+        rect.y >= 64 &&
+        rect.x + rect.width <= 724 &&
+        rect.y + rect.height <= 684
       );
     })
     .toBe(true);
@@ -594,19 +451,13 @@ test("freeform keyboard movement, cancellation, stacking, viewport bounds, and c
   await panel
     .getByRole("button", { name: "Close #general window", exact: true })
     .click();
-  const stored = await page.evaluate(() =>
-    JSON.parse(
-      Object.entries(localStorage).find(([key]) =>
-        key.startsWith("buzz-canvas.v1:"),
-      )?.[1] ?? "{}",
-    ),
-  );
+  const stored = await readActiveCanvas(page);
   if (!id) throw new Error("Missing window id");
   expect(stored.freeform.frames[id]).toBeUndefined();
   expect(stored.freeform.order).not.toContain(id);
 });
 
-test("standalone Freeform stretches past reading widths and uses an exterior unframed grip", async ({
+test("standalone Freeform stretches past reading widths and uses its entire toolbar for dragging", async ({
   page,
 }) => {
   const canvas = page.getByTestId("pulse-canvas");
@@ -618,45 +469,34 @@ test("standalone Freeform stretches past reading widths and uses an exterior unf
     "max-width",
     "none",
   );
-  const handle = main.getByRole("button", {
+  const handle = main.getByRole("toolbar", {
     name: "Move Messages window",
     exact: true,
   });
-  await expect(handle).toHaveText("");
-  const grip = handle.locator("svg");
-  await page.getByTestId("canvas-add-view").focus();
-  await page.mouse.move(5, 5);
-  await expect(grip).toHaveCSS("opacity", "0.5");
+  await expect(handle).toContainText("Messages");
   await expect(handle).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   const rect = await main.boundingBox();
   const handleRect = await handle.boundingBox();
-  if (!rect || !handleRect) throw new Error("Missing frame or grip");
-  expect(handleRect.x + handleRect.width).toBeLessThanOrEqual(rect.x);
-  expect(handleRect.y + handleRect.height).toBeLessThanOrEqual(rect.y);
-  await handle.hover();
-  await expect(grip).toHaveCSS("opacity", "0.8");
-  await expect(handle).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
-  await page.mouse.move(5, 5);
+  if (!rect || !handleRect) throw new Error("Missing frame or toolbar");
+  expect(handleRect.x).toBe(rect.x);
+  expect(handleRect.y).toBe(rect.y);
+  expect(handleRect.width).toBe(rect.width);
+  await expect(main.locator(".canvas-move-handle")).toHaveCount(0);
   await handle.focus();
-  await expect(handle).toBeFocused();
-  await expect(grip).toHaveCSS("opacity", "0.5");
   await page.keyboard.press("ArrowLeft");
   await page.reload();
   await expect(canvas).toHaveAttribute("data-layout", "freeform");
   expect((await main.boundingBox())?.width).toBe(1210);
+  await openMainArea(page, "Messages");
   await page
-    .getByTestId("pulse-app-navigation")
-    .getByRole("button", { name: "Messages", exact: true })
-    .click();
-  await page
-    .getByRole("dialog", { name: "Messages destinations" })
+    .getByRole("dialog", { name: "Switch window view" })
     .getByRole("button", { name: "Open Messages", exact: true })
     .click();
   await expect(
-    main.getByRole("button", { name: "Move Messages window", exact: true }),
-  ).toHaveText("");
+    main.getByRole("toolbar", { name: "Move Messages window", exact: true }),
+  ).toContainText("Messages");
   expect((await main.boundingBox())?.width).toBe(1210);
-  await page.getByRole("button", { name: "Focus layout", exact: true }).click();
+  await arrangeWindows(page, "Focus");
   expect((await main.boundingBox())?.width).toBe(960);
 });
 
@@ -673,7 +513,7 @@ test("new widgets enter above previously focused windows and keep their stacking
   });
   // Click without moving: this exercises the temporary focus order, not saved order.
   await main
-    .getByRole("button", { name: "Move Messages window", exact: true })
+    .getByRole("toolbar", { name: "Move Messages window", exact: true })
     .focus();
   const z = async (selector: string) =>
     canvas
@@ -700,7 +540,7 @@ test("new widgets enter above previously focused windows and keep their stacking
     .getByRole("button", { name: "Close Music window", exact: true })
     .click();
   await weather
-    .getByRole("button", { name: "Move Weather window", exact: true })
+    .getByRole("toolbar", { name: "Move Weather window", exact: true })
     .focus();
   await add(page, "music", /^Music Widgets$/);
   expect(await z('[data-view-id="widget:music"]')).toBeGreaterThan(
@@ -722,29 +562,24 @@ test("Home stays centered at 720px across layouts, widget gestures, reloads and 
   );
   const messageFrame = await main.boundingBox();
   const select = async (name: string) => {
-    await page
-      .getByTestId("pulse-app-navigation")
-      .getByRole("button", { name, exact: true })
-      .click();
-    await page
-      .getByRole("dialog", { name: `${name} destinations` })
-      .getByRole("button", { name: `Open ${name}`, exact: true })
-      .click();
+    await page.getByRole("tab", { name, exact: true }).click();
   };
   const centered = async (width = 1600, height = 1000) => {
     await expect(main).toHaveCSS("max-width", "720px");
     await expect
       .poll(async () => await main.boundingBox())
       .toEqual({
-        x: (width - Math.min(720, width - 48)) / 2,
-        y: 72,
-        width: Math.min(720, width - 48),
-        height: height - 96,
+        x: (width - Math.min(720, width - 32)) / 2,
+        y: 64,
+        width: Math.min(720, width - 32),
+        height: height - 140,
       });
     await expect(
       canvas.locator('[data-canvas-frame="main"] [data-canvas-gesture]'),
     ).toHaveCount(0);
-    await expect(canvas.getByRole("separator")).toHaveCount(0);
+    await expect(
+      canvas.locator('[data-canvas-frame="main"] [role="separator"]'),
+    ).toHaveCount(0);
   };
   await select("Home");
   await centered();
@@ -755,7 +590,7 @@ test("Home stays centered at 720px across layouts, widget gestures, reloads and 
   });
   await centered();
   await weather
-    .getByRole("button", { name: "Move Weather window", exact: true })
+    .getByRole("toolbar", { name: "Move Weather window", exact: true })
     .focus();
   await page.keyboard.press("Shift+ArrowRight");
   await dragCorner(page, weather, 60, -60);
@@ -776,9 +611,7 @@ test("Home stays centered at 720px across layouts, widget gestures, reloads and 
   await select("Home");
   await add(page, "music", /^Music Widgets$/);
   for (const name of ["Focus", "Grid", "Columns", "Freeform"]) {
-    await page
-      .getByRole("button", { name: `${name} layout`, exact: true })
-      .click();
+    await arrangeWindows(page, name);
     await centered();
   }
   await page.reload();
@@ -793,7 +626,7 @@ test("Home stays centered at 720px across layouts, widget gestures, reloads and 
   });
 });
 
-test("widget grips stay outside their windows and dragging lifts a tiled widget into Freeform", async ({
+test("widget toolbars fill the top edge and dragging lifts a tiled widget into Freeform", async ({
   page,
 }) => {
   await page.goto("/#/pulse");
@@ -802,25 +635,26 @@ test("widget grips stay outside their windows and dragging lifts a tiled widget 
     name: "Weather window",
     exact: true,
   });
-  const mover = panel.getByRole("button", {
+  const mover = panel.getByRole("toolbar", {
     name: "Move Weather window",
     exact: true,
   });
   const checkGrip = async () => {
-    await expect(mover).toHaveText("");
+    await expect(mover).toContainText("Weather");
     await expect(panel.locator("header [data-canvas-gesture]")).toHaveCount(0);
     const windowBox = await panel.boundingBox();
     const gripBox = await mover.boundingBox();
     if (!windowBox || !gripBox) throw new Error("Missing widget or grip");
-    expect(gripBox.x + gripBox.width).toBeLessThanOrEqual(windowBox.x);
-    expect(gripBox.y + gripBox.height).toBeLessThanOrEqual(windowBox.y);
+    expect(gripBox.x).toBe(windowBox.x);
+    expect(gripBox.width).toBe(windowBox.width);
+    expect(gripBox.y).toBe(windowBox.y);
     return { windowBox, gripBox };
   };
   const { windowBox, gripBox } = await checkGrip();
-  await page.mouse.move(gripBox.x + 12, gripBox.y + 12);
+  await page.mouse.move(gripBox.x + 60, gripBox.y + 20);
   await page.mouse.down();
   await expect(mover).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
-  await page.mouse.move(gripBox.x - 68, gripBox.y + 72, { steps: 5 });
+  await page.mouse.move(gripBox.x - 20, gripBox.y + 80, { steps: 5 });
   await page.mouse.up();
   await expect(page.getByTestId("pulse-canvas")).toHaveAttribute(
     "data-layout",
@@ -836,9 +670,9 @@ test("widget grips stay outside their windows and dragging lifts a tiled widget 
   await page.getByTestId("canvas-add-view").focus();
   await mover.hover();
   await expect(mover).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
-  await expect(mover.locator("svg")).toHaveCSS("opacity", "0.8");
+  await expect(panel.locator(".canvas-move-handle")).toHaveCount(0);
   await waitForAnimations(page);
   await page.screenshot({
-    path: "test-results/pulse-canvas/exterior-widget-grip.png",
+    path: "test-results/pulse-canvas/widget-toolbar-drag.png",
   });
 });

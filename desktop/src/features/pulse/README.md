@@ -1,15 +1,15 @@
 # Pulse prototype briefing
 
 The 48px title bar now contains 24px navigation buttons for Home, Messages,
-Projects, Agents, and Apps. Hovering a button for 80ms opens a popover without taking focus; its first row opens the
-main view, and destination rows jump straight to a conversation or project.
+Projects, Agents, and Apps. Clicking a button opens its main view. Hovering for
+40ms opens a lightly animated popover without taking focus; its first row also opens the main view, and destination rows jump straight to a conversation or project.
 Messages shows up to six recent joined conversations with real unread markers,
 plus New message and Search. Projects shows recently opened projects (scoped to
 identity and relay), falling back to the available project list on first use.
 Agents shows live availability and working status, with shortcuts to direct chats. Apps contains enabled Workflows. The account avatar opens Settings. Layout controls and the avatar occupy a dedicated right-hand title-bar slot, so project controls cannot shift them when switching apps.
-Adjacent menus open immediately, with a 350ms warm window after hover dismissal. A transparent bridge and 180ms leave grace keep the pointer path forgiving. Clicking a hover preview pins it; a second click, outside click, or Escape dismisses it. Touch uses tap. Keyboard entry is instant, with Enter/Space, arrow navigation, and Escape focus return. High-frequency menus have no entry or exit animation; pointer presses have subtle reduced-motion-aware feedback.
+Adjacent menus open immediately, with a 350ms warm window after hover dismissal. A transparent bridge and 180ms leave grace keep the pointer path forgiving. Clicking a navigation button opens its parent view; outside click or Escape dismisses a preview. Touch taps navigate directly. Keyboard entry is instant, with Enter/Space, arrow navigation, and Escape focus return. Pointer previews use a brief 140ms origin-aware transition; keyboard menus remain instant, and pointer presses have subtle reduced-motion-aware feedback.
 
-The content below the title bar has 24px padding on every side. Home is always a centered, full-height scroll view with a 720px maximum width, independent of saved window geometry or layout. It has no move/resize handles and never changes stacking order. Added windows sit above it and can be arranged around it; tiled presets use the side margins. Other standalone tiled main views have a 960px maximum. Without companions the main view is centered. With companions the canvas fills the padded area and panels share the space left over. Drag the gap between columns to resize adjacent windows, or focus it and use arrow keys (Shift for larger steps), Home/End for the bounds, and Enter or double-click to reset. Split layouts use those widths as defaults; dragging a divider can grow the main window beyond them while keeping neighboring panels usable. Standalone tiled main windows retain their caps. Movable Freeform windows can stretch to the canvas edge, with or without companions. Escape cancels a drag. Sizes are stored once when a drag completes, per layout and community/identity. Narrow canvases stack with no resize handles. The old content-width setting is superseded by this layout. The canvas supports up to three companion windows beside the main app. Use
+The content below the title bar has 16px padding on every side. Home is always a centered, full-height scroll view with a 720px maximum width, independent of saved window geometry or layout. It has no move/resize handles and never changes stacking order. Added windows sit above it and can be arranged around it; tiled presets use the side margins. Other standalone tiled main views have a 960px maximum. Without companions the main view is centered. With companions the canvas fills the padded area and panels share the space left over. Drag the gap between columns to resize adjacent windows, or focus it and use arrow keys (Shift for larger steps), Home/End for the bounds, and Enter or double-click to reset. Split layouts use those widths as defaults; dragging a divider can grow the main window beyond them while keeping neighboring panels usable. Standalone tiled main windows retain their caps. Movable Freeform windows can stretch to the canvas edge, with or without companions. Escape cancels a drag. Sizes are stored once when a drag completes, per layout and community/identity. Narrow canvases stack with no resize handles. The old content-width setting is superseded by this layout. The canvas supports up to three companion windows beside the main app. Use
 the **+** button beside Apps to search joined channels, DMs by participant name,
 projects (when enabled), or Agent activity. Focus, Grid, Columns, and Freeform controls appear in the top bar when panels are open or Freeform is active and
 arrange the windows; arrow controls reorder companions and Close removes them. Narrow canvases stack vertically. Closing the
@@ -32,11 +32,11 @@ Pulse on this branch uses the combined conversation layout from `am-pulse-proto`
 
 The shell still uses the historical `/pulse` route. Conversation detail embeds the shared `ChannelRouteScreen` and its real timeline, composer, and thread handlers; the older `/channels` shell still exists. Relay identity is shared by the staging launcher, while agent defaults and Buzz-agent OAuth remain app-local. A public npub alone does not transfer provider configuration or credentials. Codex uses the existing CLI sign-in plus Buzz's ACP adapter; Databricks needs a configured host and authentication in staging.
 
-Home groups the past 48 hours of subscribed channel activity into focus areas. Each card has a short recap, one or two original message bubbles or rich artifacts, and a route to its source threads. GitHub and image previews reuse the Messages renderer; Home requests rich presentation without changing the saved Messages preference. Cards use 24px insets and corners with a three-level type hierarchy.
+Home groups the past 48 hours of subscribed channel activity into focus areas. Each card has a short recap, one or two original message bubbles or rich artifacts, and a route to its source threads. GitHub and image previews reuse the Messages renderer; Home requests rich presentation without changing the saved Messages preference. Cards use 24px insets, window-matched corners, and a three-level type hierarchy.
 
-Home cards sit directly on the app canvas, separated by 4px, without an outer panel or visible page/card headers. The Home heading and time range remain available to screen readers. Loading, summary retry, and incomplete-activity messages remain visible when applicable.
+Home cards sit in a transparent scroll view with rounded clipping corners and 4px gaps. Cards share the windows’ neutral surface, corner radius, and subtle shadow, with no outer border or window toolbar. The Home heading and time range remain available to screen readers. Loading, summary retry, and incomplete-activity messages remain visible when applicable.
 
-The scroll frame fills the workspace with 24px corners. Card footers contain prototype-only Snooze and Reply icon buttons plus the working conversation link; actions wrap on narrow windows. Summary/overview provenance is an accessible card label rather than visible footer text.
+The scroll frame fills the centered Home area and clips at the same corner radius as windows. Card footers contain prototype-only Snooze and Reply icon buttons plus the working conversation link; actions wrap on narrow windows. Summary/overview provenance is an accessible card label rather than visible footer text.
 
 People from the source threads appear above each recap, with evidence authors first. The composition uses Block UI's AvatarGroup and overflow count: up to three 64px avatars with 16px overlap, followed by a +N count. These dimensions are Buzz's composition on the 8px grid, not additional upstream size tokens. People retain circular avatars and agents retain their squircle identity. Each avatar opens the existing profile panel with pointer or keyboard input. Contextual message objects render at 50% scale within Home only, clipped to a 240px-high evidence area; image viewers, profile panels, and the conversation action retain their normal size.
 
@@ -90,3 +90,69 @@ fetch. Returning to the app refreshes it too; reconnect recovery and the existin
 appear automatically at the top; while scrolled down, a new-conversations button
 preserves the reading position. The window's refresh button refreshes active
 channel, thread, channel-list, and feed queries together.
+
+
+### Workspaces
+
+The top bar is a set of named workspaces. Home, Messages, Projects, Agents, and
+Apps are starter workspaces; their names remain stable when the main window
+changes content. Each owns its last main destination, companion windows,
+connected splits, arrangement, and freeform geometry. The top-bar plus opens a workspace prompt; **Custom** creates
+an empty workspace with no implicit Home window, while **Add window** adds to the current one. Double-click
+a tab or press F2 to rename it; its context menu also supports rename and close.
+Every canvas window’s plain title opens the same view switcher, including widgets,
+conversations, connected panes, and empty splits. Choose an app or drill into its
+recent destinations; companion conversations open directly without a Messages sidebar.
+Swapping preserves the window’s position, size, connections, and tab group, and
+persists within its workspace. In a tab group, click an inactive tab to select it,
+then click its active title to swap its content. Dragging the title still moves the
+tab instead of opening the menu; keyboard selection and Escape restore focus.
+Home always keeps its centered 720px summary. Its cards float directly on the canvas
+without a window header, background, or accumulator section. Older connected companions
+are detached without losing their contents. Links from Home open the corresponding app workspace.
+Add window and Arrange live in a floating control at the bottom right across workspaces,
+with a reserved strip below the canvas so they never cover a composer or resize corner.
+
+Top-right DM pins open 380px-wide, at most 520px-tall dropdown conversations using
+the existing timeline and composer. Up to four pins are saved per relay and identity,
+independently of canvas windows. Closing a dropdown preserves its composer draft;
+Escape and outside clicks dismiss it, and the header offers unpin and close.
+The filter icon replaces the account avatar and opens persistent feed source choices
+(channels, DMs, followed notes), Reset filters, and the App settings entry point.
+
+Workspace snapshots are stored atomically per relay and identity in
+`buzz-workspaces.v1`. Migration preserves the old shared canvas in Home only,
+and leaves the legacy record intact. Browser history includes the workspace ID.
+
+
+Add window uses a two-pane catalog: All windows, Messages, Projects, Agents,
+Apps, and Widgets in the left sidebar; full app windows, individual conversations
+and projects, and relevant small widget previews in the detail pane. The same
+chooser fills connected splits. New workspaces can contain up to four explicit
+views, and closing their last window returns to the empty canvas. Existing
+workspace layouts keep their original main window.
+
+Full app windows reuse the Messages, Projects, Agents, and Apps surfaces. Their
+selected conversations, project details, and nested navigation are persisted
+with the owning canvas, without changing another window or the workspace URL.
+Closing a window removes its navigation and geometry from the same snapshot.
+
+
+The workspace prompt searches the same typed catalog used by Add window. The
+catalog includes app and widget IDs, member channels, existing DMs with profile
+username/display-name aliases, and available projects. Up to 80 locally ranked
+metadata entries go to the native `plan_workspace` command. It uses the existing
+bounded Codex runner with `gpt-5.6-luna`, low reasoning, tools disabled, and a
+35-second deadline. No message contents or Buzz signing credentials are passed.
+
+The model returns a name, a supported arrangement, and up to four exact catalog
+IDs. Both native and UI boundaries validate its response. Unknown IDs, ambiguous
+people, missing windows, and requests exceeding four views leave the prompt
+editable without creating a partial workspace. A successful result creates all
+windows in one persisted snapshot. Closing the dropdown, switching workspaces,
+or choosing Custom invalidates pending results; the bounded native call may
+finish in the background, but cannot create a workspace after cancellation.
+Weather and other general-purpose widgets retain their existing prototype data.
+
+Run the optional live planner test (uses the local model sign-in):
+`cargo test --manifest-path desktop/src-tauri/Cargo.toml commands::workspace_plan::tests::live_workspace_plan -- --ignored --nocapture`.

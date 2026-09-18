@@ -8,7 +8,7 @@ import {
   type PointerEvent,
 } from "react";
 
-const OPEN_DELAY = 80;
+const OPEN_DELAY = 40;
 const CLOSE_DELAY = 180;
 const WARM_WINDOW = 350;
 type OpenMethod = "hover" | "click" | "keyboard";

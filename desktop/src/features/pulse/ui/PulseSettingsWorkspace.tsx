@@ -1,14 +1,12 @@
-import type { ReactNode } from "react";
+import { useCallback, type ReactNode } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { allowNavigation } from "@/app/navigation/navigationGuard";
-import { parseProjectDetailSearch } from "@/features/projects/lib/projectDetailSearch";
-import type {
-  PulseApp,
-  PulseNavigationDestination,
-} from "./PulseAppNavigation";
+import { useIdentityQuery } from "@/shared/api/hooks";
+import { useRelayOrigin } from "@/shared/lib/useRelayOrigin";
+import { WORKSPACE_ROUTE_KEYS } from "../lib/pulseWorkspaces";
+import { usePulseWorkspaces } from "../lib/usePulseWorkspaces";
 import { PulseWorkspaceFrame } from "./PulseWorkspaceFrame";
 
-/** Settings keeps the top navigation and returns to the last selected conversation. */
+/** Settings returns to the workspace and destination that opened it. */
 export function PulseSettingsWorkspace({
   children,
   lastPulseSearch,
@@ -17,31 +15,35 @@ export function PulseSettingsWorkspace({
   lastPulseSearch: Record<string, unknown>;
 }) {
   const navigate = useNavigate();
-  const selectApp = (
-    app: PulseApp,
-    destination?: PulseNavigationDestination,
-  ) => {
-    const feed =
-      destination?.feed ?? (app === "messages" ? "conversation" : app);
-    if (!allowNavigation({ kind: "route", href: `/pulse?feed=${feed}` }))
-      return false;
-    void navigate({
-      to: "/pulse",
-      search: {
-        ...parseProjectDetailSearch({}),
-        conversation:
-          typeof lastPulseSearch.conversation === "string"
-            ? lastPulseSearch.conversation
-            : undefined,
-        feed,
-        ...destination,
-      },
-    });
-  };
+  const identity = useIdentityQuery();
+  const relay = useRelayOrigin();
+  const keys = ["workspace", ...WORKSPACE_ROUTE_KEYS] as const;
+  type Values = Record<(typeof keys)[number], string | null>;
+  const values = Object.fromEntries(
+    keys.map((key) => [
+      key,
+      typeof lastPulseSearch[key] === "string" ? lastPulseSearch[key] : null,
+    ]),
+  ) as Values;
+  const applyPatch = useCallback(
+    (patch: Partial<Values>) => {
+      const search = Object.fromEntries(
+        Object.entries(patch).filter(([, value]) => value !== null),
+      );
+      void navigate({ to: "/pulse", search } as never);
+    },
+    [navigate],
+  );
+  const workspaces = usePulseWorkspaces(
+    relay && identity.data?.pubkey ? `${relay}:${identity.data.pubkey}` : null,
+    values,
+    applyPatch,
+    false,
+  );
   return (
     <PulseWorkspaceFrame
       active="settings"
-      onSelect={selectApp}
+      workspaces={workspaces}
       testId="pulse-settings-workspace"
     >
       <div className="flex min-h-0 flex-1">{children}</div>

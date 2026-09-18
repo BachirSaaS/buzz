@@ -1,16 +1,17 @@
 import {
-  ArrowUpRight,
   Check,
+  ChevronRight,
   Circle,
-  Headphones,
   MessageCircle,
   Terminal,
   X,
 } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
 import { Action } from "@/shared/ui/action";
 import { Control, DetailDialog, Widget } from "./Widget";
+import { useWidgetSize } from "./WidgetSizing";
+import { CompactAgentActivity } from "./CompactAgentActivity";
 import "./buzz-widgets.css";
 
 /** A reported operation in the selected agent turn. */
@@ -20,7 +21,7 @@ export type WidgetTool = {
   detail: string;
   state: "executing" | "completed" | "failed" | "pending";
 };
-/** An agent's current state and the latest reported context usage, not billed totals. */
+/** Latest reported context usage, not billed totals or task-completion progress. */
 export type AgentWidgetModel = {
   name: string;
   status: string;
@@ -32,7 +33,7 @@ export type AgentWidgetModel = {
   capacity: number | null;
 };
 
-/** Compact agent supervision with a single status anchor and inspectable tools. */
+/** The current operation leads; larger sizes disclose more of the same turn. */
 export function AgentActivityWidget({
   agent,
   selection,
@@ -42,20 +43,33 @@ export function AgentActivityWidget({
   selection?: ReactNode;
   onOpen?: () => void;
 }) {
+  const size = useWidgetSize();
   const [detail, setDetail] = useState<WidgetTool | null>(null);
+  const visibleTools = agent.tools.slice(
+    -(size === "small" ? 1 : size === "medium" ? 2 : 3),
+  );
+  const tokenText =
+    agent.tokens === null ? "—" : agent.tokens.toLocaleString("en-US");
+  if (size === "small")
+    return (
+      <CompactAgentActivity
+        agent={agent}
+        selection={selection}
+        onOpen={onOpen}
+      />
+    );
   return (
     <Widget
       title="Agent activity"
       scale="14 / 16 / 24"
       className="agent-work-widget"
     >
-      {selection}
       <div className="agent-identity">
         <span className="agent-glyph" aria-hidden="true">
           <Terminal />
         </span>
-        <div>
-          <p className="agent-name">{agent.name}</p>
+        <div className="agent-identity-copy">
+          {selection || <p className="agent-name">{agent.name}</p>}
           <p className="small subtle">{agent.context}</p>
         </div>
       </div>
@@ -68,9 +82,9 @@ export function AgentActivityWidget({
           {agent.status}
         </h3>
       </div>
-      {agent.tools.length > 0 && (
+      {visibleTools.length > 0 && (
         <div className="agent-tool-list">
-          {agent.tools.map((tool) => (
+          {visibleTools.map((tool) => (
             <Action
               key={tool.id}
               className="agent-tool"
@@ -98,33 +112,37 @@ export function AgentActivityWidget({
                           ? "Failed"
                           : "Queued"}
                 </span>
+                {size === "large" &&
+                  tool.state === "executing" &&
+                  tool.detail && (
+                    <span className="small subtle tool-preview">
+                      {tool.detail}
+                    </span>
+                  )}
               </span>
-              <ArrowUpRight className="tool-arrow" aria-hidden="true" />
+              <ChevronRight className="tool-arrow" aria-hidden="true" />
             </Action>
           ))}
         </div>
       )}
-      <div className="agent-metrics">
-        <div>
-          <p className="small subtle">Context tokens</p>
-          <p className="agent-metric-value">
-            {agent.tokens === null ? "—" : agent.tokens.toLocaleString("en-US")}
-          </p>
-          {agent.capacity !== null && (
-            <p className="small subtle">
-              of {agent.capacity.toLocaleString("en-US")}
-            </p>
-          )}
-        </div>
-        <div>
-          <p className="small subtle">Tool calls</p>
-          <p className="agent-metric-value">{agent.toolCount}</p>
-        </div>
+      <div className="agent-usage small subtle">
+        <span>
+          <span className="metric-ink">{tokenText}</span>
+          {agent.capacity !== null
+            ? ` / ${agent.capacity.toLocaleString("en-US")}`
+            : ""}{" "}
+          context tokens
+        </span>
+        {
+          <span>
+            {agent.toolCount} tool {agent.toolCount === 1 ? "call" : "calls"}
+          </span>
+        }
       </div>
       {onOpen && (
-        <Control className="communication-action" onClick={onOpen}>
+        <Control className="agent-open" onClick={onOpen}>
           Open activity
-          <ArrowUpRight aria-hidden="true" />
+          <ChevronRight aria-hidden="true" />
         </Control>
       )}
       {detail && (
@@ -141,41 +159,44 @@ export function AgentActivityWidget({
 
 /** Named members of an existing conversation. */
 export type WidgetPerson = { id: string; name: string; avatar?: string | null };
-/** Accessible participant stack. Names remain visible beside the decorative avatars. */
+/** Grouped avatars carry identity visually; names are available to assistive technology. */
 export function WidgetPeople({
   people,
   total = people.length,
+  limit = 4,
 }: {
   people: WidgetPerson[];
   total?: number;
+  limit?: number;
 }) {
+  const names = people.map((person) => person.name).join(", ");
   return (
-    <div className="huddle-people">
-      <div className="huddle-avatar-stack" aria-hidden="true">
-        {people.slice(0, 4).map((person) => (
-          <span className="huddle-person" key={person.id}>
-            <UserAvatar
-              avatarUrl={person.avatar ?? null}
-              displayName={person.name}
-              className="widget-person-avatar"
-              fallbackDelayMs={0}
-            />
-          </span>
-        ))}
-        {total > 4 && <span className="huddle-person">+{total - 4}</span>}
-      </div>
-      <p className="small subtle">
-        {people
-          .slice(0, 3)
-          .map((person) => person.name)
-          .join(", ")}
-        {total > 3 ? ` +${total - 3}` : ""}
-      </p>
-    </div>
+    <span
+      className="huddle-avatar-stack"
+      role="img"
+      aria-label={names || "Participants loading"}
+      title={names}
+    >
+      {people.slice(0, limit).map((person) => (
+        <span className="huddle-person" key={person.id} aria-hidden="true">
+          <UserAvatar
+            avatarUrl={person.avatar ?? null}
+            displayName={person.name}
+            className="widget-person-avatar"
+            fallbackDelayMs={0}
+          />
+        </span>
+      ))}
+      {total > limit && (
+        <span className="huddle-person" aria-hidden="true">
+          +{total - limit}
+        </span>
+      )}
+    </span>
   );
 }
 
-/** A group huddle launcher; the host owns actual voice-session state. */
+/** A compact launcher; the group selector is the title when the host provides it. */
 export function HuddleWidget({
   title,
   people,
@@ -183,6 +204,7 @@ export function HuddleWidget({
   selection,
   action,
   error,
+  active = false,
 }: {
   title: string;
   people: WidgetPerson[];
@@ -190,38 +212,95 @@ export function HuddleWidget({
   selection?: ReactNode;
   action: ReactNode;
   error?: string | null;
+  active?: boolean;
 }) {
+  const size = useWidgetSize();
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (active) setOpen(false);
+  }, [active]);
+  if (size === "small")
+    return (
+      <Widget
+        title="Huddle"
+        scale="14 / 16"
+        className="huddle-widget avatar-only-widget"
+      >
+        <Action
+          className="avatar-launcher huddle-avatar-launcher"
+          aria-label={`Open ${title} huddle`}
+          title={`${title} · ${people.map((person) => person.name).join(", ")}`}
+          onClick={() => setOpen(true)}
+        >
+          <WidgetPeople
+            people={people.length ? people : [{ id: "group", name: title }]}
+            limit={3}
+            total={Math.min(people.length, 3)}
+          />
+        </Action>
+        {error && !open && (
+          <p className="small" role="alert">
+            {error}
+          </p>
+        )}
+        {open && (
+          <DetailDialog title="Huddle" onClose={() => setOpen(false)}>
+            {selection || <p>{title}</p>}
+            <ul className="participant-names">
+              {people.map((person) => (
+                <li key={person.id}>{person.name}</li>
+              ))}
+            </ul>
+            {error && <p role="alert">{error}</p>}
+            <div className="huddle-action">{action}</div>
+          </DetailDialog>
+        )}
+      </Widget>
+    );
   return (
     <Widget title="Huddle" scale="14 / 16 / 24" className="huddle-widget">
-      <div className="huddle-illustration" aria-hidden="true">
-        <Headphones />
-        <div className="huddle-wave">
-          {[
-            ["a", 16],
-            ["b", 32],
-            ["c", 24],
-            ["d", 48],
-            ["e", 40],
-            ["f", 24],
-            ["g", 32],
-            ["h", 16],
-          ].map(([id, height]) => (
-            <span key={id} style={{ height }} />
+      {selection || <h3 className="section-anchor">{title}</h3>}
+      {size === "large" && (
+        <div className="participant-roster">
+          {people.slice(0, 4).map((person) => (
+            <div className="participant-entry" key={person.id}>
+              <WidgetPeople people={[person]} />
+              <span>{person.name}</span>
+            </div>
           ))}
         </div>
-      </div>
-      <div>
-        <h3 className="section-anchor">Better in a huddle.</h3>
-        <p className="small subtle huddle-description">{title}</p>
-      </div>
-      {selection}
-      <WidgetPeople people={people} total={count} />
+      )}
+      {size === "large" && people.length > 4 && (
+        <Control className="people-control" onClick={() => setOpen(true)}>
+          View all participants
+        </Control>
+      )}
       {error && (
         <p className="small" role="alert">
           {error}
         </p>
       )}
-      <div className="huddle-action">{action}</div>
+      <div className="huddle-footer">
+        {size !== "large" && (
+          <Action
+            className="people-control"
+            aria-label="View huddle participants"
+            onClick={() => setOpen(true)}
+          >
+            <WidgetPeople people={people} total={count} limit={4} />
+          </Action>
+        )}
+        <div className="huddle-action">{action}</div>
+      </div>
+      {open && (
+        <DetailDialog title={title} onClose={() => setOpen(false)}>
+          <ul className="participant-names">
+            {people.map((person) => (
+              <li key={person.id}>{person.name}</li>
+            ))}
+          </ul>
+        </DetailDialog>
+      )}
     </Widget>
   );
 }
@@ -230,17 +309,19 @@ export function HuddleWidget({
 export type CommunicationRow = {
   id: string;
   title: string;
-  context: string;
+  context?: string;
   body: string;
   avatar?: string | null;
   initials?: string;
+  people?: WidgetPerson[];
+  /** Recent people represent an active channel in the compact avatar surface. */
+  compactPeople?: WidgetPerson[];
   replies?: number;
   onOpen: () => void;
 };
-/** Three high-value conversations with real navigation owned by the host. */
+/** Avatar launchers at small, concise rows at medium, supporting context at large. */
 export function CommunicationWidget({
   title,
-  headline,
   rows,
   empty,
   loading,
@@ -248,16 +329,19 @@ export function CommunicationWidget({
   onRetry,
 }: {
   title: string;
-  headline: string;
   rows: CommunicationRow[];
   empty: string;
   loading?: boolean;
   error?: boolean;
   onRetry?: () => void;
 }) {
+  const size = useWidgetSize();
   return (
-    <Widget title={title} scale="14 / 16 / 24">
-      <h3 className="section-anchor">{headline}</h3>
+    <Widget
+      title={title}
+      scale="14 / 16"
+      className={`communication-widget ${size === "small" ? "avatar-only-widget" : ""}`}
+    >
       {error && (
         <div className="communication-error" role="alert">
           <p>Couldn’t refresh activity.</p>
@@ -270,6 +354,32 @@ export function CommunicationWidget({
         </p>
       ) : !rows.length ? (
         <p className="small subtle">{empty}</p>
+      ) : size === "small" ? (
+        <div className="avatar-launchers">
+          {rows.slice(0, 3).map((row) => {
+            const people = row.compactPeople?.length
+              ? row.compactPeople
+              : row.people?.length
+                ? row.people
+                : [{ id: row.id, name: row.title, avatar: row.avatar }];
+            const label = `${row.title}${row.context ? ` · ${row.context}` : ""}`;
+            return (
+              <Action
+                key={row.id}
+                className={`avatar-launcher ${people.length > 1 ? "avatar-launcher-group" : ""}`}
+                aria-label={`Open ${label}`}
+                title={label}
+                onClick={row.onOpen}
+              >
+                <WidgetPeople
+                  people={people}
+                  limit={2}
+                  total={Math.min(people.length, 2)}
+                />
+              </Action>
+            );
+          })}
+        </div>
       ) : (
         <div className="communication-list">
           {rows.slice(0, 3).map((row) => (
@@ -278,31 +388,43 @@ export function CommunicationWidget({
               key={row.id}
               onClick={row.onOpen}
             >
-              <span className="avatar" aria-hidden="true">
-                {row.initials || (
-                  <UserAvatar
-                    avatarUrl={row.avatar ?? null}
-                    displayName={row.title}
-                    className="widget-person-avatar"
-                    fallbackDelayMs={0}
+              <span className="communication-identity" aria-hidden="true">
+                {row.people?.length ? (
+                  <WidgetPeople
+                    people={row.people}
+                    limit={2}
+                    total={Math.min(row.people.length, 2)}
                   />
-                )}
-              </span>
-              <span className="communication-copy">
-                <span className="communication-row-title">{row.title}</span>
-                <span className="small subtle">{row.context}</span>
-                <span className="communication-body">{row.body}</span>
-                {typeof row.replies === "number" && row.replies > 0 && (
-                  <span className="small subtle communication-replies">
-                    <MessageCircle aria-hidden="true" />
-                    {row.replies} {row.replies === 1 ? "reply" : "replies"}
+                ) : (
+                  <span className="avatar">
+                    {row.initials || (
+                      <UserAvatar
+                        avatarUrl={row.avatar ?? null}
+                        displayName={row.title}
+                        className="widget-person-avatar"
+                        fallbackDelayMs={0}
+                      />
+                    )}
                   </span>
                 )}
               </span>
-              <ArrowUpRight
-                aria-hidden="true"
-                className="communication-arrow"
-              />
+              <span className="communication-copy">
+                <span className="communication-row-heading">
+                  <span className="communication-row-title">{row.title}</span>
+                  {row.context && (
+                    <span className="small subtle">{row.context}</span>
+                  )}
+                </span>
+                <span className="communication-body">{row.body}</span>
+                {size === "large" &&
+                  typeof row.replies === "number" &&
+                  row.replies > 0 && (
+                    <span className="small subtle communication-replies">
+                      <MessageCircle aria-hidden="true" />
+                      {row.replies} {row.replies === 1 ? "reply" : "replies"}
+                    </span>
+                  )}
+              </span>
             </Action>
           ))}
         </div>

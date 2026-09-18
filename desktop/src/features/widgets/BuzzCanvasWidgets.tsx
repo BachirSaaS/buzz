@@ -6,13 +6,7 @@ import { LiveAgentWidget } from "./LiveAgentWidget";
 import { LiveHuddleWidget } from "./LiveHuddleWidget";
 
 /** Communication widget IDs share the existing canvas persistence contract. */
-export const buzzWidgetCatalog = [
-  { id: "agent-activity", title: "Agent activity" },
-  { id: "huddle", title: "Huddle" },
-  { id: "mentions", title: "Mentions" },
-  { id: "conversations", title: "Conversations" },
-  { id: "channels", title: "Active channels" },
-] as const;
+export { buzzWidgetCatalog } from "./widgetCatalog";
 
 /** Live adapters use the authorized Pulse feed; no fixture fallback enters the app. */
 export function BuzzCanvasWidget({
@@ -32,6 +26,7 @@ export function BuzzCanvasWidget({
     return (
       <LiveHuddleWidget
         channels={feed.channels}
+        profiles={feed.profiles}
         currentPubkey={currentPubkey}
       />
     );
@@ -48,9 +43,7 @@ export function BuzzCanvasWidget({
       );
   };
   const channelTitle = (item: PulseConversation) =>
-    item.channel?.channelType === "dm"
-      ? "Direct conversation"
-      : `#${item.channel?.name ?? ""}`;
+    item.channel?.channelType === "dm" ? "" : `#${item.channel?.name ?? ""}`;
   const row = (
     item: PulseConversation,
     isChannel = false,
@@ -69,13 +62,39 @@ export function BuzzCanvasWidget({
         : item.messages.at(-1);
     return {
       id: item.id,
-      title: isChannel ? channelTitle(item) : message?.author || "Conversation",
-      context: isChannel
-        ? `${item.channel?.memberCount ?? 0} members`
-        : channelTitle(item),
+      title: isChannel
+        ? channelTitle(item)
+        : id === "conversations" && item.channel?.channelType === "dm"
+          ? item.channel.participantPubkeys
+              .filter((key) => key !== currentPubkey)
+              .map((key) => feed.profiles[key]?.displayName)
+              .filter(Boolean)
+              .join(", ") || item.channel.name
+          : message?.author || "Conversation",
+      context: isChannel ? undefined : channelTitle(item),
       body: message?.body.slice(0, 200) || "Open conversation",
       avatar: isChannel ? null : message?.avatarUrl,
       initials: isChannel ? "#" : undefined,
+      compactPeople:
+        isChannel && message?.pubkey
+          ? [
+              {
+                id: message.pubkey ?? message.id,
+                name: message.author,
+                avatar: message.avatarUrl,
+              },
+            ]
+          : undefined,
+      people:
+        id === "conversations" && item.channel?.channelType === "dm"
+          ? item.channel.participantPubkeys
+              .filter((key) => key !== currentPubkey)
+              .map((key) => ({
+                id: key,
+                name: feed.profiles[key]?.displayName || "Member",
+                avatar: feed.profiles[key]?.avatarUrl,
+              }))
+          : undefined,
       onOpen: () => open(item),
     };
   };
@@ -89,7 +108,6 @@ export function BuzzCanvasWidget({
     return (
       <CommunicationWidget
         title="Mentions"
-        headline="You’re in the conversation."
         rows={conversations
           .filter((item) => item.isMention)
           .slice(0, 3)
@@ -102,7 +120,6 @@ export function BuzzCanvasWidget({
     return (
       <CommunicationWidget
         title="Conversations"
-        headline="Pick up where you left off."
         rows={conversations.slice(0, 3).map((item) => row(item))}
         empty="Your recent conversations will appear here."
         {...common}
@@ -125,7 +142,6 @@ export function BuzzCanvasWidget({
   return (
     <CommunicationWidget
       title="Active channels"
-      headline="Around your workspace."
       rows={channelRows}
       empty="No recent channel conversations."
       {...common}

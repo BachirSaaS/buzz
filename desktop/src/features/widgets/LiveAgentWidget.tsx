@@ -11,9 +11,11 @@ import type { Channel, RelayAgent } from "@/shared/api/types";
 import { AgentActivityWidget } from "./BuzzWidgets";
 import { buildAgentWidgetModel } from "./agentWidgetModel";
 import { Control, Widget } from "./Widget";
+import { useWidgetSize } from "./WidgetSizing";
 
 /** Exact-key agent activity sourced from Buzz's shared observer and liveness stores. */
 export function LiveAgentWidget({ channels }: { channels: Channel[] }) {
+  const compact = useWidgetSize() === "small";
   const query = useRelayAgentsQuery();
   const [selected, setSelected] = useState("");
   const allowed = useMemo(
@@ -34,8 +36,8 @@ export function LiveAgentWidget({ channels }: { channels: Channel[] }) {
   if (!agent)
     return (
       <Widget title="Agent activity">
-        <h3 className="section-anchor">
-          {query.isPending ? "Finding your agents…" : "A little help, on hand."}
+        <h3 className={compact ? "compact-agent-state" : "section-anchor"}>
+          {query.isPending ? "Finding your agents…" : "No agents yet."}
         </h3>
         <p className="small subtle">
           {query.isPending

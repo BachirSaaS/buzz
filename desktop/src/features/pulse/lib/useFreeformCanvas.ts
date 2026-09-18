@@ -1,5 +1,4 @@
 import {
-  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -8,29 +7,38 @@ import {
   type PointerEvent,
   type RefObject,
 } from "react";
-import type { CanvasFrame, CanvasLayout } from "./canvasLayout";
+import {
+  canvasContentIds,
+  type CanvasFrame,
+  type CanvasLayout,
+} from "./canvasLayout";
 import {
   captureCanvasFrames,
   defaultCanvasFrame,
   fitCanvasFrame,
+  resizeCanvasFrame,
   type CanvasBounds,
+  type WindowCorner,
 } from "./freeformCanvas";
-
-type Gesture = "move" | "resize";
 type Placement = NonNullable<CanvasLayout["freeform"]>;
+type Gesture = "move" | "resize";
 type Drag = {
   key: string;
   id: string;
   kind: Gesture;
-  pointerId: number;
+  corner: WindowCorner;
+  pointer: number;
   x: number;
   y: number;
   initial: CanvasFrame;
+  original: Placement;
   placement: Placement;
   moved: boolean;
+  cursor: string;
+  select: string;
 };
 
-/** Independent floating windows; preview gestures immediately and persist once on release. */
+/** Parent windows move as units. Stable canvas capture survives tiled-to-floating reparenting. */
 export function useFreeformCanvas(
   ref: RefObject<HTMLDivElement | null>,
   state: CanvasLayout,
@@ -44,65 +52,22 @@ export function useFreeformCanvas(
     null,
   );
   const drag = useRef<Drag | null>(null);
-  const ids = ["main", ...state.windows];
-  const windowKey = state.windows.join(",");
-  // A new window must supersede the previous temporary focus order immediately.
-  const frontId = front?.windows === windowKey ? front.id : null;
-  const bringForward = (id: string) => setFront({ id, windows: windowKey });
-  const key = `${fixedMain}:${state.layout}:${state.windows.join(",")}:${mainMax}:${bounds.width}:${bounds.height}`;
-  const latestKey = useRef(key);
-  latestKey.current = key;
+  const ids = canvasContentIds(state),
+    windowKey = state.windows.join(",");
+  const key = `${fixedMain}:${state.layout}:${windowKey}:${mainMax}:${bounds.width}:${bounds.height}`;
   const floating = state.layout === "freeform" || preview !== null;
-  const placement = preview ?? state.freeform;
+  const placement = drag.current?.placement ?? preview ?? state.freeform;
+  const frontId = front?.windows === windowKey ? front.id : null;
   const order = [...new Set([...(placement?.order ?? []), ...ids])].filter(
     (id) => ids.includes(id) && id !== frontId,
   );
   if (frontId && ids.includes(frontId)) order.push(frontId);
-
-  useLayoutEffect(() => {
-    const element = ref.current;
-    if (!element) return;
-    const measure = () =>
-      setBounds({ width: element.clientWidth, height: element.clientHeight });
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [ref]);
-  useEffect(() => {
-    if (drag.current && drag.current.key !== key) {
-      drag.current = null;
-      setPreview(null);
-    }
-  }, [key]);
-  const dragging = preview !== null;
-  useEffect(() => {
-    if (!dragging) return;
-    const cursor = document.body.style.cursor;
-    const selection = document.body.style.userSelect;
-    document.body.style.cursor =
-      drag.current?.kind === "move" ? "grabbing" : "nwse-resize";
-    document.body.style.userSelect = "none";
-    const cancel = () => {
-      drag.current = null;
-      setPreview(null);
-    };
-    const onKey = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        cancel();
-      }
-    };
-    window.addEventListener("blur", cancel);
-    window.addEventListener("keydown", onKey);
-    return () => {
-      document.body.style.cursor = cursor;
-      document.body.style.userSelect = selection;
-      window.removeEventListener("blur", cancel);
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [dragging]);
-
+  const callbacks = useRef({
+    cancel: () => {},
+    move: (_e: globalThis.PointerEvent) => {},
+    finish: (_e: globalThis.PointerEvent) => {},
+  });
+  const bringForward = (id: string) => setFront({ id, windows: windowKey });
   const fit = (frame: CanvasFrame) => fitCanvasFrame(frame, bounds);
   const frameFor = (id: string) =>
     fit(
@@ -111,48 +76,144 @@ export function useFreeformCanvas(
     );
   const capture = (id: string): Placement => {
     const frames = captureCanvasFrames(ref.current);
-    // Home's fixed frame must never overwrite another app's saved placement.
     if (fixedMain) {
       delete frames.main;
       if (state.freeform?.frames.main) frames.main = state.freeform.frames.main;
     }
-    return { frames, order: [...order.filter((window) => window !== id), id] };
+    return { frames, order: [...order.filter((other) => other !== id), id] };
   };
   const change = (
     kind: Gesture,
     initial: CanvasFrame,
     dx: number,
     dy: number,
+    corner: WindowCorner,
   ) =>
-    fit(
-      kind === "move"
-        ? { ...initial, x: initial.x + dx, y: initial.y + dy }
-        : {
-            ...initial,
-            width: Math.min(bounds.width - initial.x, initial.width + dx),
-            height: Math.min(bounds.height - initial.y, initial.height + dy),
-          },
-    );
+    kind === "move"
+      ? fit({ ...initial, x: initial.x + dx, y: initial.y + dy })
+      : resizeCanvasFrame(initial, dx, dy, corner, bounds);
+  const paint = (id: string, frame: CanvasFrame) => {
+    const element = [
+      ...(ref.current?.querySelectorAll<HTMLElement>("[data-floating-frame]") ??
+        []),
+    ].find((el) => el.dataset.floatingFrame === id);
+    if (element)
+      Object.assign(element.style, {
+        left: `${frame.x}px`,
+        top: `${frame.y}px`,
+        width: `${frame.width}px`,
+        height: `${frame.height}px`,
+      });
+  };
   const commit = (next: Placement) =>
     save({ ...state, layout: "freeform", freeform: next });
-
-  function finish(event: PointerEvent<HTMLButtonElement>, cancel = false) {
-    const current = drag.current;
-    if (!current || current.pointerId !== event.pointerId) return;
-    drag.current = null;
-    if (!cancel && current.moved && current.key === latestKey.current)
-      commit(current.placement);
-    setPreview(null);
-    if (event.currentTarget.hasPointerCapture(event.pointerId))
-      event.currentTarget.releasePointerCapture(event.pointerId);
+  function clean(current: Drag) {
+    document.body.style.cursor = current.cursor;
+    document.body.style.userSelect = current.select;
+    if (ref.current?.hasPointerCapture(current.pointer))
+      ref.current.releasePointerCapture(current.pointer);
   }
-
+  function cancel() {
+    const current = drag.current;
+    if (!current) return;
+    drag.current = null;
+    clean(current);
+    if (current.original.frames[current.id])
+      paint(current.id, current.original.frames[current.id]);
+    setPreview(null);
+  }
+  function move(event: globalThis.PointerEvent) {
+    const current = drag.current;
+    if (!current || current.pointer !== event.pointerId) return;
+    if (current.key !== key) {
+      cancel();
+      return;
+    }
+    const dx = event.clientX - current.x,
+      dy = event.clientY - current.y;
+    if (!current.moved && Math.hypot(dx, dy) < 6) return;
+    const frame = change(current.kind, current.initial, dx, dy, current.corner);
+    current.placement = {
+      ...current.placement,
+      frames: { ...current.placement.frames, [current.id]: frame },
+    };
+    if (!current.moved) {
+      current.moved = true;
+      ref.current?.setPointerCapture(current.pointer);
+      document.body.style.cursor =
+        current.kind === "move"
+          ? "grabbing"
+          : current.corner === "nw" || current.corner === "se"
+            ? "nwse-resize"
+            : "nesw-resize";
+      document.body.style.userSelect = "none";
+      setPreview(current.placement);
+    }
+    paint(current.id, frame);
+  }
+  function finish(event: globalThis.PointerEvent) {
+    const current = drag.current;
+    if (!current || current.pointer !== event.pointerId) return;
+    drag.current = null;
+    clean(current);
+    if (current.moved && current.key === key && !commit(current.placement))
+      paint(current.id, current.initial);
+    setPreview(null);
+  }
+  callbacks.current = { cancel, move, finish };
+  useLayoutEffect(() => {
+    if (drag.current && drag.current.key !== key) callbacks.current.cancel();
+  }, [key]);
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const measure = () => {
+      callbacks.current.cancel();
+      setBounds({ width: element.clientWidth, height: element.clientHeight });
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    measure();
+    const cancel = () => callbacks.current.cancel();
+    const move = (e: globalThis.PointerEvent) => callbacks.current.move(e);
+    const up = (e: globalThis.PointerEvent) => callbacks.current.finish(e);
+    const lost = (e: globalThis.PointerEvent) => {
+      if (drag.current?.pointer === e.pointerId && e.target === element)
+        cancel();
+    };
+    const pointerCancel = (e: globalThis.PointerEvent) => {
+      if (drag.current?.pointer === e.pointerId) cancel();
+    };
+    const key = (e: globalThis.KeyboardEvent) => {
+      if (e.key === "Escape" && drag.current) {
+        e.preventDefault();
+        cancel();
+      }
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", pointerCancel);
+    window.addEventListener("lostpointercapture", lost);
+    window.addEventListener("blur", cancel);
+    window.addEventListener("keydown", key);
+    return () => {
+      observer.disconnect();
+      cancel();
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", pointerCancel);
+      window.removeEventListener("lostpointercapture", lost);
+      window.removeEventListener("blur", cancel);
+      window.removeEventListener("keydown", key);
+    };
+  }, [ref]);
   return {
     floating,
-    dragging,
+    dragging: preview !== null,
     frameProps(id: string) {
       const frame = frameFor(id);
       return {
+        "data-floating-frame": id,
         style:
           floating && bounds.width > 0
             ? ({
@@ -172,78 +233,66 @@ export function useFreeformCanvas(
         },
       };
     },
-    gestureProps(id: string, kind: Gesture) {
+    gestureProps(id: string, kind: Gesture, corner: WindowCorner = "se") {
       return {
         "data-canvas-gesture": kind,
-        onPointerDown(event: PointerEvent<HTMLButtonElement>) {
-          if (event.button !== 0 || !event.isPrimary) return;
+        onPointerDown(event: PointerEvent<HTMLElement>) {
+          if (event.button !== 0 || !event.isPrimary || drag.current) return;
+          if (
+            kind === "move" &&
+            event.target instanceof Element &&
+            event.target.closest("button,input,a,select,textarea")
+          )
+            return;
+          const next = capture(id),
+            initial = next.frames[id];
+          if (!initial) return;
           event.preventDefault();
           event.currentTarget.focus();
-          event.currentTarget.setPointerCapture(event.pointerId);
-          const next = capture(id);
-          const initial = next.frames[id];
-          if (!initial) return;
           drag.current = {
             key,
             id,
             kind,
-            pointerId: event.pointerId,
+            corner,
+            pointer: event.pointerId,
             x: event.clientX,
             y: event.clientY,
             initial,
+            original: next,
             placement: next,
             moved: false,
+            cursor: document.body.style.cursor,
+            select: document.body.style.userSelect,
           };
           bringForward(id);
-          setPreview(next);
         },
-        onPointerMove(event: PointerEvent<HTMLButtonElement>) {
-          const current = drag.current;
+        onKeyDown(event: KeyboardEvent<HTMLElement>) {
           if (
-            !current ||
-            current.pointerId !== event.pointerId ||
-            current.key !== key
+            event.target !== event.currentTarget ||
+            event.altKey ||
+            event.ctrlKey ||
+            event.metaKey ||
+            drag.current
           )
-            return;
-          const dx = event.clientX - current.x;
-          const dy = event.clientY - current.y;
-          if (!current.moved && Math.hypot(dx, dy) < 3) return;
-          current.moved = true;
-          current.placement = {
-            ...current.placement,
-            frames: {
-              ...current.placement.frames,
-              [id]: change(kind, current.initial, dx, dy),
-            },
-          };
-          setPreview(current.placement);
-        },
-        onPointerUp: (event: PointerEvent<HTMLButtonElement>) => finish(event),
-        onPointerCancel: (event: PointerEvent<HTMLButtonElement>) =>
-          finish(event, true),
-        onLostPointerCapture: (event: PointerEvent<HTMLButtonElement>) =>
-          finish(event, true),
-        onKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
-          if (event.altKey || event.ctrlKey || event.metaKey || drag.current)
             return;
           const step = event.shiftKey ? 40 : 10;
           const dx =
-            event.key === "ArrowLeft"
-              ? -step
-              : event.key === "ArrowRight"
-                ? step
-                : 0;
-          const dy =
-            event.key === "ArrowUp"
-              ? -step
-              : event.key === "ArrowDown"
-                ? step
-                : 0;
+              event.key === "ArrowLeft"
+                ? -step
+                : event.key === "ArrowRight"
+                  ? step
+                  : 0,
+            dy =
+              event.key === "ArrowUp"
+                ? -step
+                : event.key === "ArrowDown"
+                  ? step
+                  : 0;
           if (!dx && !dy) return;
           event.preventDefault();
           const next = capture(id);
           if (!next.frames[id]) return;
-          next.frames[id] = change(kind, next.frames[id], dx, dy);
+          next.frames[id] = change(kind, next.frames[id], dx, dy, corner);
           bringForward(id);
           commit(next);
         },

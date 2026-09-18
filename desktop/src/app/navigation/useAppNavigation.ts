@@ -15,6 +15,7 @@ import {
 } from "@/app/navigation/navigationGuard";
 import {
   NavigationTargetContext,
+  NavigationHandlerContext,
   type AppNavigationTarget,
 } from "./NavigationTargetContext";
 import type { SearchHit } from "@/shared/api/types";
@@ -30,6 +31,7 @@ export function useAppNavigation() {
   const navigate = useNavigate();
   const location = useLocation();
   const canGoBack = useCanGoBack();
+  const handleTarget = React.useContext(NavigationHandlerContext);
   const resolveTarget = React.useContext(NavigationTargetContext);
 
   const commitNavigation = React.useCallback(
@@ -38,6 +40,8 @@ export function useAppNavigation() {
       behavior: NavigationBehavior = {},
       guardedTarget?: GuardedNavigation,
     ) => {
+      const handled = handleTarget?.(target);
+      if (handled !== undefined) return handled;
       const next = resolveTarget?.(target) ?? target;
       const nextLocation = router.buildLocation(next as never);
       const hasStateUpdate = next.state !== undefined;
@@ -65,7 +69,7 @@ export function useAppNavigation() {
       } as never);
       return true;
     },
-    [location.href, navigate, router, resolveTarget],
+    [location.href, navigate, router, resolveTarget, handleTarget],
   );
 
   const goHome = React.useCallback(

@@ -1,3 +1,6 @@
+import { PulseWorkspaceNavigation } from "./PulseWorkspaceNavigation";
+import { usePulseWorkspaces } from "../lib/usePulseWorkspaces";
+import { WORKSPACE_ROUTE_KEYS } from "../lib/pulseWorkspaces";
 import { PulseCanvasControls } from "./PulseCanvasControls";
 import { ArrowUp, Inbox, Search } from "lucide-react";
 import * as React from "react";
@@ -16,7 +19,6 @@ import { ConversationCard } from "./ConversationCard";
 import {
   isPulseWorkspacePage,
   type PulseView,
-  PULSE_WORKSPACE_KEYS,
   CLEAR_WORKSPACE_PANELS,
 } from "../lib/workspaceNavigation";
 import type {
@@ -26,10 +28,7 @@ import type {
 import { PulseWorkspaceFrame } from "./PulseWorkspaceFrame";
 import { PulseWorkspacePage } from "./PulseWorkspacePage";
 import { PulseCombinedView } from "./PulseCombinedView";
-import {
-  CLEAR_CONVERSATION_PANELS,
-  PULSE_CONVERSATION_KEYS,
-} from "../lib/pulsePanelState";
+import { CLEAR_CONVERSATION_PANELS } from "../lib/pulsePanelState";
 import { useHistorySearchState } from "@/shared/hooks/useHistorySearchState";
 import { allowNavigation } from "@/app/navigation/navigationGuard";
 import { useAppShell } from "@/app/AppShellContext";
@@ -37,21 +36,11 @@ import { buildHomeBriefing, type BriefingKind } from "../lib/pulseBriefing";
 import { PulseBriefing } from "./PulseBriefing";
 import { buildSummaryInput } from "../lib/pulseSummary";
 import { usePulseSummary } from "../usePulseSummary";
-import { SavedBriefings } from "@/features/accumulator/SavedBriefings";
 import { useRelayOrigin } from "@/shared/lib/useRelayOrigin";
-import {
-  useCanvasLayout,
-  MAX_CANVAS_WINDOWS,
-  type CanvasView,
-} from "../lib/canvasLayout";
+import { canvasWindowLimit, type CanvasView } from "../lib/canvasLayout";
 import { PulseCanvas } from "./PulseCanvas";
 
-const FEED_SEARCH_KEYS = [
-  "feed",
-  "briefings",
-  ...PULSE_CONVERSATION_KEYS,
-  ...PULSE_WORKSPACE_KEYS,
-] as const;
+const FEED_SEARCH_KEYS = ["workspace", ...WORKSPACE_ROUTE_KEYS] as const;
 
 export function UnifiedPulseView({
   currentPubkey,
@@ -62,12 +51,20 @@ export function UnifiedPulseView({
   const relayOrigin = useRelayOrigin();
   const canvasScope =
     relayOrigin && currentPubkey ? `${relayOrigin}:${currentPubkey}` : null;
-  const canvas = useCanvasLayout(canvasScope);
   const [canvasPicker, setCanvasPicker] = React.useState(false);
   const reads = useAppShell();
   const [briefingFilter, setBriefingFilter] =
     React.useState<BriefingKind | null>(null);
   const { values, applyPatch } = useHistorySearchState(FEED_SEARCH_KEYS);
+  const workspaces = usePulseWorkspaces(canvasScope, values, applyPatch);
+  const canvas = {
+    state: workspaces.active.canvas,
+    save: workspaces.saveCanvas,
+  };
+  // biome-ignore lint/correctness/useExhaustiveDependencies: A picker belongs to the workspace that opened it.
+  React.useEffect(() => {
+    setCanvasPicker(false);
+  }, [workspaces.active.id]);
   const terminal = React.useContext(TerminalSurfaceContext);
   const terminalPanel = useTerminalPanel();
   const expanded =
@@ -78,13 +75,16 @@ export function UnifiedPulseView({
         values.profilePersona ||
         values.agentSession,
     );
-  const filter: PulseView = isPulseWorkspacePage(values.feed)
-    ? values.feed
-    : values.feed === "search"
-      ? "search"
-      : values.feed && values.feed !== "all" && values.feed !== "home"
-        ? "conversation"
-        : "home";
+  const filter: PulseView =
+    workspaces.active.id === "home"
+      ? "home"
+      : isPulseWorkspacePage(values.feed)
+        ? values.feed
+        : values.feed === "search"
+          ? "search"
+          : values.feed && values.feed !== "all" && values.feed !== "home"
+            ? "conversation"
+            : "home";
   React.useEffect(() => {
     if (values.feed === "dm" || values.feed === "channel") {
       applyPatch(
@@ -177,7 +177,10 @@ export function UnifiedPulseView({
   );
   const summary = usePulseSummary(
     summaryInput,
-    filter === "home" && !feed.isLoading && Boolean(currentPubkey),
+    canvas.state.main !== false &&
+      filter === "home" &&
+      !feed.isLoading &&
+      Boolean(currentPubkey),
   );
   const generatedBriefing = (summary.data ?? []).filter((group) =>
     [...group.ids].every((id) => byId.has(id)),
@@ -367,111 +370,98 @@ export function UnifiedPulseView({
     </>
   );
   return (
-    <PulseWorkspaceFrame
-      active={activeApp}
-      onSelect={selectApp}
-      expanded={expanded}
-      testId="unified-pulse"
-      viewControls={
-        canvas.state.windows.length > 0 ||
-        canvas.state.layout === "freeform" ? (
+    <PulseWorkspaceNavigation>
+      <PulseWorkspaceFrame
+        active={activeApp}
+        workspaces={workspaces}
+        expanded={expanded}
+        testId="unified-pulse"
+        viewControls={
           <PulseCanvasControls state={canvas.state} save={canvas.save} />
-        ) : undefined
-      }
-      onAddView={() => setCanvasPicker(true)}
-      canAddView={
-        Boolean(currentPubkey) &&
-        canvas.state.windows.length < MAX_CANVAS_WINDOWS
-      }
-      renderCanvas={(main) => (
-        <PulseCanvas
-          key={canvasScope}
-          mainMaxWidth={activeApp === "home" ? 720 : 960}
-          fixedMain={activeApp === "home"}
-          mainTitle={activeApp.charAt(0).toUpperCase() + activeApp.slice(1)}
-          state={canvas.state}
-          save={canvas.save}
-          feed={feed}
-          currentPubkey={currentPubkey}
-          picker={canvasPicker}
-          setPicker={setCanvasPicker}
-          onOpen={(view: CanvasView, thread) => {
-            if (
-              !setFilter(
-                view.kind === "project"
-                  ? "projects"
-                  : view.kind === "agents"
-                    ? "agents"
-                    : "conversation",
+        }
+        onAddView={() => setCanvasPicker(true)}
+        canAddView={
+          Boolean(currentPubkey) &&
+          canvas.state.windows.length < canvasWindowLimit(canvas.state)
+        }
+        renderCanvas={(main) => (
+          <PulseCanvas
+            key={`${canvasScope}:${workspaces.active.id}`}
+            mainMaxWidth={activeApp === "home" ? 720 : 960}
+            fixedMain={activeApp === "home" && canvas.state.main !== false}
+            onSelectApp={
+              workspaces.active.id === "home" ? undefined : selectApp
+            }
+            mainTitle={activeApp.charAt(0).toUpperCase() + activeApp.slice(1)}
+            state={canvas.state}
+            save={canvas.save}
+            feed={feed}
+            currentPubkey={currentPubkey}
+            picker={canvasPicker}
+            setPicker={setCanvasPicker}
+            onOpen={(view: CanvasView, thread) => {
+              if (
+                !setFilter(
+                  view.kind === "project"
+                    ? "projects"
+                    : view.kind === "agents"
+                      ? "agents"
+                      : "conversation",
+                )
               )
-            )
-              return;
-            applyPatch(
-              view.kind === "project"
-                ? { projectId: view.target ?? null }
-                : view.kind === "agents"
-                  ? {}
-                  : {
-                      conversation: view.target ?? null,
-                      thread: thread ?? null,
-                    },
-            );
-          }}
-        >
-          {main}
-        </PulseCanvas>
-      )}
-    >
-      <div className="pulse-conversation-workspace flex min-h-0 flex-1">
-        <div
-          className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
-          data-testid="pulse-scroll-area"
-        >
-          {isPulseWorkspacePage(filter) ? (
-            <PulseWorkspacePage page={filter} />
-          ) : filter === "home" ? (
-            <div
-              ref={setScrollElement}
-              className="min-h-0 flex-1 overflow-y-auto"
-              data-testid="pulse-home"
-            >
-              {relayOrigin && currentPubkey && (
-                <SavedBriefings
-                  key={`${relayOrigin}:${currentPubkey}`}
-                  scope={{ relay: relayOrigin, pubkey: currentPubkey }}
-                  profiles={feed.profiles}
-                  onOpen={(event) => {
-                    if (!event.channel || !setFilter("conversation")) return;
-                    applyPatch({
-                      conversation: event.channel,
-                      thread: event.thread_root ?? event.id,
-                      messageId: event.id,
-                    });
-                  }}
-                />
-              )}
-              {content}
-            </div>
-          ) : (
-            <PulseCombinedView
-              channels={feed.channels}
-              conversations={feed.conversations}
-              currentPubkey={currentPubkey}
-              scrollRef={setScrollElement}
-              view={filter}
-              onSelectView={setFilter}
-            >
-              {content}
-            </PulseCombinedView>
-          )}
+                return;
+              applyPatch(
+                view.kind === "project"
+                  ? { projectId: view.target ?? null }
+                  : view.kind === "agents"
+                    ? {}
+                    : {
+                        conversation: view.target ?? null,
+                        thread: thread ?? null,
+                      },
+              );
+            }}
+          >
+            {main}
+          </PulseCanvas>
+        )}
+      >
+        <div className="pulse-conversation-workspace flex min-h-0 flex-1">
+          <div
+            className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+            data-testid="pulse-scroll-area"
+          >
+            {isPulseWorkspacePage(filter) ? (
+              <PulseWorkspacePage page={filter} />
+            ) : filter === "home" ? (
+              <div
+                ref={setScrollElement}
+                className="pulse-home-scroll min-h-0 flex-1 overflow-y-auto"
+                data-testid="pulse-home"
+              >
+                {content}
+              </div>
+            ) : (
+              <PulseCombinedView
+                channels={feed.channels}
+                conversations={feed.conversations}
+                currentPubkey={currentPubkey}
+                scrollRef={setScrollElement}
+                view={filter}
+                onSelectView={setFilter}
+              >
+                {content}
+              </PulseCombinedView>
+            )}
+          </div>
+          <div
+            className="pulse-terminal-side-host"
+            data-testid="pulse-terminal-panel"
+          >
+            {terminal}
+          </div>
         </div>
-        <div
-          className="pulse-terminal-side-host"
-          data-testid="pulse-terminal-panel"
-        >
-          {terminal}
-        </div>
-      </div>
-    </PulseWorkspaceFrame>
+      </PulseWorkspaceFrame>
+    </PulseWorkspaceNavigation>
   );
 }

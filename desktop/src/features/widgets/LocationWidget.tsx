@@ -1,9 +1,11 @@
 import { Minus, Navigation, Plus } from "lucide-react";
 import { useId, useState } from "react";
 import { Control, Widget } from "./Widget";
+import { useWidgetSize } from "./WidgetSizing";
 
 /** An illustrative San Francisco map with bounded zoom and recenter controls. */
 export function LocationWidget() {
+  const size = useWidgetSize();
   const [zoom, setZoom] = useState(1);
   const patternId = useId();
   return (
@@ -88,29 +90,28 @@ export function LocationWidget() {
           />
         </g>
       </svg>
-      <div className="map-top">
-        <span className="map-location-label">
-          <Navigation aria-hidden="true" /> San Francisco
-        </span>
-        <div className="map-controls">
-          <Control
-            className="icon-control"
-            aria-label="Zoom out"
-            disabled={zoom <= 1}
-            onClick={() => setZoom((z) => Math.max(1, z - 0.25))}
-          >
-            <Minus aria-hidden="true" />
-          </Control>
-          <Control
-            className="icon-control"
-            aria-label="Zoom in"
-            disabled={zoom >= 2}
-            onClick={() => setZoom((z) => Math.min(2, z + 0.25))}
-          >
-            <Plus aria-hidden="true" />
-          </Control>
+      {size !== "small" && (
+        <div className="map-top">
+          <div className="map-controls">
+            <Control
+              className="icon-control"
+              aria-label="Zoom out"
+              disabled={zoom <= 1}
+              onClick={() => setZoom((z) => Math.max(1, z - 0.25))}
+            >
+              <Minus aria-hidden="true" />
+            </Control>
+            <Control
+              className="icon-control"
+              aria-label="Zoom in"
+              disabled={zoom >= 2}
+              onClick={() => setZoom((z) => Math.min(2, z + 0.25))}
+            >
+              <Plus aria-hidden="true" />
+            </Control>
+          </div>
         </div>
-      </div>
+      )}
       <div className="map-caption">
         <div>
           <h3>San Francisco</h3>

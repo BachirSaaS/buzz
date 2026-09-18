@@ -133,6 +133,9 @@ pub use window_vibrancy::*;
 pub use workflows::*;
 pub use workspace::*;
 
+mod local_model;
+mod workspace_plan;
+pub use workspace_plan::*;
 mod pulse_summary;
 pub use pulse_summary::*;
 

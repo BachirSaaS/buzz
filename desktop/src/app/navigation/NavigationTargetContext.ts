@@ -14,3 +14,10 @@ export type AppNavigationTarget = {
 export const NavigationTargetContext = createContext<
   ((target: AppNavigationTarget) => AppNavigationTarget) | null
 >(null);
+
+/** An embedded window may consume a destination without changing app history.
+ * Return undefined to leave destinations outside the window to the app router.
+ */
+export const NavigationHandlerContext = createContext<
+  ((target: AppNavigationTarget) => boolean | undefined) | null
+>(null);

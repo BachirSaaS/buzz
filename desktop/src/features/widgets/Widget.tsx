@@ -1,5 +1,7 @@
 import { Action } from "@/shared/ui/action";
 import { X } from "lucide-react";
+import { useWidgetSize } from "./WidgetSizing";
+import "./widget-sizes.css";
 import {
   type ButtonHTMLAttributes,
   type ReactNode,
@@ -14,22 +16,29 @@ export function Widget({
   children,
   className = "",
   bleed = false,
+  hideHeading = false,
   scale = "14 / 16 / 32",
 }: {
   title: string;
   children: ReactNode;
   className?: string;
   bleed?: boolean;
+  hideHeading?: boolean;
   scale?: string;
 }) {
   const id = useId();
+  const size = useWidgetSize();
   return (
     <section
       className={`widget ${bleed ? "widget--bleed" : ""} ${className}`}
       aria-labelledby={id}
       data-widget={title}
+      data-size={size}
     >
-      <h2 className={bleed ? "visually-hidden" : "widget-heading"} id={id}>
+      <h2
+        className={bleed || hideHeading ? "visually-hidden" : "widget-heading"}
+        id={id}
+      >
         {title}
       </h2>
       {children}

@@ -35,6 +35,7 @@ const WorkflowsRouteScreen = React.lazy(() =>
   })),
 );
 const SEARCH_KEYS = [
+  "workspace",
   "conversation",
   "channel",
   ...PULSE_WORKSPACE_KEYS,
@@ -51,8 +52,9 @@ export function PulseWorkspacePage({ page }: { page: WorkspacePage }) {
   const resolveTarget = React.useCallback<
     NonNullable<React.ContextType<typeof NavigationTargetContext>>
   >(
-    (target) => workspaceNavigationTarget(target, values.conversation),
-    [values.conversation],
+    (target) =>
+      workspaceNavigationTarget(target, values.conversation, values.workspace),
+    [values.conversation, values.workspace],
   );
   const pane = parseWorkflowEditorPane(values.pane);
   const hasOrigin = state.workflowEditorHasOrigin === true;

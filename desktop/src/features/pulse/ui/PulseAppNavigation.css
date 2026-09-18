@@ -1,7 +1,21 @@
-/* Frequent navigation should never wait for menu motion. */
+/* Keyboard-opened navigation should never wait for menu motion. */
 .pulse-navigation-popover[data-state] {
   animation: none;
   transition: none;
+}
+
+/* Pointer previews appear quickly, with just enough motion to establish origin. */
+.pulse-navigation-popover[data-open-method="hover"] {
+  opacity: 1;
+  transform: scale(1);
+  transition:
+    opacity 140ms cubic-bezier(0.23, 1, 0.32, 1),
+    transform 140ms cubic-bezier(0.23, 1, 0.32, 1);
+
+  @starting-style {
+    opacity: 0;
+    transform: scale(0.98);
+  }
 }
 
 /* Connect the trigger and portalled menu across the positioning gap. */
@@ -27,7 +41,45 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  .pulse-navigation-popover[data-open-method="hover"] {
+    transform: none;
+    transition: opacity 100ms ease-out;
+
+    @starting-style {
+      opacity: 0;
+      transform: none;
+    }
+  }
+
   .pulse-navigation-trigger:not(:focus-visible) {
+    transition: none;
+    transform: none;
+  }
+}
+
+/* Quick chats stay anchored to their shortcut; keyboard access is immediate. */
+.pulse-quick-popover[data-state] {
+  animation: none;
+  transform-origin: var(--radix-popover-content-transform-origin);
+}
+.pulse-quick-popover[data-open-method="pointer"] {
+  transition:
+    opacity 120ms cubic-bezier(0.23, 1, 0.32, 1),
+    transform 120ms cubic-bezier(0.23, 1, 0.32, 1);
+  @starting-style {
+    opacity: 0;
+    transform: translateY(-3px) scale(0.985);
+  }
+}
+.pulse-pinned-chat {
+  height: min(520px, calc(100dvh - 80px));
+  max-height: var(--radix-popover-content-available-height);
+}
+.pulse-canvas-actions {
+  -webkit-app-region: no-drag;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pulse-quick-popover[data-open-method] {
     transition: none;
     transform: none;
   }

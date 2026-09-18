@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useState } from "react";
 import { moodPhotos } from "./data";
 import { Control, DetailDialog, Widget } from "./Widget";
+import { useWidgetSize } from "./WidgetSizing";
 
 /** An image-led board with a keyboard-accessible photo viewer. */
 export function MoodBoardWidget({
@@ -11,12 +12,12 @@ export function MoodBoardWidget({
   photos?: typeof moodPhotos;
 }) {
   const [selected, setSelected] = useState<number | null>(null);
+  const size = useWidgetSize();
   const photo = selected === null ? null : photos[selected];
   return (
     <Widget title="Mood board" className="mood-widget" scale="14 / 16 / 24">
-      <h3 className="section-anchor">A slower kind of day.</h3>
       <div className="mood-grid">
-        {photos.slice(0, 4).map((item, index) => (
+        {photos.slice(0, size === "small" ? 2 : 4).map((item, index) => (
           <Action
             type="button"
             key={item.src}

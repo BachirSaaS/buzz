@@ -2,6 +2,7 @@ import { Pause, Play, RotateCcw, RotateCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { albumArt } from "./data";
 import { Control, Widget } from "./Widget";
+import { useWidgetSize } from "./WidgetSizing";
 
 const timeLabel = (time: number) =>
   `${Math.floor(time / 60)}:${String(Math.floor(time % 60)).padStart(2, "0")}`;
@@ -12,13 +13,17 @@ export function MusicWidget({
   title = "Soft focus",
   artist = "Studio sessions",
   artwork = albumArt,
+  preview = false,
 }: {
   src?: string;
   title?: string;
   artist?: string;
   artwork?: string;
+  /** Render a silent chooser preview without mounting the audio player. */
+  preview?: boolean;
 }) {
   const audio = useRef<HTMLAudioElement>(null);
+  const size = useWidgetSize();
   const generation = useRef(0);
   const [playing, setPlaying] = useState(false);
   const [position, setPosition] = useState(0);
@@ -61,37 +66,41 @@ export function MusicWidget({
   };
   return (
     <Widget title="Music" className="music-widget" scale="14 / 16 / 24">
-      <img
-        className="album-art"
-        src={artwork}
-        alt="Sunrise over a misty green landscape"
-      />
-      <div className="track-details">
-        <h3>{title}</h3>
-        <p className="subtle">{artist}</p>
+      <div className="music-track">
+        <img
+          className="album-art"
+          src={artwork}
+          alt="Sunrise over a misty green landscape"
+        />
+        <div className="track-details">
+          <h3>{title}</h3>
+          <p className="subtle">{artist}</p>
+        </div>
       </div>
       {/* Original instrumental fixture; no spoken content needs a transcript. */}
-      {/* biome-ignore lint/a11y/useMediaCaption: Instrumental audio has no speech. */}
-      <audio
-        ref={audio}
-        src={src}
-        preload="metadata"
-        onLoadedMetadata={(e) =>
-          setDuration(
-            Number.isFinite(e.currentTarget.duration)
-              ? e.currentTarget.duration
-              : 0,
-          )
-        }
-        onTimeUpdate={(e) => setPosition(e.currentTarget.currentTime)}
-        onPlay={() => setPlaying(true)}
-        onPause={() => setPlaying(false)}
-        onEnded={() => setPlaying(false)}
-        onError={() => {
-          setPlaying(false);
-          setError("Audio unavailable. Press play to retry.");
-        }}
-      />
+      {!preview && (
+        // biome-ignore lint/a11y/useMediaCaption: Instrumental audio has no speech.
+        <audio
+          ref={audio}
+          src={src}
+          preload="metadata"
+          onLoadedMetadata={(e) =>
+            setDuration(
+              Number.isFinite(e.currentTarget.duration)
+                ? e.currentTarget.duration
+                : 0,
+            )
+          }
+          onTimeUpdate={(e) => setPosition(e.currentTarget.currentTime)}
+          onPlay={() => setPlaying(true)}
+          onPause={() => setPlaying(false)}
+          onEnded={() => setPlaying(false)}
+          onError={() => {
+            setPlaying(false);
+            setError("Audio unavailable. Press play to retry.");
+          }}
+        />
+      )}
       <div className="scrubber">
         <input
           type="range"
@@ -115,14 +124,17 @@ export function MusicWidget({
         </div>
       </div>
       <div className="music-controls">
-        <Control
-          className="icon-control"
-          aria-label="Rewind 10 seconds"
-          disabled={!duration}
-          onClick={() => seek(position - 10)}
-        >
-          <RotateCcw aria-hidden="true" />
-        </Control>
+        {size !== "small" && (
+          <Control
+            className="icon-control"
+            aria-label="Rewind 10 seconds"
+            disabled={!duration}
+            onClick={() => seek(position - 10)}
+          >
+            <RotateCcw aria-hidden="true" />
+            <span className="seek-label">10</span>
+          </Control>
+        )}
         <Control
           className="play-control icon-control"
           aria-label={playing ? "Pause" : "Play"}
@@ -134,14 +146,17 @@ export function MusicWidget({
             <Play aria-hidden="true" fill="currentColor" />
           )}
         </Control>
-        <Control
-          className="icon-control"
-          aria-label="Forward 10 seconds"
-          disabled={!duration}
-          onClick={() => seek(position + 10)}
-        >
-          <RotateCw aria-hidden="true" />
-        </Control>
+        {size !== "small" && (
+          <Control
+            className="icon-control"
+            aria-label="Forward 10 seconds"
+            disabled={!duration}
+            onClick={() => seek(position + 10)}
+          >
+            <RotateCw aria-hidden="true" />
+            <span className="seek-label">10</span>
+          </Control>
+        )}
       </div>
       {error && (
         <p role="alert" className="widget-error">

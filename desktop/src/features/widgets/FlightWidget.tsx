@@ -1,5 +1,6 @@
 import { Plane } from "lucide-react";
 import { Widget } from "./Widget";
+import { useWidgetSize } from "./WidgetSizing";
 
 /** The essential itinerary, with explicit local time zones and dates. */
 export function FlightWidget({
@@ -25,12 +26,13 @@ export function FlightWidget({
   departureZone?: string;
   arrivalZone?: string;
 }) {
+  const size = useWidgetSize();
   return (
     <Widget title="Flight" className="flight-widget" scale="14 / 16 / 32">
       <div className="flight-route">
         <div>
           <h3>{origin}</h3>
-          <p className="small subtle">{originCity}</p>
+          {size !== "small" && <p className="small subtle">{originCity}</p>}
         </div>
         <div className="flight-path" aria-hidden="true">
           <span />
@@ -39,17 +41,21 @@ export function FlightWidget({
         </div>
         <div>
           <h3>{destination}</h3>
-          <p className="small subtle">{destinationCity}</p>
+          {size !== "small" && (
+            <p className="small subtle">{destinationCity}</p>
+          )}
         </div>
       </div>
       <div className="flight-times">
         <div>
+          {size === "large" && <p className="small subtle">Departs</p>}
           <p>{departure}</p>
           <p className="small subtle">
             {departureDate} · {departureZone}
           </p>
         </div>
         <div>
+          {size === "large" && <p className="small subtle">Arrives</p>}
           <p>{arrival}</p>
           <p className="small subtle">
             {arrivalDate} · {arrivalZone}

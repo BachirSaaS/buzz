@@ -1,0 +1,335 @@
+/* Information changes in React; these rules control the shared spatial rhythm. */
+.widget-scope .widget {
+  gap: 16px;
+}
+.widget-scope .widget-slot {
+  min-width: 0;
+  container-type: inline-size;
+  container-name: widget;
+}
+.widget-scope .canvas-widget-collection > .widget-slot,
+.widget-scope .sized-widget-grid > .widget-slot {
+  break-inside: avoid;
+  margin-bottom: 16px;
+}
+.widget-scope .gallery-view-controls,
+.widget-scope .gallery-size-tools,
+.widget-scope .size-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.widget-scope .gallery-view-controls {
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.widget-scope .gallery-view-controls .gallery-collections {
+  margin: 0;
+}
+.widget-scope .size-controls {
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--widget-surface);
+  gap: 0;
+}
+.widget-scope .size-controls .widget-control {
+  background: transparent;
+}
+.widget-scope .size-controls .widget-control[aria-pressed="true"] {
+  background: var(--widget-ink);
+  color: var(--widget-surface);
+}
+.widget-scope .sized-widget-grid {
+  columns: 352px;
+  column-gap: 16px;
+}
+.widget-scope .sized-widget-grid[data-gallery-size="small"] {
+  columns: 264px;
+}
+.widget-scope .sized-widget-grid[data-gallery-size="large"] {
+  columns: 432px;
+}
+.widget-scope .widget-comparisons {
+  display: flex;
+  flex-direction: column;
+  gap: 40px;
+}
+.widget-scope .widget-comparison > h2 {
+  font-size: var(--widget-type-title);
+  font-weight: 400;
+  margin-bottom: 16px;
+}
+.widget-scope .comparison-grid {
+  display: grid;
+  grid-template-columns: 0.8fr 1fr 1.2fr;
+  gap: 16px;
+  align-items: start;
+}
+.widget-scope .comparison-example {
+  min-width: 0;
+}
+.widget-scope .size-caption {
+  font-size: var(--widget-type-detail);
+  color: var(--widget-secondary);
+  text-transform: capitalize;
+  margin: 0 0 8px 24px;
+}
+.widget-scope .location-widget[data-size="small"] {
+  height: 216px;
+}
+.widget-scope .location-widget[data-size="medium"] {
+  height: 280px;
+}
+.widget-scope .location-widget[data-size="large"] {
+  height: 360px;
+}
+.widget-scope .map-top {
+  justify-content: flex-end;
+  padding: 16px;
+}
+.widget-scope .map-caption {
+  padding: 24px;
+}
+.widget-scope .map-caption p {
+  margin-top: 4px;
+}
+.widget-scope [data-size="small"] .map-caption :where(h3) {
+  font-size: var(--widget-type-title);
+}
+.widget-scope .weather-forecast svg {
+  margin: 0;
+}
+.widget-scope .weather-forecast button {
+  gap: 8px;
+}
+.widget-scope [data-size="small"] .weather-hero-icon {
+  width: 64px;
+  height: 64px;
+}
+.widget-scope .forecast-open {
+  align-self: flex-start;
+}
+.widget-scope .forecast-details {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.widget-scope .forecast-details p {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+.widget-scope .music-track {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.widget-scope .music-track .album-art {
+  width: 80px;
+  height: 80px;
+  flex-shrink: 0;
+  aspect-ratio: 1;
+  border-radius: 8px;
+}
+.widget-scope .music-track .track-details {
+  text-align: left;
+  min-width: 0;
+}
+.widget-scope .track-details h3 {
+  font-size: var(--widget-type-body);
+  font-weight: 500;
+}
+.widget-scope .track-details p {
+  margin-top: 4px;
+}
+.widget-scope [data-size="small"] .album-art {
+  width: 56px;
+  height: 56px;
+}
+.widget-scope [data-size="large"] .music-track {
+  flex-direction: column;
+  align-items: stretch;
+}
+.widget-scope [data-size="large"] .album-art {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1.8;
+  border-radius: 16px;
+}
+.widget-scope [data-size="large"] .track-details h3 {
+  font-size: var(--widget-type-title);
+  font-weight: 400;
+}
+.widget-scope .music-controls {
+  gap: 24px;
+}
+.widget-scope .music-controls .icon-control {
+  position: relative;
+}
+.widget-scope .music-controls .icon-control:not(.play-control) {
+  width: 64px;
+  gap: 4px;
+}
+.widget-scope .seek-label {
+  font-size: var(--widget-type-detail);
+}
+.widget-scope .news-summary {
+  margin-top: 8px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.widget-scope .email-row {
+  padding: 16px 0;
+}
+.widget-scope .email-copy {
+  gap: 4px;
+}
+.widget-scope .email-subject {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.widget-scope [data-size="large"] .email-subject {
+  white-space: normal;
+}
+.widget-scope .mood-widget[data-size="small"] .mood-grid button {
+  aspect-ratio: 1;
+}
+.widget-scope .mood-widget[data-size="large"] .mood-grid {
+  grid-template-columns: 1.5fr 1fr;
+  grid-template-rows: repeat(3, 96px);
+}
+.widget-scope .mood-widget[data-size="large"] .mood-grid button {
+  aspect-ratio: auto;
+}
+.widget-scope .mood-widget[data-size="large"] .mood-grid button:first-child {
+  grid-row: span 3;
+}
+.widget-scope .flight-route p,
+.widget-scope .flight-times .small {
+  margin-top: 4px;
+}
+.widget-scope [data-size="small"] .flight-path {
+  min-width: 24px;
+}
+.widget-scope .flight-times > div > p:not(.small) {
+  font-weight: 500;
+}
+.widget-scope .event-summary {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+.widget-scope .event-summary > span {
+  flex: 1;
+  min-width: 0;
+}
+.widget-scope .event-title,
+.widget-scope .event-time {
+  display: block;
+}
+.widget-scope .event-time {
+  margin-top: 8px;
+}
+.widget-scope .event-summary > svg {
+  width: 16px;
+  height: 16px;
+  color: var(--widget-secondary);
+  flex-shrink: 0;
+}
+.widget-scope .event-summary:hover .event-title {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.widget-scope .activity-ring {
+  flex-shrink: 0;
+}
+.widget-scope [data-size="small"] .activity-ring {
+  width: 72px;
+  height: 72px;
+}
+.widget-scope .activity-days .day-steps {
+  display: block;
+  margin-top: 8px;
+}
+.widget-scope [data-size="large"] .activity-days button {
+  border-radius: 16px;
+}
+@media (max-width: 1050px) {
+  .widget-scope .comparison-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 24px;
+  }
+  .widget-scope .comparison-example:nth-child(1) {
+    width: min(100%, 288px);
+  }
+  .widget-scope .comparison-example:nth-child(2) {
+    width: min(100%, 376px);
+  }
+  .widget-scope .comparison-example:nth-child(3) {
+    width: min(100%, 464px);
+  }
+}
+@container widget (max-width: 263px) {
+  .widget-scope .flight-route,
+  .widget-scope .flight-times {
+    gap: 8px;
+  }
+  .widget-scope .flight-route h3 {
+    font-size: var(--widget-type-title);
+  }
+  .widget-scope .flight-route > div,
+  .widget-scope .flight-times > div {
+    min-width: 0;
+  }
+  .widget-scope .weather-hero-icon {
+    width: 40px;
+    height: 40px;
+  }
+  .widget-scope .activity-ring {
+    width: 48px;
+    height: 48px;
+  }
+  .widget-scope .huddle-action {
+    min-width: 0;
+    flex-basis: 100%;
+  }
+  .widget-scope .communication-row {
+    gap: 8px;
+  }
+  .widget-scope .communication-row-heading {
+    flex-wrap: wrap;
+    gap: 0 8px;
+  }
+  .widget-scope .music-track {
+    gap: 8px;
+  }
+  .widget-scope .music-track .album-art {
+    width: 40px;
+    height: 40px;
+  }
+  .widget-scope .map-caption {
+    align-items: start;
+  }
+  .widget-scope .map-caption h3 {
+    overflow-wrap: anywhere;
+  }
+}
+@media (max-width: 620px) {
+  .widget-scope .gallery-size-tools {
+    gap: 8px;
+  }
+  .widget-scope .gallery-size-tools > .widget-control {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+}
