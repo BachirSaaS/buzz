@@ -65,6 +65,68 @@ async fn exact_channel_closed_revokes_route_before_keep_socket_recovery_branches
 }
 
 #[tokio::test]
+async fn route_authority_requires_exact_eose_and_unsubscribe_command_revokes_until_readmission() {
+    let (mut client, mut server) = test_ws_pair().await;
+    let mut state = BgState::new();
+    let (tx, _rx) = mpsc::channel(1);
+    let channel = Uuid::new_v4();
+    let other = Uuid::new_v4();
+    seed_test_subscription(&mut state, channel);
+    seed_test_subscription(&mut state, other);
+
+    // A sent REQ is not authority: only EOSE for its exact, currently active
+    // subscription admits that destination. Unrelated and malformed EOSEs do not.
+    assert!(state.admitted_routes.read().await.is_empty());
+    dispatch(
+        &mut client,
+        &mut state,
+        &tx,
+        json!(["EOSE", channel_sub_id(other)]),
+    )
+    .await;
+    assert!(!state.admitted_routes.read().await.contains(&channel));
+    dispatch(
+        &mut client,
+        &mut state,
+        &tx,
+        json!(["EOSE", channel_sub_id(channel)]),
+    )
+    .await;
+    assert!(state.admitted_routes.read().await.contains(&channel));
+
+    // Exercise the production command owner, not direct set mutation. Revocation
+    // is applied before the best-effort wire CLOSE and remains until a replacement
+    // subscription receives its own EOSE.
+    assert!(
+        execute_connected_command(
+            &mut client,
+            &mut state,
+            "synthetic-agent",
+            RelayCommand::Unsubscribe {
+                channel_id: channel
+            },
+        )
+        .await
+    );
+    assert!(!state.admitted_routes.read().await.contains(&channel));
+    assert_eq!(
+        next_test_frame(&mut server).await,
+        json!(["CLOSE", channel_sub_id(channel)])
+    );
+
+    seed_test_subscription(&mut state, channel);
+    assert!(!state.admitted_routes.read().await.contains(&channel));
+    dispatch(
+        &mut client,
+        &mut state,
+        &tx,
+        json!(["EOSE", channel_sub_id(channel)]),
+    )
+    .await;
+    assert!(state.admitted_routes.read().await.contains(&channel));
+}
+
+#[tokio::test]
 async fn repeated_overflow_recovers_only_affected_channel_after_capacity() {
     let (mut client, mut server) = test_ws_pair().await;
     let mut state = BgState::new();
