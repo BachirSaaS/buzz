@@ -2488,7 +2488,10 @@ async fn tokio_main() -> Result<()> {
         return run_authenticate(args).await;
     }
 
+    // Stdout is the ACP transport when buzz-acp is launched as an agent command.
+    // Keep every harness diagnostic on stderr so logging can never corrupt NDJSON.
     tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("buzz_acp=info")),
         )
