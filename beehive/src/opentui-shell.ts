@@ -28,12 +28,20 @@ const wrappedRows = (content: string, width: number) => content.split('\n').redu
 }, 0);
 
 /** Cell geometry shared by the help surface and its memory-renderer regressions. */
-export function helpDialogGeometry(viewportWidth: number, viewportHeight: number, bodyRows = wrappedRows(helpBody, Math.max(1, Math.min(62, viewportWidth - 4) - 6))) {
+export function helpDialogGeometry(viewportWidth: number, viewportHeight: number, content = helpBody) {
   const width = Math.max(4, Math.min(62, viewportWidth - 4));
   const maxHeight = Math.max(4, viewportHeight - 4);
+  const innerWidth = Math.max(1, width - 6); // border plus two-cell inset on both sides
+  const maxBodyHeight = Math.max(0, maxHeight - helpTitleRows - helpActionRows - helpVerticalChrome);
+  // ScrollBox's vertical bar is a sibling of its viewport in OpenTUI 0.5.11.
+  // Decide overflow at the unreserved width, then wrap at the viewport width it
+  // will actually receive once that sibling has claimed its one cell.
+  const scrollbar = wrappedRows(content, innerWidth) > maxBodyHeight;
+  const bodyWidth = Math.max(1, innerWidth - (scrollbar ? 1 : 0));
+  const bodyRows = wrappedRows(content, bodyWidth);
   const naturalHeight = helpTitleRows + bodyRows + helpActionRows + helpVerticalChrome;
   const height = Math.min(naturalHeight, maxHeight);
-  return { width, maxHeight, naturalHeight, height, bodyHeight: Math.max(0, height - helpTitleRows - helpActionRows - helpVerticalChrome) };
+  return { width, maxHeight, naturalHeight, height, bodyHeight: Math.max(0, height - helpTitleRows - helpActionRows - helpVerticalChrome), bodyWidth, scrollbar };
 }
 
 /** OpenTUI owns rendering, layout, input dispatch, pointer dispatch, and lifecycle. */
@@ -57,11 +65,12 @@ export class OpenTuiShell {
   private readonly footer: TextRenderable;
   private helpScrim?: BoxRenderable;
   private help?: BoxRenderable;
-  private helpBody?: ScrollBoxRenderable;
+  private helpBody?: BoxRenderable;
+  private helpBodyScrollable = false;
   private helpTitle?: TextRenderable;
   private helpActions?: TextRenderable;
 
-  constructor(readonly renderer: CliRenderer) {
+  constructor(readonly renderer: CliRenderer, private readonly helpContent = helpBody) {
     this.done = new Promise(resolve => { this.finish = resolve; });
     this.root = new BoxRenderable(renderer, { width: '100%', height: '100%', flexDirection: 'column', backgroundColor: palette.surface });
     renderer.root.add(this.root);
@@ -165,20 +174,18 @@ export class OpenTuiShell {
 
   private syncHelp() {
     if (!this.state.helpOpen) {
-      if (this.helpScrim) { this.help?.destroyRecursively(); this.helpScrim.destroyRecursively(); this.helpScrim = undefined; this.help = undefined; this.helpBody = undefined; this.helpTitle = undefined; this.helpActions = undefined; }
+      if (this.helpScrim) { this.help?.destroyRecursively(); this.helpScrim.destroyRecursively(); this.helpScrim = undefined; this.help = undefined; this.helpBody = undefined; this.helpBodyScrollable = false; this.helpTitle = undefined; this.helpActions = undefined; }
       return;
     }
-    const geometry = helpDialogGeometry(this.renderer.width, this.renderer.height);
+    const geometry = helpDialogGeometry(this.renderer.width, this.renderer.height, this.helpContent);
     if (!this.help) {
       this.helpScrim = new BoxRenderable(this.renderer, { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', backgroundColor: palette.scrim });
       this.renderer.root.add(this.helpScrim);
       this.help = new BoxRenderable(this.renderer, { position: 'absolute', border: true, borderColor: palette.dialog, backgroundColor: palette.surface, flexDirection: 'column', paddingLeft: 2, paddingRight: 2, paddingTop: 1, paddingBottom: 1 });
       this.renderer.root.add(this.help);
       this.helpTitle = new TextRenderable(this.renderer, { fg: palette.focus, height: helpTitleRows, content: 'HELP\n──────────────────────────────────────────────────────────' });
-      this.helpBody = new ScrollBoxRenderable(this.renderer, { flexGrow: 1, scrollY: true, backgroundColor: palette.surface });
-      this.helpBody.add(new TextRenderable(this.renderer, { fg: palette.text, width: '100%', wrapMode: 'word', content: helpBody }));
       this.helpActions = new TextRenderable(this.renderer, { fg: palette.muted, height: helpActionRows, content: '──────────────────────────────────────────────────────────\nEnter / Esc  close' });
-      this.help.add(this.helpTitle); this.help.add(this.helpBody); this.help.add(this.helpActions);
+      this.help.add(this.helpTitle); this.help.add(this.helpActions);
     }
     this.help.width = geometry.width; this.help.height = geometry.height;
     this.help.left = Math.floor((this.renderer.width - geometry.width) / 2);
@@ -186,6 +193,21 @@ export class OpenTuiShell {
     const rule = '─'.repeat(Math.max(1, geometry.width - 6));
     this.helpTitle!.content = `HELP\n${rule}`;
     this.helpActions!.content = `${rule}\nEnter / Esc  close`;
+    if (!this.helpBody || this.helpBodyScrollable !== geometry.scrollbar) {
+      this.helpBody?.destroyRecursively();
+      this.helpBodyScrollable = geometry.scrollbar;
+      this.helpBody = geometry.scrollbar
+        ? new ScrollBoxRenderable(this.renderer, { flexGrow: 1, scrollY: true, backgroundColor: palette.surface })
+        : new BoxRenderable(this.renderer, { flexGrow: 1, backgroundColor: palette.surface });
+      // OpenTUI places the bar in the ScrollBox root rather than reducing a
+      // child's percentage width.  Use the geometry's reserved viewport width
+      // explicitly so the bar can only occupy the trailing blank column.
+      this.helpBody.add(new TextRenderable(this.renderer, { fg: palette.text, width: geometry.bodyWidth, wrapMode: 'word', content: this.helpContent }));
+      this.help.insertBefore(this.helpBody, this.helpActions);
+      // A constrained help body is the only modal control that can consume
+      // navigation keys, so give its ScrollBox OpenTUI focus when it appears.
+      if (this.helpBodyScrollable) this.helpBody.focus();
+    }
     this.helpBody!.height = geometry.bodyHeight;
   }
 
