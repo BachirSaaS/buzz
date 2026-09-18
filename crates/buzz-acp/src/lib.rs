@@ -2804,29 +2804,35 @@ async fn tokio_main() -> Result<()> {
         relay_url: config.relay_url.clone(),
     });
 
-    let _isolated_turn_task =
-        if let Some(socket) = std::env::var_os("BUZZ_ACP_ISOLATED_TURN_SOCKET") {
-            let path = std::path::PathBuf::from(socket);
-            // A requested endpoint is part of startup's contract: binding and
-            // permissions must succeed before direct relay service continues.
-            let listener = isolated_turn::bind(&path).await?;
-            let startup = Arc::new(PoolStartup::single_from_config(&config));
-            let isolated_ctx = ctx.clone();
-            let max_ms = config.max_turn_duration_secs.saturating_mul(1000);
-            Some(tokio::spawn(async move {
-                let result = isolated_turn::serve(listener, max_ms, move |request, cancel| {
-                    let startup = startup.clone();
-                    let ctx = isolated_ctx.clone();
-                    async move { execute_isolated_turn(&startup, &ctx, request, cancel).await }
-                })
-                .await;
-                if let Err(error) = result {
-                    tracing::error!("isolated-turn endpoint stopped: {error}");
+    let route_authority = relay.route_authority();
+    let _isolated_turn_task = if let Some(socket) =
+        std::env::var_os("BUZZ_ACP_ISOLATED_TURN_SOCKET")
+    {
+        let path = std::path::PathBuf::from(socket);
+        // A requested endpoint is part of startup's contract: binding and
+        // permissions must succeed before direct relay service continues.
+        let listener = isolated_turn::bind(&path).await?;
+        let startup = Arc::new(PoolStartup::single_from_config(&config));
+        let isolated_ctx = ctx.clone();
+        let isolated_route_authority = route_authority.clone();
+        let max_ms = config.max_turn_duration_secs.saturating_mul(1000);
+        Some(tokio::spawn(async move {
+            let result = isolated_turn::serve(listener, max_ms, move |request, cancel| {
+                let startup = startup.clone();
+                let ctx = isolated_ctx.clone();
+                let route_authority = isolated_route_authority.clone();
+                async move {
+                    execute_isolated_turn(&startup, &ctx, &route_authority, request, cancel).await
                 }
-            }))
-        } else {
-            None
-        };
+            })
+            .await;
+            if let Err(error) = result {
+                tracing::error!("isolated-turn endpoint stopped: {error}");
+            }
+        }))
+    } else {
+        None
+    };
 
     if !config.memory_enabled {
         tracing::info!(
@@ -5505,9 +5511,24 @@ impl PoolStartup {
 async fn execute_isolated_turn(
     startup: &PoolStartup,
     ctx: &PromptContext,
+    route_authority: &std::sync::Arc<tokio::sync::RwLock<std::collections::HashSet<uuid::Uuid>>>,
     request: isolated_turn::ExecuteRequest,
     cancel: tokio::sync::oneshot::Receiver<()>,
 ) -> Result<Option<String>> {
+    // Version-1 requests without destination retain their original behavior.
+    // For destination-bearing private turns, this owned read guard is held
+    // through process initialization. A CLOSED/unsubscribe/reconnect writer
+    // therefore linearizes either before this check (deny, zero spawn) or after
+    // the admitted spawn boundary; no policy mirror participates.
+    let _route_fence = if let Some(destination) = request.destination {
+        let guard = route_authority.clone().read_owned().await;
+        if !guard.contains(&destination) {
+            anyhow::bail!("isolated-turn destination is not admitted");
+        }
+        Some(guard)
+    } else {
+        None
+    };
     let (acp, protocol_version, agent_name) = spawn_and_init(
         &startup.command,
         &startup.args,

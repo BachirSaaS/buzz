@@ -123,7 +123,7 @@ use buzz_core::kind::{
 use futures_util::{SinkExt, StreamExt};
 use nostr::{Event, EventBuilder, Keys, Kind, RelayUrl, Tag};
 use serde_json::{json, Value};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, RwLock};
 use tokio::time::timeout;
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 use tracing::{debug, info, warn};
@@ -712,6 +712,9 @@ pub struct HarnessRelay {
     /// Wrapped in `Option` so `shutdown()` can take ownership without conflicting
     /// with `Drop` (which only has `&mut self`).
     bg_handle: Option<tokio::task::JoinHandle<()>>,
+    /// Routes accepted by an exact channel-subscription EOSE on the current
+    /// relay connection. The read guard is the isolated-turn spawn fence.
+    admitted_routes: std::sync::Arc<RwLock<HashSet<Uuid>>>,
 }
 
 /// Cloneable publisher handle for signed events on the relay background socket.
@@ -778,6 +781,8 @@ impl HarnessRelay {
         let bg_relay_url = relay_url.to_string();
         let bg_agent_pubkey_hex = agent_pubkey_hex.to_string();
         let bg_auth_tag = auth_tag.clone();
+        let admitted_routes = std::sync::Arc::new(RwLock::new(HashSet::new()));
+        let bg_admitted_routes = admitted_routes.clone();
 
         let bg_handle = tokio::spawn(async move {
             run_background_task(
@@ -790,6 +795,7 @@ impl HarnessRelay {
                 bg_relay_url,
                 bg_agent_pubkey_hex,
                 bg_auth_tag,
+                bg_admitted_routes,
             )
             .await;
         });
@@ -807,7 +813,16 @@ impl HarnessRelay {
             keys: keys.clone(),
             auth_tag,
             bg_handle: Some(bg_handle),
+            admitted_routes,
         })
+    }
+
+    /// Acquire the accepted-route fence for `destination`. Keeping the returned
+    /// guard through process/session creation linearizes admission before spawn:
+    /// route revocation waits for an already-admitted spawn boundary, while a
+    /// revocation that wins first makes this return `None`.
+    pub(crate) fn route_authority(&self) -> std::sync::Arc<RwLock<HashSet<Uuid>>> {
+        self.admitted_routes.clone()
     }
 
     /// Discover channels the agent is a member of.
@@ -1221,10 +1236,17 @@ struct BgState {
     /// the elevated rung it earned. Reset to 0 by the stability block once the
     /// connection has been up for `STABLE_CONNECTION_SECS`.
     backoff_step: usize,
+    /// Exact channel routes accepted by EOSE on the current connection.
+    admitted_routes: std::sync::Arc<RwLock<HashSet<Uuid>>>,
 }
 
 impl BgState {
+    #[cfg(test)]
     fn new() -> Self {
+        Self::with_admitted_routes(std::sync::Arc::new(RwLock::new(HashSet::new())))
+    }
+
+    fn with_admitted_routes(admitted_routes: std::sync::Arc<RwLock<HashSet<Uuid>>>) -> Self {
         Self {
             active_subscriptions: HashMap::new(),
             last_seen: HashMap::new(),
@@ -1248,6 +1270,7 @@ impl BgState {
             resubscribe_retry: HashSet::new(),
             connection_generation: 0,
             backoff_step: 0,
+            admitted_routes,
         }
     }
 
@@ -1615,6 +1638,7 @@ async fn execute_connected_command(
             }
         }
         RelayCommand::Unsubscribe { channel_id } => {
+            state.admitted_routes.write().await.remove(&channel_id);
             if let Some(sub_id) = state.active_subscriptions.remove(&channel_id) {
                 let msg = json!(["CLOSE", sub_id]);
                 if let Ok(text) = serde_json::to_string(&msg) {
@@ -1743,8 +1767,9 @@ async fn run_background_task(
     relay_url: String,
     agent_pubkey_hex: String,
     auth_tag: Option<nostr::Tag>,
+    admitted_routes: std::sync::Arc<RwLock<HashSet<Uuid>>>,
 ) {
-    let mut state = BgState::new();
+    let mut state = BgState::with_admitted_routes(admitted_routes);
 
     let handshake_ok = process_handshake_buffer(
         &mut ws,
@@ -2347,6 +2372,11 @@ async fn handle_ws_message(
                 }
                 RelayMessage::Eose { subscription_id } => {
                     debug!("EOSE for subscription {subscription_id}");
+                    if let Some(channel_id) = channel_id_from_sub_id(&subscription_id) {
+                        if state.active_subscriptions.get(&channel_id) == Some(&subscription_id) {
+                            state.admitted_routes.write().await.insert(channel_id);
+                        }
+                    }
                 }
                 RelayMessage::Notice { message } => {
                     // Fix 4: NOTICE at warn level.
@@ -2407,6 +2437,10 @@ async fn handle_ws_message(
                         return true; // keep the socket
                     }
 
+                    // CLOSED revokes accepted route before any recovery decision.
+                    if let Some(channel_id) = channel_id_from_sub_id(&subscription_id) {
+                        state.admitted_routes.write().await.remove(&channel_id);
+                    }
                     // CLOSED needs cleanup and resubscribe, not just logging.
                     let is_auth_error = message.starts_with("auth-required")
                         || message.starts_with("restricted")
@@ -3103,6 +3137,7 @@ async fn try_autonomous_reconnect(
         );
         match do_connect(relay_url, keys, auth_tag).await {
             Ok((new_ws, handshake_buffer)) => {
+                state.admitted_routes.write().await.clear();
                 *ws = new_ws;
                 state.connection_generation = state.connection_generation.saturating_add(1);
                 info!("autonomous reconnect succeeded (attempt {})", attempt + 1);
@@ -3242,6 +3277,7 @@ async fn wait_for_reconnect(
         info!("attempting relay reconnect to {relay_url}…");
         match do_connect(relay_url, keys, auth_tag).await {
             Ok((new_ws, handshake_buffer)) => {
+                state.admitted_routes.write().await.clear();
                 *ws = new_ws;
                 state.connection_generation = state.connection_generation.saturating_add(1);
                 info!("relay reconnected to {relay_url}");

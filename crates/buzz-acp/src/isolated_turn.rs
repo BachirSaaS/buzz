@@ -2,7 +2,7 @@
 //!
 //! Each connection carries one frame: a four-byte unsigned big-endian byte
 //! length followed by UTF-8 JSON. Frames are capped at 1 MiB. The request is
-//! `{version:1,requestId,prompt,deadlineMs}` and the terminal response is one of
+//! `{version:1,requestId,prompt,deadlineMs,destination?}` and the terminal response is one of
 //! `completed`, `cancelled`, `failed`, or `busy` (tagged by `kind`).
 
 use serde::{Deserialize, Serialize};
@@ -23,6 +23,10 @@ pub(crate) struct ExecuteRequest {
     pub(crate) request_id: String,
     pub(crate) prompt: String,
     pub(crate) deadline_ms: u64,
+    /// Optional for version-1 compatibility. Requests that carry a destination
+    /// are subject to relay-route admission before any agent process is spawned.
+    #[serde(default)]
+    pub(crate) destination: Option<uuid::Uuid>,
 }
 
 #[derive(Debug, Serialize)]
