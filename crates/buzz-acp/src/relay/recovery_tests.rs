@@ -36,6 +36,35 @@ async fn dispatch(
 }
 
 #[tokio::test]
+async fn exact_channel_closed_revokes_route_before_keep_socket_recovery_branches() {
+    let (mut client, _server) = test_ws_pair().await;
+    let mut state = BgState::new();
+    let (tx, _rx) = mpsc::channel(1);
+
+    for reason in [
+        "restricted: channel access revoked",
+        "rate-limited: retry in 5s",
+    ] {
+        let channel = Uuid::new_v4();
+        seed_test_subscription(&mut state, channel);
+        let sub = channel_sub_id(channel);
+
+        dispatch(&mut client, &mut state, &tx, json!(["EOSE", sub])).await;
+        assert!(state.admitted_routes.read().await.contains(&channel));
+
+        dispatch(&mut client, &mut state, &tx, json!(["CLOSED", sub, reason])).await;
+        assert!(
+            !state.admitted_routes.read().await.contains(&channel),
+            "{reason} must revoke before its keep-socket recovery branch returns"
+        );
+        assert!(
+            reason.starts_with("restricted") || state.rate_limited_pending.contains_key(&channel),
+            "rate-limited replacement must remain parked after authority is revoked"
+        );
+    }
+}
+
+#[tokio::test]
 async fn repeated_overflow_recovers_only_affected_channel_after_capacity() {
     let (mut client, mut server) = test_ws_pair().await;
     let mut state = BgState::new();

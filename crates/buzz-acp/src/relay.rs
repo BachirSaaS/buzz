@@ -2402,6 +2402,13 @@ async fn handle_ws_message(
                     subscription_id,
                     message,
                 } => {
+                    // Every CLOSED for an exact channel subscription revokes its
+                    // accepted-route authority before any branch can keep the
+                    // socket, park a retry, drop membership, or reconnect.
+                    if let Some(channel_id) = channel_id_from_sub_id(&subscription_id) {
+                        state.admitted_routes.write().await.remove(&channel_id);
+                    }
+
                     // A per-channel membership denial means THIS channel is
                     // forbidden, not the whole connection. Drop just this
                     // channel's subscription and keep the socket — otherwise the
@@ -2437,10 +2444,6 @@ async fn handle_ws_message(
                         return true; // keep the socket
                     }
 
-                    // CLOSED revokes accepted route before any recovery decision.
-                    if let Some(channel_id) = channel_id_from_sub_id(&subscription_id) {
-                        state.admitted_routes.write().await.remove(&channel_id);
-                    }
                     // CLOSED needs cleanup and resubscribe, not just logging.
                     let is_auth_error = message.starts_with("auth-required")
                         || message.starts_with("restricted")
