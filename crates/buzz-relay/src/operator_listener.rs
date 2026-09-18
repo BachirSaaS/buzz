@@ -442,135 +442,139 @@ mod tests {
             );
     }
 
-    #[tokio::test]
-    #[ignore = "requires Postgres"]
-    async fn matcher_iteration_expands_triggered_mention() {
-        let _test_lock = test_lock();
-        let (pool, state) = setup().await;
-        let community = make_community(&pool).await;
-        let listener = Keys::generate();
-        let target = Keys::generate();
-        state
-            .db
-            .register_operator_listener_pubkeys(
-                listener.public_key().as_bytes(),
-                &[target.public_key().to_bytes().to_vec()],
+    mod postgres_tests {
+        use super::*;
+
+        #[tokio::test]
+        #[ignore = "requires Postgres"]
+        async fn matcher_iteration_expands_triggered_mention() {
+            let _test_lock = test_lock();
+            let (pool, state) = setup().await;
+            let community = make_community(&pool).await;
+            let listener = Keys::generate();
+            let target = Keys::generate();
+            state
+                .db
+                .register_operator_listener_pubkeys(
+                    listener.public_key().as_bytes(),
+                    &[target.public_key().to_bytes().to_vec()],
+                )
+                .await
+                .expect("register target");
+
+            let event = EventBuilder::new(Kind::Custom(9), "mention")
+                .tag(Tag::parse(["p", target.public_key().to_hex().as_str()]).expect("p tag"))
+                .sign_with_keys(&Keys::generate())
+                .expect("sign event");
+            let community = CommunityId::from_uuid(community);
+            let (_, inserted) = buzz_db::event::insert_event(&pool, community, &event, None)
+                .await
+                .expect("insert event");
+            assert!(inserted);
+            buzz_db::insert_mentions(&pool, community, &event, None)
+                .await
+                .expect("index mention");
+
+            assert_eq!(run_matcher_once(&state).await, WorkerIteration::Worked);
+            let deliveries = state
+                .db
+                .claim_operator_listener_deliveries(10, Utc::now() + TimeDelta::seconds(30))
+                .await
+                .expect("claim delivery");
+            assert_eq!(deliveries.len(), 1);
+            assert_eq!(
+                deliveries[0].listener_pubkey,
+                listener.public_key().to_bytes()
+            );
+            assert_eq!(deliveries[0].target_pubkey, target.public_key().to_bytes());
+            assert_eq!(deliveries[0].event_id, event.id.as_bytes());
+        }
+
+        #[tokio::test]
+        #[ignore = "requires Postgres"]
+        async fn delivery_worker_posts_signed_notification_and_completes() {
+            let _test_lock = test_lock();
+            let (pool, mut state) = setup().await;
+            let listener = Keys::generate();
+            let target = Keys::generate();
+            add_route(&mut state, &listener);
+            let delivery_id = insert_delivery(&pool, &listener, &target).await;
+            let requests = Arc::new(Mutex::new(Vec::new()));
+            let transport = RecordingTransport {
+                status: StatusCode::NO_CONTENT,
+                requests: Arc::clone(&requests),
+            };
+
+            assert_eq!(
+                run_delivery_once_with_transport(&state, &transport).await,
+                WorkerIteration::Worked
+            );
+            let request = requests
+                .lock()
+                .expect("request lock")
+                .pop()
+                .expect("request");
+            let body: serde_json::Value = serde_json::from_slice(&request.body).expect("JSON body");
+            assert_eq!(request.url, "https://listener.example/mentions");
+            assert_eq!(body["pubkey"], target.public_key().to_hex());
+            assert_eq!(body["event_kind"], 9);
+
+            let mut headers = axum::http::HeaderMap::new();
+            headers.insert(
+                "authorization",
+                axum::http::HeaderValue::from_str(&request.authorization).expect("auth header"),
+            );
+            let verified = crate::api::bridge::verify_bridge_auth_with_options(
+                &headers,
+                "POST",
+                &request.url,
+                Some(&request.body),
+                true,
+                true,
             )
-            .await
-            .expect("register target");
+            .expect("valid relay NIP-98 signature");
+            assert_eq!(verified.pubkey, state.relay_keypair.public_key());
+            assert_eq!(
+                sqlx::query_scalar::<_, i64>(
+                    "SELECT COUNT(*) FROM operator_listener_outbox WHERE id = $1",
+                )
+                .bind(delivery_id)
+                .fetch_one(&pool)
+                .await
+                .expect("count delivery"),
+                0
+            );
+        }
 
-        let event = EventBuilder::new(Kind::Custom(9), "mention")
-            .tag(Tag::parse(["p", target.public_key().to_hex().as_str()]).expect("p tag"))
-            .sign_with_keys(&Keys::generate())
-            .expect("sign event");
-        let community = CommunityId::from_uuid(community);
-        let (_, inserted) = buzz_db::event::insert_event(&pool, community, &event, None)
-            .await
-            .expect("insert event");
-        assert!(inserted);
-        buzz_db::insert_mentions(&pool, community, &event, None)
-            .await
-            .expect("index mention");
+        #[tokio::test]
+        #[ignore = "requires Postgres"]
+        async fn delivery_worker_persists_retry_after_failure() {
+            let _test_lock = test_lock();
+            let (pool, mut state) = setup().await;
+            let listener = Keys::generate();
+            let target = Keys::generate();
+            add_route(&mut state, &listener);
+            let delivery_id = insert_delivery(&pool, &listener, &target).await;
+            let transport = RecordingTransport {
+                status: StatusCode::BAD_GATEWAY,
+                requests: Arc::new(Mutex::new(Vec::new())),
+            };
 
-        assert_eq!(run_matcher_once(&state).await, WorkerIteration::Worked);
-        let deliveries = state
-            .db
-            .claim_operator_listener_deliveries(10, Utc::now() + TimeDelta::seconds(30))
-            .await
-            .expect("claim delivery");
-        assert_eq!(deliveries.len(), 1);
-        assert_eq!(
-            deliveries[0].listener_pubkey,
-            listener.public_key().to_bytes()
-        );
-        assert_eq!(deliveries[0].target_pubkey, target.public_key().to_bytes());
-        assert_eq!(deliveries[0].event_id, event.id.as_bytes());
-    }
-
-    #[tokio::test]
-    #[ignore = "requires Postgres"]
-    async fn delivery_worker_posts_signed_notification_and_completes() {
-        let _test_lock = test_lock();
-        let (pool, mut state) = setup().await;
-        let listener = Keys::generate();
-        let target = Keys::generate();
-        add_route(&mut state, &listener);
-        let delivery_id = insert_delivery(&pool, &listener, &target).await;
-        let requests = Arc::new(Mutex::new(Vec::new()));
-        let transport = RecordingTransport {
-            status: StatusCode::NO_CONTENT,
-            requests: Arc::clone(&requests),
-        };
-
-        assert_eq!(
-            run_delivery_once_with_transport(&state, &transport).await,
-            WorkerIteration::Worked
-        );
-        let request = requests
-            .lock()
-            .expect("request lock")
-            .pop()
-            .expect("request");
-        let body: serde_json::Value = serde_json::from_slice(&request.body).expect("JSON body");
-        assert_eq!(request.url, "https://listener.example/mentions");
-        assert_eq!(body["pubkey"], target.public_key().to_hex());
-        assert_eq!(body["event_kind"], 9);
-
-        let mut headers = axum::http::HeaderMap::new();
-        headers.insert(
-            "authorization",
-            axum::http::HeaderValue::from_str(&request.authorization).expect("auth header"),
-        );
-        let verified = crate::api::bridge::verify_bridge_auth_with_options(
-            &headers,
-            "POST",
-            &request.url,
-            Some(&request.body),
-            true,
-            true,
-        )
-        .expect("valid relay NIP-98 signature");
-        assert_eq!(verified.pubkey, state.relay_keypair.public_key());
-        assert_eq!(
-            sqlx::query_scalar::<_, i64>(
-                "SELECT COUNT(*) FROM operator_listener_outbox WHERE id = $1",
+            assert_eq!(
+                run_delivery_once_with_transport(&state, &transport).await,
+                WorkerIteration::Worked
+            );
+            let row = sqlx::query(
+                "SELECT state, attempts, next_attempt_at > now() AS delayed \
+                 FROM operator_listener_outbox WHERE id = $1",
             )
             .bind(delivery_id)
             .fetch_one(&pool)
             .await
-            .expect("count delivery"),
-            0
-        );
-    }
-
-    #[tokio::test]
-    #[ignore = "requires Postgres"]
-    async fn delivery_worker_persists_retry_after_failure() {
-        let _test_lock = test_lock();
-        let (pool, mut state) = setup().await;
-        let listener = Keys::generate();
-        let target = Keys::generate();
-        add_route(&mut state, &listener);
-        let delivery_id = insert_delivery(&pool, &listener, &target).await;
-        let transport = RecordingTransport {
-            status: StatusCode::BAD_GATEWAY,
-            requests: Arc::new(Mutex::new(Vec::new())),
-        };
-
-        assert_eq!(
-            run_delivery_once_with_transport(&state, &transport).await,
-            WorkerIteration::Worked
-        );
-        let row = sqlx::query(
-            "SELECT state, attempts, next_attempt_at > now() AS delayed \
-             FROM operator_listener_outbox WHERE id = $1",
-        )
-        .bind(delivery_id)
-        .fetch_one(&pool)
-        .await
-        .expect("read retry");
-        assert_eq!(row.get::<String, _>("state"), "pending");
-        assert_eq!(row.get::<i32, _>("attempts"), 1);
-        assert!(row.get::<bool, _>("delayed"));
+            .expect("read retry");
+            assert_eq!(row.get::<String, _>("state"), "pending");
+            assert_eq!(row.get::<i32, _>("attempts"), 1);
+            assert!(row.get::<bool, _>("delayed"));
+        }
     }
 }
