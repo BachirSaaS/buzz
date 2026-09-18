@@ -1,4 +1,4 @@
-import { BoxRenderable, TextRenderable, type CliRenderer, type KeyEvent } from '@opentui/core';
+import { BoxRenderable, ScrollBoxRenderable, TextRenderable, type CliRenderer, type KeyEvent } from '@opentui/core';
 import { brand, destinations, listWidth, ownerLabel, ShellState, type FocusRegion } from './shell-state.ts';
 
 export const palette = {
@@ -9,6 +9,32 @@ export const palette = {
 const wideFooter = '←→ focus  Enter open  Tab panes  Esc return  ? help  q quit';
 const compactFooter = '←→ nav ↵ open Tab panes Esc back ? help q quit';
 const minimumFooter = 'Ctrl-Q quit';
+const helpBody = '← →  focus a destination\nEnter  activate the focused destination\nTab / Shift-Tab  move between visible regions\nEsc  return to the active header control\n? / Enter / Esc  close help\nq  quit Beehive';
+const helpTitleRows = 2;
+const helpActionRows = 2;
+const helpVerticalChrome = 4; // one-cell border and one-row inset at both edges
+
+const wrappedRows = (content: string, width: number) => content.split('\n').reduce((rows, line) => {
+  if (!line) return rows + 1;
+  let remaining = line;
+  let count = 0;
+  while (remaining.length > width) {
+    const breakAt = remaining.lastIndexOf(' ', width);
+    const end = breakAt > 0 ? breakAt : width;
+    remaining = remaining.slice(end).trimStart();
+    count++;
+  }
+  return rows + count + 1;
+}, 0);
+
+/** Cell geometry shared by the help surface and its memory-renderer regressions. */
+export function helpDialogGeometry(viewportWidth: number, viewportHeight: number, bodyRows = wrappedRows(helpBody, Math.max(1, Math.min(62, viewportWidth - 4) - 6))) {
+  const width = Math.max(4, Math.min(62, viewportWidth - 4));
+  const maxHeight = Math.max(4, viewportHeight - 4);
+  const naturalHeight = helpTitleRows + bodyRows + helpActionRows + helpVerticalChrome;
+  const height = Math.min(naturalHeight, maxHeight);
+  return { width, maxHeight, naturalHeight, height, bodyHeight: Math.max(0, height - helpTitleRows - helpActionRows - helpVerticalChrome) };
+}
 
 /** OpenTUI owns rendering, layout, input dispatch, pointer dispatch, and lifecycle. */
 export class OpenTuiShell {
@@ -25,9 +51,15 @@ export class OpenTuiShell {
   private readonly body: BoxRenderable;
   private readonly listPane: BoxRenderable;
   private readonly detailPane: BoxRenderable;
+  private readonly divider: TextRenderable;
+  private readonly focusPerimeter: BoxRenderable;
   private readonly footerRule: TextRenderable;
   private readonly footer: TextRenderable;
+  private helpScrim?: BoxRenderable;
   private help?: BoxRenderable;
+  private helpBody?: ScrollBoxRenderable;
+  private helpTitle?: TextRenderable;
+  private helpActions?: TextRenderable;
 
   constructor(readonly renderer: CliRenderer) {
     this.done = new Promise(resolve => { this.finish = resolve; });
@@ -53,7 +85,9 @@ export class OpenTuiShell {
     this.body = new BoxRenderable(renderer, { flexGrow: 1, minHeight: 1, width: '100%', flexDirection: 'row', backgroundColor: palette.surface });
     this.root.add(this.body);
     this.listPane = this.pane('list'); this.detailPane = this.pane('detail');
-    this.body.add(this.listPane); this.body.add(this.detailPane);
+    this.divider = new TextRenderable(renderer, { width: 1, height: '100%', fg: palette.divider, content: '│' });
+    this.focusPerimeter = new BoxRenderable(renderer, { position: 'absolute', visible: false, border: true, borderColor: palette.focus, backgroundColor: 'transparent' });
+    this.body.add(this.listPane); this.body.add(this.divider); this.body.add(this.detailPane); this.body.add(this.focusPerimeter);
 
     this.footerRule = new TextRenderable(renderer, { height: 1, fg: palette.divider }); this.root.add(this.footerRule);
     this.footer = new TextRenderable(renderer, { height: 1, fg: palette.muted, content: wideFooter }); this.root.add(this.footer);
@@ -65,7 +99,7 @@ export class OpenTuiShell {
   }
 
   private pane(region: Exclude<FocusRegion, 'header'>) {
-    return new BoxRenderable(this.renderer, { height: '100%', border: true, borderColor: palette.divider, backgroundColor: palette.surface,
+    return new BoxRenderable(this.renderer, { height: '100%', backgroundColor: palette.surface,
       onMouseDown: () => { if (!this.visible(region)) return; this.state.focus = region; this.paint(); } });
   }
 
@@ -112,31 +146,47 @@ export class OpenTuiShell {
 
     this.listPane.visible = this.visible('list'); this.detailPane.visible = this.visible('detail');
     if (this.state.splitPane) {
-      this.listPane.width = listWidth(width); this.detailPane.width = Math.max(1, width - listWidth(width)); this.detailPane.flexGrow = 0;
+      const list = listWidth(width);
+      this.listPane.width = list; this.detailPane.width = Math.max(1, width - list - 1); this.detailPane.flexGrow = 0;
+      this.divider.visible = true; this.divider.width = 1; this.divider.content = '│'.repeat(Math.max(1, this.renderer.height - 5));
     } else {
-      this.listPane.width = '100%'; this.detailPane.width = '100%'; this.detailPane.flexGrow = 1;
+      this.listPane.width = '100%'; this.detailPane.width = '100%'; this.detailPane.flexGrow = 1; this.divider.visible = false;
     }
-    this.listPane.borderColor = this.state.focus === 'list' ? palette.focus : palette.divider;
-    this.detailPane.borderColor = this.state.focus === 'detail' ? palette.focus : palette.divider;
+    const focusedPane = this.state.focus === 'list' || this.state.focus === 'detail' ? this.state.focus : undefined;
+    this.focusPerimeter.visible = Boolean(focusedPane);
+    if (focusedPane) {
+      this.focusPerimeter.left = focusedPane === 'list' || !this.state.splitPane ? 0 : listWidth(width) + 1;
+      this.focusPerimeter.top = 0;
+      this.focusPerimeter.width = focusedPane === 'list' || !this.state.splitPane ? (this.state.splitPane ? listWidth(width) : width) : Math.max(1, width - listWidth(width) - 1);
+      this.focusPerimeter.height = Math.max(1, this.renderer.height - 5);
+    }
     this.syncHelp();
   }
 
   private syncHelp() {
     if (!this.state.helpOpen) {
-      if (this.help) { this.help.destroyRecursively(); this.help = undefined; }
+      if (this.helpScrim) { this.help?.destroyRecursively(); this.helpScrim.destroyRecursively(); this.helpScrim = undefined; this.help = undefined; this.helpBody = undefined; this.helpTitle = undefined; this.helpActions = undefined; }
       return;
     }
-    const width = Math.max(4, Math.min(62, this.renderer.width - 4));
-    const height = Math.max(4, Math.min(14, this.renderer.height - 4));
+    const geometry = helpDialogGeometry(this.renderer.width, this.renderer.height);
     if (!this.help) {
-      this.help = new BoxRenderable(this.renderer, { position: 'absolute', border: true, borderColor: palette.dialog, backgroundColor: palette.scrim, flexDirection: 'column', paddingLeft: 2, paddingRight: 2, paddingTop: 1 });
+      this.helpScrim = new BoxRenderable(this.renderer, { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', backgroundColor: palette.scrim });
+      this.renderer.root.add(this.helpScrim);
+      this.help = new BoxRenderable(this.renderer, { position: 'absolute', border: true, borderColor: palette.dialog, backgroundColor: palette.surface, flexDirection: 'column', paddingLeft: 2, paddingRight: 2, paddingTop: 1, paddingBottom: 1 });
       this.renderer.root.add(this.help);
-      this.help.add(new TextRenderable(this.renderer, { fg: palette.focus, height: 2, content: 'HELP\n──────────────────────────────────────────────────────────' }));
-      this.help.add(new TextRenderable(this.renderer, { fg: palette.text, content: '← →  focus a destination\nEnter  activate the focused destination\nTab / Shift-Tab  move between visible regions\nEsc  return to the active header control\n? / Enter / Esc  close help\nq  quit Beehive' }));
+      this.helpTitle = new TextRenderable(this.renderer, { fg: palette.focus, height: helpTitleRows, content: 'HELP\n──────────────────────────────────────────────────────────' });
+      this.helpBody = new ScrollBoxRenderable(this.renderer, { flexGrow: 1, scrollY: true, backgroundColor: palette.surface });
+      this.helpBody.add(new TextRenderable(this.renderer, { fg: palette.text, width: '100%', wrapMode: 'word', content: helpBody }));
+      this.helpActions = new TextRenderable(this.renderer, { fg: palette.muted, height: helpActionRows, content: '──────────────────────────────────────────────────────────\nEnter / Esc  close' });
+      this.help.add(this.helpTitle); this.help.add(this.helpBody); this.help.add(this.helpActions);
     }
-    this.help.width = width; this.help.height = height;
-    this.help.left = Math.floor((this.renderer.width - width) / 2);
-    this.help.top = Math.floor((this.renderer.height - height) / 2);
+    this.help.width = geometry.width; this.help.height = geometry.height;
+    this.help.left = Math.floor((this.renderer.width - geometry.width) / 2);
+    this.help.top = Math.floor((this.renderer.height - geometry.height) / 2);
+    const rule = '─'.repeat(Math.max(1, geometry.width - 6));
+    this.helpTitle!.content = `HELP\n${rule}`;
+    this.helpActions!.content = `${rule}\nEnter / Esc  close`;
+    this.helpBody!.height = geometry.bodyHeight;
   }
 
   close(destroy = true) {
