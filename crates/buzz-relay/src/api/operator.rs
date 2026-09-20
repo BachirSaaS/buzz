@@ -158,8 +158,12 @@ async fn authorize_operator_listener_request(
         .as_deref()
         .ok_or_else(|| internal_error("operator API origin is not configured"))?;
     let url = format!("{origin}{path}");
-    let bridge::VerifiedBridgeAuth { pubkey, .. } =
-        bridge::verify_bridge_auth_with_options(headers, method, &url, Some(body), true, true)?;
+    let bridge::VerifiedBridgeAuth {
+        pubkey,
+        event_id_bytes,
+        ..
+    } = bridge::verify_bridge_auth_with_options(headers, method, &url, Some(body), true, true)?;
+    check_operator_replay(state, event_id_bytes).await?;
     if !state
         .config
         .operator_listener_delivery_urls
@@ -1555,6 +1559,21 @@ mod unit_tests {
     const OPERATOR_API_ORIGIN: &str = "http://operator-ingress.example";
     const OPERATOR_API_HOST: &str = "operator-ingress.example";
 
+    struct AlwaysFreshReplayGuard;
+
+    impl buzz_auth::Nip98ReplayGuard for AlwaysFreshReplayGuard {
+        fn try_mark_in_scope<'a>(
+            &'a self,
+            _scope: &'a str,
+            _event_id: &'a nostr::EventId,
+            _ttl_secs: u64,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<bool, buzz_auth::AuthError>> + Send + 'a>,
+        > {
+            Box::pin(async { Ok(true) })
+        }
+    }
+
     fn nip98_auth_header(keys: &Keys, url: &str, method: &str, body: &[u8]) -> String {
         let payload_hash = hex::encode(Sha256::digest(body));
         let event = EventBuilder::new(Kind::HttpAuth, "")
@@ -1604,7 +1623,7 @@ mod unit_tests {
             buzz_workflow::WorkflowConfig::default(),
         ));
         let media_storage = buzz_media::MediaStorage::new(&config.media).expect("media storage");
-        let (state, _audit_shutdown) = AppState::new(
+        let (mut state, _audit_shutdown) = AppState::new(
             config,
             db,
             redis_pool,
@@ -1616,6 +1635,7 @@ mod unit_tests {
             Keys::generate(),
             media_storage,
         );
+        state.nip98_replay = Arc::new(AlwaysFreshReplayGuard);
         Arc::new(state)
     }
 
