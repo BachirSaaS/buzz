@@ -47,6 +47,7 @@ export async function loadThreadReplies(
   expectedEventId?: string | null,
   exhaustedTargets?: Set<string>,
   fetcher: ThreadRepliesFetcher = getThreadReplies,
+  signal?: AbortSignal,
 ): Promise<RelayEvent[]> {
   const queryKey = threadRepliesKey(channelId, rootId);
   const cacheAtStart = queryClient.getQueryData<RelayEvent[]>(queryKey) ?? [];
@@ -54,10 +55,14 @@ export async function loadThreadReplies(
   const replies: RelayEvent[] = [];
   let cursor: ThreadCursor | null = null;
   for (let page = 0; page < MAX_THREAD_PAGES; page += 1) {
+    signal?.throwIfAborted();
     const response = await fetcher(rootId, channelId, {
       limit: THREAD_PAGE_LIMIT,
       cursor,
     });
+    // Tauri invokes cannot be cancelled after dispatch. Discard their late
+    // result and stop pagination when the query no longer has a consumer.
+    signal?.throwIfAborted();
     replies.push(...response.events);
     if (!response.nextCursor) {
       const current = queryClient.getQueryData<RelayEvent[]>(queryKey) ?? [];
@@ -130,7 +135,9 @@ export function useThreadReplies(
       activeChannel !== null &&
       activeChannel.channelType !== "forum" &&
       openThreadRootId !== null,
-    queryFn: async (): Promise<RelayEvent[]> => {
+    // Reading signal lets QueryClient cancel an abandoned fetch instead of
+    // reusing its old snapshot if the user returns after live delivery stopped.
+    queryFn: async ({ signal }): Promise<RelayEvent[]> => {
       if (!activeChannel || !openThreadRootId) return [];
       if (expectedEventId) {
         // Reset the counter when the target changes.
@@ -154,6 +161,8 @@ export function useThreadReplies(
         openThreadRootId,
         expectedEventId,
         exhaustedTargetsRef.current,
+        getThreadReplies,
+        signal,
       );
     },
     staleTime: 0,
@@ -259,7 +268,16 @@ export function useThreadRepliesForRoots(
     queries: rootIds.map((rootId) => ({
       queryKey: threadRepliesKey(channelId, rootId),
       enabled: activeChannel !== null && activeChannel.channelType !== "forum",
-      queryFn: () => loadThreadReplies(queryClient, channelId, rootId),
+      queryFn: ({ signal }) =>
+        loadThreadReplies(
+          queryClient,
+          channelId,
+          rootId,
+          undefined,
+          undefined,
+          getThreadReplies,
+          signal,
+        ),
       staleTime: 0,
       gcTime: 60 * 60 * 1_000,
     })),
