@@ -152,13 +152,11 @@ Beyond chat: channels are workspaces.
 
 The relay hosts git repos. Smart HTTP — standard `git clone`, `git push`, nothing special. Your npub signs pushes. Same domain, same auth, same identity as everything else on the relay.
 
-The proposed [channel artifact model](docs/nips/NIP-AR.md) replaces the earlier
-“branches are channels” direction: channels contain work records and may host
-several projects, tasks, or branches. A dedicated branch channel remains a useful
-workspace choice, not a required identity or one-to-one relationship. Completing
-one record does not automatically archive the shared channel. Existing Git
-objects and review authority retain their separate protocol contracts during
-migration. This is proposed direction, not shipped artifact support.
+[Channel artifacts](docs/nips/NIP-AR.md) bring durable work records into channels
+and threads. A channel can host several projects, tasks, or branches. Teams can
+choose a dedicated branch channel when the work benefits from its own space.
+Completing one record leaves the shared channel available for other work.
+Git objects and review authority retain their own protocol contracts.
 
 See [VISION_PROJECTS.md](VISION_PROJECTS.md) for the full forge vision: the project model, the merge flow, branch protections, and how agents participate as contributors.
 

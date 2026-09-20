@@ -1,6 +1,6 @@
 # Artifact client contracts
 
-`draft` `clients` `not implemented`
+`draft` `clients`
 
 Depends on [NIP-AR](NIP-AR.md). These are shared desktop, mobile, CLI, SDK, and
 agent contracts, **not relay business validation rules**. All types use the same
@@ -20,11 +20,10 @@ Clients use a bounded fallback rather than deeply parsing oversized content.
 A malformed known type uses the fallback card with a clear unavailable-details
 state. Unknown types/versions show type, title, last editor, and a route to the
 home conversation when available. They must not disappear from the workspace.
-The default experience works without selecting or installing plugins.
 
 ## `buzz.project`
 
-A grouping of related work, not a channel identity or access-control container.
+A grouping of related work.
 
 | Payload field | Type | Meaning |
 |---------------|------|---------|
@@ -54,8 +53,8 @@ A living definition of work, independent of any prerequisite project or repo.
 | `state` | string | `open`, `done`, or `cancelled` |
 | `status_label` | string, optional | Display refinement, e.g. “In review” |
 
-The broad state supports common views; teams may use labels without a relay
-deploy. Clients must not infer done/cancelled solely from an arbitrary label.
+`state` supplies the common completion state; `status_label` refines its display.
+Clients must not infer done/cancelled solely from an arbitrary label.
 Assignees use repeatable `assignee` tags containing public keys. Assignment here
 is task metadata, not permission to read or edit, and does not automatically
 notify or subscribe the assignee. `assignee` deliberately differs from `p`,
@@ -80,8 +79,7 @@ it or widen its audience. The same task may appear in several project views.
 
 ## `buzz.branch`
 
-A collaboration record concerning a Git branch; not the ref itself or a second
-review/merge authority.
+A collaboration record concerning a Git branch.
 
 | Payload field | Type | Meaning |
 |---------------|------|---------|
@@ -92,12 +90,11 @@ review/merge authority.
 Required tags are `repository` (a NIP-34 `30617:<owner-hex>:<identifier>`
 coordinate) and `ref` (a valid full `refs/heads/...` Git ref). Split the coordinate
 on its first two colons only. Clients validate Git ref syntax with established
-Git-compatible validation, not an invented permissive approximation.
+Git-compatible validation.
 
 A record may precede first push. Its repository/ref pair is immutable in this
 client contract: another ref or a recreated branch lifecycle gets a new record.
-Retirement is terminal for this client version. These are client semantics;
-the relay does not certify them. Multiple records may reference the same ref;
+Retirement is terminal. Multiple records may reference the same ref;
 clients may offer duplicate cleanup without merging their identities silently.
 
 Git tips, push rights, checks, approval, and merge state come from authoritative
@@ -108,7 +105,6 @@ Automatic summaries/notifications must respect the destination audience too.
 ## Example: task started in a conversation
 
 Standard signed-event fields are omitted. Placeholder IDs below are explanatory.
-The numeric kind is proposed; see the allocation note in NIP-AR.
 
 ```json
 {
@@ -130,11 +126,9 @@ Later adding `["project", "<project-uuid>"]` uses `op=update` and `prev` naming
 the current accepted revision. It preserves `d`, `h`, and `root`. The project may
 live elsewhere; viewing that project does not grant access to this task.
 
-## Compatibility release gate
+## Conformance
 
-Publish shared valid/invalid fixtures before shipping editors. Exercise them
-in desktop, mobile, CLI/SDK, and agent tooling: unsupported versions, unknown
-fields/tags, bad JSON, cycles, inaccessible links, and concurrent updates.
-The relay suite should demonstrate both envelope rejection and acceptance of
-opaque content that a business client declines to interpret. Acceptance by one
-layer is not a correctness certificate from the other.
+Clients MUST handle unsupported versions, unknown fields and tags, malformed
+JSON, cyclic references, inaccessible links, and concurrent updates according
+to the rules above. A relay-accepted revision whose content fails the client
+contract MUST use the fallback display rather than a typed editor.
