@@ -41,7 +41,8 @@ Each revision is a complete snapshot, not a field patch. Common tags have
 exactly two string elements. Required tags occur exactly once; optional tags at
 most once. Duplicate common tags are invalid even if their values agree. The
 relay MUST reject more than 256 total tags per revision, including common and
-unknown tags; its advertised event-size limit also applies.
+unknown tags. This is a new artifact-specific bound; the advertised event-size
+limit also applies.
 
 | Tag | Count | Meaning |
 |-----|-------|---------|
@@ -114,8 +115,9 @@ visibility, plus existing authentication, token-channel restrictions,
 moderation, and archive gates. It is not a `MemberRole` threshold. Thus an
 otherwise authorized community participant may create/edit in an open channel
 without first joining it. “Administration” means Admin/Owner channel authority
-under existing channel checks. Implementation must choose the artifact API scope
-consistently across clients; message-equivalent channel authority must not
+under existing channel checks. Artifact writes require `Scope::ChannelsWrite`,
+matching canvas, plus the operation-specific channel checks below. Clients and
+agent tokens must request that scope; a numeric member-role threshold must not
 exclude agents.
 
 | Operation | Required authority at commit time |
@@ -308,8 +310,8 @@ access just like their messages (see `handle_dm_open` in
 DM participants are peers (existing DM creation assigns `member` to all), so
 artifact deletion in a DM requires participant write permission instead of an
 Admin/Owner role. The relay must determine DM type from the stored channel,
-never an artifact tag. This channel-type rule does not vary by artifact type. Personal/no-room artifacts
-need a separately specified scope; missing `h` must not become an accidental
+never an artifact tag. This channel-type rule does not vary by artifact type.
+Personal/no-room artifacts need a separately specified scope; missing `h` must not become an accidental
 global/private mode.
 
 “Artifact” is the protocol/design term. User interfaces should usually say
