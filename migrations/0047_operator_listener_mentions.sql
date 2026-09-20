@@ -29,6 +29,9 @@ CREATE INDEX operator_listener_match_queue_due
 CREATE INDEX operator_listener_match_queue_recovery
     ON operator_listener_match_queue (lease_until)
     WHERE state = 'matching';
+CREATE INDEX operator_listener_match_queue_claim
+    ON operator_listener_match_queue (claim_id)
+    WHERE state = 'matching';
 
 CREATE TABLE operator_listener_outbox (
     id              UUID NOT NULL PRIMARY KEY DEFAULT gen_random_uuid(),
