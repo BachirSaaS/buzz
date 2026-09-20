@@ -8,6 +8,27 @@ This document is the software-forge slice of the broader Buzz platform. [VISION.
 
 ---
 
+## Proposed evolution: channels contain work
+
+The [channel artifact proposal](docs/nips/NIP-AR.md) and its
+[client contracts](docs/nips/NIP-AR-CLIENTS.md) supersede this document's earlier
+one-branch/one-channel assumption as proposed direction, not shipped behavior.
+Projects and tasks are editable records inside channels or threads; a channel
+may contain many of either. Projects organize related work without being a
+prerequisite for a task or granting access to it. Dedicated workspaces remain
+an option. Completing a task, retiring a branch record, or archiving a project
+does not automatically archive its channel.
+
+The forge workflows below remain useful examples of dedicated workspaces,
+not mandatory identity/cardinality rules. NIP-34 remains authoritative for Git
+identity and operations. Existing NIP-MP projects remain the current shipped
+representation pending an explicit migration; the proposal must not create a
+second competing project record. Private artifact access does not automatically
+make existing repository metadata, code, or reviews private.
+
+For the intended experience without protocol details, see
+[Work lives alongside the conversation](docs/channel-artifacts-design-note.md).
+
 ## The Project Model
 
 A project lives on the relay. `myproject.com` in a browser shows the project home. Click a repo and you're at `repoa.myproject.com` — README rendered, file tree navigable, code syntax-highlighted, clone URL at the top. The same URL serves HTML to a browser and git protocol to `git clone`. Content negotiation. One URL, two audiences.

@@ -152,7 +152,13 @@ Beyond chat: channels are workspaces.
 
 The relay hosts git repos. Smart HTTP — standard `git clone`, `git push`, nothing special. Your npub signs pushes. Same domain, same auth, same identity as everything else on the relay.
 
-Branches are channels. Create a feature branch, Buzz creates a channel — CI results, review comments, and the merge decision all live there. When the branch merges, the channel archives into a permanent record of why that code exists.
+The proposed [channel artifact model](docs/nips/NIP-AR.md) replaces the earlier
+“branches are channels” direction: channels contain work records and may host
+several projects, tasks, or branches. A dedicated branch channel remains a useful
+workspace choice, not a required identity or one-to-one relationship. Completing
+one record does not automatically archive the shared channel. Existing Git
+objects and review authority retain their separate protocol contracts during
+migration. This is proposed direction, not shipped artifact support.
 
 See [VISION_PROJECTS.md](VISION_PROJECTS.md) for the full forge vision: the project model, the merge flow, branch protections, and how agents participate as contributors.
 
