@@ -122,7 +122,7 @@ exclude agents.
 |-----------|------------------------------------|
 | Create | Write permission in destination channel |
 | Update content, title, or anchor within home | Write permission in current home |
-| Delete | Administration permission in current home |
+| Delete | Administration in current home; in a DM, participant write permission |
 | Move to another channel | Write permission in source AND destination |
 
 Being an artifact's creator is attribution, not a permanent exclusive editing
@@ -286,6 +286,7 @@ These are implementation requirements, not tests claimed to pass in this PR.
 | Another channel writer edits an artifact | Valid with current head; author accurately recorded |
 | Read-only principal or removed creator in a private home edits | Rejected |
 | Non-member permitted to post in an open home edits | Valid under the same message-admission gates |
+| A current DM participant deletes an artifact | Valid with participant write permission and current head |
 | Two revisions race on one head | Exactly one accepted |
 | A task joins/leaves a project in another channel | Same identity/home; both affected views refresh; no access grant |
 | Malformed known type or unknown type/version | Safe fallback; no destructive edit |
@@ -304,8 +305,10 @@ No per-artifact audience lists, relay-executed plugins, schema-registration
 service, generic automation engine, or one-record-per-room requirement. Existing Buzz DMs are channels: an artifact with their `h` inherits participant
 access just like their messages (see `handle_dm_open` in
 `crates/buzz-relay/src/handlers/command_executor.rs`). This is not a new DM ACL.
-Administrative deletion remains gated by actual channel administration; merely
-being a DM participant does not manufacture that role. Personal/no-room artifacts
+DM participants are peers (existing DM creation assigns `member` to all), so
+artifact deletion in a DM requires participant write permission instead of an
+Admin/Owner role. The relay must determine DM type from the stored channel,
+never an artifact tag. This channel-type rule does not vary by artifact type. Personal/no-room artifacts
 need a separately specified scope; missing `h` must not become an accidental
 global/private mode.
 

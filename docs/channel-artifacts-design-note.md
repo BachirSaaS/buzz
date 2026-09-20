@@ -29,7 +29,8 @@ project or repository before they can track a task.
 - **Editing follows the channel’s permissions.** People allowed to contribute
   in the home channel can update the work; it is not locked to whoever created
   it. Moving requires permission to contribute in both places; deleting requires
-  channel administration. In an open channel, people allowed to post can also
+  channel administration, except in a direct message where participants are
+  peers and can delete shared work. In an open channel, people allowed to post can also
   update its work, even if they have not joined the channel.
 - **Give growing work more room deliberately.** A task can move from a thread
   into a new channel and remain the same task. Before moving, show who will be
