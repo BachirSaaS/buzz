@@ -927,15 +927,6 @@ test("fresh-key harness completion continues directly into profile onboarding", 
     },
     { skipCommunitySeed: true, skipOnboardingSeed: true },
   );
-  await page.addInitScript(() => {
-    const testWindow = window as Window & {
-      __BUZZ_E2E__?: { bootSplashHoldMs?: number };
-    };
-    testWindow.__BUZZ_E2E__ = {
-      ...(testWindow.__BUZZ_E2E__ ?? {}),
-      bootSplashHoldMs: 2_000,
-    };
-  });
   await page.goto("/");
 
   await page.getByRole("button", { name: "Create a new identity key" }).click();

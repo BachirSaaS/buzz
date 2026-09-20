@@ -79,16 +79,7 @@ import { StartupWindowDragRegion } from "@/shared/ui/StartupWindowDragRegion";
 
 const LOADING_TEXT = "Setting up your community...";
 
-// Minimum time the cold-boot splash stays on screen. A real boot resolves the
-// community in well under 100ms, and the native window setup plus first paint
-// can take longer than that — without a hold, the bee is unmounted before it is
-// ever visible. The hold runs as an overlay above the already-mounted app, so
-// time-to-interactive is unchanged; only the reveal waits.
-const BOOT_SPLASH_MIN_VISIBLE_MS = 1_200;
-const BOOT_SPLASH_FADE_MS = 200;
 const INITIAL_RENDER_READY_EVENT = "initial-render-ready";
-
-type BootSplashPhase = "holding" | "fading" | "done";
 
 function useInitialRenderReady() {
   useLayoutEffect(() => {
@@ -98,44 +89,6 @@ function useInitialRenderReady() {
 
     void emit(INITIAL_RENDER_READY_EVENT);
   }, []);
-}
-
-// E2E runs skip the hold (it would slow every spec's boot and block pointer
-// actionability); a spec can opt back in via __BUZZ_E2E__.bootSplashHoldMs.
-function bootSplashHoldMs(): number {
-  const e2e = (
-    window as Window & {
-      __BUZZ_E2E__?: { bootSplashHoldMs?: number };
-    }
-  ).__BUZZ_E2E__;
-  if (e2e) {
-    return e2e.bootSplashHoldMs ?? 0;
-  }
-  return BOOT_SPLASH_MIN_VISIBLE_MS;
-}
-
-function useBootSplashHold(): BootSplashPhase {
-  const [phase, setPhase] = useState<BootSplashPhase>(() =>
-    bootSplashHoldMs() > 0 ? "holding" : "done",
-  );
-
-  useEffect(() => {
-    const holdMs = bootSplashHoldMs();
-    if (holdMs <= 0) {
-      return;
-    }
-    const fadeTimer = window.setTimeout(() => setPhase("fading"), holdMs);
-    const doneTimer = window.setTimeout(
-      () => setPhase("done"),
-      holdMs + BOOT_SPLASH_FADE_MS,
-    );
-    return () => {
-      window.clearTimeout(fadeTimer);
-      window.clearTimeout(doneTimer);
-    };
-  }, []);
-
-  return phase;
 }
 
 // Animated Buzz mark for the loading gates. The static BuzzMark renders in
@@ -531,8 +484,6 @@ function CommunityApp({
     transitionCommunity,
   ]);
 
-  const bootSplashPhase = useBootSplashHold();
-
   const transaction = communityOnboarding.transaction;
   useEffect(() => {
     if (transaction?.stage !== "connecting") {
@@ -588,12 +539,6 @@ function CommunityApp({
   // starter team" screen visibly restarts mid-handoff.
   const isEnteringCurtain = transaction?.stage === "entering";
 
-  // The app mounts (and starts loading data) beneath the splash overlay; the
-  // overlay just keeps the bee on screen long enough to be seen, then fades.
-  // Community switches keep their quiet gate.
-  const showBootSplashOverlay =
-    bootSplashPhase !== "done" && !isCommunitySwitch && !isContinuingOnboarding;
-
   let appContent: ReactNode = null;
   if (!transaction) {
     if (community.needsSetup) {
@@ -625,7 +570,9 @@ function CommunityApp({
     }
   }
   // Wait for this exact community config to be applied to the backend before
-  // rendering anything that connects to the relay. The appliedKey check avoids
+  // rendering anything that connects to the relay. Reveal the app as soon as
+  // this real gate clears; a cosmetic splash must not block usable content.
+  // The appliedKey check avoids
   // a one-render race where React sees the new active community while the
   // Tauri backend is still configured for the previous one.
   const communityApplied =
@@ -652,19 +599,6 @@ function CommunityApp({
           key={communityKey}
           isSharedIdentity={sharedIdentity}
         />
-        {showBootSplashOverlay ? (
-          <div
-            aria-hidden="true"
-            className={cn(
-              "fixed inset-0 z-50 transition-opacity",
-              bootSplashPhase === "fading" ? "opacity-0" : "opacity-100",
-            )}
-            data-testid="boot-splash-overlay"
-            style={{ transitionDuration: `${BOOT_SPLASH_FADE_MS}ms` }}
-          >
-            <AppLoadingGate />
-          </div>
-        ) : null}
       </CommunityQueryProvider>
     ) : isCommunitySwitch || isContinuingOnboarding ? (
       <CommunitySwitchGate />
