@@ -708,3 +708,121 @@ test("reconnect backfills more missed channel messages than the live subscriptio
     )
     .toBe(true);
 });
+
+test("reconnect shares overlapping native repair pages and recovers offline messages", async ({
+  page,
+}) => {
+  // Same initial second gives foreground/background identical history floors.
+  // Different-floor behavior is covered at the RelayClient native-command seam.
+  const now = new Date("2026-09-20T17:00:00Z");
+  await page.clock.setFixedTime(now);
+  await page.goto("/");
+  await page.getByTestId("channel-general").click();
+  await expect(page.getByTestId("chat-title")).toHaveText("general");
+  await emitMockMessages(page, [
+    { content: "sharing cursor seed", createdAt: now.getTime() / 1_000 },
+  ]);
+  await expect(page.getByTestId("message-timeline")).toContainText(
+    "sharing cursor seed",
+  );
+
+  // Observe the real renderer -> native boundary; only transport is modeled.
+  await page.evaluate(() => {
+    const internals = (
+      window as unknown as {
+        __TAURI_INTERNALS__: {
+          invoke: (
+            command: string,
+            args?: unknown,
+            options?: unknown,
+          ) => Promise<unknown>;
+        };
+      }
+    ).__TAURI_INTERNALS__;
+    const original = internals.invoke.bind(internals);
+    const reads: unknown[] = [];
+    const returned: string[] = [];
+    (window as unknown as { repairReads: unknown[] }).repairReads = reads;
+    (window as unknown as { repairedIds: string[] }).repairedIds = returned;
+    internals.invoke = async (command, args, options) => {
+      if (command === "get_channel_reconnect_repair") {
+        reads.push(args);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        const rows = (await original(command, args, options)) as Array<{
+          id: string;
+        }>;
+        returned.push(...rows.map((row) => row.id));
+        return rows;
+      }
+      return original(command, args, options);
+    };
+  });
+  await setMockWebsocketUnavailable(page, true);
+  await disconnectMockWebsockets(page);
+  const offline = Array.from({ length: 520 }, (_, index) => ({
+    content: `offline shared repair ${index}`,
+    createdAt: now.getTime() / 1_000 + 1,
+  }));
+  await emitMockMessages(page, offline);
+  await emitMockMessages(page, [
+    {
+      content: "newest offline shared repair",
+      createdAt: now.getTime() / 1_000 + 2,
+    },
+  ]);
+  await setMockWebsocketUnavailable(page, false);
+  await expect
+    .poll(() =>
+      page.evaluate(() => window.__BUZZ_E2E_GET_RELAY_CONNECTION_STATE__?.()),
+    )
+    .toBe("connected");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as unknown as { repairReads: unknown[] }).repairReads.length,
+      ),
+    )
+    .toBe(2);
+  await expect(page.getByTestId("message-timeline")).toContainText(
+    "newest offline shared repair",
+  );
+  // Seed plus 521 offline events: no gaps or duplicates across the dense
+  // same-second page boundary. UI visibility alone would not prove this.
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const ids = (window as unknown as { repairedIds: string[] })
+          .repairedIds;
+        return [ids.length, new Set(ids).size];
+      }),
+    )
+    .toEqual([522, 522]);
+  const reads = await page.evaluate(
+    () =>
+      (
+        window as unknown as {
+          repairReads: Array<{
+            channelId: string;
+            since: number;
+            limit: number;
+            until: number | null;
+            beforeId: string | null;
+          }>;
+        }
+      ).repairReads,
+  );
+  expect(reads[0]).toMatchObject({
+    since: now.getTime() / 1_000,
+    limit: 500,
+    until: null,
+    beforeId: null,
+  });
+  expect(reads[1]).toMatchObject({
+    channelId: reads[0].channelId,
+    since: reads[0].since,
+    limit: 500,
+    until: now.getTime() / 1_000 + 1,
+  });
+  expect(reads[1].beforeId).toBeTruthy();
+});

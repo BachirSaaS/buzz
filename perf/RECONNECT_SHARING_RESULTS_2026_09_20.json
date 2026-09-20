@@ -1,0 +1,462 @@
+[
+  {
+    "channels": 1,
+    "overlap": true,
+    "upstreamSlots": 2,
+    "modeledReadMs": 20,
+    "samples": {
+      "before": [
+        {
+          "foregroundCompleteMs": 42.357208000000014,
+          "totalMs": 42.400458000000015,
+          "reads": 4,
+          "delivered": 1040,
+          "reqs": 2,
+          "peak": 2
+        },
+        {
+          "foregroundCompleteMs": 42.38529100000005,
+          "totalMs": 42.42029100000002,
+          "reads": 4,
+          "delivered": 1040,
+          "reqs": 2,
+          "peak": 2
+        },
+        {
+          "foregroundCompleteMs": 41.409249999999986,
+          "totalMs": 41.51608299999998,
+          "reads": 4,
+          "delivered": 1040,
+          "reqs": 2,
+          "peak": 2
+        },
+        {
+          "foregroundCompleteMs": 41.797582999999975,
+          "totalMs": 41.847916,
+          "reads": 4,
+          "delivered": 1040,
+          "reqs": 2,
+          "peak": 2
+        },
+        {
+          "foregroundCompleteMs": 43.14429200000001,
+          "totalMs": 43.23145800000003,
+          "reads": 4,
+          "delivered": 1040,
+          "reqs": 2,
+          "peak": 2
+        }
+      ],
+      "after": [
+        {
+          "foregroundCompleteMs": 41.27362499999998,
+          "totalMs": 41.291709,
+          "reads": 2,
+          "delivered": 1040,
+          "reqs": 2,
+          "peak": 1
+        },
+        {
+          "foregroundCompleteMs": 42.89704199999997,
+          "totalMs": 42.90854199999998,
+          "reads": 2,
+          "delivered": 1040,
+          "reqs": 2,
+          "peak": 1
+        },
+        {
+          "foregroundCompleteMs": 43.530917000000045,
+          "totalMs": 43.61708300000004,
+          "reads": 2,
+          "delivered": 1040,
+          "reqs": 2,
+          "peak": 1
+        },
+        {
+          "foregroundCompleteMs": 43.371916999999996,
+          "totalMs": 43.404832999999996,
+          "reads": 2,
+          "delivered": 1040,
+          "reqs": 2,
+          "peak": 1
+        },
+        {
+          "foregroundCompleteMs": 42.88708299999996,
+          "totalMs": 42.93799999999999,
+          "reads": 2,
+          "delivered": 1040,
+          "reqs": 2,
+          "peak": 1
+        }
+      ]
+    }
+  },
+  {
+    "channels": 12,
+    "overlap": true,
+    "upstreamSlots": 2,
+    "modeledReadMs": 20,
+    "samples": {
+      "before": [
+        {
+          "foregroundCompleteMs": 114.93866600000001,
+          "totalMs": 349.415666,
+          "reads": 26,
+          "delivered": 6760,
+          "reqs": 13,
+          "peak": 2
+        },
+        {
+          "foregroundCompleteMs": 114.54520900000011,
+          "totalMs": 346.253375,
+          "reads": 26,
+          "delivered": 6760,
+          "reqs": 13,
+          "peak": 2
+        },
+        {
+          "foregroundCompleteMs": 114.54433300000005,
+          "totalMs": 346.96474999999987,
+          "reads": 26,
+          "delivered": 6760,
+          "reqs": 13,
+          "peak": 2
+        },
+        {
+          "foregroundCompleteMs": 114.11275000000023,
+          "totalMs": 346.56816700000036,
+          "reads": 26,
+          "delivered": 6760,
+          "reqs": 13,
+          "peak": 2
+        },
+        {
+          "foregroundCompleteMs": 114.49504200000001,
+          "totalMs": 346.0308749999999,
+          "reads": 26,
+          "delivered": 6760,
+          "reqs": 13,
+          "peak": 2
+        }
+      ],
+      "after": [
+        {
+          "foregroundCompleteMs": 93.92358300000001,
+          "totalMs": 322.61412500000006,
+          "reads": 24,
+          "delivered": 6760,
+          "reqs": 13,
+          "peak": 2
+        },
+        {
+          "foregroundCompleteMs": 93.90395799999988,
+          "totalMs": 327.888917,
+          "reads": 24,
+          "delivered": 6760,
+          "reqs": 13,
+          "peak": 2
+        },
+        {
+          "foregroundCompleteMs": 95.18108299999994,
+          "totalMs": 326.14874999999984,
+          "reads": 24,
+          "delivered": 6760,
+          "reqs": 13,
+          "peak": 2
+        },
+        {
+          "foregroundCompleteMs": 93.90625,
+          "totalMs": 324.2624169999999,
+          "reads": 24,
+          "delivered": 6760,
+          "reqs": 13,
+          "peak": 2
+        },
+        {
+          "foregroundCompleteMs": 93.48470799999996,
+          "totalMs": 323.89516600000024,
+          "reads": 24,
+          "delivered": 6760,
+          "reqs": 13,
+          "peak": 2
+        }
+      ]
+    }
+  },
+  {
+    "channels": 32,
+    "overlap": true,
+    "upstreamSlots": 2,
+    "modeledReadMs": 20,
+    "samples": {
+      "before": [
+        {
+          "foregroundCompleteMs": 265.68708400000014,
+          "totalMs": 919.4678750000003,
+          "reads": 66,
+          "delivered": 17160,
+          "reqs": 33,
+          "peak": 2
+        },
+        {
+          "foregroundCompleteMs": 268.0442499999999,
+          "totalMs": 921.8637500000004,
+          "reads": 66,
+          "delivered": 17160,
+          "reqs": 33,
+          "peak": 2
+        },
+        {
+          "foregroundCompleteMs": 268.6330419999995,
+          "totalMs": 916.8857500000004,
+          "reads": 66,
+          "delivered": 17160,
+          "reqs": 33,
+          "peak": 2
+        },
+        {
+          "foregroundCompleteMs": 267.8592090000002,
+          "totalMs": 914.6216669999994,
+          "reads": 66,
+          "delivered": 17160,
+          "reqs": 33,
+          "peak": 2
+        },
+        {
+          "foregroundCompleteMs": 267.5680830000001,
+          "totalMs": 918.3133749999997,
+          "reads": 66,
+          "delivered": 17160,
+          "reqs": 33,
+          "peak": 2
+        }
+      ],
+      "after": [
+        {
+          "foregroundCompleteMs": 247.74966700000004,
+          "totalMs": 897.8374999999996,
+          "reads": 64,
+          "delivered": 17160,
+          "reqs": 33,
+          "peak": 2
+        },
+        {
+          "foregroundCompleteMs": 246.9157499999992,
+          "totalMs": 895.1426249999995,
+          "reads": 64,
+          "delivered": 17160,
+          "reqs": 33,
+          "peak": 2
+        },
+        {
+          "foregroundCompleteMs": 246.45674999999937,
+          "totalMs": 898.4444579999999,
+          "reads": 64,
+          "delivered": 17160,
+          "reqs": 33,
+          "peak": 2
+        },
+        {
+          "foregroundCompleteMs": 244.8017920000002,
+          "totalMs": 896.3845000000001,
+          "reads": 64,
+          "delivered": 17160,
+          "reqs": 33,
+          "peak": 2
+        },
+        {
+          "foregroundCompleteMs": 248.34179200000108,
+          "totalMs": 895.069875000001,
+          "reads": 64,
+          "delivered": 17160,
+          "reqs": 33,
+          "peak": 2
+        }
+      ]
+    }
+  },
+  {
+    "channels": 12,
+    "overlap": false,
+    "upstreamSlots": 2,
+    "modeledReadMs": 20,
+    "samples": {
+      "before": [
+        {
+          "foregroundCompleteMs": 114.53399999999965,
+          "totalMs": 304.1634159999994,
+          "reads": 24,
+          "delivered": 6240,
+          "reqs": 12,
+          "peak": 2
+        },
+        {
+          "foregroundCompleteMs": 113.72308300000077,
+          "totalMs": 301.1756250000017,
+          "reads": 24,
+          "delivered": 6240,
+          "reqs": 12,
+          "peak": 2
+        },
+        {
+          "foregroundCompleteMs": 114.11912499999926,
+          "totalMs": 301.3702080000003,
+          "reads": 24,
+          "delivered": 6240,
+          "reqs": 12,
+          "peak": 2
+        },
+        {
+          "foregroundCompleteMs": 112.84720900000138,
+          "totalMs": 302.1286250000012,
+          "reads": 24,
+          "delivered": 6240,
+          "reqs": 12,
+          "peak": 2
+        },
+        {
+          "foregroundCompleteMs": 114.26287500000035,
+          "totalMs": 303.65229200000067,
+          "reads": 24,
+          "delivered": 6240,
+          "reqs": 12,
+          "peak": 2
+        }
+      ],
+      "after": [
+        {
+          "foregroundCompleteMs": 114.48599999999897,
+          "totalMs": 302.38054199999897,
+          "reads": 24,
+          "delivered": 6240,
+          "reqs": 12,
+          "peak": 2
+        },
+        {
+          "foregroundCompleteMs": 113.953125,
+          "totalMs": 301.2017080000005,
+          "reads": 24,
+          "delivered": 6240,
+          "reqs": 12,
+          "peak": 2
+        },
+        {
+          "foregroundCompleteMs": 114.3387500000008,
+          "totalMs": 302.71120900000096,
+          "reads": 24,
+          "delivered": 6240,
+          "reqs": 12,
+          "peak": 2
+        },
+        {
+          "foregroundCompleteMs": 113.40599999999904,
+          "totalMs": 301.54983399999946,
+          "reads": 24,
+          "delivered": 6240,
+          "reqs": 12,
+          "peak": 2
+        },
+        {
+          "foregroundCompleteMs": 114.31720900000073,
+          "totalMs": 302.4698750000007,
+          "reads": 24,
+          "delivered": 6240,
+          "reqs": 12,
+          "peak": 2
+        }
+      ]
+    }
+  },
+  {
+    "channels": 12,
+    "overlap": true,
+    "upstreamSlots": 4,
+    "modeledReadMs": 20,
+    "samples": {
+      "before": [
+        {
+          "foregroundCompleteMs": 93.09925000000112,
+          "totalMs": 220.59691700000076,
+          "reads": 26,
+          "delivered": 6760,
+          "reqs": 13,
+          "peak": 4
+        },
+        {
+          "foregroundCompleteMs": 93.86495800000193,
+          "totalMs": 220.3563749999994,
+          "reads": 26,
+          "delivered": 6760,
+          "reqs": 13,
+          "peak": 4
+        },
+        {
+          "foregroundCompleteMs": 92.94799999999668,
+          "totalMs": 220.02841699999772,
+          "reads": 26,
+          "delivered": 6760,
+          "reqs": 13,
+          "peak": 4
+        },
+        {
+          "foregroundCompleteMs": 93.9084589999984,
+          "totalMs": 220.14979200000016,
+          "reads": 26,
+          "delivered": 6760,
+          "reqs": 13,
+          "peak": 4
+        },
+        {
+          "foregroundCompleteMs": 92.23720799999865,
+          "totalMs": 219.22141600000032,
+          "reads": 26,
+          "delivered": 6760,
+          "reqs": 13,
+          "peak": 4
+        }
+      ],
+      "after": [
+        {
+          "foregroundCompleteMs": 92.62316699999792,
+          "totalMs": 220.4742499999993,
+          "reads": 24,
+          "delivered": 6760,
+          "reqs": 13,
+          "peak": 4
+        },
+        {
+          "foregroundCompleteMs": 93.06379200000083,
+          "totalMs": 218.34933400000227,
+          "reads": 24,
+          "delivered": 6760,
+          "reqs": 13,
+          "peak": 4
+        },
+        {
+          "foregroundCompleteMs": 93.11562500000218,
+          "totalMs": 220.46287500000108,
+          "reads": 24,
+          "delivered": 6760,
+          "reqs": 13,
+          "peak": 4
+        },
+        {
+          "foregroundCompleteMs": 94.55674999999974,
+          "totalMs": 220.4484999999986,
+          "reads": 24,
+          "delivered": 6760,
+          "reqs": 13,
+          "peak": 4
+        },
+        {
+          "foregroundCompleteMs": 93.74179200000071,
+          "totalMs": 220.27625000000262,
+          "reads": 24,
+          "delivered": 6760,
+          "reqs": 13,
+          "peak": 4
+        }
+      ]
+    }
+  }
+]

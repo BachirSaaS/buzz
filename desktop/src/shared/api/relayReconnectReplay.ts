@@ -337,6 +337,27 @@ export async function replayLiveSubscriptions({
     }
   }
 
+  // Overlapping foreground/background subscriptions can repair the same page.
+  // Share only an identical outstanding read within this connection's pass:
+  // each subscriber still owns delivery, cursor progress, and failure recovery.
+  const inFlightPages = new Map<string, Promise<RelayEvent[]>>();
+  const requestSharedRepair = (request: ChannelReconnectRepairRequest) => {
+    const key = JSON.stringify([
+      request.channelId,
+      request.since,
+      request.limit,
+      request.until,
+      request.beforeId,
+    ]);
+    const existing = inFlightPages.get(key);
+    if (existing) return existing;
+    const pending = requestRepair(request).finally(() => {
+      inFlightPages.delete(key);
+    });
+    inFlightPages.set(key, pending);
+    return pending;
+  };
+
   await runWithConcurrency(
     replayRequests.filter(
       (
@@ -381,7 +402,7 @@ export async function replayLiveSubscriptions({
             // floor the superseding connection needs.
             isActive: () =>
               isActive() && subscriptions.get(subId) === subscription,
-            requestRepair,
+            requestRepair: requestSharedRepair,
           });
           // A stale-connection abort is NOT completion: the superseding
           // connection shares this subscription object and still needs the
