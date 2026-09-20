@@ -219,10 +219,13 @@ export const MessageRow = React.memo(
     // takes no layout space of its own. Measure its rendered footprint and
     // reserve it in the message-header row (see `headerNode`) so a long author
     // name ellipsizes before the rail instead of painting underneath it. The
-    // reservation is unconditional — the rail appears on hover AND
-    // focus-within, and padding must not reflow the header mid-interaction.
+    // reservation is unconditional for displayed headers — the rail appears
+    // on hover AND focus-within, so padding must not reflow mid-interaction.
+    // Continuations have no header consuming the width; keep their controls
+    // mounted without measuring an unused reservation.
     const articleRef = React.useRef<HTMLElement | null>(null);
     const actionRailMeasureRef = useMeasuredCssVariable({
+      enabled: !isDisplayedAsContinuation,
       cssVariable: "--message-action-rail-width",
       dimension: "inline",
       resetValue: "0px",
