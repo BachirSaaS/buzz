@@ -50,11 +50,12 @@ reply element is absent, and passes on the candidate. It uses the existing mock
 bridge gate, not new production test hooks. The old source/build directory has
 separate dependencies and outputs and no shared Git metadata.
 
-Candidate browser run: 129 passed, 1 skipped across navigation, messaging,
-thread unread/error/edits, project conversation failures, Huddle thread failures,
-and the new regression. The existing skipped case is direct forum thread links
-in navigation.spec.ts. Desktop lint/format checks and both E2E and production
-frontend builds passed, with existing style/bundle-size warnings.
+Final browser run at `56f20586b6188696fca447f73052f16f6dc4b746`, after reverting
+the cosmetic splash removal: **131 passed, 1 skipped**, adding the original
+boot-splash checks to the 129-test thread/navigation run. Loading UI is retained.
+The existing skipped case is direct forum thread links in navigation.spec.ts.
+Desktop lint/format checks and both E2E and production frontend builds passed,
+with existing style/bundle-size warnings.
 
 ## Reproduce
 
