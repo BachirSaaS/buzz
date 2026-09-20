@@ -15,8 +15,9 @@ attached to a conversation within it. This NIP defines a common envelope,
 identity, revision chain, access rules, and lifecycle for artifacts with
 client-defined content types.
 
-The current home channel determines the artifact's audience. Any number of
-artifacts, including of the same type, may share a channel or conversation.
+Each artifact has exactly one current home channel, which determines its
+audience. Any number of artifacts, including of the same type, may share a
+channel or conversation.
 Relationships between artifacts organize work without granting access or
 operational authority. The relay validates the envelope and lifecycle; clients
 interpret and validate content according to its type.
@@ -94,7 +95,7 @@ visibility, plus authentication, token-channel restrictions, moderation, and
 archive gates. An otherwise authorized community participant may create/edit in
 an open channel without first joining it. “Administration” means Admin/Owner
 channel authority under channel authorization rules. Artifact writes require
-`Scope::ChannelsWrite` plus the operation-specific channel checks below.
+`channels:write` plus the operation-specific channel checks below.
 Clients and agent tokens must request that scope; a numeric member-role
 threshold must not exclude agents.
 
