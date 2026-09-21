@@ -1,10 +1,14 @@
-import { arrangeWindows, readActiveCanvas } from "../helpers/canvas";
+import {
+  arrangeWindows,
+  readActiveCanvas,
+  openWindowPicker,
+} from "../helpers/canvas";
 import { expect, test, type Page, type Locator } from "@playwright/test";
 import { installMockBridge } from "../helpers/bridge";
 import { waitForAnimations } from "../helpers/animations";
 
 async function add(page: Page, name: RegExp, query: string) {
-  await page.getByTestId("canvas-add-view").click();
+  await openWindowPicker(page);
   const dialog = page.getByRole("dialog", { name: "Add a window" });
   await dialog.getByRole("textbox", { name: "Search views" }).fill(query);
   await dialog.getByRole("button", { name }).click();

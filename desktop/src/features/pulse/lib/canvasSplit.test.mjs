@@ -20,7 +20,7 @@ test("new splits attach to their target and retain unrelated pane geometry", () 
   assert.equal(next.root.second.first.id, "agents");
   assert.equal(next.root.second.second.id, "empty:new");
 });
-test("split insertion falls back vertically, rejects invalid targets, full or undersized workspaces", () => {
+test("split insertion falls back vertically, rejects invalid targets or undersized workspaces", () => {
   const initial = initialLayout(["main"]);
   assert.equal(
     insertConnectedPane(initial, "main", "empty:new", { ...bounds, width: 200 })
@@ -40,7 +40,11 @@ test("split insertion falls back vertically, rejects invalid targets, full or un
     undefined,
   );
   const full = initialLayout(["main", "a", "b", "c"]);
-  assert.equal(insertConnectedPane(full, "a", "empty:new", bounds), undefined);
+  assert.equal(
+    insertConnectedPane(full, "a", "empty:new", { ...bounds, width: 2400 })
+      .groups.length,
+    5,
+  );
 });
 test("choosing a split replaces its identity atomically across presets and floating placement", () => {
   const panels = insertConnectedPane(

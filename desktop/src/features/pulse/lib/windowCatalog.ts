@@ -2,6 +2,7 @@ import type { Channel, UserProfileSummary } from "@/shared/api/types";
 import type { Project } from "@/features/projects/projectModels";
 import { buildDirectMessageIntro } from "@/features/channels/lib/dmParticipantDisplay";
 import type { CanvasView } from "./canvasLayout";
+import { hasTypoTolerantPrefixMatch } from "@/shared/lib/fuzzyText";
 
 /** Searchable metadata for an existing, available canvas destination. */
 export type WindowCatalogEntry = CanvasView & {
@@ -37,7 +38,14 @@ export function buildWindowCatalog({
       kind: "app",
       title: "Messages",
       target: "conversation",
-      aliases: ["messages", "inbox", "chat"],
+      aliases: [
+        "messages",
+        "inbox",
+        "chat",
+        "channels",
+        "conversations",
+        "direct messages",
+      ],
       description: "Full Messages app with channel and DM sidebar.",
     },
     ...(projectsEnabled
@@ -47,13 +55,8 @@ export function buildWindowCatalog({
             kind: "app" as const,
             title: "Projects",
             target: "projects",
-            aliases: [
-              "my projects",
-              "repositories",
-              "repos",
-              "issues",
-              "reviews",
-            ],
+            initialRoute: { feed: "projects", projectSection: "projects" },
+            aliases: ["my projects", "project list", "list of projects"],
             description: "Full Projects app showing all your projects.",
           },
         ]
@@ -75,6 +78,62 @@ export function buildWindowCatalog({
             target: "workflows",
             aliases: ["apps", "workflows", "automations"],
             description: "Full Apps and Workflows app.",
+          },
+        ]
+      : []),
+    {
+      id: "app:search",
+      kind: "app",
+      title: "Search",
+      target: "search",
+      aliases: ["search buzz", "global search", "find messages", "people"],
+      description: "Search Buzz message history, people, agents and channels.",
+    },
+    ...(projectsEnabled
+      ? [
+          ["repositories", "Repositories", "repos"],
+          ["issues", "Issues", "tickets"],
+          ["prs", "Pull requests", "reviews"],
+          ["all", "Project activity", "project updates"],
+          ["channels", "Project channels", "project conversations"],
+        ].map(([section, title, alias]) => ({
+          id: `app:project-${section}`,
+          kind: "app" as const,
+          title,
+          target: "projects",
+          initialRoute: { feed: "projects", projectSection: section },
+          aliases: [alias, `my ${title.toLowerCase()}`],
+          description: `Show the ${title.toLowerCase()} list across projects.`,
+        }))
+      : []),
+    {
+      id: "app:agent-directory",
+      kind: "app",
+      title: "Browse agents",
+      target: "agents",
+      initialRoute: { feed: "agents", agentSection: "browse" },
+      aliases: ["agent catalog", "available agents", "agent templates"],
+      description: "Browse available agent personas and templates.",
+    },
+    ...(workflowsEnabled
+      ? [
+          {
+            id: "app:new-workflow",
+            kind: "app" as const,
+            title: "New workflow",
+            target: "workflows",
+            initialRoute: {
+              feed: "workflows",
+              view: "create",
+              pane: "trigger",
+            },
+            aliases: [
+              "create a workflow",
+              "new automation",
+              "create an automation",
+            ],
+            description:
+              "Open the workflow creation form; nothing is published or run.",
           },
         ]
       : []),
@@ -155,23 +214,36 @@ export function searchWindowCatalog(
   query: string,
   limit = 80,
 ) {
-  const tokens = normalize(query)
-    .split(" ")
-    .filter((token) => token.length > 1);
+  const normalizedQuery = normalize(query);
+  const tokens = normalizedQuery.split(" ").filter((token) => token.length > 1);
   const score = (entry: WindowCatalogEntry) => {
     const names = [entry.title, ...entry.aliases].map(normalize);
     const words = new Set(names.flatMap((name) => name.split(" ")));
+    const phraseMatch = names.some(
+      (name) => name && ` ${normalizedQuery} `.includes(` ${name} `),
+    );
+    const scoreToken = (token: string) => {
+      if (names.includes(token)) return 20;
+      if (words.has(token)) return 8;
+      if (
+        names.some(
+          (name) =>
+            name.includes(token) || name.replaceAll(" ", "").includes(token),
+        )
+      )
+        return 2;
+      if (
+        token.length <= 80 &&
+        names.some((name) =>
+          hasTypoTolerantPrefixMatch(name.slice(0, 240), token),
+        )
+      )
+        return 1;
+      return 0;
+    };
     return tokens.reduce(
-      (sum, token) =>
-        sum +
-        (names.includes(token)
-          ? 20
-          : words.has(token)
-            ? 8
-            : names.some((name) => name.includes(token))
-              ? 2
-              : 0),
-      0,
+      (sum, token) => sum + scoreToken(token),
+      phraseMatch ? 40 : 0,
     );
   };
   return entries

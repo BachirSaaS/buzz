@@ -1,4 +1,6 @@
 import { CanvasAppWindow } from "./CanvasAppWindow";
+import { memo, useCallback, useMemo } from "react";
+import { canvasWindowView } from "../lib/canvasWindowView";
 import type { CanvasView } from "../lib/canvasLayout";
 import type { useUnifiedPulseFeed } from "../useUnifiedPulseFeed";
 import { Button } from "@/shared/ui/button";
@@ -6,30 +8,50 @@ import { ConversationCard } from "./ConversationCard";
 import { CanvasWidgets } from "@/features/widgets/CanvasWidgets";
 import { PulseChannelDetail } from "./PulseChannelDetail";
 
-export type CanvasFeed = ReturnType<typeof useUnifiedPulseFeed>;
+export type CanvasFeed = Pick<
+  ReturnType<typeof useUnifiedPulseFeed>,
+  | "channels"
+  | "conversations"
+  | "profiles"
+  | "isLoading"
+  | "error"
+  | "retry"
+  | "refresh"
+>;
 
 /** Live companions sharing the main workspace's conversation UI and authorized data. */
-export function CanvasWindowContent({
-  view,
+export const CanvasWindowContent = memo(function CanvasWindowContent({
+  id,
+  views,
   feed,
   route,
   saveRoute,
   currentPubkey,
   onOpen,
 }: {
-  view: CanvasView;
+  id: string;
+  views: CanvasView[];
   feed: CanvasFeed;
   route?: Record<string, string>;
-  saveRoute: (route: Record<string, string>) => boolean;
+  saveRoute: (id: string, route: Record<string, string>) => boolean;
   currentPubkey?: string;
   onOpen: (view: CanvasView, thread?: string) => void;
 }) {
+  const view = useMemo(
+    () => canvasWindowView(id, views, route),
+    [id, views, route],
+  );
+  const persistRoute = useCallback(
+    (next: Record<string, string>) => saveRoute(id, next),
+    [id, saveRoute],
+  );
+  if (!view) return null;
   if (view.kind === "app" || view.kind === "project")
     return (
       <CanvasAppWindow
         view={view}
         route={route}
-        saveRoute={saveRoute}
+        saveRoute={persistRoute}
         feed={feed}
         currentPubkey={currentPubkey}
       />
@@ -122,4 +144,4 @@ export function CanvasWindowContent({
       )}
     </>
   );
-}
+});

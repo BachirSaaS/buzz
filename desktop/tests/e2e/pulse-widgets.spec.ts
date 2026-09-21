@@ -1,3 +1,4 @@
+import { openWindowPicker } from "../helpers/canvas";
 import { expect, test } from "@playwright/test";
 import { waitForAnimations } from "../helpers/animations";
 import { installMockBridge, TEST_IDENTITIES } from "../helpers/bridge";
@@ -14,7 +15,7 @@ test("add the widget collection to Pulse, interact, reload, and remove it", asyn
   );
   await installMockBridge(page);
   await page.goto("/#/pulse");
-  await page.getByTestId("canvas-add-view").click();
+  await openWindowPicker(page);
   const picker = page.getByRole("dialog", { name: "Add a window" });
   await picker.getByRole("button", { name: "Widgets", exact: true }).click();
   await expect(
@@ -56,9 +57,9 @@ test("add the widget collection to Pulse, interact, reload, and remove it", asyn
     .getByRole("button", { name: "Close All widgets window" })
     .click();
   await expect(page.getByTestId("canvas-window")).toHaveCount(0);
-  await expect(page.getByTestId("canvas-add-view")).toBeFocused();
+  await expect(page.getByTestId("canvas-options")).toBeFocused();
 
-  await page.getByTestId("canvas-add-view").click();
+  await openWindowPicker(page);
   await picker.getByRole("textbox", { name: "Search views" }).fill("Flight");
   await picker
     .getByRole("button", { name: "Flight Widgets", exact: true })
@@ -163,7 +164,7 @@ test("Buzz widgets follow scoped agent activity, navigate conversations, and sta
     ],
   });
   await page.goto("/#/pulse");
-  await page.getByTestId("canvas-add-view").click();
+  await openWindowPicker(page);
   const picker = page.getByRole("dialog", { name: "Add a window" });
   await picker
     .getByRole("textbox", { name: "Search views" })
@@ -361,7 +362,7 @@ for (const broken of [false, true]) {
       `http://127.0.0.1:54321/media/${filename}`,
     );
     await page.goto("/#/pulse");
-    await page.getByTestId("canvas-add-view").click();
+    await openWindowPicker(page);
     const picker = page.getByRole("dialog", { name: "Add a window" });
     await picker
       .getByRole("textbox", { name: "Search views" })

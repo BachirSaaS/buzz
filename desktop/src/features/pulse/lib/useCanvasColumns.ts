@@ -38,7 +38,7 @@ export function useCanvasColumns(
   currentKey.current = key;
   const resizing = preview?.key === key;
   const enabled =
-    state.layout !== "freeform" &&
+    (state.layout === "columns" || state.layout === "grid") &&
     state.windows.length > 0 &&
     available > CANVAS_STACK_WIDTH;
   const widths = resizing

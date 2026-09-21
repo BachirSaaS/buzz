@@ -1,11 +1,5 @@
-import { useMemo, useRef, useState } from "react";
-import {
-  MessageCirclePlus,
-  Pin,
-  PinOff,
-  SlidersHorizontal,
-  X,
-} from "lucide-react";
+import { memo, useMemo, useRef, useState } from "react";
+import { MessageCirclePlus, Pin, PinOff, X } from "lucide-react";
 import { useChannelsQuery } from "@/features/channels/hooks";
 import { buildDirectMessageIntro } from "@/features/channels/lib/dmParticipantDisplay";
 import { useUsersBatchQuery } from "@/features/profile/hooks";
@@ -19,12 +13,12 @@ import {
   MAX_PINNED_DMS,
   usePulsePreferences,
 } from "../lib/usePulsePreferences";
+import { DockTooltip } from "./DockTooltip";
 import { PulseChannelDetail } from "./PulseChannelDetail";
-import { PulseFeedFilters } from "./PulseFeedFilters";
 import { usePulseUnreadChannels } from "./PulseUnreadDot";
 
 /** Pinned DMs are lightweight dropdown conversations, outside the canvas window model. */
-export function PulseQuickAccess() {
+export const PulseQuickAccess = memo(function PulseQuickAccess() {
   const identity = useIdentityQuery();
   const pubkey = identity.data?.pubkey;
   const relay = useRelayOrigin();
@@ -109,27 +103,115 @@ export function PulseQuickAccess() {
   };
   return (
     <nav
-      className="flex shrink-0 items-center gap-2"
-      aria-label="Pinned chats and filters"
+      className="flex shrink-0 flex-col items-center gap-2"
+      aria-label="Pinned chats"
       onPointerDownCapture={() => setMethod("pointer")}
       onKeyDownCapture={() => setMethod("keyboard")}
     >
+      {pinned.map((id) => {
+        const destination = destinations.find(
+          (item) => item.channel.id === id && item.channel.channelType === "dm",
+        );
+        const name = destination?.name ?? "Unavailable DM";
+        return (
+          <Popover
+            key={id}
+            open={open === id}
+            onOpenChange={(next) => changeOpen(id, next)}
+          >
+            <DockTooltip label={name}>
+              <PopoverTrigger asChild>
+                <Action
+                  aria-label={`Open pinned chat with ${name}${unread(id) ? ", unread" : ""}`}
+                  className="pulse-dock-icon pulse-dock-person relative"
+                >
+                  <span aria-hidden className="size-full">
+                    <UserAvatar
+                      avatarUrl={destination?.person?.avatarUrl ?? null}
+                      displayName={name}
+                      shape={
+                        destination?.person?.isAgent ? "squircle" : "circle"
+                      }
+                      size="md"
+                      className="size-full text-sm shadow-none"
+                    />
+                  </span>
+                  {unread(id) && (
+                    <span
+                      aria-hidden
+                      className="absolute right-0 top-0 size-2 rounded-full bg-primary ring-2 ring-background"
+                    />
+                  )}
+                </Action>
+              </PopoverTrigger>
+            </DockTooltip>
+            <PopoverContent
+              side="right"
+              align="start"
+              sideOffset={10}
+              collisionPadding={16}
+              aria-label={`Chat with ${name}`}
+              data-open-method={method}
+              className="pulse-quick-popover pulse-pinned-chat flex w-[380px] flex-col overflow-hidden p-0"
+              onCloseAutoFocus={(event) => {
+                if (!pinned.includes(id)) event.preventDefault();
+              }}
+            >
+              <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-3">
+                <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                  {name}
+                </span>
+                <Action
+                  aria-label={`Unpin ${name}`}
+                  title="Unpin chat"
+                  className="rounded-md p-1.5 text-muted-foreground hover:bg-muted"
+                  onClick={() => unpin(id)}
+                >
+                  <PinOff aria-hidden className="size-3.5" />
+                </Action>
+                <Action
+                  aria-label="Close pinned chat"
+                  className="rounded-md p-1.5 text-muted-foreground hover:bg-muted"
+                  onClick={() => setOpen(null)}
+                >
+                  <X aria-hidden className="size-3.5" />
+                </Action>
+              </div>
+              {destination ? (
+                <PulseChannelDetail
+                  independent
+                  channelId={id}
+                  channel={destination.channel}
+                />
+              ) : (
+                <p role="status" className="p-4 text-sm text-muted-foreground">
+                  {channels.isPending
+                    ? "Loading conversation…"
+                    : "This conversation is unavailable. You can unpin it here."}
+                </p>
+              )}
+            </PopoverContent>
+          </Popover>
+        );
+      })}
       <Popover
         open={open === "pin"}
         onOpenChange={(next) => changeOpen("pin", next)}
       >
-        <PopoverTrigger asChild>
-          <Action
-            ref={pinTrigger}
-            aria-label="Pin a DM"
-            title="Pin a DM"
-            className="pulse-navigation-trigger flex size-8 items-center justify-center rounded-full hover:bg-background/50 data-[state=open]:bg-background/70"
-          >
-            <MessageCirclePlus aria-hidden className="size-4" />
-          </Action>
-        </PopoverTrigger>
+        <DockTooltip label="Pin a DM">
+          <PopoverTrigger asChild>
+            <Action
+              ref={pinTrigger}
+              aria-label="Pin a DM"
+              className="pulse-dock-icon"
+            >
+              <MessageCirclePlus aria-hidden className="size-6" />
+            </Action>
+          </PopoverTrigger>
+        </DockTooltip>
         <PopoverContent
-          align="end"
+          side="right"
+          align="start"
           sideOffset={10}
           aria-label="Pin a DM"
           data-open-method={method}
@@ -183,7 +265,8 @@ export function PulseQuickAccess() {
                       <UserAvatar
                         avatarUrl={person?.avatarUrl ?? null}
                         displayName={name}
-                        size="sm"
+                        size="md"
+                        className="size-full text-sm shadow-none"
                         shape={person?.isAgent ? "squircle" : "circle"}
                       />
                     </span>
@@ -207,120 +290,6 @@ export function PulseQuickAccess() {
           )}
         </PopoverContent>
       </Popover>
-      {pinned.map((id) => {
-        const destination = destinations.find(
-          (item) => item.channel.id === id && item.channel.channelType === "dm",
-        );
-        const name = destination?.name ?? "Unavailable DM";
-        return (
-          <Popover
-            key={id}
-            open={open === id}
-            onOpenChange={(next) => changeOpen(id, next)}
-          >
-            <PopoverTrigger asChild>
-              <Action
-                aria-label={`Open pinned chat with ${name}${unread(id) ? ", unread" : ""}`}
-                title={name}
-                className="pulse-navigation-trigger relative flex size-8 items-center justify-center rounded-full bg-background/80 shadow-sm ring-1 ring-border/30 data-[state=open]:ring-2 data-[state=open]:ring-foreground/30"
-              >
-                <span aria-hidden>
-                  <UserAvatar
-                    avatarUrl={destination?.person?.avatarUrl ?? null}
-                    displayName={name}
-                    shape={destination?.person?.isAgent ? "squircle" : "circle"}
-                    size="sm"
-                  />
-                </span>
-                {unread(id) && (
-                  <span
-                    aria-hidden
-                    className="absolute right-0 top-0 size-2 rounded-full bg-primary ring-2 ring-background"
-                  />
-                )}
-              </Action>
-            </PopoverTrigger>
-            <PopoverContent
-              align="end"
-              sideOffset={10}
-              collisionPadding={16}
-              aria-label={`Chat with ${name}`}
-              data-open-method={method}
-              className="pulse-quick-popover pulse-pinned-chat flex w-[380px] flex-col overflow-hidden p-0"
-              onCloseAutoFocus={(event) => {
-                if (!pinned.includes(id)) event.preventDefault();
-              }}
-            >
-              <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-3">
-                <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                  {name}
-                </span>
-                <Action
-                  aria-label={`Unpin ${name}`}
-                  title="Unpin chat"
-                  className="rounded-md p-1.5 text-muted-foreground hover:bg-muted"
-                  onClick={() => unpin(id)}
-                >
-                  <PinOff aria-hidden className="size-3.5" />
-                </Action>
-                <Action
-                  aria-label="Close pinned chat"
-                  className="rounded-md p-1.5 text-muted-foreground hover:bg-muted"
-                  onClick={() => setOpen(null)}
-                >
-                  <X aria-hidden className="size-3.5" />
-                </Action>
-              </div>
-              {destination ? (
-                <PulseChannelDetail
-                  independent
-                  channelId={id}
-                  channel={destination.channel}
-                />
-              ) : (
-                <p role="status" className="p-4 text-sm text-muted-foreground">
-                  {channels.isPending
-                    ? "Loading conversation…"
-                    : "This conversation is unavailable. You can unpin it here."}
-                </p>
-              )}
-            </PopoverContent>
-          </Popover>
-        );
-      })}
-      <Popover
-        open={open === "filters"}
-        onOpenChange={(next) => changeOpen("filters", next)}
-      >
-        <PopoverTrigger asChild>
-          <Action
-            aria-label="Feed filters"
-            title="Feed filters"
-            className="pulse-navigation-trigger flex size-8 items-center justify-center rounded-full bg-background/70 shadow-sm hover:bg-background data-[state=open]:bg-background"
-          >
-            <SlidersHorizontal aria-hidden className="size-4" />
-          </Action>
-        </PopoverTrigger>
-        <PopoverContent
-          align="end"
-          sideOffset={10}
-          aria-label="Feed filters"
-          data-open-method={method}
-          className="pulse-quick-popover w-80 p-4"
-        >
-          <PulseFeedFilters
-            channels={destinations.map(({ channel, name }) => ({
-              ...channel,
-              label: name,
-            }))}
-            preferences={preferences}
-            onClose={() => setOpen(null)}
-            loading={channels.isPending}
-            error={channels.isError}
-            retry={() => void channels.refetch()}
-          />
-        </PopoverContent>
-      </Popover>
     </nav>
   );
-}
+});

@@ -53,20 +53,19 @@ test("Home has floating cards, no accumulator, and canvas controls anchored bott
     ),
   ).toHaveCount(0);
   const box = await home.boundingBox();
-  expect(box?.x).toBe(360);
+  expect(box?.x).toBe(400);
   expect(box?.width).toBe(720);
   const controls = page.getByRole("toolbar", { name: "Canvas controls" });
   const before = await controls.boundingBox();
   expect(before?.y).toBeGreaterThan(900);
   expect((before?.x ?? 0) + (before?.width ?? 0)).toBe(1424);
-  await page.getByRole("button", { name: "Arrange windows" }).click();
+  await page.getByRole("button", { name: "Window options" }).click();
   await expect(
     page.getByRole("menuitemradio", { name: "Grid layout" }),
   ).toBeVisible();
   await page.keyboard.press("Escape");
-  await controls
-    .getByRole("button", { name: "Add window", exact: true })
-    .click();
+  await controls.getByRole("button", { name: "Window options" }).click();
+  await page.getByRole("menuitem", { name: "Add window", exact: true }).click();
   const picker = page.getByRole("dialog", { name: "Add a window" });
   await picker.getByRole("textbox", { name: "Search views" }).fill("weather");
   await picker
@@ -74,6 +73,26 @@ test("Home has floating cards, no accumulator, and canvas controls anchored bott
     .click();
   await expect(home).toBeVisible();
   await expect(home.getByTestId("window-toolbar")).toHaveCount(0);
+  const windowSurface = page.locator(".panel-dock-surface").first();
+  for (const control of await page.locator(".pulse-control-surface").all()) {
+    for (const property of [
+      "background-color",
+      "border-top-width",
+      "box-shadow",
+    ]) {
+      expect(
+        await control.evaluate(
+          (node, prop) => getComputedStyle(node).getPropertyValue(prop),
+          property,
+        ),
+      ).toBe(
+        await windowSurface.evaluate(
+          (node, prop) => getComputedStyle(node).getPropertyValue(prop),
+          property,
+        ),
+      );
+    }
+  }
   await page.getByRole("tab", { name: "Messages", exact: true }).click();
   expect(await controls.boundingBox()).toEqual(before);
   await page.getByRole("tab", { name: "Home", exact: true }).click();
@@ -125,68 +144,51 @@ test("pinned DMs open dropdown chats with working composer, draft recovery and n
   ).toBeFocused();
 });
 
-test("filters replace the avatar, affect feed sources, persist and can reset", async ({
+test("left dock fills pinned chat slots with avatars and has no filter or Ask Buzz button", async ({
   page,
 }) => {
   await expect(
-    page.getByRole("button", { name: "Account and settings", exact: true }),
+    page.getByRole("button", { name: "Feed filters", exact: true }),
   ).toHaveCount(0);
-  const button = page.getByRole("button", {
-    name: "Feed filters",
-    exact: true,
-  });
-  await button.focus();
-  await page.keyboard.press("Enter");
-  const filters = page.getByRole("dialog", {
-    name: "Feed filters",
-    exact: true,
-  });
-  await filters
-    .getByRole("checkbox", {
-      name: "Notes from people you follow",
-      exact: true,
-    })
-    .uncheck();
-  await filters
-    .getByRole("textbox", { name: "Find feed sources" })
-    .fill("general");
-  await filters
-    .getByRole("checkbox", { name: "general", exact: true })
-    .uncheck();
-  await expect
-    .poll(async () => (await preferences(page)).excludedSources.length)
-    .toBe(1);
-  await filters.getByRole("textbox", { name: "Find feed sources" }).fill("");
-  for (const source of await filters.getByRole("checkbox").all())
-    await source.uncheck();
+  await expect(
+    page.getByRole("button", { name: "Voice commands", exact: true }),
+  ).toHaveCount(0);
+  await pinAlice(page);
   await page.keyboard.press("Escape");
-  await expect(button).toBeFocused();
-  await expect(page.getByTestId("pulse-briefing-highlight")).toHaveCount(0);
+  const pin = page.getByRole("button", { name: "Pin a DM", exact: true });
+  const person = page.getByRole("button", {
+    name: /^Open pinned chat with alice/,
+  });
+  for (const property of ["width", "height"]) {
+    expect(
+      await pin.evaluate(
+        (node, prop) => getComputedStyle(node).getPropertyValue(prop),
+        property,
+      ),
+    ).toBe(
+      await person.evaluate(
+        (node, prop) => getComputedStyle(node).getPropertyValue(prop),
+        property,
+      ),
+    );
+  }
+  await expect(person).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  const avatar = person.locator("[data-avatar-shape]");
+  await expect(avatar).toHaveCSS("width", "48px");
+  await expect(avatar).toHaveCSS("height", "48px");
+  await page.keyboard.press("Escape");
+  const options = page.getByRole("button", {
+    name: "Window options",
+    exact: true,
+  });
+  await options.focus();
+  await page.keyboard.press("Enter");
+  await page.getByRole("menuitem", { name: "Add window", exact: true }).click();
   await expect(
-    page.getByText("No recent conversations to recap yet."),
+    page.getByRole("dialog", { name: "Add a window" }),
   ).toBeVisible();
-  await page.reload();
-  await button.click();
-  await expect(
-    filters.getByRole("checkbox", {
-      name: "Notes from people you follow",
-      exact: true,
-    }),
-  ).not.toBeChecked();
-  await expect(
-    filters.getByRole("checkbox", { name: "general", exact: true }),
-  ).not.toBeChecked();
-  await filters
-    .getByRole("button", { name: "Reset filters", exact: true })
-    .click();
-  expect((await preferences(page)).excludedSources).toEqual([]);
-  expect((await preferences(page)).includeNotes).toBe(true);
-  await waitForAnimations(page);
-  await page.screenshot({ path: "test-results/home-chats/filters.png" });
-  await filters
-    .getByRole("button", { name: "App settings", exact: true })
-    .click();
-  await expect(page.getByTestId("pulse-settings-workspace")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(options).toBeFocused();
 });
 
 test("failed pin persistence leaves a retryable picker and no phantom chat", async ({

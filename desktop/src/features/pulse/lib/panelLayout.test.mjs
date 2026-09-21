@@ -114,3 +114,31 @@ test("closing and adding windows reconciles every group without losing surviving
   invariant(next, ["b", "c", "d"]);
   assert.equal(next.groups.find((g) => g.id === "b").selected, "b");
 });
+
+test("larger workspaces preserve every window through tiling, persistence and reconciliation", async () => {
+  const { parseCanvasLayout } = await import("./canvasLayout.ts");
+  const ids = Array.from({ length: 24 }, (_, i) => `window-${i}`);
+  for (const preset of ["grid", "columns"]) {
+    const panel = initialLayout(ids, preset);
+    invariant(panel, ids);
+    const frames = Object.fromEntries(
+      ids.map((id, i) => [id, { x: i, y: i, width: 400, height: 400 }]),
+    );
+    const parsed = parseCanvasLayout(
+      JSON.stringify({
+        main: false,
+        layout: preset,
+        windows: ids,
+        panels: { [`workspace:${preset}`]: panel },
+        freeform: { frames, order: ids },
+      }),
+    );
+    assert.deepEqual(parsed.windows, ids);
+    assert.deepEqual(parsed.freeform.order, ids);
+    invariant(parsed.panels[`workspace:${preset}`], ids);
+    invariant(reconcilePanels(panel, [...ids, "new"], preset, 720, 1600), [
+      ...ids,
+      "new",
+    ]);
+  }
+});

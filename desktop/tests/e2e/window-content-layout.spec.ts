@@ -45,7 +45,7 @@ test("connected conversations and activity fill the area immediately below their
   expect(canvasBox?.y).toBe(64);
   expect(canvasBox && canvasBox.y + canvasBox.height).toBe(1184);
   const arrange = page.getByRole("button", {
-    name: "Arrange windows",
+    name: "Window options",
     exact: true,
   });
   await arrange.click();
@@ -59,7 +59,7 @@ test("connected conversations and activity fill the area immediately below their
     .getByRole("menuitemradio", { name: "Freeform layout", exact: true })
     .click();
   await expect(canvas).toHaveAttribute("data-layout", "freeform");
-  await expect(page.getByRole("menu", { name: "Arrange windows" })).toHaveCount(
+  await expect(page.getByRole("menu", { name: "Window options" })).toHaveCount(
     0,
   );
   await expect(

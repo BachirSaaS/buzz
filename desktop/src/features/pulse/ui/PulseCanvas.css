@@ -32,14 +32,6 @@
   grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
   grid-auto-rows: minmax(0, 1fr);
 }
-.pulse-canvas[data-layout="focus"][data-window-count="2"]
-  .pulse-canvas-primary {
-  grid-row: span 2;
-}
-.pulse-canvas[data-layout="focus"][data-window-count="3"]
-  .pulse-canvas-primary {
-  grid-row: span 3;
-}
 .pulse-canvas[data-layout="grid"]:not([data-window-count="0"])
   .pulse-canvas-grid {
   grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
@@ -153,7 +145,7 @@
   border: 0;
   border-radius: var(--window-radius);
   background: var(--blockui-surface-card);
-  box-shadow: 0 2px 8px #0000000d;
+  box-shadow: var(--pulse-window-shadow);
 }
 .pulse-canvas[data-fixed-main] .pulse-canvas-primary {
   position: absolute;
@@ -169,7 +161,10 @@
   z-index: 1;
 }
 @container (min-width: 761px) {
-  .pulse-canvas[data-fixed-main]:not([data-layout="freeform"])
+  .pulse-canvas[data-fixed-main]:not(
+      [data-layout="freeform"],
+      [data-layout="focus"]
+    )
     .pulse-canvas-grid {
     grid-template-columns: clamp(240px, calc((100% - 752px) / 2), 400px) minmax(
         0,
@@ -179,4 +174,57 @@
     overflow: visible;
     padding: 0;
   }
+}
+
+/* Focus is one reading column. Windows keep their own interactive content mounted. */
+.pulse-canvas[data-layout="focus"] .pulse-canvas-grid {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+  overflow-anchor: none;
+  max-width: 720px;
+  border-radius: var(--window-radius);
+  padding: 0 0 24px;
+  scroll-padding-top: 0;
+}
+.pulse-canvas[data-layout="focus"]
+  :is(.pulse-canvas-primary, .pulse-canvas-window) {
+  position: relative;
+  inset: auto;
+  flex: 0 0 auto;
+  width: 100%;
+  max-width: 720px;
+  align-self: center;
+  height: clamp(360px, 70vh, 640px);
+  max-height: none;
+}
+.pulse-canvas[data-layout="focus"][data-fixed-main] .pulse-canvas-primary {
+  height: auto;
+  min-height: 360px;
+  pointer-events: auto;
+}
+.pulse-canvas[data-layout="focus"][data-fixed-main]
+  .pulse-canvas-primary
+  :is(
+    .pulse-canvas-main-window,
+    .pulse-home-surface,
+    .canvas-content-slot,
+    .canvas-content-host,
+    [data-testid="pulse-main-container"],
+    .pulse-conversation-workspace,
+    [data-testid="pulse-scroll-area"],
+    .pulse-home-scroll
+  ) {
+  height: auto;
+  flex: 0 0 auto;
+  overflow: visible;
+}
+.pulse-canvas[data-layout="focus"] .pulse-canvas-grid:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+  border-radius: var(--window-radius);
 }

@@ -63,17 +63,19 @@ function candidateWithAgentMetadata(
 export function useNewMessageRecipients({
   active,
   currentPubkey,
+  initialRecipients = [],
 }: {
   /** When false, the directory/agent queries stay idle. */
   active: boolean;
   currentPubkey?: string;
+  initialRecipients?: UserSearchResult[];
 }) {
   const [searchQuery, setSearchQuery] = React.useState("");
   const [directoryIdentityQuery, setDirectoryIdentityQuery] = React.useState<
     string | null
   >(null);
   const [selectedUsers, setSelectedUsers] = React.useState<UserSearchResult[]>(
-    [],
+    () => initialRecipients.slice(0, NEW_MESSAGE_RECIPIENT_LIMIT),
   );
   const selectedUsersCountRef = React.useRef(0);
   const deferredSearchQuery = React.useDeferredValue(searchQuery.trim());

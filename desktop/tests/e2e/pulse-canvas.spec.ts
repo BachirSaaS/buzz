@@ -1,14 +1,12 @@
-import {
-  arrangeWindows,
+import { arrangeWindows,
   openMainArea,
-  readActiveCanvas,
-} from "../helpers/canvas";
+  readActiveCanvas,, openWindowPicker, expectCanAddWindow } from "../helpers/canvas";
 import { expect, test, type Page } from "@playwright/test";
 import { installMockBridge, TEST_IDENTITIES } from "../helpers/bridge";
 import { waitForAnimations } from "../helpers/animations";
 
 async function add(page: Page, query: string, name: RegExp) {
-  await page.getByTestId("canvas-add-view").click();
+  await openWindowPicker(page);
   const dialog = page.getByRole("dialog", { name: "Add a window" });
   await dialog.getByRole("textbox", { name: "Search views" }).fill(query);
   await dialog.getByRole("button", { name }).click();
@@ -25,7 +23,7 @@ test.beforeEach(async ({ page }) => {
   );
   await installMockBridge(page);
   await page.goto("/#/pulse?feed=conversation");
-  await expect(page.getByTestId("canvas-add-view")).toBeEnabled();
+  await expectCanAddWindow(page, true);
 });
 
 test("find views, arrange windows, navigate, reload and close without losing the canvas", async ({
@@ -33,16 +31,16 @@ test("find views, arrange windows, navigate, reload and close without losing the
 }) => {
   const canvas = page.getByTestId("pulse-canvas");
   await expect(
-    page.getByRole("button", { name: "Arrange windows" }),
-  ).toHaveCount(0);
+    page.getByRole("button", { name: "Window options" }),
+  ).toBeVisible();
   await add(page, "general", /#general/);
   await expect(
     page
-      .getByTestId("app-top-chrome")
-      .getByRole("button", { name: "Arrange windows" }),
+      .getByRole("toolbar", { name: "Canvas controls" })
+      .getByRole("button", { name: "Window options" }),
   ).toBeVisible();
   await expect(
-    canvas.getByRole("button", { name: "Arrange windows" }),
+    canvas.getByRole("button", { name: "Window options" }),
   ).toHaveCount(0);
   await expect(
     canvas.getByRole("region", { name: "#general window", exact: true }),
@@ -61,7 +59,7 @@ test("find views, arrange windows, navigate, reload and close without losing the
   await add(page, "alice", /Alice/i);
   await add(page, "agent", /^Agent activity Activity$/);
   await expect(page.getByTestId("canvas-window")).toHaveCount(3);
-  await expect(page.getByTestId("canvas-add-view")).toBeDisabled();
+  await expectCanAddWindow(page, false);
   await expect(page.getByTestId("canvas-window").last()).toBeFocused();
   await arrangeWindows(page, "Columns");
   const columns = await page
@@ -101,8 +99,8 @@ test("find views, arrange windows, navigate, reload and close without losing the
   await canvas
     .getByRole("button", { name: "Close Agent activity window" })
     .click();
-  await expect(page.getByTestId("canvas-add-view")).toBeEnabled();
-  await expect(page.getByTestId("canvas-add-view")).toBeFocused();
+  await expectCanAddWindow(page, true);
+  await expect(page.getByTestId("canvas-options")).toBeFocused();
   await page.setViewportSize({ width: 740, height: 900 });
   const boxes = await page.getByTestId("canvas-window").evaluateAll((windows) =>
     windows.map((window) => {
@@ -147,9 +145,8 @@ test("projects can be found and placed beside Messages", async ({ page }) => {
 test("keyboard picker supports search, empty results and Escape; failed saves remain retryable", async ({
   page,
 }) => {
-  const addButton = page.getByTestId("canvas-add-view");
-  await addButton.focus();
-  await page.keyboard.press("Enter");
+  const addButton = page.getByTestId("canvas-options");
+  await openWindowPicker(page, true);
   const search = page.getByRole("textbox", { name: "Search views" });
   await expect(search).toBeFocused();
   await search.fill("no-such-view-123");
@@ -317,7 +314,7 @@ test("corner resizer restores free sizing, overlapping windows, and return to ti
   await dragCorner(page, main, -100, -100);
   await expect(canvas).toHaveAttribute("data-layout", "freeform");
   await expect(
-    page.getByRole("button", { name: "Arrange windows", exact: true }),
+    page.getByRole("button", { name: "Window options", exact: true }),
   ).toBeVisible();
   const resized = await main.boundingBox();
   expect(resized?.width).toBeCloseTo((initial?.width ?? 0) - 100, 0);
@@ -667,7 +664,7 @@ test("widget toolbars fill the top edge and dragging lifts a tiled widget into F
   await page.keyboard.press("ArrowLeft");
   expect((await panel.boundingBox())?.x).toBeCloseTo(windowBox.x - 90, 0);
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.getByTestId("canvas-add-view").focus();
+  await page.getByTestId("canvas-options").focus();
   await mover.hover();
   await expect(mover).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   await expect(panel.locator(".canvas-move-handle")).toHaveCount(0);

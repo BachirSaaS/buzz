@@ -1,10 +1,15 @@
 import { expect, test, type Page, type Locator } from "@playwright/test";
 import { installMockBridge } from "../helpers/bridge";
-import { arrangeWindows, readActiveCanvas } from "../helpers/canvas";
+import {
+  arrangeWindows,
+  readActiveCanvas,
+  openWindowPicker,
+  expectCanAddWindow,
+} from "../helpers/canvas";
 import { waitForAnimations } from "../helpers/animations";
 
 async function add(page: Page, query: string, name: RegExp) {
-  await page.getByTestId("canvas-add-view").click();
+  await openWindowPicker(page);
   const picker = page.getByRole("dialog", { name: "Add a window" });
   await picker.getByRole("textbox", { name: "Search views" }).fill(query);
   await picker.getByRole("button", { name }).click();
@@ -23,7 +28,7 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/__chief", (r) => r.fulfill({ status: 503, json: {} }));
   await installMockBridge(page);
   await page.goto("/#/pulse?feed=conversation");
-  await expect(page.getByTestId("canvas-add-view")).toBeEnabled();
+  await expectCanAddWindow(page, true);
 });
 
 test("a floating widget swaps locally, retains its frame, and restores after reload", async ({

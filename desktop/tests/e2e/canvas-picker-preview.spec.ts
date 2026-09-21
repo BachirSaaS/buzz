@@ -1,3 +1,4 @@
+import { openWindowPicker } from "../helpers/canvas";
 import { expect, test, type Page } from "@playwright/test";
 import { installMockBridge } from "../helpers/bridge";
 import { waitForAnimations } from "../helpers/animations";
@@ -116,16 +117,16 @@ test("picker opens and closes repeatedly, and new windows animate without blocki
   page,
 }) => {
   await recordWindowAnimations(page);
-  const trigger = page.getByTestId("canvas-add-view");
+  const trigger = page.getByTestId("canvas-options");
   for (let i = 0; i < 2; i++) {
-    await trigger.click();
+    await openWindowPicker(page);
     const dialog = page.getByRole("dialog", { name: "Add a window" });
     await expect(dialog).toBeVisible();
     await dialog.getByRole("button", { name: "Close", exact: true }).click();
     await expect(dialog).toHaveCount(0);
     await expect(trigger).toBeFocused();
   }
-  await trigger.click();
+  await openWindowPicker(page);
   const dialog = page.getByRole("dialog", { name: "Add a window" });
   await dialog
     .getByRole("navigation", { name: "Window categories" })
@@ -165,8 +166,7 @@ test("picker opens and closes repeatedly, and new windows animate without blocki
       (item) => item.id === "exit" && item.duration === 120,
     ),
   ).toBe(true);
-  await trigger.focus();
-  await page.keyboard.press("Enter");
+  await openWindowPicker(page, true);
   await expect(dialog).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
@@ -177,8 +177,7 @@ test("reduced motion and keyboard additions retain usable focus and settled wind
 }) => {
   await recordWindowAnimations(page);
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.getByTestId("canvas-add-view").focus();
-  await page.keyboard.press("Enter");
+  await openWindowPicker(page, true);
   const dialog = page.getByRole("dialog", { name: "Add a window" });
   const input = dialog.getByRole("textbox", { name: "Search views" });
   await input.fill("weather");

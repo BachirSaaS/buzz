@@ -14,6 +14,9 @@ import { useRelayConnection } from "@/shared/api/useRelayConnection";
 import { fetchPulseFeed } from "./lib/fetchPulseFeed";
 import { buildPulseConversations, PULSE_SOURCE_LIMIT } from "./lib/unifiedFeed";
 import { usePulseRefresh } from "./usePulseRefresh";
+const EMPTY_PROFILES: NonNullable<
+  ReturnType<typeof useUsersBatchQuery>["data"]
+>["profiles"] = {};
 
 export function useUnifiedPulseFeed(currentPubkey?: string) {
   const queryClient = useQueryClient();
@@ -97,7 +100,7 @@ export function useUnifiedPulseFeed(currentPubkey?: string) {
   const profilesQuery = useUsersBatchQuery(pubkeys, {
     enabled: pubkeys.length > 0,
   });
-  const profiles = profilesQuery.data?.profiles ?? {};
+  const profiles = profilesQuery.data?.profiles ?? EMPTY_PROFILES;
   const conversations = React.useMemo(
     () =>
       buildPulseConversations(
@@ -124,18 +127,8 @@ export function useUnifiedPulseFeed(currentPubkey?: string) {
         ? current.excludedSources.filter((source) => source !== id)
         : [...current.excludedSources, id],
     }));
-  return {
-    query,
-    channels,
-    selectedChannels,
-    conversations,
-    profiles,
-    scope,
-    excludedIds,
-    toggleSource,
-    includeNotes,
-    setIncludeNotes,
-    refresh: () =>
+  const refresh = React.useCallback(
+    () =>
       queryClient.invalidateQueries(
         {
           predicate: (entry) =>
@@ -149,6 +142,28 @@ export function useUnifiedPulseFeed(currentPubkey?: string) {
         },
         { cancelRefetch: false },
       ),
+    [queryClient],
+  );
+  const { refetch: refetchChannels } = channelsQuery;
+  const { refetch: refetchContacts } = contactsQuery;
+  const { refetch: refetchFeed } = query;
+  const retry = React.useCallback(() => {
+    void refetchChannels();
+    void refetchContacts();
+    void refetchFeed();
+  }, [refetchChannels, refetchContacts, refetchFeed]);
+  return {
+    query,
+    channels,
+    selectedChannels,
+    conversations,
+    profiles,
+    scope,
+    excludedIds,
+    toggleSource,
+    includeNotes,
+    setIncludeNotes,
+    refresh,
     error:
       channelsQuery.error ??
       (includeNotes ? contactsQuery.error : null) ??
@@ -157,10 +172,6 @@ export function useUnifiedPulseFeed(currentPubkey?: string) {
       channelsQuery.isPending ||
       (includeNotes && contactsQuery.isPending) ||
       query.isLoading,
-    retry: () => {
-      void channelsQuery.refetch();
-      void contactsQuery.refetch();
-      void query.refetch();
-    },
+    retry,
   };
 }

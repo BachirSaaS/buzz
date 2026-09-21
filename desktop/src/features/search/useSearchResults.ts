@@ -491,7 +491,20 @@ export function useSearchResults({
     });
   }, [results]);
 
+  const sources = [
+    searchQuery,
+    userSearchQuery,
+    fuzzyUserCandidatesQuery,
+    openDirectoryQuery,
+    fromUserSearchQuery,
+  ];
   return {
+    loading: sources.some((source) => source.isFetching),
+    error: sources.some((source) => source.isError),
+    unresolvedOperator: hasUnresolvedOperator,
+    retry: () => {
+      for (const source of sources) if (source.isError) void source.refetch();
+    },
     channelLookup,
     channelResults,
     debouncedQuery,

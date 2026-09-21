@@ -52,14 +52,14 @@ export function PulseScreen() {
     [applyPatch],
   );
   const threadPanelWidth = useThreadPanelWidth();
-  const openDmMutation = useOpenDmMutation();
+  const { mutateAsync: openDm } = useOpenDmMutation();
   const { goChannel } = useAppNavigation();
   const handleOpenDm = React.useCallback(
     async (pubkeys: string[]) => {
-      const dm = await openDmMutation.mutateAsync({ pubkeys });
+      const dm = await openDm({ pubkeys });
       await goChannel(dm.id);
     },
-    [goChannel, openDmMutation],
+    [goChannel, openDm],
   );
 
   return (

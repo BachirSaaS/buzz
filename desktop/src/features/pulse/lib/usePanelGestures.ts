@@ -82,18 +82,31 @@ export function usePanelGestures(
   function paint(instant = false) {
     const result = measureLayout(state.current.root, geometry.current, gap);
     boxes.current = result.panes;
+    const resetTransitions: HTMLElement[] = [];
     for (const [id, box] of result.panes) {
       const el = elements.current.get(id);
       if (!el) continue;
-      if (instant) el.style.transition = "none";
       el.style.width = `${box.width}px`;
       el.style.height = `${box.height}px`;
       if (
         !drag.current?.moved ||
         drag.current.source !== id ||
         drag.current.tab
-      )
-        el.style.transform = `translate(${box.x}px, ${box.y}px)`;
+      ) {
+        const transform = `translate(${box.x}px, ${box.y}px)`;
+        // Only outer dock placements animate. Resizing already disables their
+        // transitions in CSS, and interior panes do not animate. Preserve the
+        // instant finish/cancel path even if an earlier swap is still moving.
+        if (
+          instant &&
+          !resize.current &&
+          el.classList.contains("panel-dock-placement")
+        ) {
+          el.style.transition = "none";
+          resetTransitions.push(el);
+        }
+        el.style.transform = transform;
+      }
     }
     for (const split of result.splits) {
       const el = separators.current.get(split.id);
@@ -113,10 +126,9 @@ export function usePanelGestures(
         String(Math.round(split.maxRatio * 100)),
       );
     }
-    if (instant && root.current) {
+    if (resetTransitions.length && root.current) {
       void root.current.offsetWidth;
-      for (const el of elements.current.values())
-        el.style.removeProperty("transition");
+      for (const el of resetTransitions) el.style.removeProperty("transition");
     }
   }
   function lock(cursor: string) {
@@ -236,14 +248,23 @@ export function usePanelGestures(
     const dx = event.clientX - active.startX,
       dy = event.clientY - active.startY;
     if (!active.moved && Math.hypot(dx, dy) < 6) return;
+    // Read hit-test geometry before updating the ghost/placement styles. A
+    // write followed by these reads forces layout once per pointer event.
+    const origin = container.getBoundingClientRect(),
+      x = event.clientX - origin.left,
+      y = event.clientY - origin.top;
+    const headers = new Map(
+      [...elements.current].map(([id, el]) => [
+        id,
+        el.querySelector(".panel-dock-header")?.getBoundingClientRect()
+          .height ?? 0,
+      ]),
+    );
     active.moved = true;
     if (!active.handle.hasPointerCapture(active.pointer))
       active.handle.setPointerCapture(active.pointer);
     lock("grabbing");
     container.dataset.dragging = "true";
-    const origin = container.getBoundingClientRect(),
-      x = event.clientX - origin.left,
-      y = event.clientY - origin.top;
     if (marker.current) marker.current.hidden = true;
     if (edgeCue.current) edgeCue.current.hidden = true;
     if (active.tab && ghost.current) {
@@ -257,13 +278,6 @@ export function usePanelGestures(
         el.style.transform = `translate(${active.start.x + dx}px, ${active.start.y + dy}px)`;
       }
     }
-    const headers = new Map(
-      [...elements.current].map(([id, el]) => [
-        id,
-        el.querySelector(".panel-dock-header")?.getBoundingClientRect()
-          .height ?? 0,
-      ]),
-    );
     const proposal = panelDropTarget(
       state.current,
       boxes.current,

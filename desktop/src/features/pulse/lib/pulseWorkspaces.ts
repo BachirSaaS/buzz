@@ -1,3 +1,4 @@
+import { isWorkspaceIcon, type WorkspaceIconName } from "./workspaceIcons";
 import { parseCanvasLayout, type CanvasLayout } from "./canvasLayout";
 import { removeInteriorContent } from "./parentWindows";
 import { PULSE_CONVERSATION_KEYS } from "./pulsePanelState";
@@ -15,6 +16,8 @@ export type WorkspaceRoute = Partial<
 export type PulseWorkspace = {
   id: string;
   name: string;
+  /** Explicit, user-selected icon; automatic enrichment never replaces it. */
+  icon?: WorkspaceIconName;
   route: WorkspaceRoute;
   canvas: CanvasLayout;
 };
@@ -95,6 +98,7 @@ export function parseWorkspaces(
       items.push({
         id: item.id,
         name: item.name,
+        ...(isWorkspaceIcon(item.icon) ? { icon: item.icon } : {}),
         route:
           item.id === "home"
             ? { feed: "home" }

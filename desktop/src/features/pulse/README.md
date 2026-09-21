@@ -1,15 +1,11 @@
 # Pulse prototype briefing
 
-The 48px title bar now contains 24px navigation buttons for Home, Messages,
-Projects, Agents, and Apps. Clicking a button opens its main view. Hovering for
-40ms opens a lightly animated popover without taking focus; its first row also opens the main view, and destination rows jump straight to a conversation or project.
-Messages shows up to six recent joined conversations with real unread markers,
-plus New message and Search. Projects shows recently opened projects (scoped to
-identity and relay), falling back to the available project list on first use.
-Agents shows live availability and working status, with shortcuts to direct chats. Apps contains enabled Workflows. The account avatar opens Settings. Layout controls and the avatar occupy a dedicated right-hand title-bar slot, so project controls cannot shift them when switching apps.
-Adjacent menus open immediately, with a 350ms warm window after hover dismissal. A transparent bridge and 180ms leave grace keep the pointer path forgiving. Clicking a navigation button opens its parent view; outside click or Escape dismisses a preview. Touch taps navigate directly. Keyboard entry is instant, with Enter/Space, arrow navigation, and Escape focus return. Pointer previews use a brief 140ms origin-aware transition; keyboard menus remain instant, and pointer presses have subtle reduced-motion-aware feedback.
+For installation, Jev configuration, and example commands, see the
+[try-it guide](../../../../docs/try-voice-workspaces.md).
 
-The content below the title bar has 16px padding on every side. Home is always a centered, full-height scroll view with a 720px maximum width, independent of saved window geometry or layout. It has no move/resize handles and never changes stacking order. Added windows sit above it and can be arranged around it; tiled presets use the side margins. Other standalone tiled main views have a 960px maximum. Without companions the main view is centered. With companions the canvas fills the padded area and panels share the space left over. Drag the gap between columns to resize adjacent windows, or focus it and use arrow keys (Shift for larger steps), Home/End for the bounds, and Enter or double-click to reset. Split layouts use those widths as defaults; dragging a divider can grow the main window beyond them while keeping neighboring panels usable. Standalone tiled main windows retain their caps. Movable Freeform windows can stretch to the canvas edge, with or without companions. Escape cancels a drag. Sizes are stored once when a drag completes, per layout and community/identity. Narrow canvases stack with no resize handles. The old content-width setting is superseded by this layout. The canvas supports up to three companion windows beside the main app. Use
+Navigation lives in a vertically centered 64px floating dock on the left, with 48px rounded app icons. Home, Messages, Projects, Agents, Apps, and custom workspaces each have an icon with a right-side tooltip. The selected icon uses an inverse fill. A plus creates a workspace; a separate pins group opens quick conversations. Settings stays at the bottom. Pinned DM avatars fill their 48px slots without a surrounding container. The dock scrolls on shorter windows and overlays the canvas at the top UI layer; windows can pass underneath it. The native title bar is a quiet 36px drag region. Up/Down and Home/End move keyboard focus between workspace icons; Enter/Space selects. F2, double-click, or the context menu opens a rename popover. Tooltips and small pointer-press feedback respect reduced motion.
+
+The content below the title bar has symmetric 16px side padding. Home and Focus center against the full app width; the dock does not affect their layout. Home has a 720px maximum reading width and no move/resize handles. In Focus, its summary follows the windows in one centered scrolling column. In Grid, Columns and Freeform, it remains anchored independently of window geometry; companions use the side margins or float above it. Other standalone tiled main views have a 960px maximum. Without companions the main view is centered. With companions the canvas fills the padded area and panels share the space left over. Drag the gap between columns to resize adjacent windows, or focus it and use arrow keys (Shift for larger steps), Home/End for the bounds, and Enter or double-click to reset. Split layouts use those widths as defaults; dragging a divider can grow the main window beyond them while keeping neighboring panels usable. Standalone tiled main windows retain their caps. Movable Freeform windows can stretch to the canvas edge, with or without companions. Escape cancels a drag. Sizes are stored once when a drag completes, per layout and community/identity. Narrow canvases stack with no resize handles. The old content-width setting is superseded by this layout. The canvas has no window-count cap; every window and its geometry persist with its workspace. Use
 the **+** button beside Apps to search joined channels, DMs by participant name,
 projects (when enabled), or Agent activity. Focus, Grid, Columns, and Freeform controls appear in the top bar when panels are open or Freeform is active and
 arrange the windows; arrow controls reorder companions and Close removes them. Narrow canvases stack vertically. Closing the
@@ -94,12 +90,14 @@ channel, thread, channel-list, and feed queries together.
 
 ### Workspaces
 
-The top bar is a set of named workspaces. Home, Messages, Projects, Agents, and
+Jev selects icons for existing and new workspaces from a bounded Lucide vocabulary using the workspace name and its window titles/kinds. Each workspace gets one persisted choice after a short initial debounce. Adding or removing windows, renaming, moving, resizing, reordering, switching, and reloading never reselect an existing icon. Automatic icon metadata is cached separately per community/identity. An explicit request such as “change this workspace icon to a message icon” saves an override in the workspace snapshot, supports undo, and takes precedence over the automatic choice. Duplicates inherit their source icon. Removed workspace metadata is pruned; late responses cannot replace a saved choice, and first-time results are checked against current content. Cosmetic requests have their own native concurrency lane and cannot occupy the voice-command lane. Errors retain the previous glyph and expose **Retry workspace icons** in the workspace context menu. Only window metadata is submitted, not conversation bodies.
+
+The dock contains named workspaces. Home, Messages, Projects, Agents, and
 Apps are starter workspaces; their names remain stable when the main window
 changes content. Each owns its last main destination, companion windows,
-connected splits, arrangement, and freeform geometry. The top-bar plus opens a workspace prompt; **Custom** creates
+connected splits, arrangement, and freeform geometry. The dock plus opens a workspace prompt; **Custom** creates
 an empty workspace with no implicit Home window, while **Add window** adds to the current one. Double-click
-a tab or press F2 to rename it; its context menu also supports rename and close.
+an icon or press F2 to rename it; its context menu also supports rename and close.
 Every canvas window’s plain title opens the same view switcher, including widgets,
 conversations, connected panes, and empty splits. Choose an app or drill into its
 recent destinations; companion conversations open directly without a Messages sidebar.
@@ -110,15 +108,14 @@ tab instead of opening the menu; keyboard selection and Escape restore focus.
 Home always keeps its centered 720px summary. Its cards float directly on the canvas
 without a window header, background, or accumulator section. Older connected companions
 are detached without losing their contents. Links from Home open the corresponding app workspace.
-Add window and Arrange live in a floating control at the bottom right across workspaces,
+Add window and arrangement choices live in one ellipsis menu at the bottom right across workspaces,
 with a reserved strip below the canvas so they never cover a composer or resize corner.
 
-Top-right DM pins open 380px-wide, at most 520px-tall dropdown conversations using
+Dock DM pins open 380px-wide, at most 520px-tall dropdown conversations using
 the existing timeline and composer. Up to four pins are saved per relay and identity,
 independently of canvas windows. Closing a dropdown preserves its composer draft;
 Escape and outside clicks dismiss it, and the header offers unpin and close.
-The filter icon replaces the account avatar and opens persistent feed source choices
-(channels, DMs, followed notes), Reset filters, and the App settings entry point.
+The dock’s bottom settings icon opens the existing Settings workspace.
 
 Workspace snapshots are stored atomically per relay and identity in
 `buzz-workspaces.v1`. Migration preserves the old shared canvas in Home only,
@@ -128,8 +125,7 @@ and leaves the legacy record intact. Browser history includes the workspace ID.
 Add window uses a two-pane catalog: All windows, Messages, Projects, Agents,
 Apps, and Widgets in the left sidebar; full app windows, individual conversations
 and projects, and relevant small widget previews in the detail pane. The same
-chooser fills connected splits. New workspaces can contain up to four explicit
-views, and closing their last window returns to the empty canvas. Existing
+chooser fills connected splits. New workspaces contain explicit views, and closing their last window returns to the empty canvas. Existing
 workspace layouts keep their original main window.
 
 Full app windows reuse the Messages, Projects, Agents, and Apps surfaces. Their
@@ -138,21 +134,192 @@ with the owning canvas, without changing another window or the workspace URL.
 Closing a window removes its navigation and geometry from the same snapshot.
 
 
-The workspace prompt searches the same typed catalog used by Add window. The
-catalog includes app and widget IDs, member channels, existing DMs with profile
-username/display-name aliases, and available projects. Up to 80 locally ranked
-metadata entries go to the native `plan_workspace` command. It uses the existing
-bounded Codex runner with `gpt-5.6-luna`, low reasoning, tools disabled, and a
-35-second deadline. No message contents or Buzz signing credentials are passed.
+The New workspace prompt and the command capsule share one `InterfaceCommandsProvider`,
+Jev transport, command planner, recipient resolver, executor, cancellation fence,
+and undo history. The workspace prompt fixes the intent to `create_workspace`;
+the command capsule classifies it. Both submit through `resolve_interface_intent` using
+`jev-latest` and the native-only `TYPESAFE_API_KEY`. There is no separate workspace
+model runner or provider fallback. Custom / Start empty still creates locally.
 
-The model returns a name, a supported arrangement, and up to four exact catalog
-IDs. Both native and UI boundaries validate its response. Unknown IDs, ambiguous
-people, missing windows, and requests exceeding four views leave the prompt
-editable without creating a partial workspace. A successful result creates all
-windows in one persisted snapshot. Closing the dropdown, switching workspaces,
-or choosing Custom invalidates pending results; the bounded native call may
-finish in the background, but cannot create a workspace after cancellation.
-Weather and other general-purpose widgets retain their existing prototype data.
+The metadata catalog includes app/widget IDs, member channels, existing DMs with
+profile names and username aliases, and available projects. Up to 80 locally
+ranked candidates go to Jev; no message history or signing credentials are sent.
+Minor typos, joined words and username prefixes survive local shortlisting. Names
+and search strings come from verbatim request spans. Only selected, validated
+choices can reach the canvas controller; speculative unused slots cannot veto a
+request. Calls share a bounded native transport (15 seconds, 256 KB response cap,
+no redirects, one request at a time), and failures remain visible for retry.
 
-Run the optional live planner test (uses the local model sign-in):
-`cargo test --manifest-path desktop/src-tauri/Cargo.toml commands::workspace_plan::tests::live_workspace_plan -- --ignored --nocapture`.
+Workspace descriptions can combine existing windows with one unsent group DM
+draft. For example, “message Matt and Jared, and check the weather” resolves the
+same people as the command capsule. An uncertain recipient pauses the entire workspace
+creation for a choice; already resolved people, windows and placements remain in
+the pending plan. Nothing is persisted or sent until the local plan is complete.
+All windows, recipient routes and geometry commit in one workspace snapshot.
+Closing the prompt, switching workspaces or choosing Custom retires pending work.
+
+Export `TYPESAFE_API_KEY` in the shell launching the desktop app and restart after
+changing it; never expose it as a `VITE_*` variable. Widgets are existing app
+components, not generated code. Weather retains its existing prototype data.
+
+## Voice and typed interface commands
+
+The bottom-center command capsule stays visible and starts muted. **Cmd+B**
+(Ctrl+B, with Cmd/Ctrl+Shift+Space as an alias) activates voice when muted and
+leaves an already active session listening. Clicking the voice capsule toggles
+mute; muted waveforms use 20% opacity. The keyboard button morphs it into a typed
+command field and releases the microphone; the mic button restores live listening.
+Typed drafts survive mode switches. Enter submits, Shift+Enter adds a line, and
+Escape returns to muted voice mode and cancels pending work. Escape passes through
+to other controls when the capsule is already muted. No separate Ask Buzz button
+occupies the canvas toolbar. Only errors appear above the capsule. Recipient choices
+expand inside it; ordinary command feedback is announced without a visible toast,
+and the send arrow becomes a spinner while a typed command runs.
+Explicit workspace navigation, community switching, hiding/unmounting the app,
+microphone loss and a 30-minute session limit release the microphone.
+Voice-created/switched workspaces keep listening.
+
+An AudioWorklet sends mono 16 kHz PCM in 100 ms blocks. Bounded speech windows yield
+partials roughly every 700 ms while talking and finalize after 500 ms of quiet
+(or 12 seconds of continuous speech). A dedicated native worker keeps the existing
+Parakeet model warm and uses a fresh inference stream for each partial. Audio is
+never uploaded or retained. Its integrity-checked download starts if missing.
+
+`voice/liveIntent.ts` asks Jev two atomic questions: whether there is a complete
+current request, and which verbatim speech clause contains it. Introductory chatter
+and explicit multi-command boundaries are separated before routing. Partial speech
+needs the same selected clause on consecutive observations; final speech can act
+immediately. Consumed prefixes, serialized actions and revision/cancellation fences
+prevent replay. Queues and transcript history are bounded; failures stop listening
+with a visible retry message. Jev receives rolling transcript text and bounded
+candidate metadata through native IPC using `TYPESAFE_API_KEY`; HTTP connections
+and model weights are reused. Typed requests retain the ordinary command path.
+
+The bar combines local destination discovery with Jev commands. `voice/commandCatalog.ts`
+builds bounded suggestions from available apps, projects, channels, DMs, workspaces,
+settings and creation forms. Typing makes no model request; arrows/Enter or a click
+select a concrete validated plan. Submitted natural text and voice requests use Jev
+first, with available views and workspace names, icons and contents as context.
+If Jev is unavailable, exact known destinations still have a local fallback.
+Feature-gated destinations stay out of the catalog.
+
+The extensible operation registry is `voice/intent.ts`. Classification chooses one operation;
+`voice/plan.ts` then builds only its relevant typed parameter questions. Jev chooses
+from existing IDs and verbatim transcript spans, never generated executable code.
+`voice/execute.ts` commits through the existing workspace controller in one snapshot.
+Both spoken and typed input use this same path. Current operations:
+
+- Open channels, DMs, projects, Agents, Apps and widgets from the authorized catalog.
+- Start a new DM draft with up to eight recipients (including eligible agents).
+  The ordinary composer receives recipient references; no conversation/message is
+  published until the user submits its first message.
+- Create a workspace; switch by name or next/previous, rename or close workspaces.
+- Explicitly change a workspace icon, duplicate a workspace, move it to the top/bottom
+  of the dock or before/after another workspace, clear its windows, or close all other
+  workspaces. Each operation commits one snapshot and supports undo. Clearing Home
+  preserves its anchored summary; duplicated Home workspaces contain only its companions.
+- Arrange focus, equal columns/split screen, stacked rows, grid or freeform.
+  Assign named windows to halves, thirds, two-thirds, quarters or full canvas;
+  edges/corners/center preserve size. Resize bigger/smaller/wider/taller or use
+  small (35% × 40%), medium (60% × 65%), large (85% × 85%) or maximize presets; focus or close a window. Connected content
+  moves with its parent. Home's permanent summary remains anchored.
+- Open Projects, repositories, issues, pull requests, project activity, agent browsing,
+  and workflow creation views directly, with the correct section selected.
+- Search authorized message history, people, agents, channels and local project
+  metadata in a Search window. It reuses Cmd+K's search hooks and operators such as
+  `in:general` and `from:alice`; results open their conversation/thread or an unsent
+  recipient draft. Loading, partial failure/retry and unresolved filters remain visible.
+- Browse/join channels through the directory, open channel/agent creation forms,
+  or open a specific Settings page. Forms still own validation and submission.
+- Undo the last local command if the workspace snapshot hasn't changed since.
+
+Examples: “start a DM with Matt and Jared”, “open buzz design and music”,
+“create a workspace with weather and projects side by side”, “move music left”,
+“make this window bigger”, “switch to Home”, “rename this workspace Studio”,
+“change this workspace icon to a message icon”, “duplicate this workspace”,
+“move Design above Studio in the dock”, “close all other workspaces”,
+“show me a list of my projects”, “show my reviews”, “browse agents”,
+“search Buzz for in:general launch”, “open appearance settings”, “create a channel”.
+
+Each dispatched request is one atomic operation. Live speech can sequence distinct
+requests; a single typed request still names one operation. Sending/editing messages,
+agent execution, and permission changes are not supported by this registry. DM matching includes profile names, usernames, confirmed spoken aliases,
+open DM participants, and the latest conversation timestamp (including channel
+recency updates from live messages). Familiar first-name prefixes outrank directory
+strangers; multiple plausible familiar people use Jev's recency context or ask.
+An uncertain or new recipient pauses the command with a chooser instead of an error.
+Voice/typed replies and candidate buttons resume the original request, preserving
+already resolved people. Explicit choices remember the requested name by public key
+in account/community-scoped local storage, bounded to 256 people and eight names
+per person. No message content is sent to Jev for this ranking.
+Other ambiguous/unavailable targets leave the transcript editable. Cancel,
+unmount, identity/community switch, and intervening workspace edits fence late
+results. Directory discovery is bounded to twelve search terms plus one initial
+page, with at most 80 candidates; use a fuller name when discovery misses someone.
+
+Tests: `voice/commandCatalog.test.mjs` binds exact destination resolution, ambiguity
+and feature gates; `voice/commands.test.mjs` binds parameter decoding and canvas execution;
+`voice/live-search-fixtures.mjs` generates live Jev regressions for app-list requests,
+subviews, settings and creation entry points;
+`tests/e2e/interface-commands.spec.ts` covers the real composer, persistence,
+geometry, undo, cancellation, microphone release and hotkey path. Native tests cover
+choice validation, bounded audio and actual local speech inference. For opt-in live
+Jev regression, generate fixtures with `voice/live-fixtures.mjs`, then run the ignored
+`commands::interface_intent::tests::live_interface_intents` test with
+`BUZZ_INTERFACE_FIXTURES_PATH` pointing to that JSON and the TypeSafe key exported.
+
+Live regression: `voice/liveIntent.test.mjs` covers partial stability, chatter,
+revisions, cancellation and bounded speech windows. `voice/live-stream-fixtures.mjs`
+generates production Jev prompts for opt-in live tests. The microphone E2E runs the
+real AudioWorklet/PCM path with only native transcription and Jev transport mocked,
+and checks that actions happen before stopping and survive voice workspace creation.
+
+## Invisible canvas areas
+
+`voice/canvasAreas.ts` is the shared area vocabulary and geometry implementation.
+Coordinates are fractions of the visible Buzz canvas, not the physical desktop.
+No overlays or drop-zone UI are required. Named regions move and size the target;
+edge and corner commands only position it. Coordinated placements such as
+“music left half and weather right half” are one atomic arrangement. Equal split
+screen and grid presets tile parent windows in their current order. Existing
+minimum window sizes and canvas bounds keep controls reachable. All geometry
+remains editable with ordinary drag/resize and persists on reload.
+
+Examples: “put music in the left half”, “weather in the bottom third”, “make this
+a small window”, “split screen top and bottom”, “put all windows in a grid”.
+The workspace prompt accepts the same placements in its initial description.
+
+`voice/live-layout-fixtures.mjs` generates production question fixtures for the
+optional native `commands::interface_intent::tests::live_interface_intents` test
+(set `BUZZ_INTERFACE_FIXTURES_PATH` and the existing `TYPESAFE_API_KEY`).
+
+The voice waveform uses one row of 2px rounded strokes with 3px gaps and softly faded ends. A 40px animated avatar sits to the left of both modes, using a bundled looping GIF (a static poster for reduced motion). Voice mode is 128×40px plus its adjacent 40px input-mode toggle; typing expands the capsule to fit the request. Both sit 24px above the window edge and share the windows’ background, border and shadow tokens with the header and floating controls. Layout transforms keep the 220ms morph interruptible without stretching text; reduced motion removes spatial movement.
+
+Window management accepts individual names, named groups, **both windows**, or **all windows** for movement and resizing. “All windows 25% smaller” reduces each movable parent’s width and height by 25%, preserving origins and relative stacking, and commits one undoable snapshot. Explicit percentages (including spoken numbers), narrower/shorter, half/double, and “resize to 75%” are supported. Window minimum sizes still apply. Connected panes transform once as a parent; Home’s summary stays anchored. Group movement preserves spacing; a named area that cannot fit the group at usable sizes leaves the layout unchanged.
+
+
+Focus layout is a centered, 720px-wide vertical reading column with one outer
+scrollbar. New windows opened by the picker, typed commands or live voice are
+inserted at the top and revealed immediately. Existing windows retain their order;
+a multi-window request preserves mention order. Home's summary follows the windows
+in the same scroll flow. Conversations retain their internal message scrolling,
+and switching layouts preserves their mounted content and connected panes.
+
+Window additions no longer have a workspace-count cap. Jev handles up to eight targets per request, with parameter questions batched under the native transport limit. Focus clips its entire reading viewport with the window corner radius. Layout edits are scoped to their workspace owner; stale callbacks cannot overwrite another workspace after navigation.
+
+
+Commands can open and position content in the same transaction: “projects on the
+left” opens one Projects window and places it on the left. Plural app names do
+not mean multiple windows. If only the redundant count answer is uncertain, a
+fully confident, contiguous target list can confirm that same count; ambiguous
+or contradictory targets still stop the command.
+
+The command session remembers one successful window/group reference and its
+movement direction. “Move Kenny and Cynthia to the right”, then “move them more”
+continues moving exactly that pair. “Make it bigger” can refer to the window just
+opened even if another window retains keyboard focus. Bare directional moves
+nudge by 8% of the canvas, clamped to its bounds; explicitly named edges, corners,
+halves and thirds remain absolute placements. Explicit names/directions override
+context. References are transient and scoped to the active workspace/community,
+and are cleared on undo, workspace changes or removal of any selected window.
+Failed or cancelled requests never become the remembered command.

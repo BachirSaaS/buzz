@@ -1,0 +1,13 @@
+:root {
+  --pulse-window-background: var(--blockui-surface-card);
+  --pulse-window-stroke: 0 solid transparent;
+  --pulse-window-shadow: 0 2px 8px #0000000d;
+}
+
+/* Floating controls and header actions share the canvas windows' material. */
+.pulse-control-surface {
+  background: var(--pulse-window-background);
+  border: var(--pulse-window-stroke);
+  box-shadow: var(--pulse-window-shadow);
+  color: var(--foreground);
+}

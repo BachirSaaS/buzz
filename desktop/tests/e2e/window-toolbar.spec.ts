@@ -1,9 +1,13 @@
-import { arrangeWindows } from "../helpers/canvas";
+import {
+  arrangeWindows,
+  openWindowPicker,
+  expectCanAddWindow,
+} from "../helpers/canvas";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { installMockBridge } from "../helpers/bridge";
 import { waitForAnimations } from "../helpers/animations";
 async function add(page: Page, query: string, name: RegExp) {
-  await page.getByTestId("canvas-add-view").click();
+  await openWindowPicker(page);
   const dialog = page.getByRole("dialog", { name: "Add a window" });
   await dialog.getByRole("textbox", { name: "Search views" }).fill(query);
   await dialog.getByRole("button", { name }).click();
@@ -33,7 +37,7 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/__chief", (r) => r.fulfill({ status: 503, json: {} }));
   await installMockBridge(page);
   await page.goto("/#/pulse?feed=conversation");
-  await expect(page.getByTestId("canvas-add-view")).toBeEnabled();
+  await expectCanAddWindow(page, true);
 });
 test("all window types share plain-title toolbars and split actions in every layout", async ({
   page,
@@ -124,7 +128,7 @@ test("empty panes survive reload, can be closed, and the last slot can be filled
   await page
     .getByRole("button", { name: "Split Music window", exact: true })
     .click();
-  await expect(page.getByTestId("canvas-add-view")).toBeDisabled();
+  await expectCanAddWindow(page, false);
   for (const button of await page
     .getByRole("button", { name: /^Split .* window$/ })
     .all())

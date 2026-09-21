@@ -22,7 +22,7 @@ export function canvasWindowView(
   }
   const title = {
     conversation: "Messages",
-    search: "Messages",
+    search: "Search",
     projects: "Projects",
     agents: "Agents",
     workflows: "Apps",

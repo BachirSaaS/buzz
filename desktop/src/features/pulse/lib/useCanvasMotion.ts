@@ -65,6 +65,7 @@ export function useCanvasMotion(
   }, []);
   useLayoutEffect(() => {
     const ids = pending.current;
+    if (!ids.length) return;
     pending.current = [];
     for (const element of root.current?.querySelectorAll<HTMLElement>(
       "[data-content-id]",
@@ -78,7 +79,7 @@ export function useCanvasMotion(
         ? state.windows.filter((id) => !next.windows.includes(id))
         : [];
     const ghosts: HTMLElement[] = [];
-    if (mode() !== "instant")
+    if (removed.length && mode() !== "instant")
       for (const element of root.current?.querySelectorAll<HTMLElement>(
         "[data-content-id]",
       ) ?? []) {

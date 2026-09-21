@@ -26,9 +26,10 @@
   flex-direction: column;
   height: 100%;
   overflow: hidden;
-  background: var(--background);
+  background: var(--pulse-window-background);
   border-radius: var(--blockui-radius-lg);
-  box-shadow: 0 2px 8px #0000000d;
+  border: var(--pulse-window-stroke);
+  box-shadow: var(--pulse-window-shadow);
 }
 .panel-dock-header {
   display: flex;
@@ -326,10 +327,11 @@
   pointer-events: stroke;
 }
 /* Interior leaves are absolute; standalone tiled parents need their own height. */
-.pulse-canvas:not([data-layout="freeform"]) .pulse-canvas-window {
+.pulse-canvas:not([data-layout="freeform"], [data-layout="focus"])
+.pulse-canvas-window {
   height: 100%;
 }
-.pulse-canvas:not([data-layout="freeform"])
+.pulse-canvas:not([data-layout="freeform"], [data-layout="focus"])
   .pulse-canvas-window[data-view-kind="widget"] {
   height: min(520px, 100%);
 }

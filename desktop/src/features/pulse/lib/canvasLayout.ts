@@ -15,6 +15,7 @@ export type CanvasView = {
   kind: CanvasViewKind;
   title: string;
   target?: string;
+  initialRoute?: Record<string, string>;
   aliases?: string[];
   description?: string;
 };
@@ -35,13 +36,19 @@ export type CanvasFrame = {
   width: number;
   height: number;
 };
-export const MAX_CANVAS_WINDOWS = 3;
 /** All content IDs, including the implicit main only in older workspaces. */
 export const canvasContentIds = (state: CanvasLayout): string[] =>
   state.main === false ? state.windows : ["main", ...state.windows];
-/** Four total views, whether or not the workspace has a legacy main. */
-export const canvasWindowLimit = (state: CanvasLayout) =>
-  MAX_CANVAS_WINDOWS + (state.main === false ? 1 : 0);
+/** Focus inserts new windows in request order at the top; other layouts append them. */
+export function addCanvasWindows(state: CanvasLayout, ids: string[]): string[] {
+  const additions = [...new Set(ids)].filter(
+    (id) => !state.windows.includes(id),
+  );
+  return state.layout === "focus"
+    ? [...additions, ...state.windows]
+    : [...state.windows, ...additions];
+}
+
 const EMPTY: CanvasLayout = { layout: "focus", windows: [] };
 const CHANGE = "buzz-canvas-layout-changed";
 
@@ -54,8 +61,6 @@ export function parseCanvasLayout(raw: string | null): CanvasLayout {
       !value ||
       !["focus", "grid", "columns", "freeform"].includes(value.layout) ||
       !Array.isArray(value.windows) ||
-      // Preserve existing companions when restoring Home’s permanent summary.
-      value.windows.length > MAX_CANVAS_WINDOWS + 1 ||
       value.windows.some(
         (id: unknown) => typeof id !== "string" || id.length > 512,
       ) ||
@@ -106,7 +111,7 @@ export function parseCanvasLayout(raw: string | null): CanvasLayout {
       if (
         Array.isArray(sizes) &&
         sizes.length >= 2 &&
-        sizes.length <= MAX_CANVAS_WINDOWS + 1 &&
+        sizes.length <= ids.length &&
         sizes.every(
           (size: unknown) =>
             typeof size === "number" &&
@@ -141,11 +146,9 @@ export function parseCanvasLayout(raw: string | null): CanvasLayout {
     const order = Array.isArray(value.freeform?.order)
       ? [
           ...new Set<string>(
-            value.freeform.order
-              .slice(0, MAX_CANVAS_WINDOWS + 1)
-              .filter(
-                (id: unknown) => typeof id === "string" && ids.includes(id),
-              ),
+            value.freeform.order.filter(
+              (id: unknown) => typeof id === "string" && ids.includes(id),
+            ),
           ),
         ]
       : [];

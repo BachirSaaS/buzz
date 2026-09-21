@@ -23,6 +23,10 @@ mod engrams;
 mod export_util;
 mod global_agent_config;
 mod identity;
+mod interface_intent;
+mod interface_voice;
+pub use interface_intent::*;
+pub use interface_voice::*;
 mod identity_archive;
 mod join_policy;
 mod legacy_storage;
@@ -134,8 +138,6 @@ pub use workflows::*;
 pub use workspace::*;
 
 mod local_model;
-mod workspace_plan;
-pub use workspace_plan::*;
 mod pulse_summary;
 pub use pulse_summary::*;
 

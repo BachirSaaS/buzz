@@ -1,5 +1,6 @@
 import { PulseWorkspaceNavigation } from "./PulseWorkspaceNavigation";
 import { usePulseWorkspaces } from "../lib/usePulseWorkspaces";
+import { useWindowCatalog } from "../lib/useWindowCatalog";
 import { WORKSPACE_ROUTE_KEYS } from "../lib/pulseWorkspaces";
 import { PulseCanvasControls } from "./PulseCanvasControls";
 import { ArrowUp, Inbox, Search } from "lucide-react";
@@ -37,10 +38,11 @@ import { PulseBriefing } from "./PulseBriefing";
 import { buildSummaryInput } from "../lib/pulseSummary";
 import { usePulseSummary } from "../usePulseSummary";
 import { useRelayOrigin } from "@/shared/lib/useRelayOrigin";
-import { canvasWindowLimit, type CanvasView } from "../lib/canvasLayout";
+import type { CanvasView } from "../lib/canvasLayout";
 import { PulseCanvas } from "./PulseCanvas";
 
 const FEED_SEARCH_KEYS = ["workspace", ...WORKSPACE_ROUTE_KEYS] as const;
+const NO_CONVERSATIONS: PulseConversation[] = [];
 
 export function UnifiedPulseView({
   currentPubkey,
@@ -48,6 +50,8 @@ export function UnifiedPulseView({
   currentPubkey?: string;
 }) {
   const feed = useUnifiedPulseFeed(currentPubkey);
+  // Catalog subscriptions and metadata survive canvas remounts on space changes.
+  const catalog = useWindowCatalog();
   const relayOrigin = useRelayOrigin();
   const canvasScope =
     relayOrigin && currentPubkey ? `${relayOrigin}:${currentPubkey}` : null;
@@ -144,7 +148,10 @@ export function UnifiedPulseView({
     scope: string;
     ids: string[];
   } | null>(null);
-  const ids = feed.conversations.map((item) => item.id);
+  const ids = React.useMemo(
+    () => feed.conversations.map((item) => item.id),
+    [feed.conversations],
+  );
   const acceptedIds = accepted?.scope === feed.scope ? accepted.ids : ids;
   React.useEffect(() => {
     if (feed.query.isSuccess && accepted?.scope !== feed.scope)
@@ -153,8 +160,10 @@ export function UnifiedPulseView({
         ids: feed.conversations.map((item) => item.id),
       });
   }, [accepted?.scope, feed.scope, feed.query.isSuccess, feed.conversations]);
-  const acceptedSet = new Set(acceptedIds);
-  const newCount = ids.filter((id) => !acceptedSet.has(id)).length;
+  const newCount = React.useMemo(() => {
+    const acceptedSet = new Set(acceptedIds);
+    return ids.filter((id) => !acceptedSet.has(id)).length;
+  }, [ids, acceptedIds]);
   React.useEffect(() => {
     if (newCount > 0 && (!scrollElement || scrollElement.scrollTop <= 24)) {
       setAccepted({
@@ -163,17 +172,46 @@ export function UnifiedPulseView({
       });
     }
   }, [feed.conversations, feed.scope, newCount, scrollElement]);
-  const byId = new Map(feed.conversations.map((item) => [item.id, item]));
-  const acceptedConversations = acceptedIds
-    .map((id) => byId.get(id))
-    .filter((item): item is PulseConversation => Boolean(item));
-  const summaryInput = buildSummaryInput(
-    feed.conversations,
-    currentPubkey ?? "",
-    reads,
-    `${currentPubkey}:${feed.scope}`,
-    Date.now() / 1000,
-    feed.profiles[currentPubkey ?? ""]?.displayName ?? undefined,
+  const byId = React.useMemo(
+    () => new Map(feed.conversations.map((item) => [item.id, item])),
+    [feed.conversations],
+  );
+  const acceptedConversations = React.useMemo(
+    () =>
+      acceptedIds
+        .map((id) => byId.get(id))
+        .filter((item): item is PulseConversation => Boolean(item)),
+    [acceptedIds, byId],
+  );
+  // The feed's focused poll supplies time updates; geometry/focus changes do
+  // not need to rescan every message or reconstruct a model request.
+  const minute = Math.floor(Date.now() / 60_000);
+  const viewerName =
+    feed.profiles[currentPubkey ?? ""]?.displayName ?? undefined;
+  const needsBriefing =
+    canvas.state.main !== false &&
+    (filter === "home" || (filter === "search" && briefingFilter !== null));
+  const briefingConversations = needsBriefing
+    ? feed.conversations
+    : NO_CONVERSATIONS;
+  const summaryInput = React.useMemo(
+    () =>
+      buildSummaryInput(
+        briefingConversations,
+        currentPubkey ?? "",
+        reads,
+        `${currentPubkey}:${feed.scope}`,
+        minute * 60,
+        viewerName,
+      ),
+    [
+      briefingConversations,
+      currentPubkey,
+      reads,
+      feed.scope,
+      minute,
+      viewerName,
+    ],
   );
   const summary = usePulseSummary(
     summaryInput,
@@ -182,35 +220,47 @@ export function UnifiedPulseView({
       !feed.isLoading &&
       Boolean(currentPubkey),
   );
-  const generatedBriefing = (summary.data ?? []).filter((group) =>
-    [...group.ids].every((id) => byId.has(id)),
+  const generatedBriefing = React.useMemo(
+    () =>
+      (summary.data ?? []).filter((group) =>
+        [...group.ids].every((id) => byId.has(id)),
+      ),
+    [summary.data, byId],
   );
-  const briefing = generatedBriefing.length
-    ? generatedBriefing
-    : buildHomeBriefing(
-        feed.conversations,
-        currentPubkey,
-        reads,
-        Date.now() / 1000,
-      );
+  const briefing = React.useMemo(
+    () =>
+      generatedBriefing.length
+        ? generatedBriefing
+        : buildHomeBriefing(
+            briefingConversations,
+            currentPubkey,
+            reads,
+            minute * 60,
+          ),
+    [generatedBriefing, briefingConversations, currentPubkey, reads, minute],
+  );
   const focusedIds = briefing.find(
     (group) => group.kind === briefingFilter,
   )?.ids;
-  const visible = acceptedConversations
-    .filter((item) => filter !== "conversation" || Boolean(item.channel))
-    .filter((item) =>
-      matchesPulseFilter(
-        item,
-        "all",
-        false,
-        false,
-        filter === "search" ? search : "",
-      ),
-    )
-    .filter(
-      (item) =>
-        filter !== "search" || !briefingFilter || focusedIds?.has(item.id),
-    );
+  const visible = React.useMemo(
+    () =>
+      acceptedConversations
+        .filter((item) => filter !== "conversation" || Boolean(item.channel))
+        .filter((item) =>
+          matchesPulseFilter(
+            item,
+            "all",
+            false,
+            false,
+            filter === "search" ? search : "",
+          ),
+        )
+        .filter(
+          (item) =>
+            filter !== "search" || !briefingFilter || focusedIds?.has(item.id),
+        ),
+    [acceptedConversations, filter, search, briefingFilter, focusedIds],
+  );
   const showLatest = () => {
     setAccepted({ scope: feed.scope, ids });
     scrollRef.current?.scrollTo({ top: 0 });
@@ -377,12 +427,13 @@ export function UnifiedPulseView({
         expanded={expanded}
         testId="unified-pulse"
         viewControls={
-          <PulseCanvasControls state={canvas.state} save={canvas.save} />
-        }
-        onAddView={() => setCanvasPicker(true)}
-        canAddView={
-          Boolean(currentPubkey) &&
-          canvas.state.windows.length < canvasWindowLimit(canvas.state)
+          <PulseCanvasControls
+            key={`${canvasScope}:${workspaces.active.id}`}
+            state={canvas.state}
+            save={canvas.save}
+            onAdd={() => setCanvasPicker(true)}
+            canAdd={Boolean(currentPubkey)}
+          />
         }
         renderCanvas={(main) => (
           <PulseCanvas
@@ -394,6 +445,7 @@ export function UnifiedPulseView({
             }
             mainTitle={activeApp.charAt(0).toUpperCase() + activeApp.slice(1)}
             state={canvas.state}
+            catalog={catalog}
             save={canvas.save}
             feed={feed}
             currentPubkey={currentPubkey}

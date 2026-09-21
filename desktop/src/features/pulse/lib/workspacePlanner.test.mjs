@@ -1,7 +1,20 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { buildWindowCatalog, searchWindowCatalog } from "./windowCatalog.ts";
-import { workspacePlanInput, parseWorkspacePlan } from "./workspacePlanner.ts";
+import { parameterQuestions } from "../voice/plan.ts";
+const workspacePlanInput = (request, catalog) => {
+  const ctx = {
+    catalog,
+    people: [],
+    active: { id: "home", name: "Home", canvas: { windows: [] } },
+    workspaces: [],
+  };
+  const questions = parameterQuestions("create_workspace", request, ctx);
+  const ids = Object.keys(questions.target_1.criteria).filter((id) =>
+    catalog.some((v) => v.id === id),
+  );
+  return { questions, catalog: ids.map((id) => ({ id })) };
+};
 const person = {
   name: "jmarr",
   displayName: "John Marr",
@@ -63,35 +76,47 @@ test("model input is bounded and ranks requested people ahead of unrelated names
   assert.ok(!JSON.stringify(input).includes("avatarUrl"));
   assert.ok(new TextEncoder().encode(JSON.stringify(input)).length <= 60000);
 });
-test("plans must be complete, unique, grounded, and limited to four windows", () => {
-  const catalog = entries();
-  const good = {
-    name: "My desk",
-    layout: "grid",
-    windowIds: ["dm:dm-j", "widget:weather", "app:projects"],
-    unresolved: [],
-  };
-  assert.deepEqual(parseWorkspacePlan(good, catalog), {
-    name: good.name,
-    layout: good.layout,
-    windowIds: good.windowIds,
-  });
-  for (const bad of [
-    null,
-    {},
-    { ...good, windowIds: ["invented"] },
-    { ...good, windowIds: [] },
-    { ...good, windowIds: ["widget:weather", "widget:weather"] },
-    { ...good, windowIds: catalog.slice(0, 5).map((item) => item.id) },
-    { ...good, layout: "surprise" },
-    { ...good, name: "x".repeat(49) },
-    { ...good, unresolved: ["Which Matt did you mean?"] },
-  ])
-    assert.throws(() => parseWorkspacePlan(bad, catalog));
-  assert.throws(() =>
-    parseWorkspacePlan(
-      good,
-      catalog.filter((item) => item.id !== "dm:dm-j"),
-    ),
-  );
+test("casual names, separator differences and typos survive the 80-candidate shortlist", () => {
+  const unrelated = Array.from({ length: 100 }, (_, i) => ({
+    id: `channel:${i}`,
+    kind: "channel",
+    title: `#unrelated-${i}`,
+    aliases: [],
+    description: "Existing channel",
+  }));
+  const requested = [
+    {
+      id: "dm:matt",
+      kind: "dm",
+      title: "Matt Kursmark",
+      aliases: ["mattkursmark"],
+      description: "Existing one-to-one direct message.",
+    },
+    {
+      id: "channel:buzz-design",
+      kind: "channel",
+      title: "#buzz-design",
+      aliases: ["buzz-design"],
+      description: "Existing channel",
+    },
+    {
+      id: "widget:music",
+      kind: "widget",
+      title: "Music",
+      aliases: ["music"],
+      description: "Music widget",
+    },
+  ];
+  for (const request of [
+    "mattkursmark, buzz design, music",
+    "mattkurs, buzzdesign, music",
+    "matkursmark, buzz desgin, musci",
+  ]) {
+    const input = workspacePlanInput(request, [...unrelated, ...requested]);
+    for (const entry of requested)
+      assert.ok(
+        input.catalog.slice(0, 3).some((item) => item.id === entry.id),
+        `${request}: ${entry.id}`,
+      );
+  }
 });

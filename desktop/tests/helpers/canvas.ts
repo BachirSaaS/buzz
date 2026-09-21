@@ -1,8 +1,8 @@
-import type { Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 /** Exercise the user-facing arrangement menu, including its close/focus behavior. */
 export async function arrangeWindows(page: Page, name: string) {
   await page
-    .getByRole("button", { name: "Arrange windows", exact: true })
+    .getByRole("button", { name: "Window options", exact: true })
     .click();
   await page
     .getByRole("menuitemradio", { name: `${name} layout`, exact: true })
@@ -30,4 +30,30 @@ export async function readActiveCanvas(page: Page) {
     return data.items?.find((item: { id: string }) => item.id === data.active)
       ?.canvas;
   });
+}
+
+/** Open the window catalog through the consolidated canvas menu. */
+export async function openWindowPicker(page: Page, keyboard = false) {
+  const options = page.getByTestId("canvas-options");
+  if (keyboard) {
+    await options.focus();
+    await page.keyboard.press("Enter");
+    await page
+      .getByRole("menuitem", { name: "Add window", exact: true })
+      .focus();
+    await page.keyboard.press("Enter");
+  } else {
+    await options.click();
+    await page
+      .getByRole("menuitem", { name: "Add window", exact: true })
+      .click();
+  }
+}
+/** Window limits disable adding, while the arrangement menu remains available. */
+export async function expectCanAddWindow(page: Page, enabled: boolean) {
+  await page.getByTestId("canvas-options").click();
+  const item = page.getByTestId("canvas-add-view");
+  if (enabled) await expect(item).toBeEnabled();
+  else await expect(item).toBeDisabled();
+  await page.keyboard.press("Escape");
 }

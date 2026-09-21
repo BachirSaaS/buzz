@@ -28,6 +28,41 @@ export function useWindowCatalog() {
     [channels.data],
   );
   const profiles = useUsersBatchQuery(pubkeys, { enabled: pubkeys.length > 0 });
+  const people = useMemo(
+    () =>
+      pubkeys
+        .filter((pubkey) => pubkey !== identity.data?.pubkey)
+        .map((pubkey) => {
+          const profile = profiles.data?.profiles[pubkey];
+          return {
+            pubkey,
+            displayName: profile?.displayName || profile?.name || null,
+            nip05Handle: profile?.nip05Handle ?? null,
+            avatarUrl: profile?.avatarUrl ?? null,
+            ownerPubkey: profile?.ownerPubkey ?? null,
+            isAgent: profile?.isAgent ?? false,
+            known: true,
+            aliases: [
+              profile?.name,
+              profile?.displayName,
+              profile?.nip05Handle,
+            ].filter((name): name is string => Boolean(name)),
+            lastMessageAt: Math.max(
+              0,
+              ...(channels.data ?? [])
+                .filter(
+                  (c) =>
+                    c.channelType === "dm" &&
+                    c.isMember &&
+                    !c.archivedAt &&
+                    c.participantPubkeys.includes(pubkey),
+                )
+                .map((c) => Date.parse(c.lastMessageAt ?? "") || 0),
+            ),
+          };
+        }),
+    [pubkeys, profiles.data, identity.data?.pubkey, channels.data],
+  );
   const views = useMemo(
     () =>
       buildWindowCatalog({
@@ -50,6 +85,7 @@ export function useWindowCatalog() {
   );
   return {
     views,
+    people,
     ready:
       Boolean(identity.data?.pubkey) &&
       channels.isSuccess &&

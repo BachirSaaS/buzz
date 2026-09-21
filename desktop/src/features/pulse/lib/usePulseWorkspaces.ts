@@ -1,4 +1,4 @@
-import type { WorkspaceBlueprint } from "./workspacePlanner";
+import { replaceEqualDeep } from "@tanstack/react-query";
 import {
   useCallback,
   useEffect,
@@ -55,13 +55,23 @@ export function usePulseWorkspaces(
     }
   }, [key, scope]);
   const raw = useSyncExternalStore(subscribe, snapshot, () => "");
-  const state = useMemo(
-    () =>
-      raw.startsWith("legacy:")
-        ? parseWorkspaces(null, raw.slice(7))
-        : parseWorkspaces(raw),
-    [raw],
-  );
+  const previous = useRef<{
+    key: string | null;
+    state: PulseWorkspaces;
+  } | null>(null);
+  const state = useMemo(() => {
+    const parsed = raw.startsWith("legacy:")
+      ? parseWorkspaces(null, raw.slice(7))
+      : parseWorkspaces(raw);
+    // Geometry persists as one snapshot, but unchanged window routes and split
+    // trees retain their identity. Never share data across community scopes.
+    const state = replaceEqualDeep(
+      previous.current?.key === key ? previous.current.state : undefined,
+      parsed,
+    );
+    previous.current = { key, state };
+    return state;
+  }, [raw, key]);
   const direct =
     !values.workspace && values.feed
       ? workspaceForFeed(values.feed)
@@ -70,6 +80,14 @@ export function usePulseWorkspaces(
     state.items.find((item) => item.id === (values.workspace || direct)) ??
     state.items.find((item) => item.id === state.active) ??
     state.items[0];
+  const owner = useRef({ key, id: active.id });
+  owner.current = { key, id: active.id };
+  useEffect(
+    () => () => {
+      owner.current = { key: null, id: "" };
+    },
+    [],
+  );
   const pending = useRef<string | null>(null);
   const persist = useCallback(
     (next: PulseWorkspaces) => {
@@ -196,7 +214,12 @@ export function usePulseWorkspaces(
     const target = state.items.find((item) => item.id === id);
     return target ? navigate(current(), target) : false;
   };
-  const create = (blueprint?: WorkspaceBlueprint) => {
+  const create = (blueprint?: {
+    name: string;
+    layout: CanvasLayout["layout"];
+    windowIds: string[];
+    canvas?: CanvasLayout;
+  }) => {
     if (state.items.length >= MAX_WORKSPACES) return false;
     let index = 1;
     while (state.items.some((item) => item.name === `Workspace ${index}`))
@@ -205,7 +228,7 @@ export function usePulseWorkspaces(
       id: crypto.randomUUID(),
       name: blueprint?.name ?? `Workspace ${index}`,
       route: {},
-      canvas: {
+      canvas: blueprint?.canvas ?? {
         layout: blueprint?.layout ?? "focus",
         windows: blueprint?.windowIds ?? [],
         main: false,
@@ -235,10 +258,23 @@ export function usePulseWorkspaces(
         )
       : persist({ ...current(), items });
   };
-  const saveCanvas = (canvas: CanvasLayout) =>
-    persist({
-      ...current(),
-      items: current().items.map((item) =>
+  const saveCanvas = (canvas: CanvasLayout) => {
+    // A menu/gesture created in another workspace must never write through a newer owner.
+    if (
+      owner.current.key !== key ||
+      owner.current.id !== active.id ||
+      (pending.current && pending.current !== active.id)
+    )
+      return false;
+    const stored = snapshot();
+    const base = stored.startsWith("legacy:")
+      ? parseWorkspaces(null, stored.slice(7))
+      : parseWorkspaces(stored);
+    if (!base.items.some((item) => item.id === active.id)) return false;
+    const next = {
+      ...base,
+      active: active.id,
+      items: base.items.map((item) =>
         item.id === active.id
           ? {
               ...item,
@@ -246,7 +282,16 @@ export function usePulseWorkspaces(
             }
           : item,
       ),
-    });
+    };
+    // Settings hosts the controller without a canvas; return to the changed
+    // workspace in the same transaction so the new window is actually visible.
+    return syncRoute
+      ? persist(next)
+      : navigate(
+          next,
+          next.items.find((item) => item.id === active.id) ?? active,
+        );
+  };
   return {
     scope,
     items: state.items,
@@ -256,6 +301,18 @@ export function usePulseWorkspaces(
     rename,
     close,
     saveCanvas,
+    /** Read after a command commits so undo can detect intervening edits. */
+    checkpoint: (): PulseWorkspaces => {
+      const value = snapshot();
+      return value.startsWith("legacy:")
+        ? parseWorkspaces(null, value.slice(7))
+        : parseWorkspaces(value);
+    },
+    /** Restore one complete local workspace transaction through the navigation guard. */
+    restore: (saved: PulseWorkspaces) => {
+      const target = saved.items.find((item) => item.id === saved.active);
+      return target ? navigate(saved, target) : false;
+    },
     canCreate: Boolean(key) && state.items.length < MAX_WORKSPACES,
   };
 }

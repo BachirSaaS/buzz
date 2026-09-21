@@ -1,6 +1,7 @@
 import * as React from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { LocalHistorySearchContext } from "./LocalHistorySearchProvider";
+const EMPTY_SEARCH: Record<string, string | null> = {};
 
 /**
  * URL-search-param-backed UI state, so it lives in the history stack:
@@ -21,14 +22,22 @@ export function useHistorySearchState<K extends string>(keys: readonly K[]) {
   const local = React.useContext(LocalHistorySearchContext);
   const applyLocalPatch = local?.applyPatch;
   const navigate = useNavigate();
-  const search = useSearch({ strict: false } as never) as Partial<
-    Record<K, string>
+  // A thread/profile change must not wake every other window. Embedded
+  // windows own their search state and do not consume the global URL at all.
+  const select = (source: Partial<Record<string, unknown>>) => {
+    const selected: Record<string, string | null> = {};
+    for (const key of keys) selected[key] = (source[key] as string) ?? null;
+    return selected;
+  };
+  const search = useSearch({
+    strict: false,
+    select: (source) => (local ? EMPTY_SEARCH : select(source)),
+    structuralSharing: true,
+  });
+  const values = (local ? select(local.values) : search) as Record<
+    K,
+    string | null
   >;
-
-  const values = {} as Record<K, string | null>;
-  for (const key of keys) {
-    values[key] = (local ? local.values[key] : search[key]) ?? null;
-  }
 
   const currentValuesRef = React.useRef(values);
   currentValuesRef.current = values;

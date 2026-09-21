@@ -1,9 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
 import { installMockBridge } from "../helpers/bridge";
-import { arrangeWindows } from "../helpers/canvas";
+import {
+  arrangeWindows,
+  openWindowPicker,
+  expectCanAddWindow,
+} from "../helpers/canvas";
 import { waitForAnimations } from "../helpers/animations";
 async function add(page: Page, name: string) {
-  await page.getByRole("button", { name: "Add window", exact: true }).click();
+  await openWindowPicker(page);
   const dialog = page.getByRole("dialog", { name: "Add a window" });
   await dialog.getByRole("textbox", { name: "Search views" }).fill(name);
   await dialog
@@ -98,9 +102,7 @@ test("create, rename with keyboard, close and browser history preserve neighbori
   await page
     .getByRole("button", { name: "New workspace", exact: true })
     .click();
-  await page
-    .getByRole("button", { name: "Custom Start empty", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Custom", exact: true }).click();
   const custom = tab(page, "Workspace 1");
   await expect(custom).toHaveAttribute("aria-selected", "true");
   await expect(window(page, "weather")).toHaveCount(0);
@@ -183,9 +185,7 @@ test("failed workspace creation is retryable and leaves ownership unchanged", as
   await page
     .getByRole("button", { name: "New workspace", exact: true })
     .click();
-  await page
-    .getByRole("button", { name: "Custom Start empty", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Custom", exact: true }).click();
   await expect(tab(page, "Workspace 1")).toHaveCount(0);
   await expect(tab(page, "Home")).toHaveAttribute("aria-selected", "true");
   await page.keyboard.press("Escape");
@@ -197,9 +197,7 @@ test("failed workspace creation is retryable and leaves ownership unchanged", as
   await page
     .getByRole("button", { name: "New workspace", exact: true })
     .click();
-  await page
-    .getByRole("button", { name: "Custom Start empty", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Custom", exact: true }).click();
   await expect(tab(page, "Workspace 1")).toHaveAttribute(
     "aria-selected",
     "true",
@@ -212,9 +210,7 @@ test("empty workspaces host independent core apps and preserve their own navigat
   await page
     .getByRole("button", { name: "New workspace", exact: true })
     .click();
-  await page
-    .getByRole("button", { name: "Custom Start empty", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Custom", exact: true }).click();
   await expect(page.getByTestId("empty-workspace")).toBeVisible();
   await page.reload();
   await expect(page.getByTestId("empty-workspace")).toBeVisible();
@@ -250,7 +246,7 @@ test("empty workspaces host independent core apps and preserve their own navigat
     .click();
   await expect(messages.getByTestId("pulse-message-view")).toBeVisible();
   expect(page.url()).toBe(workspaceUrl);
-  await page.getByTestId("canvas-add-view").click();
+  await openWindowPicker(page);
   await categories
     .getByRole("button", { name: "Projects", exact: true })
     .click();
@@ -303,9 +299,7 @@ test("a widget can be the first window and connect to a full app without an impl
   await page
     .getByRole("button", { name: "New workspace", exact: true })
     .click();
-  await page
-    .getByRole("button", { name: "Custom Start empty", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Custom", exact: true }).click();
   await add(page, "Weather");
   await page
     .getByRole("button", { name: "Split Weather window", exact: true })
@@ -341,27 +335,25 @@ test("four explicit windows survive freeform and tiled layouts without a phantom
   await page
     .getByRole("button", { name: "New workspace", exact: true })
     .click();
-  await page
-    .getByRole("button", { name: "Custom Start empty", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Custom", exact: true }).click();
   await add(page, "Weather");
   await add(page, "Music");
   await add(page, "Location");
   await add(page, "Activity");
-  await expect(page.getByTestId("canvas-add-view")).toBeDisabled();
+  await expectCanAddWindow(page, false);
   await arrangeWindows(page, "Freeform");
   await expect(page.locator("[data-floating-frame]")).toHaveCount(4);
   await expect(page.locator('[data-floating-frame="main"]')).toHaveCount(0);
   await page.reload();
   await expect(page.locator("[data-floating-frame]")).toHaveCount(4);
-  await expect(page.getByTestId("canvas-add-view")).toBeDisabled();
+  await expectCanAddWindow(page, false);
   await arrangeWindows(page, "Grid");
   await expect(page.locator("[data-content-id]")).toHaveCount(4);
   await expect(page.locator("[data-content-id=main]")).toHaveCount(0);
   await page
     .getByRole("button", { name: "Close Music window", exact: true })
     .click();
-  await expect(page.getByTestId("canvas-add-view")).toBeEnabled();
+  await expectCanAddWindow(page, true);
 });
 
 test("Home keeps its centered summary when adding apps and widgets", async ({
@@ -378,12 +370,12 @@ test("Home keeps its centered summary when adding apps and widgets", async ({
         const box = await main.boundingBox();
         return box && { x: box.x, width: box.width };
       })
-      .toEqual({ x: 360, width: 720 });
+      .toEqual({ x: 400, width: 720 });
   };
   await assertSummary();
   await add(page, "Weather");
   await assertSummary();
-  await page.getByRole("button", { name: "Add window", exact: true }).click();
+  await openWindowPicker(page);
   const picker = page.getByRole("dialog", { name: "Add a window" });
   await picker.getByRole("textbox", { name: "Search views" }).fill("Messages");
   await picker

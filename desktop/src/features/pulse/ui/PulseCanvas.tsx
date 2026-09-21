@@ -1,8 +1,11 @@
 import { CanvasContentHost } from "./CanvasContentHost";
-import { useWindowCatalog } from "../lib/useWindowCatalog";
+import type { useWindowCatalog } from "../lib/useWindowCatalog";
 import {
   useState,
   useRef,
+  useCallback,
+  useLayoutEffect,
+  useMemo,
   type ReactNode,
   type ReactElement,
   type HTMLAttributes,
@@ -21,7 +24,7 @@ import { insertConnectedPane, fillCanvasSplit } from "../lib/canvasSplit";
 import type { LayoutState, Box } from "../lib/panelLayout";
 import { Button } from "@/shared/ui/button";
 import {
-  canvasWindowLimit,
+  addCanvasWindows,
   canvasContentIds,
   type CanvasLayout,
   type CanvasView,
@@ -34,10 +37,11 @@ import { useFreeformCanvas } from "../lib/useFreeformCanvas";
 import { withoutCanvasWindow, type WindowCorner } from "../lib/freeformCanvas";
 import { WorkspaceResizeHandle } from "./WorkspaceResizeHandle";
 
-/** A main workspace with up to three independently scrollable companion windows. */
+/** Workspace-owned windows sharing persistent content across scrolling, tiled and freeform layouts. */
 export function PulseCanvas({
   children,
   state,
+  catalog,
   save: persist,
   feed,
   currentPubkey,
@@ -51,6 +55,7 @@ export function PulseCanvas({
 }: {
   children: ReactNode;
   state: CanvasLayout;
+  catalog: ReturnType<typeof useWindowCatalog>;
   save: (state: CanvasLayout) => boolean;
   feed: CanvasFeed;
   currentPubkey?: string;
@@ -62,6 +67,41 @@ export function PulseCanvas({
   onSelectApp?: PulseAppSelection;
   fixedMain: boolean;
 }) {
+  // Window contents are independent of focus, drag previews and layout. Keep
+  // their callbacks stable while committing through the latest canvas snapshot.
+  const actions = useRef({ state, persist, onOpen });
+  useLayoutEffect(() => {
+    actions.current = { state, persist, onOpen };
+  });
+  const saveRoute = useCallback((id: string, route: Record<string, string>) => {
+    const { state, persist } = actions.current;
+    return persist({ ...state, routes: { ...state.routes, [id]: route } });
+  }, []);
+  const openView = useCallback(
+    (view: CanvasView, thread?: string) => actions.current.onOpen(view, thread),
+    [],
+  );
+  const {
+    channels,
+    conversations,
+    profiles,
+    isLoading,
+    error,
+    retry,
+    refresh,
+  } = feed;
+  const contentFeed = useMemo(
+    () => ({
+      channels,
+      conversations,
+      profiles,
+      isLoading,
+      error,
+      retry,
+      refresh,
+    }),
+    [channels, conversations, profiles, isLoading, error, retry, refresh],
+  );
   const parentIds = parentWindowIds(state);
   const independent = {
     ...state,
@@ -95,13 +135,25 @@ export function PulseCanvas({
     mainMaxWidth,
     fixedMain,
   );
+  const stacked = state.layout === "focus" && !freeform.floating;
+  const stackRef = useRef<HTMLElement>(null);
+  const previousWindows = useRef(state.windows);
+  useLayoutEffect(() => {
+    const added = state.windows.some(
+      (id) => !previousWindows.current.includes(id),
+    );
+    previousWindows.current = state.windows;
+    if (stacked && added)
+      stackRef.current?.scrollTo({ top: 0, behavior: "instant" });
+  }, [stacked, state.windows]);
   const docked =
-    !freeform.floating && independent.windows.length > (fixedMain ? 1 : 0);
+    !stacked &&
+    !freeform.floating &&
+    independent.windows.length > (fixedMain ? 1 : 0);
   const [announcement, setAnnouncement] = useState("");
   const [newSplit, setNewSplit] = useState<string | null>(null);
-  const catalog = useWindowCatalog();
   const views = catalog.views;
-  const canSplit = state.windows.length < canvasWindowLimit(state);
+  const canSplit = true;
   const splitWindow = (
     owner: string,
     source: string,
@@ -229,6 +281,37 @@ export function PulseCanvas({
             {...freeform.gestureProps(owner, "resize", corner)}
           />
         ));
+  const primaryWindow = state.main !== false && (!docked || fixedMain) && (
+    <div
+      className="pulse-canvas-primary"
+      {...(fixedMain ? {} : freeform.frameProps("main"))}
+    >
+      <div
+        className="pulse-canvas-main-window relative flex h-full min-h-0 w-full flex-col"
+        style={{
+          maxWidth: fixedMain
+            ? mainMaxWidth
+            : `var(--canvas-main-max, ${mainMaxWidth}px)`,
+        }}
+        data-canvas-frame="main"
+      >
+        {fixedMain ? (
+          <section
+            className="pulse-home-surface flex h-full min-h-0 flex-col"
+            data-content-id="main"
+            aria-label="Home summary"
+          >
+            <CanvasContentHost host={hosts.current.get("main")} />
+          </section>
+        ) : (
+          <div className="panel-dock-surface">
+            {renderWindow("main", freeform.gestureProps("main", "move"))}
+          </div>
+        )}
+        {corners("main")}
+      </div>
+    </div>
+  );
   return (
     <div
       ref={columns.ref}
@@ -249,41 +332,14 @@ export function PulseCanvas({
           </Button>
         </div>
       )}
-      <div
+      <section
+        ref={stackRef}
         className="pulse-canvas-grid"
+        aria-label={stacked ? "Focus windows" : "Workspace windows"}
+        tabIndex={stacked ? 0 : undefined}
         style={freeform.floating || fixedMain ? undefined : columns.style}
       >
-        {state.main !== false && (!docked || fixedMain) && (
-          <div
-            className="pulse-canvas-primary"
-            {...(fixedMain ? {} : freeform.frameProps("main"))}
-          >
-            <div
-              className="pulse-canvas-main-window relative flex h-full min-h-0 w-full flex-col"
-              style={{
-                maxWidth: fixedMain
-                  ? mainMaxWidth
-                  : `var(--canvas-main-max, ${mainMaxWidth}px)`,
-              }}
-              data-canvas-frame="main"
-            >
-              {fixedMain ? (
-                <section
-                  className="pulse-home-surface flex h-full min-h-0 flex-col"
-                  data-content-id="main"
-                  aria-label="Home summary"
-                >
-                  <CanvasContentHost host={hosts.current.get("main")} />
-                </section>
-              ) : (
-                <div className="panel-dock-surface">
-                  {renderWindow("main", freeform.gestureProps("main", "move"))}
-                </div>
-              )}
-              {corners("main")}
-            </div>
-          </div>
-        )}
+        {!stacked && primaryWindow}
         {!docked &&
           independent.windows.map((id, index) => {
             const view = viewFor(id);
@@ -300,7 +356,7 @@ export function PulseCanvas({
                 data-canvas-frame={id}
                 {...freeform.frameProps(id)}
                 style={
-                  fixedMain && !freeform.floating
+                  fixedMain && !freeform.floating && !stacked
                     ? {
                         gridColumn:
                           state.layout === "focus" || index % 2 === 1 ? 3 : 1,
@@ -319,7 +375,8 @@ export function PulseCanvas({
               </section>
             );
           })}
-      </div>
+        {stacked && primaryWindow}
+      </section>
       {!docked &&
         !fixedMain &&
         columns.enabled &&
@@ -394,14 +451,13 @@ export function PulseCanvas({
             </section>
           ) : view ? (
             <CanvasWindowContent
-              view={view}
-              feed={feed}
+              id={id}
+              views={views}
+              feed={contentFeed}
               route={state.routes?.[id]}
-              saveRoute={(route) =>
-                persist({ ...state, routes: { ...state.routes, [id]: route } })
-              }
+              saveRoute={saveRoute}
               currentPubkey={currentPubkey}
-              onOpen={onOpen}
+              onOpen={openView}
             />
           ) : (
             <div className="p-5 text-sm">
@@ -428,15 +484,11 @@ export function PulseCanvas({
         selected={state.windows}
         onClose={() => setPicker(false)}
         onAdd={(view) => {
-          if (
-            state.windows.length >= canvasWindowLimit(state) ||
-            state.windows.includes(view.id)
-          )
-            return;
+          if (state.windows.includes(view.id)) return;
           if (
             save({
               ...state,
-              windows: [...state.windows, view.id],
+              windows: addCanvasWindows(state, [view.id]),
               ...(state.freeform
                 ? {
                     freeform: {

@@ -121,7 +121,7 @@ export function CanvasViewPicker({
                 onCloseAutoFocus={(event) => {
                   event.preventDefault();
                   const trigger = document.querySelector<HTMLButtonElement>(
-                    '[data-testid="canvas-add-view"]',
+                    '[data-testid="canvas-options"]',
                   );
                   if (trigger && !trigger.disabled) trigger.focus();
                   else

@@ -1,9 +1,11 @@
+import { useRef } from "react";
 import {
   Columns3,
   LayoutGrid,
-  PanelsTopLeft,
+  Rows3,
   Move,
-  ChevronDown,
+  Ellipsis,
+  Plus,
 } from "lucide-react";
 import { Action } from "@/shared/ui/action";
 import {
@@ -11,6 +13,8 @@ import {
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuLabel,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
 } from "@/shared/ui/dropdown-menu";
@@ -18,7 +22,7 @@ import { canvasContentIds, type CanvasLayout } from "../lib/canvasLayout";
 import { captureCanvasFrames } from "../lib/freeformCanvas";
 
 const layouts = [
-  { id: "focus", label: "Focus", icon: PanelsTopLeft },
+  { id: "focus", label: "Focus", icon: Rows3 },
   { id: "grid", label: "Grid", icon: LayoutGrid },
   { id: "columns", label: "Columns", icon: Columns3 },
   { id: "freeform", label: "Freeform", icon: Move },
@@ -28,26 +32,48 @@ const layouts = [
 export function PulseCanvasControls({
   state,
   save,
+  onAdd,
+  canAdd,
 }: {
+  onAdd: () => void;
+  canAdd: boolean;
   state: CanvasLayout;
   save: (state: CanvasLayout) => boolean;
 }) {
+  const openingPicker = useRef(false);
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Action
-          aria-label="Arrange windows"
-          className="flex h-8 shrink-0 items-center gap-1 rounded-full px-3 text-xs text-muted-foreground hover:bg-muted data-[state=open]:bg-muted"
+          aria-label="Window options"
+          data-testid="canvas-options"
+          title="Window options"
+          className="pulse-control-surface flex size-10 items-center justify-center rounded-full"
         >
-          Arrange <ChevronDown aria-hidden className="size-3" />
+          <Ellipsis aria-hidden className="size-5" />
         </Action>
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="end"
         side="top"
         sideOffset={8}
-        aria-label="Arrange windows"
+        aria-label="Window options"
+        onCloseAutoFocus={(event) => {
+          if (openingPicker.current) event.preventDefault();
+          openingPicker.current = false;
+        }}
       >
+        <DropdownMenuItem
+          disabled={!canAdd}
+          data-testid="canvas-add-view"
+          onSelect={() => {
+            openingPicker.current = true;
+            onAdd();
+          }}
+        >
+          <Plus aria-hidden className="size-4" /> Add window
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
         <DropdownMenuLabel>Arrange windows</DropdownMenuLabel>
         <DropdownMenuRadioGroup
           value={state.layout}

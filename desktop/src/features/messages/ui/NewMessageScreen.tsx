@@ -6,7 +6,7 @@ import {
   useOpenDmMutation,
   useUpsertCachedChannel,
 } from "@/features/channels/hooks";
-import type { Channel } from "@/shared/api/types";
+import type { Channel, UserSearchResult } from "@/shared/api/types";
 import { useSendMessageMutation } from "@/features/messages/hooks";
 import { getKeyboardSearchSelection } from "@/features/profile/lib/userCandidateSearch";
 import { SelectedRecipientChip } from "@/features/profile/ui/SelectedRecipientChip";
@@ -27,7 +27,11 @@ import {
  * normal chat header becomes an inline "To:" field, while recipient discovery
  * lives in an attached popover instead of taking over the message area.
  */
-export function NewMessageScreen() {
+export function NewMessageScreen({
+  initialRecipients = [],
+}: {
+  initialRecipients?: UserSearchResult[];
+} = {}) {
   const identityQuery = useIdentityQuery();
   const currentPubkey = identityQuery.data?.pubkey;
   const openDmMutation = useOpenDmMutation();
@@ -68,7 +72,11 @@ export function NewMessageScreen() {
     selectUser,
     selectedUsers,
     setSearchQuery,
-  } = useNewMessageRecipients({ active: true, currentPubkey });
+  } = useNewMessageRecipients({
+    active: true,
+    currentPubkey,
+    initialRecipients,
+  });
 
   const isSearchTransitionPending = searchQuery.trim() !== deferredSearchQuery;
   const visibleSearchResults =

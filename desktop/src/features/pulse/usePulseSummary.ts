@@ -11,16 +11,20 @@ export function usePulseSummary(
   const native = isTauri() && import.meta.env.MODE !== "e2e";
   enabled = enabled && (native || __BUZZ_PULSE_SUMMARY_AVAILABLE__);
   // Time passing alone must not trigger another model request.
-  const serialized = JSON.stringify({ ...input, asOf: undefined });
+  const serialized = React.useMemo(
+    () => JSON.stringify({ ...input, asOf: undefined }),
+    [input],
+  );
   const [snapshot, setSnapshot] = React.useState("");
   const lastAccepted = React.useRef(0);
   const lastGood = React.useRef<{
     scope: string;
     data: ReturnType<typeof parsePulseSummary>;
   } | null>(null);
-  const snapshotInput = snapshot
-    ? (JSON.parse(snapshot) as typeof input)
-    : null;
+  const snapshotInput = React.useMemo(
+    () => (snapshot ? (JSON.parse(snapshot) as typeof input) : null),
+    [snapshot],
+  );
   const query = useQuery({
     queryKey: ["pulse-summary", input.scope, snapshot],
     enabled:

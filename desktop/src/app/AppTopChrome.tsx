@@ -125,7 +125,7 @@ export function AppTopChrome({
       className={cn(
         "relative z-45 flex shrink-0 cursor-default select-none items-center pr-3 text-sidebar-foreground",
         workspaceNavigation
-          ? "h-[48px] gap-3 border-b border-border/30 bg-background/40"
+          ? "h-[36px] gap-3 bg-transparent"
           : topChromeBackdrop.height,
         navRowPaddingClass,
       )}

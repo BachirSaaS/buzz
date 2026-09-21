@@ -67,7 +67,12 @@ export function useFreeformCanvas(
     move: (_e: globalThis.PointerEvent) => {},
     finish: (_e: globalThis.PointerEvent) => {},
   });
-  const bringForward = (id: string) => setFront({ id, windows: windowKey });
+  const bringForward = (id: string) =>
+    setFront((current) =>
+      current?.id === id && current.windows === windowKey
+        ? current
+        : { id, windows: windowKey },
+    );
   const fit = (frame: CanvasFrame) => fitCanvasFrame(frame, bounds);
   const frameFor = (id: string) =>
     fit(
@@ -169,7 +174,13 @@ export function useFreeformCanvas(
     if (!element) return;
     const measure = () => {
       callbacks.current.cancel();
-      setBounds({ width: element.clientWidth, height: element.clientHeight });
+      const width = element.clientWidth,
+        height = element.clientHeight;
+      setBounds((current) =>
+        current.width === width && current.height === height
+          ? current
+          : { width, height },
+      );
     };
     const observer = new ResizeObserver(measure);
     observer.observe(element);

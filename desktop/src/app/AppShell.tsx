@@ -54,6 +54,7 @@ import { useAutoRestartPolicy } from "@/features/agents/lib/useAutoRestartPolicy
 import { usePersonaSync } from "@/features/agents/lib/usePersonaSync";
 import { useAgentObserverIngestion } from "@/features/agents/useAgentObserverIngestion";
 import { AgentManagementDialogs } from "@/features/agents/ui/AgentManagementDialogs";
+import { CreateChannelDialog } from "@/features/sidebar/ui/CreateChannelDialog";
 import { RequestedAgentCreateDialogs } from "@/features/agents/ui/RequestedAgentCreateDialogs";
 import {
   usePresenceSession,
@@ -1000,6 +1001,14 @@ function AppShellContent() {
                       }}
                       onBrowseChannels={handleOpenBrowseChannels}
                       onCreateAgent={() => requestOpenCreateAgent()}
+                    />
+                  )}
+                  {(isPulse || settingsOpen) && (
+                    <CreateChannelDialog
+                      channelKind={isCreateChannelOpen ? "stream" : null}
+                      isCreating={createChannelMutation.isPending}
+                      onOpenChange={setIsCreateChannelOpen}
+                      onCreate={handleCreateChannel}
                     />
                   )}
                   <RequestedAgentCreateDialogs />

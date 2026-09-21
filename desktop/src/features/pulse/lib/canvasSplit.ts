@@ -18,7 +18,6 @@ export function insertConnectedPane(
 ): LayoutState | undefined {
   if (
     !leafIds(state.root).includes(target) ||
-    state.groups.flatMap((g) => g.tabs).length >= 4 ||
     state.groups.some((g) => g.id === id || g.tabs.includes(id))
   )
     return;

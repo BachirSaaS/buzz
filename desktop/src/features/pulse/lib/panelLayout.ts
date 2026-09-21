@@ -31,8 +31,7 @@ export function initialLayout(
   width = 1600,
   gap = 8,
 ): LayoutState {
-  if (!ids.length || ids.length > 4)
-    throw new RangeError("Expected one to four panes");
+  if (!ids.length) throw new RangeError("Expected at least one pane");
   let serial = 0;
   const leaf = (id: string): LayoutNode => ({ type: "pane", id });
   const split = (
@@ -57,23 +56,34 @@ export function initialLayout(
           row(names.slice(1), axis),
           1 / names.length,
         );
+  const grid = (names: string[], columns: number): LayoutNode =>
+    names.length <= columns
+      ? row(names, "horizontal")
+      : split(
+          "vertical",
+          row(names.slice(0, columns), "horizontal"),
+          grid(names.slice(columns), columns),
+          1 / Math.ceil(names.length / columns),
+        );
   const root =
     ids.length === 1
       ? leaf(ids[0])
-      : preset === "columns"
-        ? row(ids, "horizontal")
-        : preset === "grid" && ids.length === 4
-          ? split(
-              "horizontal",
-              row(ids.slice(0, 2), "vertical"),
-              row(ids.slice(2), "vertical"),
-            )
-          : split(
-              "horizontal",
-              leaf(ids[0]),
-              row(ids.slice(1), "vertical"),
-              Math.min(0.75, mainWidth / Math.max(1, width - gap)),
-            );
+      : preset === "grid" && ids.length > 4
+        ? grid(ids, Math.ceil(Math.sqrt(ids.length)))
+        : preset === "columns"
+          ? row(ids, "horizontal")
+          : preset === "grid" && ids.length === 4
+            ? split(
+                "horizontal",
+                row(ids.slice(0, 2), "vertical"),
+                row(ids.slice(2), "vertical"),
+              )
+            : split(
+                "horizontal",
+                leaf(ids[0]),
+                row(ids.slice(1), "vertical"),
+                Math.min(0.75, mainWidth / Math.max(1, width - gap)),
+              );
   return { root, groups: ids.map((id) => ({ id, tabs: [id], selected: id })) };
 }
 
@@ -214,7 +224,6 @@ export function splitPane(
   let groups = state.groups.map((g) => ({ ...g, tabs: [...g.tabs] }));
   let movingId = sourceId;
   if (extracting && tab) {
-    if (groups.length >= 4) return;
     // Reuse a tab's identity when safe, even after its original group disappeared.
     movingId = `pane-${tab}`;
     while (groups.some((g) => g.id === movingId)) movingId += "-split";
@@ -301,11 +310,7 @@ export function fitsLayout(
   gap: number,
 ): boolean {
   const min = minimumSize(state.root, gap);
-  return (
-    state.groups.length <= 4 &&
-    min.width <= bounds.width &&
-    min.height <= bounds.height
-  );
+  return min.width <= bounds.width && min.height <= bounds.height;
 }
 
 /** Ordered tree leaf identities. */
@@ -337,12 +342,7 @@ export function siblingAxis(
 export function parsePanelLayout(value: unknown): LayoutState | undefined {
   if (!value || typeof value !== "object") return;
   const candidate = value as LayoutState;
-  if (
-    !Array.isArray(candidate.groups) ||
-    candidate.groups.length < 1 ||
-    candidate.groups.length > 4
-  )
-    return;
+  if (!Array.isArray(candidate.groups) || candidate.groups.length < 1) return;
   const nodes = new Set<string>(),
     leaves: string[] = [],
     tabs: string[] = [];
@@ -351,7 +351,7 @@ export function parsePanelLayout(value: unknown): LayoutState | undefined {
     if (
       !node ||
       typeof node !== "object" ||
-      ++count > 7 ||
+      ++count > candidate.groups.length * 2 - 1 ||
       typeof node.id !== "string" ||
       !node.id.length ||
       node.id.length > 2048 ||
@@ -380,7 +380,6 @@ export function parsePanelLayout(value: unknown): LayoutState | undefined {
       !leaves.includes(group.id) ||
       !Array.isArray(group.tabs) ||
       !group.tabs.length ||
-      group.tabs.length > 4 ||
       !group.tabs.includes(group.selected) ||
       group.tabs.some(
         (tab) => typeof tab !== "string" || !tab.length || tab.length > 512,
@@ -392,7 +391,6 @@ export function parsePanelLayout(value: unknown): LayoutState | undefined {
   if (
     leaves.length !== candidate.groups.length ||
     new Set(candidate.groups.map((g) => g.id)).size !== leaves.length ||
-    tabs.length > 4 ||
     new Set(tabs).size !== tabs.length
   )
     return;
