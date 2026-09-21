@@ -91,10 +91,15 @@ function behaviorEntry(
   if (
     persona.respondTo == null &&
     persona.parallelism == null &&
-    persona.permissionPolicy == null
+    persona.permissionPolicy == null &&
+    (persona.sessionPolicy ?? "channel") === "channel"
   ) {
     return {};
   }
+  const hasSessionFields =
+    persona.respondTo != null ||
+    persona.parallelism != null ||
+    (persona.sessionPolicy ?? "channel") !== "channel";
   return {
     behavior: {
       respondTo: persona.respondTo ?? undefined,
@@ -104,6 +109,9 @@ function behaviorEntry(
           : undefined,
       parallelism: persona.parallelism ?? undefined,
       permissionPolicy: persona.permissionPolicy ?? undefined,
+      ...(hasSessionFields && {
+        sessionPolicy: persona.sessionPolicy ?? "channel",
+      }),
     },
   };
 }

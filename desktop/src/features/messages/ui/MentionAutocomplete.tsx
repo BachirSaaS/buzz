@@ -15,7 +15,7 @@ import { Switch } from "@/shared/ui/switch";
 import { Toggle } from "@/shared/ui/toggle";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import { safeNpub } from "@/shared/lib/nostrUtils";
-import { truncatePubkey } from "@/shared/lib/pubkey";
+import { truncateNpub } from "@/shared/lib/pubkey";
 import { getPlatformKeysById } from "@/shared/lib/keyboard-shortcuts";
 
 export type MentionSuggestion = {
@@ -52,9 +52,8 @@ type MentionAutocompleteProps = {
 
 export function showMentionAgentProvenanceMarker(
   suggestion: MentionSuggestion,
-  hasNameCollision: boolean,
 ): boolean {
-  return hasNameCollision && suggestion.agentProvenance === "managed-elsewhere";
+  return suggestion.agentProvenance === "managed-elsewhere";
 }
 
 /** Focus the now-always-visible automatic-mentions switch. */
@@ -254,10 +253,8 @@ export const MentionAutocomplete = React.memo(function MentionAutocomplete({
               suggestion.displayName;
             const hasNameCollision =
               (nameCounts.get(suggestion.displayName.toLowerCase()) ?? 0) > 1;
-            const showAgentProvenanceMarker = showMentionAgentProvenanceMarker(
-              suggestion,
-              hasNameCollision,
-            );
+            const showAgentProvenanceMarker =
+              showMentionAgentProvenanceMarker(suggestion);
             const ownerLabel =
               hasNameCollision && suggestion.agentProvenance
                 ? null
@@ -390,7 +387,7 @@ export const MentionAutocomplete = React.memo(function MentionAutocomplete({
                             data-testid="mention-collision-npub"
                             title={collisionNpub}
                           >
-                            {truncatePubkey(collisionNpub)}
+                            {truncateNpub(collisionNpub)}
                           </span>
                         ) : null}
                       </span>

@@ -1,4 +1,5 @@
 import type {
+  AcpSessionPolicy,
   PermissionPolicy,
   PersonaBehaviorInput,
   RespondToMode,
@@ -25,6 +26,7 @@ export type PersonaBehaviorDraft = {
    * published, so it does not affect the definition's content hash.
    */
   permissionPolicy: PermissionPolicy | null;
+  sessionPolicy: AcpSessionPolicy;
 };
 
 export const emptyPersonaBehaviorDraft: PersonaBehaviorDraft = {
@@ -32,6 +34,7 @@ export const emptyPersonaBehaviorDraft: PersonaBehaviorDraft = {
   respondToAllowlist: [],
   parallelism: "",
   permissionPolicy: null,
+  sessionPolicy: "channel",
 };
 
 /** Seed the draft from a dialog-state behavior group (edit/duplicate). */
@@ -44,6 +47,7 @@ export function draftFromBehavior(
     parallelism:
       behavior?.parallelism != null ? String(behavior.parallelism) : "",
     permissionPolicy: behavior?.permissionPolicy ?? null,
+    sessionPolicy: behavior?.sessionPolicy ?? "channel",
   };
 }
 
@@ -61,20 +65,39 @@ function behaviorFromDraft(
   draft: PersonaBehaviorDraft,
 ): PersonaBehaviorInput | undefined {
   const parallelism = Number.parseInt(draft.parallelism, 10);
-  const group: PersonaBehaviorInput = {
-    respondTo: draft.respondTo ?? undefined,
+  const respondTo = draft.respondTo ?? undefined;
+  const resolvedParallelism = parallelism > 0 ? parallelism : undefined;
+  const permissionPolicy = draft.permissionPolicy ?? undefined;
+  const { sessionPolicy } = draft;
+
+  // Session scope has content when respondTo, parallelism, or a non-channel
+  // sessionPolicy is present. Permission scope has content when permissionPolicy
+  // is set. A completely empty draft (nothing in either scope) returns undefined
+  // so callers can distinguish "no-op" from "submit the channel default".
+  const hasSessionFields =
+    respondTo !== undefined ||
+    resolvedParallelism !== undefined ||
+    sessionPolicy !== "channel";
+  const hasPermissionField = permissionPolicy !== undefined;
+
+  if (!hasSessionFields && !hasPermissionField) {
+    return undefined;
+  }
+
+  return {
+    respondTo,
     // Mode and list travel as a unit; a list without allowlist mode is
     // stale data the author didn't choose (legacy dialog parity).
     respondToAllowlist:
-      draft.respondTo === "allowlist" ? draft.respondToAllowlist : undefined,
-    parallelism: parallelism > 0 ? parallelism : undefined,
-    permissionPolicy: draft.permissionPolicy ?? undefined,
+      respondTo === "allowlist" ? draft.respondToAllowlist : undefined,
+    parallelism: resolvedParallelism,
+    // Include permissionPolicy only when non-null; omitting it means "clear"
+    // within a present behavior group (replace-as-a-unit semantics).
+    ...(hasPermissionField && { permissionPolicy }),
+    // Include sessionPolicy only when the session scope has something to say;
+    // a permission-policy-only group carries no session-scope opinion.
+    ...(hasSessionFields && { sessionPolicy }),
   };
-  const isEmpty =
-    group.respondTo === undefined &&
-    group.parallelism === undefined &&
-    group.permissionPolicy === undefined;
-  return isEmpty ? undefined : group;
 }
 
 /**
@@ -85,12 +108,11 @@ function behaviorFromDraft(
  * - a behavior group that is untouched relative to its seed submits nothing — an
  *   unrelated edit (rename, prompt tweak) must not rewrite the published
  *   definition's behavior bytes or flip its content hash;
- * - an empty behavior group submits nothing — plain creates stay without
- *   behavioral fields;
+ * - creates always submit the selected session policy; the channel default is
+ *   omitted from durable/public JSON by the backend for wire compatibility;
  * - any real change submits the full group (replace-as-a-unit semantics);
- * - EXCEPT a full clear on edit: draft empty but seed non-empty submits an
- *   explicit empty group, because "submit nothing" would silently no-op the
- *   clear and the stored behavior group would resurrect on reopen.
+ * - clearing optional fields on edit still submits an explicit group so the
+ *   server-side clear is not silently no-oped.
  *
  * Duplicate flows pass the source persona's behavior group as `seed` but with
  * `isEdit: false`: a duplicate is a CREATE, so a non-empty inherited
@@ -104,11 +126,39 @@ export function behaviorForSubmit(
 ): PersonaBehaviorInput | undefined {
   const group = behaviorFromDraft(draft);
   if (!isEdit) {
-    return group;
+    // Creates always submit the selected session policy so the backend can
+    // record the channel default explicitly; it omits the channel default from
+    // durable/public JSON for wire compatibility.
+    return (
+      group ?? {
+        respondTo: undefined,
+        respondToAllowlist: undefined,
+        parallelism: undefined,
+        sessionPolicy: draft.sessionPolicy,
+      }
+    );
   }
   const seedGroup = behaviorFromDraft(seed);
   if (JSON.stringify(group) === JSON.stringify(seedGroup)) {
     return undefined;
   }
-  return group ?? {};
+  if (group !== undefined) {
+    return group;
+  }
+  // Draft is completely empty (nothing in either scope). Check whether the
+  // seed had session-scoped fields: if so, submit the channel default to
+  // explicitly clear them server-side. If the seed had only a permission
+  // policy, submit {} to clear just that field.
+  const seedHadSessionFields =
+    seed.respondTo !== null ||
+    Number.parseInt(seed.parallelism, 10) > 0 ||
+    seed.sessionPolicy !== "channel";
+  return seedHadSessionFields
+    ? {
+        respondTo: undefined,
+        respondToAllowlist: undefined,
+        parallelism: undefined,
+        sessionPolicy: seed.sessionPolicy,
+      }
+    : {};
 }

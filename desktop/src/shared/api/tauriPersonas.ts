@@ -38,6 +38,7 @@ export type RawPersona = {
    * so it is absent on catalog and team-imported personas.
    */
   permission_policy?: PermissionPolicy | null;
+  session_policy?: "channel" | "thread";
   created_at: string;
   updated_at: string;
   /** Non-null when the pack `.persona.md` write-back failed (non-fatal). */
@@ -70,6 +71,7 @@ export function fromRawPersona(persona: RawPersona): AgentPersona {
     respondToAllowlist: persona.respond_to_allowlist ?? [],
     parallelism: persona.parallelism ?? null,
     permissionPolicy: persona.permission_policy ?? null,
+    sessionPolicy: persona.session_policy ?? "channel",
     createdAt: persona.created_at,
     updatedAt: persona.updated_at,
   };

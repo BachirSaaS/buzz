@@ -30,6 +30,7 @@ import {
 } from "./agentConfigOptions";
 import type {
   AcpRuntimeCatalogEntry,
+  AcpSessionPolicy,
   PermissionPolicy,
 } from "@/shared/api/types";
 import {
@@ -172,6 +173,40 @@ export function PersonaAdvancedFields({
       {afterRespondTo}
 
       <div className="grid gap-5 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <label
+            className="text-sm font-medium text-foreground"
+            htmlFor="persona-session-policy"
+          >
+            Conversation context
+          </label>
+          <PersonaDropdownField
+            ariaDescribedBy="persona-session-policy-description"
+            disabled={disabled}
+            id="persona-session-policy"
+            onValueChange={(value) =>
+              onBehaviorDraftChange({
+                ...behaviorDraft,
+                sessionPolicy: value as AcpSessionPolicy,
+              })
+            }
+            options={[
+              { label: "Entire channel", value: "channel" },
+              { label: "Each thread", value: "thread" },
+            ]}
+            placeholder="Entire channel"
+            value={behaviorDraft.sessionPolicy}
+          />
+          <p
+            className="text-xs text-muted-foreground"
+            id="persona-session-policy-description"
+          >
+            {behaviorDraft.sessionPolicy === "thread"
+              ? "Keeps a separate conversation for each channel thread. Direct messages remain shared."
+              : "Shares one conversation across every thread in a channel."}
+          </p>
+        </div>
+
         <div className="space-y-1.5">
           <label
             className="text-sm font-medium text-foreground"

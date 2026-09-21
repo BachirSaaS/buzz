@@ -254,6 +254,7 @@ test("edit and duplicate seed the behavior group from a quad-bearing persona", (
     respondTo: "allowlist",
     respondToAllowlist: ["a".repeat(64)],
     parallelism: 4,
+    sessionPolicy: "thread",
     createdAt: "2025-01-01T00:00:00Z",
     updatedAt: "2025-01-02T00:00:00Z",
   };
@@ -266,6 +267,7 @@ test("edit and duplicate seed the behavior group from a quad-bearing persona", (
     // undefined alongside the other unset fields (matches the `?? undefined`
     // pattern the whole group uses; JSON.stringify drops it on submit).
     permissionPolicy: undefined,
+    sessionPolicy: "thread",
   };
   assert.deepEqual(
     editPersonaDialogState(persona).initialValues.behavior,
@@ -350,6 +352,7 @@ test("a linked instance overrides stale definition access in the edit dialog", (
     respondTo: "owner-only",
     respondToAllowlist: [],
     parallelism: 2,
+    sessionPolicy: "channel",
     createdAt: "2025-01-01T00:00:00Z",
     updatedAt: "2025-01-02T00:00:00Z",
   };
@@ -367,6 +370,7 @@ test("a linked instance overrides stale definition access in the edit dialog", (
     // undefined alongside the other unset fields (JSON.stringify drops it on
     // submit); the access override only rewrites respondTo/respondToAllowlist.
     permissionPolicy: undefined,
+    sessionPolicy: "channel",
   });
 });
 

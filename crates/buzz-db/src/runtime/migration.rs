@@ -82,9 +82,12 @@ where
     F: FnOnce(PgConnection) -> Fut,
     Fut: Future<Output = (PgConnection, Result<T>)>,
 {
-    let mut lock_conn = crate::observability::acquire(pool, crate::observability::PoolRole::Writer)
-        .await?
-        .detach();
+    let mut lock_conn = crate::observability::acquire_writer_with_legacy_metrics(
+        pool,
+        crate::observability::WriterOperation::Bootstrap,
+    )
+    .await?
+    .detach();
     // This dedicated connection intentionally waits for the current migration
     // or schema-destruction owner and may then run long DDL. Exempt those two
     // phases from runtime lock/statement budgets. Keep the idle-in-transaction
@@ -486,6 +489,7 @@ mod postgres_tests {
             "relay_admin_actions",
             "relay_admin_outbox",
             "relay_operator_audit",
+            "storage_accounting_snapshots",
         ] {
             if normalized[insert_pos..].contains(&format!("'{value}'")) {
                 globals.insert(value.to_owned());
@@ -699,7 +703,7 @@ mod postgres_tests {
         let mut migrations: Vec<_> = MIGRATOR.iter().collect();
         migrations.sort_by_key(|migration| migration.version);
 
-        assert_eq!(migrations.len(), 44);
+        assert_eq!(migrations.len(), 46);
         assert_eq!(migrations[0].version, 1);
         assert_eq!(&*migrations[0].description, "initial schema");
         assert!(migrations[0]
@@ -1279,6 +1283,11 @@ mod postgres_tests {
         // The restored exclusion function must NOT list any NIP-FI relation.
         assert!(!ledger_removal.contains("'authorization_operation_receipts'"));
         assert!(!ledger_removal.contains("'identity_bindings'"));
+        assert_eq!(migrations[45].version, 46);
+        assert!(migrations[45]
+            .sql
+            .as_str()
+            .contains("CREATE TABLE storage_accounting_snapshots"));
         // schema.sql exclusion list must match the restored (pre-0041) body.
         assert!(
             desired_schema.contains("'rate_limit_violations'\n    ]::TEXT[])"),

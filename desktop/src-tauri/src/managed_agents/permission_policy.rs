@@ -180,6 +180,7 @@ mod tests {
             respond_to: None,
             respond_to_allowlist: Vec::new(),
             parallelism: None,
+            session_policy: Default::default(),
             permission_policy: policy,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             updated_at: "2026-01-01T00:00:00Z".to_string(),
@@ -355,6 +356,7 @@ mod tests {
                 respond_to: None,
                 respond_to_allowlist: Vec::new(),
                 parallelism: None,
+                session_policy: None,
                 permission_policy: Some(PermissionPolicy::Reject),
             }),
         )

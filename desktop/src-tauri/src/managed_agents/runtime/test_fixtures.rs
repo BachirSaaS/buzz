@@ -37,6 +37,7 @@ pub(super) fn fixture(
 ) -> ManagedAgentRecord {
     ManagedAgentRecord {
         definition_permission_policy: None,
+        session_policy: Default::default(),
         description: None,
         pubkey: "p".into(),
         name: "n".into(),

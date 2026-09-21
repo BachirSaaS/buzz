@@ -9,14 +9,15 @@ use super::{
     default_start_on_app_launch, validate_respond_to_allowlist, AgentDefinition, BackendKind,
     CatalogSource, RelayMeshConfig, RespondTo,
 };
+use crate::managed_agents::AcpSessionPolicy;
 
 /// The NIP-AP behavioral group as one grouped request field.
 ///
 /// Grouped (not flat) because `update_persona` has legacy callers that don't
 /// send behavioral fields at all — flat replace semantics would silently wipe
 /// a stored behavior group on every team-import edit. Absent group = don't touch the
-/// stored behavior group; present group = validate and replace the fields as a unit
-/// (mode and allowlist must travel together).
+/// stored behavior group; present group = validate and replace all four fields as a
+/// unit (mode and allowlist must travel together).
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PersonaBehaviorRequest {
@@ -33,6 +34,9 @@ pub struct PersonaBehaviorRequest {
     /// others it is never published or mint-copied — a local authority grant.
     #[serde(default)]
     pub permission_policy: Option<super::super::permission_policy::PermissionPolicy>,
+    /// Absent inside a present behavior group selects the channel default.
+    #[serde(default)]
+    pub session_policy: Option<AcpSessionPolicy>,
 }
 
 /// Validate a behavior group and apply it onto a persona record.
@@ -78,6 +82,7 @@ pub fn apply_persona_behavior(
     // Definition-scoped default: replace as part of the behavior group. `None`
     // clears any stored default so the resolver falls through to global/built-in.
     record.permission_policy = behavior.permission_policy;
+    record.session_policy = behavior.session_policy.unwrap_or_default();
     Ok(())
 }
 
@@ -305,6 +310,7 @@ mod tests {
     fn record_without_quad() -> AgentDefinition {
         AgentDefinition {
             permission_policy: None,
+            session_policy: Default::default(),
             description: None,
             id: "p-1".to_string(),
             display_name: "Test".to_string(),
@@ -349,6 +355,7 @@ mod tests {
     #[test]
     fn present_behavior_replaces_all_four_as_a_unit() {
         let mut record = record_with_quad();
+        record.session_policy = AcpSessionPolicy::Thread;
         apply_persona_behavior(
             &mut record,
             Some(PersonaBehaviorRequest {
@@ -359,6 +366,7 @@ mod tests {
                 // definition default — same replace-as-a-unit contract as the
                 // other fields, so an edit can revert to global/built-in.
                 permission_policy: None,
+                session_policy: None,
             }),
         )
         .unwrap();
@@ -366,6 +374,7 @@ mod tests {
         assert!(record.respond_to_allowlist.is_empty());
         assert_eq!(record.parallelism, None);
         assert_eq!(record.permission_policy, None);
+        assert_eq!(record.session_policy, AcpSessionPolicy::Channel);
     }
 
     #[test]
@@ -452,6 +461,7 @@ mod tests {
                 permission_policy: Some(
                     crate::managed_agents::permission_policy::PermissionPolicy::Allow,
                 ),
+                session_policy: Some(AcpSessionPolicy::Thread),
             }),
         )
         .unwrap();
@@ -471,6 +481,7 @@ mod tests {
             json.get("permissionPolicy").is_none() && json.get("permission_policy").is_none(),
             "definition permission policy must never be published: {json}"
         );
+        assert_eq!(content.session_policy, AcpSessionPolicy::Thread);
     }
 
     #[test]

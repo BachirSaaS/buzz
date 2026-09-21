@@ -1,4 +1,5 @@
 import type {
+  AcpSessionPolicy,
   ManagedAgent,
   ManagedAgentBackend,
   PermissionPolicy,
@@ -50,6 +51,8 @@ export type RawManagedAgent = {
   // Pre-feature fixtures may omit these; mapped to "owner-only"/[] in fromRawManagedAgent.
   respond_to?: ManagedAgent["respondTo"];
   respond_to_allowlist?: string[];
+  // Session policy for ACP context boundary; pre-feature fixtures may omit it.
+  session_policy?: AcpSessionPolicy;
   // Pre-feature fixtures may omit these; defaults applied in fromRawManagedAgent.
   permission_policy?: PermissionPolicy;
   permission_policy_source?: PermissionPolicySource;
@@ -100,6 +103,7 @@ export function fromRawManagedAgent(agent: RawManagedAgent): ManagedAgent {
     backendAgentId: agent.backend_agent_id,
     respondTo: agent.respond_to ?? "owner-only",
     respondToAllowlist: agent.respond_to_allowlist ?? [],
+    sessionPolicy: agent.session_policy ?? "channel",
     permissionPolicy: agent.permission_policy ?? "ask",
     permissionPolicySource: agent.permission_policy_source ?? "built_in",
     appliedPermissionPolicy: agent.applied_permission_policy ?? null,

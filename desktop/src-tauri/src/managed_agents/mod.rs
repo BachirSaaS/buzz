@@ -12,6 +12,7 @@ pub(crate) use agent_env::{
 mod agent_description;
 pub(crate) use agent_description::{effective_agent_description, record_effective_description};
 mod backend;
+pub(crate) mod bestie_assignment;
 pub(crate) mod claude_config;
 pub(crate) mod config_bridge;
 pub(crate) mod custom_harnesses;
@@ -106,7 +107,7 @@ pub use runtime::*;
 pub use runtime_commands::*;
 pub use runtime_types::*;
 pub(crate) use session_policy::{
-    acp_session_policy, apply_app_acp_session_policy_env, insert_acp_session_policy_env,
+    apply_acp_session_policy_env, effective_acp_session_policy, insert_acp_session_policy_env,
     AcpSessionPolicy, ManagedAgentExperimentState, ACP_SESSION_POLICY_ENV_VAR,
 };
 pub use storage::*;

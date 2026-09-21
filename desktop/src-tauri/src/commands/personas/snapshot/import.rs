@@ -582,6 +582,7 @@ pub async fn confirm_agent_snapshot_import(
             parallelism: minted_parallelism,
             // Definition policy is a local grant, never in a shared snapshot.
             permission_policy: None,
+            session_policy: snapshot.definition.session_policy,
             created_at: now.clone(),
             updated_at: now.clone(),
         };
@@ -619,6 +620,7 @@ pub async fn confirm_agent_snapshot_import(
             max_turn_duration_seconds: snapshot.definition.max_turn_duration_seconds,
             parallelism: minted_parallelism
                 .unwrap_or(crate::managed_agents::DEFAULT_AGENT_PARALLELISM),
+            session_policy: snapshot.definition.session_policy,
             system_prompt: snapshot.definition.system_prompt.clone(),
             model: snapshot.definition.model.clone(),
             provider: snapshot.definition.provider.clone(),
