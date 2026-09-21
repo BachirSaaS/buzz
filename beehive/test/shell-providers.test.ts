@@ -64,7 +64,7 @@ test('minimum-size results and recovery text remain reachable; only the model co
     ui.mockInput.pressEnter(); ui.mockInput.pressTab();
     f.snapshot.resultTarget = 'p'; f.snapshot.phase = 'error'; f.snapshot.message = 'Denied. Check provider access. Reload before retrying.'; f.emit();
     await ui.renderOnce(); assert.match(ui.captureCharFrame(), /Denied/); assert.match(ui.captureCharFrame(), /retrying/);
-    ui.mockInput.pressKey('\x1b[6~'); await ui.renderOnce(); assert.match(ui.captureCharFrame(), /State/);
+    ui.mockInput.pressKey('\x1b[6~'); await ui.renderOnce(); assert.match(ui.captureCharFrame(), /Type/);
     f.snapshot.phase = 'idle'; f.snapshot.message = 'Models loaded.'; f.snapshot.rows[0]!.state = 'Connected'; f.snapshot.rows[0]!.modelCount = 2; f.emit();
     await ui.renderOnce(); assert.match(ui.captureCharFrame(), /Models loaded/);
     for (let i = 0; i < 12; i++) ui.mockInput.pressKey('\x1b[6~');
@@ -246,5 +246,27 @@ for (const [width, height] of [[120, 40], [60, 20]]) test(`provider inventory ha
     assert.equal(f.requests.length, count + 1);
     assert.deepEqual(f.requests.at(-1), { action: 'reload' });
     assert.deepEqual(f.snapshot, before);
+  } finally { shell.close(); }
+});
+
+for (const [width, height] of [[120, 40], [60, 20]]) test(`provider status is complete before scrolling at ${width}x${height}`, async () => {
+  const ui = await createTestRenderer({ width, height, exitOnCtrlC: false }), f = fixture();
+  f.snapshot.rows[0]!.state = 'Connected'; f.snapshot.rows[0]!.modelCount = 1;
+  f.snapshot.rows[0]!.detail = 'Model catalog reachable. Model execution has not been tested.';
+  const shell = new OpenTuiShell(ui.renderer, f.inventory, undefined, f.client);
+  try {
+    for (let i = 0; i < 3; i++) ui.mockInput.pressArrow('right');
+    ui.mockInput.pressEnter(); await ui.renderOnce();
+    assert.match(ui.captureCharFrame(), /Connected · 1 model/);
+    assert.doesNotMatch(ui.captureCharFrame(), /1 models/);
+    if (height === 20) assert.match(ui.captureCharFrame(), /Execution not tested/);
+    f.snapshot.rows[0]!.state = 'Failed'; delete f.snapshot.rows[0]!.modelCount;
+    f.snapshot.rows[0]!.detail = 'Could not load models. Check the API key, endpoint, network and model access, then retry Refresh models.';
+    f.snapshot.resultTarget = 'p'; f.snapshot.phase = 'error'; f.snapshot.message = 'Provider saved. Existing runs are unchanged. Model catalog failed.'; f.emit();
+    await ui.renderOnce(); const frame = ui.captureCharFrame();
+    assert.match(frame, /Check API key, endpoint/); assert.match(frame.replace(/[│\s]+/g, ' '), /Then Refresh models/);
+    if (height === 20) { assert.match(frame, /Catalog unavailable/); assert.doesNotMatch(frame, /Check th|DETAILS/); }
+    ui.mockInput.pressArrow('down'); ui.mockInput.pressTab(); ui.mockInput.pressEnter(); await ui.renderOnce();
+    assert.match(ui.captureCharFrame(), /CONFIGURE PROVIDER/); assert.doesNotMatch(ui.captureCharFrame(), /ADD PROVIDER/);
   } finally { shell.close(); }
 });

@@ -112,7 +112,7 @@ export class ProviderPanel {
       if (type === 'openai-compat') fields.push({ label: 'Endpoint', value: row?.endpoint ?? 'https://' }, { label: 'Wire', value: row?.wire ?? 'auto', choices: ['auto', 'chat', 'responses'] });
       fields.push({ label: row ? 'API key (blank keeps saved)' : 'API key', secret: true });
     }
-    const result = await this.form(row ? 'EDIT PROVIDER' : 'ADD PROVIDER', fields);
+    const result = await this.form(row ? 'EDIT PROVIDER' : 'CONFIGURE PROVIDER', fields);
     if (!result || generation !== this.generation) return;
     await this.client.request({ action: 'save', provider: row?.id ?? `type:${type}`, revision, values: { type, name: result.Name!, endpoint: result['Workspace (DATABRICKS_HOST)'] ?? result.Endpoint ?? '', wire: result.Wire ?? 'auto' } });
   }
@@ -165,14 +165,27 @@ export class ProviderPanel {
     const commands = this.commands();
     const compact = this.renderer.height < 28;
     const ownsResult = this.snapshot.resultTarget === this.selected;
-    const info = row ? [`State       ${row.state}${row.modelCount === undefined ? '' : ` · ${row.modelCount} models`}`, `Type        ${row.type}`, ...(row.endpoint ? [`Connects to ${row.endpoint}`] : []), '', row.detail] : ['Reload saved providers and check their model catalogs. No owner sign-in is required.'];
-    const wrap = (lines: string[]) => lines.flatMap(line => { const result: string[] = []; for (let start = 0; start < Math.max(1, line.length); start += width) result.push(line.slice(start, start + width)); return result; });
+    const modelCount = row?.modelCount === undefined ? '' : `${row.modelCount} ${row.modelCount === 1 ? 'model' : 'models'}`;
+    const info = row ? [`State       ${row.state}${modelCount ? ` · ${modelCount}` : ''}`, `Type        ${row.type}`, ...(row.endpoint ? [`Connects to ${row.endpoint}`] : []), '', row.detail] : ['Reload saved providers and check their model catalogs. No owner sign-in is required.'];
+    const wrap = (lines: string[]) => lines.flatMap(line => {
+      const result: string[] = [];
+      while (line.length > width) {
+        const space = line.lastIndexOf(' ', width);
+        const end = space > 0 ? space : width;
+        result.push(line.slice(0, end)); line = line.slice(end).trimStart();
+      }
+      result.push(line); return result;
+    });
     const fullDetails = wrap(info);
     // Reserve every action and a result viewport before allocating detail rows.
     this.detailTitle.top = 1;
     const detailTop = compact ? 2 : 3;
     const detailCapacity = compact ? 2 : Math.max(1, height - commands.length - 10);
-    const summary = compact ? wrap(row ? [`${row.state}${row.modelCount === undefined ? '' : ` · ${row.modelCount} models`}`, row.detail] : info).slice(0, detailCapacity) : fullDetails.slice(0, detailCapacity);
+    const compactSummary = row ? [
+      `${row.state}${modelCount ? ` · ${modelCount}` : ''}`,
+      row.state === 'Connected' ? 'Execution not tested' : row.state === 'Failed' ? 'Catalog unavailable' : row.state === 'Checking…' ? 'Checking model access' : row.id.startsWith('type:') ? 'Select Configure to get started' : 'Model access not checked',
+    ] : ['Reload saved accounts', 'Check model access'];
+    const summary = compact ? compactSummary : fullDetails.slice(0, detailCapacity);
     this.details.top = detailTop; this.details.width = width; this.details.height = summary.length; this.details.content = summary.join('\n');
     this.actionTitle.top = detailTop + summary.length + (compact ? 0 : 1); this.actionTitle.width = width;
     this.actionTitle.content = 'AVAILABLE ACTIONS ' + '─'.repeat(Math.max(1, width - 18));
@@ -186,9 +199,13 @@ export class ProviderPanel {
     const resultTop = this.actionStart + commands.length;
     const resultCapacity = Math.max(1, height - 2 - resultTop);
     this.resultPageSize = resultCapacity;
+    const recovery = row?.state === 'Failed' ? row.type === 'databricks_v2'
+      ? 'Check workspace and network. Sign in to Databricks, then Refresh models.'
+      : 'Check API key, endpoint, network and model access. Then Refresh models.' : undefined;
     const output = [
+      ...(recovery ? [recovery] : []),
       ...(ownsResult && this.snapshot.message ? [`${this.snapshot.phase === 'error' ? 'FAILED' : this.snapshot.phase === 'busy' ? 'WORKING' : 'RESULT'}: ${this.snapshot.message}`] : []),
-      ...(compact || fullDetails.length > detailCapacity ? ['DETAILS', ...info] : []),
+      ...(compact ? row ? [`Type ${row.type}`, ...(row.endpoint ? [`Connects to ${row.endpoint}`] : [])] : [] : fullDetails.length > detailCapacity ? ['DETAILS', ...info] : []),
     ];
     const wrapped = wrap(output);
     this.detailOffset = Math.min(this.detailOffset, Math.max(0, wrapped.length - resultCapacity));
