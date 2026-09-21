@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { buildWindowCatalog, searchWindowCatalog } from "./windowCatalog.ts";
 import { parameterQuestions } from "../voice/plan.ts";
+import { intentBatches } from "../voice/intent.ts";
 const workspacePlanInput = (request, catalog) => {
   const ctx = {
     catalog,
@@ -74,7 +75,20 @@ test("model input is bounded and ranks requested people ahead of unrelated names
     assert.ok(input.catalog.slice(0, 4).some((item) => item.id === id));
   assert.ok(!JSON.stringify(input).includes("secret"));
   assert.ok(!JSON.stringify(input).includes("avatarUrl"));
-  assert.ok(new TextEncoder().encode(JSON.stringify(input)).length <= 60000);
+  // The shared native transport limits each batch, not the complete plan.
+  const batches = intentBatches({
+    request: "message jmarr and check the weather and my projects",
+    context: JSON.stringify(input.catalog),
+    questions: input.questions,
+  });
+  for (const batch of batches) {
+    assert.ok(Object.keys(batch.questions).length <= 12);
+    assert.ok(new TextEncoder().encode(JSON.stringify(batch)).length <= 160000);
+  }
+  assert.deepEqual(
+    Object.assign({}, ...batches.map((batch) => batch.questions)),
+    input.questions,
+  );
 });
 test("casual names, separator differences and typos survive the 80-candidate shortlist", () => {
   const unrelated = Array.from({ length: 100 }, (_, i) => ({
