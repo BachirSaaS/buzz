@@ -135,3 +135,47 @@ for (const [width, height] of [[120, 40], [60, 20]]) test(`Databricks prerequisi
     assert.equal(f.requests.at(-1)?.action, 'save');
   } finally { shell.close(); }
 });
+
+for (const [width, height] of [[120, 40], [60, 20]]) test(`dialog visual hierarchy and pointer focus at ${width}x${height}`, async () => {
+  const ui = await createTestRenderer({ width, height, exitOnCtrlC: false });
+  const dialog = new ProviderDialog(ui.renderer, 'ADD PROVIDER', [{ label: 'Name', value: 'OpenAI' }, { label: 'API key', secret: true }], () => {});
+  const rgb = (color: { buffer: Uint16Array }) => Array.from(color.buffer).slice(0, 3).join(',');
+  const spans = () => ui.captureSpans().lines.flatMap(line => line.spans);
+  const check = (text: string, color: string) => {
+    const span = spans().find(span => span.text.includes(text));
+    assert.ok(span, text); assert.equal(rgb(span.fg), color); assert.equal(rgb(span.bg), '13,16,14');
+  };
+  const key = (name: string) => dialog.key({ name, sequence: '', ctrl: false, meta: false, shift: false });
+  try {
+    await ui.renderOnce();
+    check('Name', '125,134,124'); check('OpenAI', '220,225,216'); check('[', '255,211,78'); check('Enter API key', '125,134,124');
+    key('tab'); await ui.renderOnce(); check('Enter API key', '125,134,124');
+    const keyboard = ui.captureCharFrame();
+    key('up'); await ui.renderOnce();
+    const lines = ui.captureCharFrame().split('\n'), y = lines.findIndex(line => line.includes('Enter API key'));
+    await ui.mockMouse.click(lines[y]!.indexOf('Enter API key'), y); await ui.renderOnce();
+    assert.equal(ui.captureCharFrame(), keyboard);
+    dialog.updateSecretLength(4); await ui.renderOnce(); check('••••', '220,225,216');
+    key('tab'); await ui.renderOnce(); check('Save', '220,225,216'); check('Tab next', '125,134,124');
+    for (const span of spans()) assert.notEqual(rgb(span.bg), '220,225,216');
+  } finally { dialog.cancel(); ui.renderer.destroy(); }
+});
+
+for (const [width, height] of [[120, 40], [60, 20]]) test(`choice arrows and notice actions have separate boundaries at ${width}x${height}`, async () => {
+  const ui = await createTestRenderer({ width, height, exitOnCtrlC: false });
+  let dialog = new ProviderDialog(ui.renderer, 'ADD PROVIDER', [{ label: 'Type', value: 'openai', choices: ['openai', 'anthropic'] }], () => {}, 'Continue');
+  try {
+    await ui.renderOnce();
+    const lines = ui.captureCharFrame().split('\n');
+    assert.doesNotMatch(lines.find(line => line.includes('Type'))!, /←|→/);
+    assert.match(lines.find(line => line.includes('openai'))!, /\[ openai +← → \]/);
+    assert.match(lines.find(line => line.includes('Continue'))!, /\[ Continue +\]/);
+    dialog.cancel();
+    dialog = new ProviderDialog(ui.renderer, 'NOTICE', [], () => {}, 'Close', 'Nothing changed.');
+    await ui.renderOnce();
+    assert.match(ui.captureCharFrame(), /\[ Close +\]/);
+    const help = ui.captureSpans().lines.flatMap(line => line.spans).find(span => span.text.includes('Enter or Esc close'))!;
+    assert.deepEqual(Array.from(help.fg.buffer).slice(0, 3), [125, 134, 124]);
+    assert.deepEqual(Array.from(help.bg.buffer).slice(0, 3), [13, 16, 14]);
+  } finally { dialog.cancel(); ui.renderer.destroy(); }
+});

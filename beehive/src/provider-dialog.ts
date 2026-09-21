@@ -10,6 +10,10 @@ export class ProviderDialog {
   private surface: BoxRenderable;
   private title: TextRenderable;
   private rows: TextRenderable[] = [];
+  private labels: TextRenderable[] = [];
+  private borders: TextRenderable[] = [];
+  private actionBorder: TextRenderable;
+  private help: TextRenderable;
   private actions: TextRenderable;
   private notice?: TextRenderable;
   private index = 0;
@@ -30,11 +34,20 @@ export class ProviderDialog {
       this.surface.add(this.notice);
     }
     for (let i = 0; i < fields.length; i++) {
-      const row = new TextRenderable(renderer, { position: 'absolute', left: 2, height: 2, fg: palette.text, onMouseDown: () => { this.index = i; this.paint(); } });
+      const focus = () => { this.index = i; this.paint(); };
+      const label = new TextRenderable(renderer, { position: 'absolute', left: 2, height: 1, fg: palette.muted, onMouseDown: focus });
+      this.surface.add(label); this.labels.push(label);
+      const border = new TextRenderable(renderer, { position: 'absolute', left: 2, height: 1, onMouseDown: focus });
+      this.surface.add(border); this.borders.push(border);
+      const row = new TextRenderable(renderer, { position: 'absolute', left: 4, height: 1, fg: palette.text, onMouseDown: focus });
       this.surface.add(row); this.rows.push(row);
     }
-    this.actions = new TextRenderable(renderer, { position: 'absolute', left: 2, height: 2, fg: palette.text, onMouseDown: () => this.complete() });
-    this.surface.add(this.actions); this.paint();
+    this.actions = new TextRenderable(renderer, { position: 'absolute', left: 2, height: 1, fg: palette.text, onMouseDown: () => { this.index = this.fields.length; this.paint(); this.complete(); } });
+    this.actionBorder = new TextRenderable(renderer, { position: 'absolute', left: 2, height: 1, onMouseDown: () => this.complete() });
+    this.surface.add(this.actionBorder);
+    this.actions.left = 4;
+    this.help = new TextRenderable(renderer, { position: 'absolute', left: 2, height: 1, fg: palette.muted });
+    this.surface.add(this.help); this.surface.add(this.actions); this.paint();
   }
   updateSecretLength(length: number) { this.secretLength = length; this.paint(); }
   paste(value: string) {
@@ -83,16 +96,25 @@ export class ProviderDialog {
     if (selected >= this.offset + capacity) this.offset = selected - capacity + 1;
     this.rows.forEach((row, i) => {
       const field = this.fields[i]!; row.visible = i >= this.offset && i < this.offset + capacity;
-      row.top = 3 + (i - this.offset) * 3; row.width = width - 6;
+      const label = this.labels[i]!; label.visible = row.visible;
+      label.top = 3 + (i - this.offset) * 3; label.width = width - 6; label.content = field.label;
+      row.top = label.top + 1; row.width = width - 10;
       const value = field.secret ? '•'.repeat(Math.min(this.secretLength, width - 10)) : field.value ?? '';
-      row.content = `${field.label}${field.choices ? '  ← →' : ''}\n${value.slice(-(width - 6)) || ' '}`;
-      row.bg = this.index === i ? palette.selected : palette.surface;
-      row.fg = this.index === i ? palette.selectedText : palette.text;
+      const focused = this.index === i;
+      const prompt = field.secret ? (field.label.includes('blank keeps saved') ? 'Leave blank to keep saved' : 'Enter API key') : `Enter ${field.label.toLowerCase()}`;
+      const suffix = field.choices ? '  ← →' : '';
+      row.content = (value || prompt).slice(-(width - 10 - suffix.length)).padEnd(width - 10 - suffix.length) + suffix;
+      row.fg = value ? palette.text : palette.muted;
+      const border = this.borders[i]!; border.visible = row.visible; border.top = row.top; border.width = width - 6;
+      border.content = '[' + ' '.repeat(width - 8) + ']'; border.fg = focused ? palette.focus : palette.muted;
     });
-    this.actions.top = height - 4; this.actions.width = width - 6;
-    this.actions.content = this.message ? ` ${this.submitLabel} \nEnter or Esc close` : ` ${this.submitLabel} \nTab next · Esc cancel · Ctrl-U clear`;
-    this.actions.bg = this.index === this.fields.length ? palette.selected : palette.surface;
-    this.actions.fg = this.index === this.fields.length ? palette.selectedText : palette.text;
+    this.actions.top = height - 4; this.actions.width = this.submitLabel.length;
+    this.actions.content = this.submitLabel; this.actions.fg = palette.text;
+    this.actionBorder.top = height - 4; this.actionBorder.width = this.submitLabel.length + 4;
+    this.actionBorder.content = '[' + ' '.repeat(this.submitLabel.length + 2) + ']';
+    this.actionBorder.fg = this.index === this.fields.length ? palette.focus : palette.muted;
+    this.help.top = height - 3; this.help.width = width - 6;
+    this.help.content = this.message ? 'Enter or Esc close' : 'Tab next · Esc cancel · Ctrl-U clear';
   }
   private complete() {
     const values = Object.fromEntries(this.fields.filter(field => !field.secret).map(field => [field.label, field.value ?? field.choices?.[0] ?? '']));
