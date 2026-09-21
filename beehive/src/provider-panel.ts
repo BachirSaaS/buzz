@@ -43,7 +43,7 @@ export class ProviderPanel {
     for (let i = 0; i < 7; i++) {
       const action = new TextRenderable(renderer, { left: 2, position: 'absolute', height: 1, fg: palette.text, onMouseDown: () => { if (!this.active || this.dialog) return; this.actionIndex = this.actionOffset + i; this.state.focus = 'detail'; void this.run(); } }); this.detail.add(action); this.actions.push(action);
     }
-    this.unsubscribe = client.subscribe(snapshot => { this.snapshot = snapshot; this.dialog?.updateSecretLength(snapshot.secretLength); this.paint(); });
+    this.unsubscribe = client.subscribe(snapshot => { if (this.snapshot.message !== snapshot.message) this.detailOffset = 0; this.snapshot = snapshot; this.dialog?.updateSecretLength(snapshot.secretLength); this.paint(); });
   }
   private items() { return [...this.snapshot.rows.map(row => row.id), 'add', 'reload']; }
   private row() { return this.snapshot.rows.find(row => row.id === this.selected); }
@@ -128,7 +128,7 @@ export class ProviderPanel {
     if (!this.active || this.dialog) return;
     if (this.state.focus === 'list') this.select(y - 6 + this.offset);
     else {
-      const count = Math.min(this.commands().length, this.renderer.height < 28 ? 3 : 7);
+      const count = Math.min(this.commands().length, this.renderer.height < 28 ? 2 : 7);
       const first = this.renderer.height - 5 - count - 4;
       const index = y - 3 - first + this.actionOffset;
       if (index >= 0 && index < this.commands().length) { this.actionIndex = index; void this.run(); }
@@ -166,12 +166,12 @@ export class ProviderPanel {
     const row = this.row();
     this.detailTitle.content = row ? row.name.toUpperCase() : this.selected === 'add' ? 'ADD PROVIDER' : 'RELOAD PROVIDERS'; this.detailTitle.width = width;
     const commands = this.commands();
-    const actionCapacity = Math.min(commands.length, this.renderer.height < 28 ? 3 : 7);
+    const actionCapacity = Math.min(commands.length, this.renderer.height < 28 ? 2 : 7);
     if (this.actionIndex < this.actionOffset) this.actionOffset = this.actionIndex;
     if (this.actionIndex >= this.actionOffset + actionCapacity) this.actionOffset = this.actionIndex - actionCapacity + 1;
     const actionStart = height - actionCapacity - 4;
     const info = row ? [`State       ${row.state}`, `Type        ${row.type}`, `Connects to ${row.endpoint}`, '', row.detail, ...(this.snapshot.modelProvider === row.id ? ['', 'MODELS', ...this.snapshot.models] : [])] : this.selected === 'add' ? ['Choose OpenAI, Anthropic, OpenAI-compatible, OpenRouter, or Databricks v2.', '', 'Credentials stay in the OS credential store.'] : ['Reload saved providers and the DATABRICKS_HOST workspace. No owner sign-in is required.'];
-    info.push('', 'RESULT', this.snapshot.message);
+    if (this.snapshot.message) info.unshift('RESULT', this.snapshot.message, '');
     const wrapped = info.flatMap(line => { const result: string[] = []; for (let start = 0; start < Math.max(1, line.length); start += width) result.push(line.slice(start, start + width)); return result; });
     this.detailOffset = Math.min(this.detailOffset, Math.max(0, wrapped.length - (actionStart - 4)));
     this.details.width = width; this.details.height = Math.max(1, actionStart - 4); this.details.content = wrapped.slice(this.detailOffset, this.detailOffset + Math.max(1, actionStart - 4)).join('\n');

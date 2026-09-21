@@ -19,7 +19,7 @@ function fixture() {
     cancel() {}, dispose() {},
   };
   const inventory = new HarnessInventoryController({ read: () => ({ version: 1, revision: 0, agents: [], providers: [], runtimes: [] }), save: candidate => candidate }, async () => []);
-  return { client, inventory, requests, secrets };
+  return { client, inventory, requests, secrets, snapshot, emit() { for (const fn of listeners) fn(structuredClone(snapshot)); } };
 }
 for (const [width, height] of [[120, 40], [60, 20]]) test(`Providers signed-out keyboard actions and modal at ${width}x${height}`, async () => {
   const ui = await createTestRenderer({ width, height, exitOnCtrlC: false }), f = fixture();
@@ -54,4 +54,22 @@ test('form input preserves q as text and cancellation clears secret without save
     assert.equal(dialog.fields[0]?.value, 'q');
     dialog.cancel(); assert.equal(await dialog.done, undefined); assert.deepEqual(calls, ['clear']);
   } finally { ui.renderer.destroy(); }
+});
+
+test('minimum-size results, recovery text and models remain reachable through real page keys', async () => {
+  const ui = await createTestRenderer({ width: 60, height: 20, exitOnCtrlC: false }), f = fixture();
+  const shell = new OpenTuiShell(ui.renderer, f.inventory, undefined, f.client);
+  try {
+    for (let i = 0; i < 3; i++) ui.mockInput.pressArrow('right');
+    ui.mockInput.pressEnter(); ui.mockInput.pressArrow('up'); ui.mockInput.pressTab();
+    f.snapshot.phase = 'error'; f.snapshot.message = 'Denied. Check provider access. Reload before retrying.'; f.emit();
+    await ui.renderOnce(); assert.match(ui.captureCharFrame(), /Denied/); assert.match(ui.captureCharFrame(), /retrying/);
+    ui.mockInput.pressKey('\x1b[6~'); await ui.renderOnce(); assert.match(ui.captureCharFrame(), /State/);
+    f.snapshot.phase = 'idle'; f.snapshot.message = 'Models loaded.'; f.snapshot.modelProvider = 'p'; f.snapshot.models = ['gpt-visible']; f.emit();
+    await ui.renderOnce(); assert.match(ui.captureCharFrame(), /Models loaded/);
+    for (let i = 0; i < 12; i++) ui.mockInput.pressKey('\x1b[6~');
+    await ui.renderOnce(); assert.match(ui.captureCharFrame(), /gpt-visible/);
+    f.snapshot.message = 'Stopped waiting. Changes may already be saved. Reload before retrying.'; f.emit();
+    await ui.renderOnce(); assert.match(ui.captureCharFrame(), /Stopped waiting/);
+  } finally { shell.close(); }
 });

@@ -9,7 +9,7 @@ const keys = new Map<string, string>();
 const backend: ProviderCredentials = { read: ref => keys.get(ref.account) ?? null, create: (ref, value) => { keys.set(ref.account, value); } };
 const service = new ProviderService(home, process.env, {
   credential: async (input: any, signal) => {
-    if (input.action === 'add-provider') addProvider(directory, input.name, input.secret, backend, input.type, input.endpoint, input.wire);
+    if (input.action === 'add-provider') addProvider(directory, input.name, input.secret, backend, input.type, input.endpoint, input.wire, input.revision);
     else if (input.action === 'edit-provider') editProvider(directory, input.provider, input.revision, input.name, input.endpoint, input.wire, input.secret ?? '', backend);
     else if (input.action === 'models') {
       await new Promise(resolve => setTimeout(resolve, 400)); signal.throwIfAborted();
