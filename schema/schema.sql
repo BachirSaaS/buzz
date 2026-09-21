@@ -1806,6 +1806,14 @@ CREATE TABLE relay_admin_actions (
     -- retries and lets the recovery worker claim/re-drive stranded actions.
     action_lease_token      UUID,
     action_lease_expires_at TIMESTAMPTZ,
+    -- Authoritative enforcement target (migration 0047): persisted at claim time
+    -- so crash-recovery can fire live side effects without re-deriving from mutable
+    -- sources. enforcement_target_pubkey is the resolved target pubkey bytes for
+    -- kick/ban/timeout actions; NULL for event/blob targets. enforcement_channel_id
+    -- is the channel targeted by kick actions; NULL for community-wide actions.
+    enforcement_target_pubkey BYTEA
+        CHECK (enforcement_target_pubkey IS NULL OR length(enforcement_target_pubkey) = 32),
+    enforcement_channel_id  UUID,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     -- Report-scoped idempotency: one action per (report, request_id).
@@ -1895,3 +1903,18 @@ CREATE INDEX idx_relay_operator_audit_target
 
 INSERT INTO _operator_global_tables (table_name, reason) VALUES
     ('relay_operator_audit', 'deployment-global append-only roster mutation audit trail; no community_id intentionally');
+
+-- ── Storage accounting snapshot ─────────────────────────────────────────────
+-- Deployment-global singleton produced by the isolated S3 accounting worker.
+
+CREATE TABLE storage_accounting_snapshots (
+    singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton),
+    snapshot JSONB NOT NULL CHECK (jsonb_typeof(snapshot) = 'object'),
+    completed_at TIMESTAMPTZ NOT NULL DEFAULT transaction_timestamp(),
+    duration_ms BIGINT NOT NULL CHECK (duration_ms >= 0),
+    max_objects BIGINT NOT NULL CHECK (max_objects > 0),
+    code_sha TEXT NOT NULL CHECK (octet_length(code_sha) BETWEEN 1 AND 128)
+);
+
+INSERT INTO _operator_global_tables (table_name, reason) VALUES
+    ('storage_accounting_snapshots', 'deployment-global completed media accounting handoff');
