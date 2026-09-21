@@ -6822,3 +6822,253 @@ test("staffing-self-removal-fires-onSelfMutation: confirming removal of own pubk
     await unmount();
   }
 });
+
+// ── P2-1 Settings→panel wiring: onSelfMutation propagates from SettingsCard ──
+//
+// mountCard does not wrap with CommunitiesProvider (StaffingTab requires it).
+// mountCardFull adds CommunitiesProvider so SettingsCard-level wiring tests
+// can navigate to the Staffing tab.
+
+function mountCardFull(qc) {
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  const doRender = async () => {
+    await act(async () => {
+      root.render(
+        React.createElement(
+          QueryClientProvider,
+          { client: qc },
+          React.createElement(
+            CommunitiesProvider,
+            null,
+            React.createElement(AdminConsoleSettingsCard),
+          ),
+        ),
+      );
+    });
+  };
+  const unmount = async () => {
+    await act(async () => {
+      root.unmount();
+    });
+    document.body.removeChild(container);
+  };
+  return { container, doRender, unmount };
+}
+
+test("settings-card-self-demotion-reruns-probe: self-demotion through SettingsCard triggers runProbe", async () => {
+  // Verifies the Settings→panel wiring at AdminConsoleSettingsCard.tsx:462:
+  //   onSelfMutation={() => runProbe(savedOrigin)}
+  //
+  // The existing staffing-self-demotion-fires-onSelfMutation test mounts
+  // AdminConsolePanel directly with onSelfMutation as a prop — it proves the
+  // StaffingTab guard fires but says nothing about whether SettingsCard passes
+  // the callback. This test mounts the real AdminConsoleSettingsCard and
+  // confirms the full path: SettingsCard→panel wiring → Staffing mutation →
+  // onSelfMutation → runProbe → probe IPC called a second time → new role
+  // reflected in UI → Staffing tab disappears.
+  //
+  // Mutation evidence: remove the `onSelfMutation={() => runProbe(savedOrigin)}`
+  // prop at SettingsCard.tsx:462 → AdminConsolePanel receives no callback →
+  // StaffingTab's onSelfMutation?.() fires nothing → second probe never called →
+  // probeCallCount stays at 1 → Staffing tab remains visible → test RED.
+
+  const pubkey = "cc".repeat(32); // self
+  const otherPubkey = "dd".repeat(32); // another operator
+  const savedOrigin = "https://admin-settings-self-demote.example.com";
+
+  let probeCallCount = 0;
+  // First probe: self is operator. Second probe (after self-demotion): moderator.
+  setIpcHandler("admin_probe", () => {
+    probeCallCount += 1;
+    if (probeCallCount === 1) {
+      return Promise.resolve({
+        state: "nip98Authorized",
+        role: "operator",
+        source: "db",
+      });
+    }
+    return Promise.resolve({
+      state: "nip98Authorized",
+      role: "moderator",
+      source: "db",
+    });
+  });
+  setIpcHandler("get_admin_origin", () => Promise.resolve(savedOrigin));
+  setIpcHandler("admin_list_reports", () => Promise.resolve([]));
+  setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
+  setIpcHandler("admin_list_operators", () =>
+    Promise.resolve([
+      { pubkey: pubkey, effectiveRole: "operator", sources: ["db"] },
+      { pubkey: otherPubkey, effectiveRole: "operator", sources: ["db"] },
+    ]),
+  );
+  setIpcHandler("admin_put_operator", () =>
+    Promise.resolve({
+      pubkey: pubkey,
+      effectiveRole: "moderator",
+      sources: ["db"],
+    }),
+  );
+  setIpcHandler("get_users_batch", () =>
+    Promise.resolve({ profiles: {}, missing: [] }),
+  );
+
+  const qc = makeQueryClient(pubkey);
+  const { container, doRender, unmount } = mountCardFull(qc);
+  await doRender();
+  await settle(60);
+
+  // After initial probe: operator role → Staffing tab must be visible.
+  const staffingTabBefore = container.querySelector(
+    "[data-testid='admin-tab-staffing']",
+  );
+  assert.ok(
+    staffingTabBefore !== null,
+    "Staffing tab must render initially when probe returns operator role",
+  );
+  assert.equal(probeCallCount, 1, "probe must have been called once on mount");
+
+  // Navigate to the Staffing tab.
+  await act(async () => {
+    fireEvent.click(staffingTabBefore);
+    await new Promise((r) => setTimeout(r, 30));
+  });
+
+  // Self role selector must now be present.
+  const selfRoleSelect = container.querySelector(
+    `[data-testid='staffing-role-select-${pubkey}']`,
+  );
+  assert.ok(
+    selfRoleSelect !== null,
+    "self role selector must be present after navigating to Staffing tab",
+  );
+
+  // Demote self: change own role from operator → moderator.
+  await act(async () => {
+    fireEvent.change(selfRoleSelect, { target: { value: "moderator" } });
+    await new Promise((r) => setTimeout(r, 60));
+  });
+
+  // The SettingsCard wiring must have called runProbe a second time.
+  assert.equal(
+    probeCallCount,
+    2,
+    `admin_probe must be called a second time after self-demotion via SettingsCard wiring; ` +
+      `called ${probeCallCount} times. Remove onSelfMutation={() => runProbe(savedOrigin)} at ` +
+      "SettingsCard.tsx:462 to reproduce this failure.",
+  );
+
+  // After the second probe returns moderator: Staffing tab must be gone.
+  const staffingTabAfter = container.querySelector(
+    "[data-testid='admin-tab-staffing']",
+  );
+  assert.equal(
+    staffingTabAfter,
+    null,
+    "Staffing tab must disappear after self-demotion triggers re-probe returning moderator role",
+  );
+
+  // Role badge must now reflect moderator.
+  const text = container.textContent ?? "";
+  assert.ok(
+    text.includes("moderator"),
+    `role badge must show "moderator" after self-demotion re-probe; got: ${text.slice(0, 300)}`,
+  );
+
+  await unmount();
+});
+
+test("settings-card-other-demotion-does-not-reruns-probe: demoting a different operator does NOT re-run probe", async () => {
+  // Negative control for the wiring test above.
+  // Mutating a different operator's role must NOT trigger runProbe via
+  // onSelfMutation — only self-mutations trigger that callback.
+  //
+  // Mutation evidence: change the `op.pubkey === pubkey` guard in StaffingTab
+  // to always call onSelfMutation?.() → probeCallCount becomes 2 after the
+  // other-operator mutation → test RED.
+
+  const pubkey = "ee".repeat(32); // self
+  const otherPubkey = "ff".repeat(32); // different operator being demoted
+  const savedOrigin = "https://admin-settings-other-demote.example.com";
+
+  let probeCallCount = 0;
+  setIpcHandler("admin_probe", () => {
+    probeCallCount += 1;
+    return Promise.resolve({
+      state: "nip98Authorized",
+      role: "operator",
+      source: "db",
+    });
+  });
+  setIpcHandler("get_admin_origin", () => Promise.resolve(savedOrigin));
+  setIpcHandler("admin_list_reports", () => Promise.resolve([]));
+  setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
+  setIpcHandler("admin_list_operators", () =>
+    Promise.resolve([
+      { pubkey: pubkey, effectiveRole: "operator", sources: ["db"] },
+      { pubkey: otherPubkey, effectiveRole: "operator", sources: ["db"] },
+    ]),
+  );
+  setIpcHandler("admin_put_operator", () =>
+    Promise.resolve({
+      pubkey: otherPubkey,
+      effectiveRole: "moderator",
+      sources: ["db"],
+    }),
+  );
+  setIpcHandler("get_users_batch", () =>
+    Promise.resolve({ profiles: {}, missing: [] }),
+  );
+
+  const qc = makeQueryClient(pubkey);
+  const { container, doRender, unmount } = mountCardFull(qc);
+  await doRender();
+  await settle(60);
+
+  assert.equal(probeCallCount, 1, "probe must be called once on mount");
+
+  // Navigate to the Staffing tab.
+  const staffingTab = container.querySelector(
+    "[data-testid='admin-tab-staffing']",
+  );
+  assert.ok(staffingTab !== null, "Staffing tab must be visible for operator");
+  await act(async () => {
+    fireEvent.click(staffingTab);
+    await new Promise((r) => setTimeout(r, 30));
+  });
+
+  // Other operator's role selector must be present.
+  const otherRoleSelect = container.querySelector(
+    `[data-testid='staffing-role-select-${otherPubkey}']`,
+  );
+  assert.ok(
+    otherRoleSelect !== null,
+    "other operator's role selector must be present in Staffing tab",
+  );
+
+  // Demote the OTHER operator.
+  await act(async () => {
+    fireEvent.change(otherRoleSelect, { target: { value: "moderator" } });
+    await new Promise((r) => setTimeout(r, 60));
+  });
+
+  // probe must NOT have been called again — other-operator mutation is not a self-mutation.
+  assert.equal(
+    probeCallCount,
+    1,
+    `admin_probe must NOT be called again after demoting a different operator; called ${probeCallCount} times`,
+  );
+
+  // Staffing tab must remain visible (self is still operator).
+  const staffingTabAfter = container.querySelector(
+    "[data-testid='admin-tab-staffing']",
+  );
+  assert.ok(
+    staffingTabAfter !== null,
+    "Staffing tab must remain visible after demoting a different operator (self is still operator)",
+  );
+
+  await unmount();
+});
