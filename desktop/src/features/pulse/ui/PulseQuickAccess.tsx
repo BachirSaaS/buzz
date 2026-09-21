@@ -14,11 +14,16 @@ import {
   usePulsePreferences,
 } from "../lib/usePulsePreferences";
 import { DockTooltip } from "./DockTooltip";
+import type { PulseNavigationLayout } from "../lib/navigationLayout";
 import { PulseChannelDetail } from "./PulseChannelDetail";
 import { usePulseUnreadChannels } from "./PulseUnreadDot";
 
 /** Pinned DMs are lightweight dropdown conversations, outside the canvas window model. */
-export const PulseQuickAccess = memo(function PulseQuickAccess() {
+export const PulseQuickAccess = memo(function PulseQuickAccess({
+  layout = "dock",
+}: {
+  layout?: PulseNavigationLayout;
+}) {
   const identity = useIdentityQuery();
   const pubkey = identity.data?.pubkey;
   const relay = useRelayOrigin();
@@ -103,7 +108,7 @@ export const PulseQuickAccess = memo(function PulseQuickAccess() {
   };
   return (
     <nav
-      className="flex shrink-0 flex-col items-center gap-2"
+      className={`flex shrink-0 items-center gap-2 ${layout === "dock" ? "flex-col" : ""}`}
       aria-label="Pinned chats"
       onPointerDownCapture={() => setMethod("pointer")}
       onKeyDownCapture={() => setMethod("keyboard")}
@@ -119,11 +124,14 @@ export const PulseQuickAccess = memo(function PulseQuickAccess() {
             open={open === id}
             onOpenChange={(next) => changeOpen(id, next)}
           >
-            <DockTooltip label={name}>
+            <DockTooltip
+              label={name}
+              side={layout === "dock" ? "right" : "bottom"}
+            >
               <PopoverTrigger asChild>
                 <Action
                   aria-label={`Open pinned chat with ${name}${unread(id) ? ", unread" : ""}`}
-                  className="pulse-dock-icon pulse-dock-person relative"
+                  className={`${layout === "dock" ? "pulse-dock-icon" : "pulse-top-icon"} pulse-dock-person relative`}
                 >
                   <span aria-hidden className="size-full">
                     <UserAvatar
@@ -146,8 +154,8 @@ export const PulseQuickAccess = memo(function PulseQuickAccess() {
               </PopoverTrigger>
             </DockTooltip>
             <PopoverContent
-              side="right"
-              align="start"
+              side={layout === "dock" ? "right" : "bottom"}
+              align={layout === "dock" ? "start" : "end"}
               sideOffset={10}
               collisionPadding={16}
               aria-label={`Chat with ${name}`}
@@ -198,20 +206,27 @@ export const PulseQuickAccess = memo(function PulseQuickAccess() {
         open={open === "pin"}
         onOpenChange={(next) => changeOpen("pin", next)}
       >
-        <DockTooltip label="Pin a DM">
+        <DockTooltip
+          label="Pin a DM"
+          side={layout === "dock" ? "right" : "bottom"}
+        >
           <PopoverTrigger asChild>
             <Action
               ref={pinTrigger}
               aria-label="Pin a DM"
-              className="pulse-dock-icon"
+              className={
+                layout === "dock"
+                  ? "pulse-dock-icon"
+                  : "pulse-top-icon pulse-control-surface"
+              }
             >
               <MessageCirclePlus aria-hidden className="size-6" />
             </Action>
           </PopoverTrigger>
         </DockTooltip>
         <PopoverContent
-          side="right"
-          align="start"
+          side={layout === "dock" ? "right" : "bottom"}
+          align={layout === "dock" ? "start" : "end"}
           sideOffset={10}
           aria-label="Pin a DM"
           data-open-method={method}

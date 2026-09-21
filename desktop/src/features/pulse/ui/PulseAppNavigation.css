@@ -161,3 +161,26 @@
   border-radius: 50%;
   padding: 0;
 }
+
+/* The alternative top bar reuses workspace state and keeps the dock intact. */
+.pulse-top-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  -webkit-app-region: no-drag;
+}
+.pulse-top-icon > svg {
+  width: 16px;
+  height: 16px;
+}
+.pulse-top-icon[aria-current="page"] {
+  background: var(--foreground);
+  color: var(--background);
+}
+.pulse-top-actions {
+  -webkit-app-region: no-drag;
+}

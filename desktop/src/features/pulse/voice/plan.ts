@@ -1,4 +1,5 @@
 import { nudgeChoices, type CommandMemory } from "./commandMemory";
+import { explicitWindowList } from "./explicitWindowList";
 import {
   workspaceIconChoices,
   type WorkspaceIconName,
@@ -76,6 +77,10 @@ export function parameterQuestions(
   ctx: CommandContext,
 ): Record<string, ChoiceQuestion> {
   const questions: Record<string, ChoiceQuestion> = {};
+  const explicitWindows =
+    action === "open_windows" || action === "create_workspace"
+      ? explicitWindowList(request, ctx.catalog)
+      : undefined;
   if (action === "open_settings")
     questions.section = question(
       "Which settings page does the user want to view? Opening settings never changes a preference.",
@@ -104,21 +109,32 @@ export function parameterQuestions(
         "ONE new unsent message draft to the named people together. Use for 'message Matt and Jared' or 'a DM with Matt and Jared'. Recipients are resolved separately. Bare person lists without a message/chat verb may use existing DMs.";
     criteria.none = "No target at this position";
     criteria.unavailable = "The requested target has no reasonable match here";
-    questions.count = question(
-      `Count distinct ${people ? "people to address in the DM draft, ignoring widgets, projects, layout instructions and workspace names" : "content windows INSIDE the workspace, NOT the number of workspaces or operations. Each app/widget/channel is a separate window regardless of its placement. Music in the left half and weather in the right half is TWO windows. A DM draft addressed to several people counts as ONE window; that draft plus weather is TWO"}. Count unavailable targets too. Plural app names are ONE window: projects, messages, agents, repositories, issues and reviews each identify one app view, not a count of records. 'Projects on the left' is exactly ONE Projects window; position does not add another target. Do not count layout instructions or workspace names. A blank ${people ? "new message" : "workspace"} has zero.`,
-      Object.fromEntries(
-        Object.keys(counts).map((id) => [
-          id,
-          id === "too_many"
-            ? "More than eight requested targets"
-            : `Exactly ${id} distinct ${people ? "DM recipients" : "content windows (apps, widgets or conversations)"} requested`,
-        ]),
-      ),
-    );
-    for (let i = 0; i < 8; i++)
+    if (!explicitWindows)
+      questions.count = question(
+        `Count distinct ${people ? "people to address in the DM draft, ignoring widgets, projects, layout instructions and workspace names" : "content windows INSIDE the workspace, NOT the number of workspaces or operations. Each app/widget/channel is a separate window regardless of its placement. Music in the left half and weather in the right half is TWO windows. A DM draft addressed to several people counts as ONE window; that draft plus weather is TWO"}. Count unavailable targets too. Plural app names are ONE window: projects, messages, agents, repositories, issues and reviews each identify one app view, not a count of records. 'Projects on the left' is exactly ONE Projects window; position does not add another target. Do not count layout instructions or workspace names. A blank ${people ? "new message" : "workspace"} has zero.`,
+        Object.fromEntries(
+          Object.keys(counts).map((id) => [
+            id,
+            id === "too_many"
+              ? "More than eight requested targets"
+              : `Exactly ${id} distinct ${people ? "DM recipients" : "content windows (apps, widgets or conversations)"} requested`,
+          ]),
+        ),
+      );
+    for (let i = 0; i < (explicitWindows?.length ?? 8); i++)
       questions[`target_${i + 1}`] = question(
-        `Choose distinct requested ${people ? "recipient" : "window"} number ${i + 1} in mention order. ${people ? "Select people individually, never an existing group. Match short first names to usernames even without word separators. For an abbreviated name, prefer an existing DM contact and especially an open or recently active DM over a directory stranger with the same first name. Confirmed names are user-provided aliases and authoritative matches; never override an explicitly different full name or handle." : "A person by themselves means their one-to-one DM; music/weather means the widget unless explicitly called a channel. Count a group chat as one window."} Match prefixes, typos and phonetic speech errors when one candidate is clearly best; do not guess between equally plausible people. none only if no target was requested at this position, unavailable if no candidate matches.`,
-        criteria,
+        `${explicitWindows ? `The request is an explicit list of ${explicitWindows.length} existing windows in order: ${explicitWindows.map((entry) => entry.title).join(", ")}. This slot is ${explicitWindows[i].title}; spaces and hyphens in names are equivalent. ` : ""}Choose distinct requested ${people ? "recipient" : "window"} number ${i + 1} in mention order. ${people ? "Select people individually, never an existing group. Match short first names to usernames even without word separators. For an abbreviated name, prefer an existing DM contact and especially an open or recently active DM over a directory stranger with the same first name. Confirmed names are user-provided aliases and authoritative matches; never override an explicitly different full name or handle." : "A person by themselves means their one-to-one DM; music/weather means the widget unless explicitly called a channel. Count a group chat as one window."} Match prefixes, typos and phonetic speech errors when one candidate is clearly best; do not guess between equally plausible people. none only if no target was requested at this position, unavailable if no candidate matches.`,
+        explicitWindows
+          ? {
+              [explicitWindows[i].id]:
+                `${explicitWindows[i].title} (${explicitWindows[i].kind}): ${explicitWindows[i].description}`.slice(
+                  0,
+                  140,
+                ),
+              none: criteria.none,
+              unavailable: criteria.unavailable,
+            }
+          : criteria,
       );
     if (!people)
       questions.layout = question(
@@ -225,7 +241,7 @@ export function parameterQuestions(
       action === "arrange_windows"
         ? canvasContentIds(ctx.active.canvas)
         : Array.from(
-            { length: 8 },
+            { length: explicitWindows?.length ?? 8 },
             (_, i) =>
               `requested window number ${i + 1} (same as target_${i + 1})`,
           );
@@ -289,10 +305,13 @@ export function decodePlan(
     throw new Error(
       "Describe the windows for your new workspace. Messages open as unsent drafts.",
     );
-  if (specs.count) {
+  if (specs.count || specs.target_1) {
     let count: number;
     try {
-      count = Number(pick("count"));
+      // Exact catalog lists already establish their length; don't ask Jev to recount them.
+      count = specs.count
+        ? Number(pick("count"))
+        : Object.keys(specs).filter((id) => /^target_[1-8]$/.test(id)).length;
     } catch (cause) {
       const answer = answers.count;
       // Redundant count uncertainty cannot veto an independently unanimous target list.

@@ -7,14 +7,17 @@ import type { WorkspaceController } from "../lib/usePulseWorkspaces";
 import { useInterfaceSession } from "../voice/InterfaceCommandsProvider";
 import { DockTooltip } from "./DockTooltip";
 import { RecipientChoices } from "../voice/RecipientChoices";
+import type { PulseNavigationLayout } from "../lib/navigationLayout";
 
 /** The shared command engine with create-workspace intent already selected. */
 export function NewWorkspacePopover({
   workspaces,
   onCreated,
+  layout = "dock",
 }: {
   workspaces: WorkspaceController;
   onCreated: () => void;
+  layout?: PulseNavigationLayout;
 }) {
   const { commands, surface, show } = useInterfaceSession();
   const open = surface === "workspace";
@@ -60,12 +63,15 @@ export function NewWorkspacePopover({
         show(value ? "workspace" : null);
       }}
     >
-      <DockTooltip label="New workspace">
+      <DockTooltip
+        label="New workspace"
+        side={layout === "dock" ? "right" : "bottom"}
+      >
         <PopoverTrigger asChild>
           <Action
             aria-label="New workspace"
             disabled={!workspaces.canCreate}
-            className="workspace-add-trigger pulse-dock-icon disabled:opacity-40"
+            className={`workspace-add-trigger ${layout === "dock" ? "pulse-dock-icon" : "pulse-top-icon pulse-control-surface"} disabled:opacity-40`}
           >
             <Plus aria-hidden className="size-6" />
           </Action>
@@ -73,7 +79,7 @@ export function NewWorkspacePopover({
       </DockTooltip>
       <PopoverContent
         aria-label="New workspace"
-        side="right"
+        side={layout === "dock" ? "right" : "bottom"}
         align="start"
         sideOffset={10}
         className="new-workspace-popover w-[380px] p-0"

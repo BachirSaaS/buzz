@@ -5,15 +5,17 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 export function DockTooltip({
   label,
   children,
+  side = "right",
 }: {
   label: string;
   children: ReactElement;
+  side?: "right" | "bottom";
 }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>{children}</TooltipTrigger>
       <TooltipContent
-        side="right"
+        side={side}
         sideOffset={12}
         className="rounded-full px-3 py-2 text-sm"
       >

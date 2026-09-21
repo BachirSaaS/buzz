@@ -163,10 +163,10 @@ test("agent shortcut opens a new direct chat with keyboard", async ({
     );
 });
 
-test("left dock keeps workspace icons, tooltips and settings accessible across spaces", async ({
+test("top navigation keeps labeled workspaces, tooltips and settings accessible across spaces", async ({
   page,
 }) => {
-  await expect(page.getByTestId("app-top-chrome")).toHaveCSS("height", "36px");
+  await expect(page.getByTestId("app-top-chrome")).toHaveCSS("height", "48px");
   await expect(page.getByTestId("global-back")).toHaveCount(0);
   const account = page.getByRole("button", {
     name: "Pin a DM",
@@ -174,21 +174,19 @@ test("left dock keeps workspace icons, tooltips and settings accessible across s
   });
   const dock = page.getByTestId("pulse-app-navigation");
   const bounds = await dock.boundingBox();
-  expect(bounds?.x).toBe(16);
-  expect(bounds?.width).toBe(64);
-  expect(
-    Math.abs((bounds?.y ?? 0) + (bounds?.height ?? 0) / 2 - 480),
-  ).toBeLessThan(1);
+  expect((bounds?.y ?? 0) + (bounds?.height ?? 0)).toBeLessThanOrEqual(48);
+  await expect(page.locator(".pulse-app-dock")).toHaveCount(0);
   await expect(page.getByTestId("app-top-chrome").getByRole("tab")).toHaveCount(
-    0,
+    5,
   );
   await expect(
     page.getByRole("tablist", { name: "Workspaces" }),
-  ).toHaveAttribute("aria-orientation", "vertical");
+  ).toHaveAttribute("aria-orientation", "horizontal");
   const initial = await account.boundingBox();
   for (const name of ["Home", "Messages", "Projects", "Agents", "Apps"]) {
     const tab = page.getByRole("tab", { name, exact: true });
-    await expect(tab).toHaveCSS("height", "48px");
+    await expect(tab).toHaveCSS("height", "28px");
+    await expect(tab).toContainText(name);
     await tab.click();
     await expect(tab).toHaveAttribute("aria-selected", "true");
     expect((await account.boundingBox())?.x).toBe(initial?.x);
@@ -198,10 +196,10 @@ test("left dock keeps workspace icons, tooltips and settings accessible across s
   await expect(page.getByRole("tooltip", { name: "Home" })).toBeVisible();
   await waitForAnimations(page);
   await page.screenshot({
-    path: "test-results/pulse-navigation/left-dock.png",
+    path: "test-results/pulse-navigation/top-navigation.png",
   });
   await homeIcon.focus();
-  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowRight");
   await expect(
     page.getByRole("tab", { name: "Messages", exact: true }),
   ).toBeFocused();
@@ -211,7 +209,7 @@ test("left dock keeps workspace icons, tooltips and settings accessible across s
   ).toHaveAttribute("aria-selected", "true");
 });
 
-test("dock scrolls on short windows and keeps creation, pins and settings reachable", async ({
+test("top navigation scrolls on narrow windows and keeps creation, pins and settings reachable", async ({
   page,
 }) => {
   await page.evaluate(() => {
@@ -251,7 +249,9 @@ test("dock scrolls on short windows and keeps creation, pins and settings reacha
   await expect(picker).toBeVisible();
   expect((await picker.boundingBox())?.x).toBeGreaterThan(80);
   await page.keyboard.press("Escape");
-  const settings = dock.getByRole("button", { name: "Settings", exact: true });
+  const settings = page
+    .getByTestId("app-top-chrome")
+    .getByRole("button", { name: "Settings", exact: true });
   await settings.click();
   await expect(page.getByTestId("pulse-settings-workspace")).toBeVisible();
   await expect(settings).toHaveAttribute("aria-current", "page");

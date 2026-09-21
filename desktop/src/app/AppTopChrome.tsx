@@ -1,4 +1,5 @@
 import * as React from "react";
+import { PULSE_NAVIGATION_LAYOUT } from "@/features/pulse/lib/navigationLayout";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import { isMacPlatform } from "@/shared/lib/platform";
@@ -125,7 +126,9 @@ export function AppTopChrome({
       className={cn(
         "relative z-45 flex shrink-0 cursor-default select-none items-center pr-3 text-sidebar-foreground",
         workspaceNavigation
-          ? "h-[36px] gap-3 bg-transparent"
+          ? PULSE_NAVIGATION_LAYOUT === "top"
+            ? "h-[48px] gap-3 border-b border-border/30 bg-background/40"
+            : "h-[36px] gap-3 bg-transparent"
           : topChromeBackdrop.height,
         navRowPaddingClass,
       )}

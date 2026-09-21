@@ -14,14 +14,17 @@ import {
 } from "@/shared/ui/context-menu";
 import type { WorkspaceController } from "../lib/usePulseWorkspaces";
 import "./WorkspaceTabs.css";
+import type { PulseNavigationLayout } from "../lib/navigationLayout";
 
 /** Workspace icons retain their names and menus independently of window content. */
 export function WorkspaceTabs({
   workspaces,
   settingsActive = false,
+  layout = "dock",
 }: {
   workspaces: WorkspaceController;
   settingsActive?: boolean;
+  layout?: PulseNavigationLayout;
 }) {
   const { commands } = useInterfaceSession();
   const workspaceIcons = useWorkspaceIcons(
@@ -61,11 +64,11 @@ export function WorkspaceTabs({
     }
   };
   return (
-    <div ref={root} className="workspace-tabs">
+    <div ref={root} className="workspace-tabs" data-layout={layout}>
       <div
         role="tablist"
         aria-label="Workspaces"
-        aria-orientation="vertical"
+        aria-orientation={layout === "dock" ? "vertical" : "horizontal"}
         className="workspace-tab-list"
       >
         {workspaces.items.map((item) => {
@@ -85,14 +88,21 @@ export function WorkspaceTabs({
                       className="workspace-tab"
                       data-active={selected || undefined}
                     >
-                      <DockTooltip label={item.name}>
+                      <DockTooltip
+                        label={item.name}
+                        side={layout === "dock" ? "right" : "bottom"}
+                      >
                         <Action
                           role="tab"
                           aria-label={item.name}
                           aria-selected={selected}
                           aria-controls="pulse-workspace-content"
                           tabIndex={workspaces.active.id === item.id ? 0 : -1}
-                          className="workspace-tab-select pulse-dock-icon"
+                          className={
+                            layout === "dock"
+                              ? "workspace-tab-select pulse-dock-icon"
+                              : "workspace-tab-select pulse-control-surface text-sm"
+                          }
                           onClick={() => workspaces.select(item.id)}
                           onDoubleClick={() => rename(item.id, item.name)}
                           onKeyDown={(event) => {
@@ -109,9 +119,13 @@ export function WorkspaceTabs({
                               return;
                             }
                             if (
-                              !["ArrowUp", "ArrowDown", "Home", "End"].includes(
-                                event.key,
-                              )
+                              ![
+                                ...(layout === "dock"
+                                  ? ["ArrowUp", "ArrowDown"]
+                                  : ["ArrowLeft", "ArrowRight"]),
+                                "Home",
+                                "End",
+                              ].includes(event.key)
                             )
                               return;
                             event.preventDefault();
@@ -127,14 +141,25 @@ export function WorkspaceTabs({
                                 : event.key === "End"
                                   ? buttons.length - 1
                                   : (index +
-                                      (event.key === "ArrowDown" ? 1 : -1) +
+                                      (event.key ===
+                                      (layout === "dock"
+                                        ? "ArrowDown"
+                                        : "ArrowRight")
+                                        ? 1
+                                        : -1) +
                                       buttons.length) %
                                     buttons.length
                             ]?.focus();
                           }}
                         >
                           <WorkspaceIcon name={workspaceIcons.icons[item.id]} />
-                          <span className="sr-only">{item.name}</span>
+                          <span
+                            className={
+                              layout === "dock" ? "sr-only" : "truncate"
+                            }
+                          >
+                            {item.name}
+                          </span>
                         </Action>
                       </DockTooltip>
                     </div>
@@ -168,7 +193,7 @@ export function WorkspaceTabs({
                 </ContextMenuContent>
               </ContextMenu>
               <PopoverContent
-                side="right"
+                side={layout === "dock" ? "right" : "bottom"}
                 align="start"
                 sideOffset={16}
                 aria-label="Rename workspace"
@@ -220,6 +245,7 @@ export function WorkspaceTabs({
         key={workspaces.scope}
         workspaces={workspaces}
         onCreated={focus}
+        layout={layout}
       />
     </div>
   );

@@ -6,7 +6,7 @@ import { ContentWidthContext } from "@/shared/lib/contentWidthPreference";
 import { PulseAppNavigation, type PulseApp } from "./PulseAppNavigation";
 import { InterfaceCommandsProvider } from "../voice/InterfaceCommandsProvider";
 
-/** The floating dock overlays a symmetric canvas without reserving layout space. */
+/** Navigation can occupy the title bar or overlay the symmetric canvas as a dock. */
 export function PulseWorkspaceFrame({
   active,
   workspaces,

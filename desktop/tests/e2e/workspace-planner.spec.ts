@@ -340,3 +340,52 @@ test("model and storage failures keep the workspace request retryable", async ({
     page.getByRole("tab", { name: "Weather", exact: true }),
   ).toBeVisible();
 });
+
+test("an exact channel and widget list creates every requested window without a count decision", async ({
+  page,
+}) => {
+  let calls = 0;
+  let expected: string[] = [];
+  await page.route("**/__pulse/intent", async (route) => {
+    calls++;
+    const input = route.request().postDataJSON();
+    expect(input.questions.count).toBeUndefined();
+    const picks: Record<string, string> = { layout: "auto", text: "0" };
+    expected = Object.entries(input.questions)
+      .filter(([id]) => id.startsWith("target_"))
+      .map(([id, spec]) => {
+        const criteria = (spec as { criteria: Record<string, string> })
+          .criteria;
+        const options = Object.keys(criteria).filter(
+          (key) => key !== "none" && key !== "unavailable",
+        );
+        expect(options).toHaveLength(1);
+        picks[id] = options[0];
+        return options[0];
+      });
+    expect(expected).toHaveLength(3);
+    await route.fulfill({ json: answers(input, picks) });
+  });
+  const before = await saved(page);
+  await open(page);
+  await popover(page)
+    .getByRole("textbox", { name: "Describe your workspace" })
+    .fill("general, engineering, weather");
+  await page.keyboard.press("Enter");
+  await expect(popover(page)).toHaveCount(0);
+  const after = await saved(page);
+  expect(calls).toBe(1);
+  expect(after.items).toHaveLength(before.items.length + 1);
+  expect(
+    after.items.find((item: { id: string }) => item.id === after.active).canvas
+      .windows,
+  ).toEqual(expected);
+  for (const id of expected)
+    await expect(page.locator(`[data-content-id="${id}"]`)).toBeVisible();
+  await page.reload();
+  expect(
+    (await saved(page)).items.find(
+      (item: { id: string }) => item.id === after.active,
+    ).canvas.windows,
+  ).toEqual(expected);
+});

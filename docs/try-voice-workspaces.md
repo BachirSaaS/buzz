@@ -2,7 +2,7 @@
 
 Branch: `am-blockUI-proto-chief` in `block/buzz`.
 
-This prototype adds a floating workspace dock and a persistent command capsule.
+This prototype adds workspace navigation and a persistent command capsule.
 Type or speak to open conversations and apps, create workspaces, and arrange
 windows. Jev interprets requests; Buzz validates and applies the selected actions.
 
@@ -70,7 +70,9 @@ normal desktop development setup instead of this Block-specific launcher.
   newly opened windows go to its top.
 - Try **“start a DM with Matt and Jared.”** This opens an unsent draft. Names use
   your own directory and recent activity; unclear recipients prompt for a choice.
-- Workspaces have their own layouts and icons. Use the dock to switch between them.
+- Workspaces have their own layouts and icons. Use the top tabs to switch between
+  them. The floating dock remains available in source through
+  `desktop/src/features/pulse/lib/navigationLayout.ts`.
 
 Live listening can act before you stop talking. Jev receives transcript text and
 matching app, workspace, and people metadata; microphone audio stays on-device.

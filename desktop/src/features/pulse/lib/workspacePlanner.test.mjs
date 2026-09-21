@@ -11,9 +11,13 @@ const workspacePlanInput = (request, catalog) => {
     workspaces: [],
   };
   const questions = parameterQuestions("create_workspace", request, ctx);
-  const ids = Object.keys(questions.target_1.criteria).filter((id) =>
-    catalog.some((v) => v.id === id),
-  );
+  const ids = [
+    ...new Set(
+      Object.entries(questions)
+        .filter(([id]) => id.startsWith("target_"))
+        .flatMap(([, question]) => Object.keys(question.criteria)),
+    ),
+  ].filter((id) => catalog.some((v) => v.id === id));
   return { questions, catalog: ids.map((id) => ({ id })) };
 };
 const person = {

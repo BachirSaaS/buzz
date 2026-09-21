@@ -9,6 +9,40 @@
 .workspace-tab {
   flex-shrink: 0;
 }
+.workspace-tabs[data-layout="top"] {
+  flex-direction: row;
+  min-width: 0;
+  width: auto;
+  -webkit-app-region: no-drag;
+}
+.workspace-tabs[data-layout="top"] .workspace-tab-list {
+  flex-direction: row;
+  min-width: 0;
+  width: auto;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-block: 4px;
+}
+.workspace-tabs[data-layout="top"] .workspace-tab-list::-webkit-scrollbar {
+  display: none;
+}
+.workspace-tabs[data-layout="top"] .workspace-tab-select {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  max-width: 200px;
+  padding: 0 10px;
+  border-radius: 8px;
+}
+.workspace-tabs[data-layout="top"] .workspace-tab-select svg {
+  width: 16px;
+  height: 16px;
+}
+.workspace-tabs[data-layout="top"] .workspace-tab-select[aria-selected="true"] {
+  background: var(--foreground);
+  color: var(--background);
+}
 .workspace-name-input {
   width: 100%;
   height: 36px;

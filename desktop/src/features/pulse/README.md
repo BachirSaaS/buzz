@@ -3,7 +3,15 @@
 For installation, Jev configuration, and example commands, see the
 [try-it guide](../../../../docs/try-voice-workspaces.md).
 
-Navigation lives in a vertically centered 64px floating dock on the left, with 48px rounded app icons. Home, Messages, Projects, Agents, Apps, and custom workspaces each have an icon with a right-side tooltip. The selected icon uses an inverse fill. A plus creates a workspace; a separate pins group opens quick conversations. Settings stays at the bottom. Pinned DM avatars fill their 48px slots without a surrounding container. The dock scrolls on shorter windows and overlays the canvas at the top UI layer; windows can pass underneath it. The native title bar is a quiet 36px drag region. Up/Down and Home/End move keyboard focus between workspace icons; Enter/Space selects. F2, double-click, or the context menu opens a rename popover. Tooltips and small pointer-press feedback respect reduced motion.
+Navigation currently uses the 48px top bar: labeled workspace tabs on the left,
+pinned conversations and Settings on the right. Left/Right and Home/End move
+between workspace tabs; Enter/Space selects. New-workspace, pinned-chat and rename
+popovers open below their triggers. The persistent bottom command capsule is
+unchanged. `lib/navigationLayout.ts` selects this presentation with
+`PULSE_NAVIGATION_LAYOUT = "top"`; switch it to `"dock"` to restore the retained
+vertically centered floating dock. Both presentations share workspace state,
+Jev-selected icons, pinned chats and menus. The dock's layout and styling remain
+intact and overlay the canvas without reserving width.
 
 The content below the title bar has symmetric 16px side padding. Home and Focus center against the full app width; the dock does not affect their layout. Home has a 720px maximum reading width and no move/resize handles. In Focus, its summary follows the windows in one centered scrolling column. In Grid, Columns and Freeform, it remains anchored independently of window geometry; companions use the side margins or float above it. Other standalone tiled main views have a 960px maximum. Without companions the main view is centered. With companions the canvas fills the padded area and panels share the space left over. Drag the gap between columns to resize adjacent windows, or focus it and use arrow keys (Shift for larger steps), Home/End for the bounds, and Enter or double-click to reset. Split layouts use those widths as defaults; dragging a divider can grow the main window beyond them while keeping neighboring panels usable. Standalone tiled main windows retain their caps. Movable Freeform windows can stretch to the canvas edge, with or without companions. Escape cancels a drag. Sizes are stored once when a drag completes, per layout and community/identity. Narrow canvases stack with no resize handles. The old content-width setting is superseded by this layout. The canvas has no window-count cap; every window and its geometry persist with its workspace. Use
 the **+** button beside Apps to search joined channels, DMs by participant name,
@@ -313,6 +321,13 @@ left” opens one Projects window and places it on the left. Plural app names do
 not mean multiple windows. If only the redundant count answer is uncertain, a
 fully confident, contiguous target list can confirm that same count; ambiguous
 or contradictory targets still stop the command.
+
+Comma/newline lists whose items each uniquely match an available catalog name or
+alias derive their window slots locally, ignoring capitalization and punctuation
+such as channel-name hyphens. Jev resolves those constrained slots and the rest of
+the workspace plan without a redundant window-count question. An ambiguous,
+unknown, or instruction-bearing item uses the ordinary language planner; no item
+is silently dropped.
 
 The command session remembers one successful window/group reference and its
 movement direction. “Move Kenny and Cynthia to the right”, then “move them more”
