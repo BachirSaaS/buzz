@@ -92,14 +92,13 @@ export class ShellState {
       if (name === 'left' || name === 'right') {
         const delta = name === 'left' ? -1 : 1;
         const next = Math.max(0, Math.min(destinations.length, this.headerIndex + delta));
-        if (next !== this.headerIndex) { this.headerIndex = next; return 'render'; }
+        if (next !== this.headerIndex) { this.selectHeader(next); return 'render'; }
         return 'none';
       }
       if (name === 'return' || name === 'down') { this.activateHeader(); return 'render'; }
     }
-    // Collection panes follow their visible geometry.  Header focus and the
-    // active destination remain separate: only header activation changes the
-    // destination, while these transitions only move the focus perimeter.
+    // Header selection changes the destination immediately. Collection-pane
+    // transitions only move focus, never the destination.
     if (this.collection && this.focus === 'list') {
       if (this.activeSection === 2 && name === 'down') return this.moveHarness(1) ? 'render' : 'none';
       if (name === 'up') {
@@ -133,15 +132,18 @@ export class ShellState {
     return 'none';
   }
 
-  activateHeader(index = this.headerIndex) {
+  private selectHeader(index: number) {
     this.headerIndex = Math.max(0, Math.min(destinations.length, index));
     if (this.headerIndex === destinations.length) {
       this.mode = 'owner';
-      this.focus = 'detail';
       return;
     }
     this.mode = 'section';
     this.activeSection = this.headerIndex;
+  }
+
+  activateHeader(index = this.headerIndex) {
+    this.selectHeader(index);
     this.focus = this.collection ? 'list' : 'detail';
   }
 }

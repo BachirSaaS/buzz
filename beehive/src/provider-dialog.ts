@@ -1,7 +1,7 @@
 import { BoxRenderable, TextRenderable, type CliRenderer, type KeyEvent } from '@opentui/core';
 import { palette } from './opentui-shell.ts';
 
-export type DialogField = { label: string; value?: string; secret?: boolean; choices?: string[] };
+export type DialogField = { label: string; value?: string; secret?: boolean; savedSecret?: boolean; choices?: string[] };
 export type DialogResult = Record<string, string>;
 
 /** Public form state only. Secret keystrokes go straight to the controller. */
@@ -54,7 +54,11 @@ export class ProviderDialog {
     const field = this.fields[this.index];
     if (!field || field.choices) return;
     const text = value.replace(/[\x00-\x1f\x7f]/g, '');
-    if (field.secret) this.secret('append', text);
+    if (field.secret) {
+      if (!text) return;
+      field.savedSecret = false;
+      this.secret('append', text);
+    }
     else field.value = ((field.value ?? '') + text).slice(0, 4096);
     this.paint();
   }
@@ -77,9 +81,9 @@ export class ProviderDialog {
         field.value = field.choices[(current + (key.name === 'left' ? -1 : 1) + field.choices.length) % field.choices.length];
       }
     } else if (key.ctrl && key.name === 'u') {
-      if (field.secret) this.secret('clear'); else field.value = '';
+      if (field.secret) { field.savedSecret = false; this.secret('clear'); } else field.value = '';
     } else if (key.name === 'backspace') {
-      if (field.secret) this.secret('backspace'); else field.value = [...(field.value ?? '')].slice(0, -1).join('');
+      if (field.secret) { field.savedSecret = false; this.secret('backspace'); } else field.value = [...(field.value ?? '')].slice(0, -1).join('');
     } else if (!key.ctrl && !key.meta && key.sequence && !/[\x00-\x1f\x7f]/.test(key.sequence)) this.paste(key.sequence);
     this.paint();
   }
@@ -99,9 +103,11 @@ export class ProviderDialog {
       const label = this.labels[i]!; label.visible = row.visible;
       label.top = 3 + (i - this.offset) * 3; label.width = width - 6; label.content = field.label;
       row.top = label.top + 1; row.width = width - 10;
-      const value = field.secret ? '•'.repeat(Math.min(this.secretLength, width - 10)) : field.value ?? '';
+      // A fixed mask represents the retained credential, never its value or length.
+      // First input replaces it; the existing empty-secret save contract retains it.
+      const value = field.secret ? '•'.repeat(Math.min(field.savedSecret ? 12 : this.secretLength, width - 10)) : field.value ?? '';
       const focused = this.index === i;
-      const prompt = field.secret ? (field.label.includes('blank keeps saved') ? 'Leave blank to keep saved' : 'Enter API key') : `Enter ${field.label.toLowerCase()}`;
+      const prompt = field.secret ? 'Enter API key' : `Enter ${field.label.toLowerCase()}`;
       const suffix = field.choices ? '  ← →' : '';
       row.content = (value || prompt).slice(-(width - 10 - suffix.length)).padEnd(width - 10 - suffix.length) + suffix;
       row.fg = value ? palette.text : palette.muted;

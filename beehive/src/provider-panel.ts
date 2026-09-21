@@ -110,7 +110,7 @@ export class ProviderPanel {
     if (type === 'databricks_v2') fields.push({ label: 'Workspace (DATABRICKS_HOST)', value: row?.endpoint ?? this.snapshot.databricksHost ?? '' });
     else {
       if (type === 'openai-compat') fields.push({ label: 'Endpoint', value: row?.endpoint ?? 'https://' }, { label: 'Wire', value: row?.wire ?? 'auto', choices: ['auto', 'chat', 'responses'] });
-      fields.push({ label: row ? 'API key (blank keeps saved)' : 'API key', secret: true });
+      fields.push({ label: 'API key', secret: true, savedSecret: !!row });
     }
     const result = await this.form(row ? 'EDIT PROVIDER' : 'CONFIGURE PROVIDER', fields);
     if (!result || generation !== this.generation) return;

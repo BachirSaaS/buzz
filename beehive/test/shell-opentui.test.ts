@@ -33,7 +33,7 @@ test('memory renderer draws the exact wide empty shell and focus perimeter', asy
     // Host is protected and therefore owns one literally empty full-width body.
     assert.equal(text(frame).slice(3, 38).join('').replace(/[│─┌┐└┘ ]/g, ''), '');
     ui.mockInput.pressArrow('right'); await ui.renderOnce();
-    assert.equal(shell.state.headerIndex, 1); assert.equal(shell.state.activeSection, 0);
+    assert.equal(shell.state.headerIndex, 1); assert.equal(shell.state.activeSection, 1);
     ui.mockInput.pressArrow('right'); ui.mockInput.pressEnter(); await ui.renderOnce(); frame = ui.captureCharFrame();
     assert.equal(shell.state.activeSection, 2); assert.equal(shell.state.focus, 'list'); assert.ok(frame.includes('│'));
     assert.ok(frame.includes('Fixture Harness')); assert.ok(frame.includes('● READY'));

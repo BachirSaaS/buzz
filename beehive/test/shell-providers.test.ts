@@ -35,6 +35,8 @@ for (const [width, height] of [[120, 40], [60, 20]]) test(`Providers signed-out 
     assert.deepEqual(f.requests.at(-1), { action: 'models', provider: 'p', revision: 1 });
     ui.mockInput.pressArrow('up'); ui.mockInput.pressEnter(); await ui.renderOnce();
     assert.match(ui.captureCharFrame(), /EDIT PROVIDER/);
+    assert.match(ui.captureCharFrame(), /••••••••••••/);
+    assert.doesNotMatch(ui.captureCharFrame(), /blank keeps saved|Leave blank/);
     ui.mockInput.pressTab(); await ui.renderOnce();
     ui.mockInput.typeText('never-render-this-key'); await ui.renderOnce();
     assert.doesNotMatch(ui.captureCharFrame(), /never-render-this-key/);
@@ -269,4 +271,51 @@ for (const [width, height] of [[120, 40], [60, 20]]) test(`provider status is co
     ui.mockInput.pressArrow('down'); ui.mockInput.pressTab(); ui.mockInput.pressEnter(); await ui.renderOnce();
     assert.match(ui.captureCharFrame(), /CONFIGURE PROVIDER/); assert.doesNotMatch(ui.captureCharFrame(), /ADD PROVIDER/);
   } finally { shell.close(); }
+});
+
+
+for (const [width, height] of [[120, 40], [60, 20]]) test(`header navigation paints Providers and cancels on exit without Enter at ${width}x${height}`, async () => {
+  const ui = await createTestRenderer({ width, height, exitOnCtrlC: false }), f = fixture();
+  let cancelled = 0; f.client.cancel = () => { cancelled++; };
+  const shell = new OpenTuiShell(ui.renderer, f.inventory, undefined, f.client);
+  try {
+    for (let i = 0; i < 3; i++) ui.mockInput.pressArrow('right');
+    await ui.renderOnce();
+    assert.equal(shell.state.focus, 'header'); assert.match(ui.captureCharFrame(), /MODEL ACCOUNTS/);
+    assert.deepEqual(f.requests, [{ action: 'reload' }]);
+    ui.mockInput.pressArrow('right'); await ui.renderOnce();
+    assert.equal(shell.state.mode, 'owner'); assert.equal(shell.state.focus, 'header');
+    assert.doesNotMatch(ui.captureCharFrame(), /MODEL ACCOUNTS/); assert.equal(cancelled, 1);
+    ui.mockInput.pressArrow('left'); await ui.renderOnce();
+    assert.match(ui.captureCharFrame(), /MODEL ACCOUNTS/); assert.equal(f.requests.length, 2);
+    ui.mockInput.pressEnter(); await ui.renderOnce();
+    assert.equal(shell.state.focus, 'list'); assert.equal(f.requests.length, 2);
+    assert.ok(f.requests.every(request => request.action === 'reload'));
+  } finally { shell.close(); }
+});
+
+for (const [width, height] of [[120, 40], [60, 20]]) test(`saved mask is retained until replacement, clear or cancellation at ${width}x${height}`, async () => {
+  const ui = await createTestRenderer({ width, height, exitOnCtrlC: false });
+  const calls: { action: string; value?: string }[] = [];
+  let dialog: ProviderDialog;
+  let secret = '';
+  const open = () => new ProviderDialog(ui.renderer, 'EDIT PROVIDER', [{ label: 'API key', secret: true, savedSecret: true }], (action, value) => {
+    calls.push({ action, value });
+    secret = action === 'clear' ? '' : action === 'backspace' ? secret.slice(0, -1) : secret + value;
+    dialog.updateSecretLength(secret.length);
+  });
+  const key = (name: string, ctrl = false) => dialog.key({ name, ctrl, sequence: '', shift: false, meta: false });
+  try {
+    dialog = open(); dialog.updateSecretLength(0); await ui.renderOnce();
+    assert.match(ui.captureCharFrame(), /••••••••••••/);
+    key('return'); key('return'); assert.deepEqual(await dialog.done, {}); assert.equal(calls.length, 0);
+    dialog = open(); dialog.paste('replacement'); await ui.renderOnce();
+    assert.equal(secret, 'replacement'); assert.match(ui.captureCharFrame(), /••••••••••• /);
+    assert.doesNotMatch(ui.captureCharFrame(), /replacement/);
+    key('u', true); await ui.renderOnce(); assert.equal(secret, ''); assert.match(ui.captureCharFrame(), /Enter API key/);
+    dialog.cancel(); assert.equal(await dialog.done, undefined);
+    dialog = open(); key('backspace'); await ui.renderOnce(); assert.match(ui.captureCharFrame(), /Enter API key/);
+    dialog.paste('cancelled'); dialog.cancel(); assert.equal(secret, ''); assert.equal(await dialog.done, undefined);
+    dialog = open(); await ui.renderOnce(); assert.match(ui.captureCharFrame(), /••••••••••••/); dialog.cancel();
+  } finally { ui.renderer.destroy(); }
 });

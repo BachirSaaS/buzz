@@ -9,9 +9,9 @@ export const palette = {
   focus: '#ffd34e', healthy: '#75d795', failure: '#ff8179', selected: '#dce1d8', selectedText: '#10130f', dialog: '#9ca49b', scrim: '#070907',
 } as const;
 
-const wideFooter = '←→ move  Enter open  Tab panes  Esc return  ? help  q quit';
+const wideFooter = '←→ navigate  Enter pane  Tab panes  Esc return  ? help  q quit';
 const minimumFooter = 'Ctrl-Q quit';
-const helpBody = 'Header: ←→ destination; Enter / ↓ opens\nList: ↑ header; → / Enter Details\nDetails: ↑ header; ← List\nTab / Shift-Tab  visible regions\nEsc  active header\n? / Enter / Esc  close help\nq  quit Beehive\nProviders: a / Tab actions; ↑↓ selects\nPgUp / PgDn scroll details and results\nForms: Tab next; ←→ choice; Ctrl-U clear';
+const helpBody = 'Header: ←→ navigates; Enter / ↓ enters pane\nList: ↑ header; → / Enter Details\nDetails: ↑ header; ← List\nTab / Shift-Tab  visible regions\nEsc  active header\n? / Enter / Esc  close help\nq  quit Beehive\nProviders: a / Tab actions; ↑↓ selects\nPgUp / PgDn scroll details and results\nForms: Tab next; ←→ choice; Ctrl-U clear';
 const helpTitleRows = 2;
 const helpActionRows = 2;
 const helpVerticalChrome = 4; // one-cell border and one-row inset at both edges

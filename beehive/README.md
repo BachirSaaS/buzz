@@ -895,7 +895,9 @@ OpenAI-compatible (endpoint and wire mode), OpenRouter, and Databricks v2.
 Select a saved row, then use Tab or `a` to focus its actions. Arrows select an
 action; Enter runs it. PgUp/PgDn scroll details and the full result.
 Forms use Tab/Shift-Tab, Left/Right choices, Enter to advance/submit, Ctrl-U to
-clear a field, and Esc to cancel. API-key input is masked; its value stays in the
+clear a field, and Esc to cancel. Saved API-key fields open with a fixed mask;
+typing replaces the key, while an untouched field retains it. The mask does not
+read or expose the saved key. API-key input is masked; its value stays in the
 Node controller and credential helper, not renderer state or settings.
 
 Edit preserves provider identity and affects future launches. A replacement API
@@ -930,3 +932,6 @@ any account is saved. Missing accounts show NOT SET. Saving configuration alone
 does not establish connection. Select an unconfigured type and use Configure,
 or select a saved account and use Edit configuration. The global Add provider
 command is removed; all existing saved accounts remain accessible.
+
+In the prototype shell, Left/Right in the header changes the visible destination
+immediately and keeps focus in the header. Enter/Down moves into that pane.

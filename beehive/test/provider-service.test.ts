@@ -39,6 +39,15 @@ test('save/edit automatically check catalogs, retain active credential reference
     assert.equal(f.service.snapshot().rows[0]?.modelCount, 1);
     assert.doesNotMatch(JSON.stringify(f.service.snapshot()), /gpt-fixture/);
     assert.equal(f.service.snapshot().resultTarget, provider.id);
+    assert.equal(await f.service.request({ action: 'save', provider: provider.id, revision: settings.revision, values: { name: 'Unchanged key' } }), true);
+    settings = readSettings(f.directory);
+    assert.deepEqual(settings.providers[0]!.key, oldKey);
+    assert.equal(f.keys.size, 1, 'unchanged masked field does not rotate credentials');
+    assert.equal(f.calls.find(c => c.action === 'edit-provider').secret, '');
+    f.service.secret('append', 'cancelled-private-key'); f.service.secret('clear');
+    assert.equal(await f.service.request({ action: 'save', provider: provider.id, revision: settings.revision, values: { name: 'After cancel' } }), true);
+    settings = readSettings(f.directory);
+    assert.deepEqual(settings.providers[0]!.key, oldKey); assert.equal(f.keys.size, 1);
     f.service.secret('append', 'second-private-key');
     assert.equal(await f.service.request({ action: 'save', provider: provider.id, revision: settings.revision, values: { name: 'Renamed' } }), true);
     settings = readSettings(f.directory); provider = settings.providers[0]!;

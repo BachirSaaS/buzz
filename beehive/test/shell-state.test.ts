@@ -13,7 +13,7 @@ test('never-signed-in shell labels and initial state are exact', () => {
 test('wide collection arrows traverse header, List and Details without activating a new destination', () => {
   const state = new ShellState();
   state.setHarnessRows([{ id: 'harness:fixture', kind: 'harness' }, { id: 'command:refresh', kind: 'command' }]);
-  assert.equal(state.key('right'), 'render'); assert.equal(state.headerIndex, 1); assert.equal(state.activeSection, 0);
+  assert.equal(state.key('right'), 'render'); assert.equal(state.headerIndex, 1); assert.equal(state.activeSection, 1);
   state.key('right'); state.key('return');
   assert.deepEqual({ active: state.activeSection, header: state.headerIndex, focus: state.focus, split: state.splitPane }, { active: 2, header: 2, focus: 'list', split: true });
   state.key('right'); assert.deepEqual({ active: state.activeSection, focus: state.focus }, { active: 2, focus: 'detail' });
@@ -58,4 +58,26 @@ test('harness rows preserve stable identity, fall back deterministically, and vi
 
 test('prototype breakpoint formulas are exact', () => {
   assert.equal(listWidth(120), 35); assert.equal(listWidth(90), 28); assert.equal(listWidth(72), 25); assert.equal(listWidth(60), 24);
+});
+
+
+test('header cursor follows every destination and owner without entering panes', () => {
+  const state = new ShellState();
+  assert.equal(state.key('left'), 'none');
+  for (let index = 1; index <= 4; index++) {
+    state.key('right');
+    assert.equal(state.headerIndex, index); assert.equal(state.focus, 'header');
+    assert.equal(state.mode, index === 4 ? 'owner' : 'section');
+    if (index < 4) assert.equal(state.activeSection, index);
+  }
+  assert.equal(state.key('right'), 'none');
+  state.key('down'); assert.equal(state.focus, 'detail');
+  state.key('escape');
+  for (let index = 3; index >= 0; index--) {
+    state.key('left');
+    assert.equal(state.activeSection, index); assert.equal(state.mode, 'section');
+    assert.equal(state.focus, 'header');
+  }
+  state.key('?'); state.key('right'); assert.equal(state.activeSection, 0);
+  state.key('escape'); state.resize(59, 19); state.key('right'); assert.equal(state.activeSection, 0);
 });
