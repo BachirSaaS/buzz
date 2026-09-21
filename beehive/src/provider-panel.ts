@@ -21,9 +21,10 @@ export class ProviderPanel {
   private unsubscribe: () => void;
   private selected = 'type:openai';
   private actionIndex = 0;
-  private actionOffset = 0;
+  private actionStart = 0;
   private offset = 0;
   private detailOffset = 0;
+  private resultPageSize = 1;
   private list: BoxRenderable;
   private detail: BoxRenderable;
   private listTitle: TextRenderable;
@@ -32,6 +33,7 @@ export class ProviderPanel {
   private rows: TextRenderable[] = [];
   private actions: TextRenderable[] = [];
   private status: TextRenderable;
+  private result: TextRenderable;
   private actionTitle: TextRenderable;
   private dialog?: ProviderDialog;
   private active = false;
@@ -44,13 +46,14 @@ export class ProviderPanel {
     this.listTitle = new TextRenderable(renderer, { left: 2, top: 1, position: 'absolute', height: 1, fg: palette.muted, content: 'MODEL ACCOUNTS' }); this.list.add(this.listTitle);
     this.detailTitle = new TextRenderable(renderer, { left: 2, top: 1, position: 'absolute', height: 1, fg: palette.muted }); this.detail.add(this.detailTitle);
     this.details = new TextRenderable(renderer, { left: 2, top: 3, position: 'absolute', fg: palette.text, wrapMode: 'word' }); this.detail.add(this.details);
-    this.actionTitle = new TextRenderable(renderer, { left: 2, position: 'absolute', height: 1, fg: palette.muted, content: 'AVAILABLE ACTIONS' }); this.detail.add(this.actionTitle);
+    this.actionTitle = new TextRenderable(renderer, { left: 2, position: 'absolute', height: 1, fg: palette.focus, content: 'AVAILABLE ACTIONS ───' }); this.detail.add(this.actionTitle);
     this.status = new TextRenderable(renderer, { left: 2, position: 'absolute', fg: palette.muted, wrapMode: 'word' }); this.detail.add(this.status);
+    this.result = new TextRenderable(renderer, { left: 2, position: 'absolute', fg: palette.text }); this.detail.add(this.result);
     for (let i = 0; i < 40; i++) {
       const row = new TextRenderable(renderer, { left: 2, position: 'absolute', height: 1, fg: palette.text, onMouseDown: () => this.select(i + this.offset) }); this.list.add(row); this.rows.push(row);
     }
     for (let i = 0; i < 7; i++) {
-      const action = new TextRenderable(renderer, { left: 2, position: 'absolute', height: 1, fg: palette.text, onMouseDown: () => { if (!this.active || this.dialog) return; this.actionIndex = this.actionOffset + i; this.state.focus = 'detail'; void this.run(); } }); this.detail.add(action); this.actions.push(action);
+      const action = new TextRenderable(renderer, { left: 2, position: 'absolute', height: 1, fg: palette.text, onMouseDown: () => { if (!this.active || this.dialog) return; this.actionIndex = i; this.state.focus = 'detail'; this.repaint(); void this.run(); } }); this.detail.add(action); this.actions.push(action);
     }
     this.unsubscribe = client.subscribe(snapshot => { if (this.snapshot.message !== snapshot.message) this.detailOffset = 0; this.snapshot = snapshot; this.dialog?.updateSecretLength(snapshot.secretLength); this.paint(); });
   }
@@ -65,7 +68,7 @@ export class ProviderPanel {
   private select(index: number) {
     if (!this.active || this.dialog) return;
     const id = this.items()[index]; if (!id) return;
-    this.selected = id; this.actionIndex = 0; this.actionOffset = 0; this.detailOffset = 0; this.state.focus = 'list'; this.repaint();
+    this.selected = id; this.actionIndex = 0; this.detailOffset = 0; this.state.focus = 'list'; this.repaint();
   }
   setActive(active: boolean) {
     if (this.active && !active) { this.generation++; this.dialog?.cancel(); this.dialog = undefined; this.client.cancel(); }
@@ -89,7 +92,7 @@ export class ProviderPanel {
     }
     if (this.state.focus === 'detail') {
       if (['up', 'down'].includes(key.name)) { this.actionIndex = Math.max(0, Math.min(this.commands().length - 1, this.actionIndex + (key.name === 'up' ? -1 : 1))); this.paint(); return true; }
-      if (['pageup', 'pagedown'].includes(key.name)) { this.detailOffset = Math.max(0, this.detailOffset + (key.name === 'pageup' ? -3 : 3)); this.paint(); return true; }
+      if (['pageup', 'pagedown'].includes(key.name)) { this.detailOffset = Math.max(0, this.detailOffset + (key.name === 'pageup' ? -this.resultPageSize : this.resultPageSize)); this.paint(); return true; }
       if (key.name === 'return') { void this.run(); return true; }
     }
     return false;
@@ -142,10 +145,8 @@ export class ProviderPanel {
     if (!this.active || this.dialog) return;
     if (this.state.focus === 'list') this.select(y - 6 + this.offset);
     else {
-      const count = Math.min(this.commands().length, this.renderer.height < 28 ? 2 : 7);
-      const first = this.renderer.height - 5 - count - 4;
-      const index = y - 3 - first + this.actionOffset;
-      if (index >= 0 && index < this.commands().length) { this.actionIndex = index; void this.run(); }
+      const index = y - 3 - this.actionStart;
+      if (index >= 0 && index < this.commands().length) { this.actionIndex = index; this.repaint(); void this.run(); }
     }
   }
   scroll(direction: string) {
@@ -189,26 +190,42 @@ export class ProviderPanel {
     const row = this.row();
     this.detailTitle.content = row ? row.name.toUpperCase() : this.selected === 'add' ? 'ADD PROVIDER' : 'RELOAD PROVIDERS'; this.detailTitle.width = width;
     const commands = this.commands();
-    const actionCapacity = Math.min(commands.length, this.renderer.height < 28 ? 2 : 7);
-    if (this.actionIndex < this.actionOffset) this.actionOffset = this.actionIndex;
-    if (this.actionIndex >= this.actionOffset + actionCapacity) this.actionOffset = this.actionIndex - actionCapacity + 1;
-    const actionStart = height - actionCapacity - 4;
-    const info = row ? [`State       ${row.state}`, `Type        ${row.type}`, `Connects to ${row.endpoint}`, '', row.detail, ...(this.snapshot.modelProvider === row.id ? ['', 'MODELS', ...this.snapshot.models] : [])] : this.selected === 'add' ? ['Choose OpenAI, Anthropic, OpenAI-compatible, OpenRouter, or Databricks v2.', '', 'Credentials stay in the OS credential store.'] : ['Reload saved providers and the DATABRICKS_HOST workspace. No owner sign-in is required.'];
+    const compact = this.renderer.height < 28;
     const ownsResult = this.snapshot.resultTarget === this.selected;
-    if (ownsResult && this.snapshot.message) info.unshift('RESULT', this.snapshot.message, '');
-    const wrapped = info.flatMap(line => { const result: string[] = []; for (let start = 0; start < Math.max(1, line.length); start += width) result.push(line.slice(start, start + width)); return result; });
-    this.detailOffset = Math.min(this.detailOffset, Math.max(0, wrapped.length - (actionStart - 4)));
-    this.details.width = width; this.details.height = Math.max(1, actionStart - 4); this.details.content = wrapped.slice(this.detailOffset, this.detailOffset + Math.max(1, actionStart - 4)).join('\n');
-    this.actionTitle.top = actionStart - 1; this.actionTitle.width = width;
+    const info = row ? [`State       ${row.state}`, `Type        ${row.type}`, ...(row.endpoint ? [`Connects to ${row.endpoint}`] : []), '', row.detail] : this.selected === 'add' ? ['Choose OpenAI, Anthropic, OpenAI-compatible, OpenRouter, or Databricks v2.', '', 'Credentials stay in the OS credential store.'] : ['Reload saved providers and the DATABRICKS_HOST workspace. No owner sign-in is required.'];
+    const wrap = (lines: string[]) => lines.flatMap(line => { const result: string[] = []; for (let start = 0; start < Math.max(1, line.length); start += width) result.push(line.slice(start, start + width)); return result; });
+    const fullDetails = wrap(info);
+    // Reserve every action and a result viewport before allocating detail rows.
+    this.detailTitle.top = 1;
+    const detailTop = compact ? 2 : 3;
+    const detailCapacity = compact ? 2 : Math.max(1, height - commands.length - 10);
+    const summary = compact ? wrap(row ? [`State ${row.state}`, row.detail] : info).slice(0, detailCapacity) : fullDetails.slice(0, detailCapacity);
+    this.details.top = detailTop; this.details.width = width; this.details.height = summary.length; this.details.content = summary.join('\n');
+    this.actionTitle.top = detailTop + summary.length + (compact ? 0 : 1); this.actionTitle.width = width;
+    this.actionTitle.content = 'AVAILABLE ACTIONS ' + '─'.repeat(Math.max(1, width - 18));
+    this.actionStart = Number(this.actionTitle.top) + 1;
     this.actions.forEach((action, index) => {
-      const commandIndex = this.actionOffset + index;
-      action.visible = index < actionCapacity; action.top = actionStart + index; action.width = width;
-      action.content = commands[commandIndex] ?? ''; action.fg = this.state.focus === 'detail' && this.actionIndex === commandIndex ? palette.selectedText : palette.text;
-      action.bg = this.state.focus === 'detail' && this.actionIndex === commandIndex ? palette.selected : palette.surface;
+      const focused = this.state.focus === 'detail' && this.actionIndex === index;
+      action.visible = index < commands.length; action.top = this.actionStart + index; action.width = width;
+      action.content = `${focused ? '›' : ' '} ${commands[index] ?? ''}`;
+      action.fg = focused ? palette.focus : palette.text; action.bg = palette.surface;
     });
-    this.status.top = height - 3; this.status.width = width; this.status.height = 2;
-    this.status.content = ownsResult && this.snapshot.phase === 'busy' ? 'Working… Esc stops waiting' : `${ownsResult && this.snapshot.phase === 'error' ? 'FAILED · ' : ''}PgUp/PgDn details\n↑↓ actions · Enter run`;
-    this.status.fg = ownsResult && this.snapshot.phase === 'error' ? palette.failure : palette.muted;
+    const resultTop = this.actionStart + commands.length;
+    const resultCapacity = Math.max(1, height - 2 - resultTop);
+    this.resultPageSize = resultCapacity;
+    const output = [
+      ...(ownsResult && this.snapshot.message ? [`${this.snapshot.phase === 'error' ? 'FAILED' : this.snapshot.phase === 'busy' ? 'WORKING' : 'RESULT'}: ${this.snapshot.message}`] : []),
+      ...(compact || fullDetails.length > detailCapacity ? ['DETAILS', ...info] : []),
+      ...(this.snapshot.modelProvider === row?.id ? ['MODELS', ...this.snapshot.models] : []),
+    ];
+    const wrapped = wrap(output);
+    this.detailOffset = Math.min(this.detailOffset, Math.max(0, wrapped.length - resultCapacity));
+    this.result.top = resultTop; this.result.width = width; this.result.height = resultCapacity;
+    this.result.content = wrapped.slice(this.detailOffset, this.detailOffset + resultCapacity).join('\n');
+    this.result.fg = ownsResult && this.snapshot.phase === 'error' ? palette.failure : palette.text;
+    this.status.top = height - 2; this.status.width = width; this.status.height = 1;
+    this.status.content = ownsResult && this.snapshot.phase === 'busy' ? 'Working… Esc stops waiting' : '↑↓ actions · PgUp/PgDn output';
+    this.status.fg = palette.muted;
     this.dialog?.paint();
   }
   dispose() { this.generation++; this.dialog?.cancel(); this.unsubscribe(); this.client.dispose(); }

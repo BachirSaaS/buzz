@@ -179,3 +179,44 @@ for (const [width, height] of [[120, 40], [60, 20]]) test(`choice arrows and not
     assert.deepEqual(Array.from(help.bg.buffer).slice(0, 3), [13, 16, 14]);
   } finally { dialog.cancel(); ui.renderer.destroy(); }
 });
+
+for (const [width, height] of [[120, 40], [60, 20]]) test(`all provider actions stay above output with matching pointer focus at ${width}x${height}`, async () => {
+  const ui = await createTestRenderer({ width, height, exitOnCtrlC: false }), f = fixture();
+  f.snapshot.rows[0] = { id: 'p', name: 'Workspace', type: 'databricks_v2', endpoint: 'https://fixture.cloud.databricks.com', state: 'SAVED', detail: 'Sign in explicitly, then test.' };
+  f.snapshot.databricksHost = f.snapshot.rows[0]!.endpoint;
+  const shell = new OpenTuiShell(ui.renderer, f.inventory, undefined, f.client);
+  try {
+    for (let i = 0; i < 3; i++) ui.mockInput.pressArrow('right');
+    ui.mockInput.pressEnter();
+    for (let i = 0; i < 4; i++) ui.mockInput.pressArrow('down');
+    await ui.renderOnce();
+    const lines = () => ui.captureCharFrame().split('\n');
+    const actionRow = (name: string) => lines().findIndex(line => line.includes(name));
+    const names = ['Edit provider', 'Test provider', 'Load models', 'Sign in to Databricks', 'Set up Codex', 'Set up Pi'];
+    const heading = actionRow('AVAILABLE ACTIONS');
+    assert.ok(heading < height / 2);
+    for (const [i, name] of names.entries()) assert.equal(actionRow(name), heading + i + 1);
+    const spans = () => ui.captureSpans().lines.flatMap(line => line.spans);
+    const rgb = (value: { buffer: Uint16Array }) => Array.from(value.buffer).slice(0, 3).join(',');
+    assert.equal(rgb(spans().find(span => span.text.includes('AVAILABLE ACTIONS'))!.fg), '255,211,78');
+    ui.mockInput.pressTab(); ui.mockInput.pressArrow('down'); await ui.renderOnce();
+    const focused = spans().find(span => span.text.includes('› Test provider'))!;
+    assert.equal(rgb(focused.fg), '255,211,78'); assert.equal(rgb(focused.bg), '13,16,14');
+    const keyboard = ui.captureCharFrame();
+    ui.mockInput.pressTab(); await ui.renderOnce();
+    const y = actionRow('Test provider'), x = lines()[y]!.indexOf('Test provider');
+    await ui.mockMouse.click(x, y); await ui.renderOnce();
+    assert.equal(ui.captureCharFrame(), keyboard);
+    assert.equal(f.requests.at(-1)?.action, 'test');
+    f.snapshot.resultTarget = 'p'; f.snapshot.phase = 'error'; f.snapshot.message = 'Denied. Check access. Reload before retrying.'; f.emit();
+    await ui.renderOnce(); assert.match(ui.captureCharFrame(), /FAILED: Denied/);
+    assert.ok(actionRow('FAILED') > actionRow('Set up Pi'));
+    let recoveryVisible = false;
+    for (let i = 0; i < 10; i++) {
+      recoveryVisible ||= /retrying/.test(ui.captureCharFrame());
+      for (const [index, name] of names.entries()) assert.equal(actionRow(name), heading + index + 1);
+      ui.mockInput.pressKey('\x1b[6~'); await ui.renderOnce();
+    }
+    assert.ok(recoveryVisible);
+  } finally { shell.close(); }
+});
