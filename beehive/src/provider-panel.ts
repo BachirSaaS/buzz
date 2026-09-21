@@ -12,7 +12,7 @@ const labels: Record<string, string> = { openai: 'OpenAI', anthropic: 'Anthropic
 export function providerInventory(snapshot: ProviderSnapshot): ProviderRow[] {
   return types.flatMap(type => {
     const accounts = snapshot.rows.filter(row => row.type === type);
-    return accounts.length ? accounts : [{ id: `type:${type}`, name: labels[type]!, type: type as ProviderRow['type'], endpoint: '', state: type === 'databricks_v2' && !snapshot.databricksHost ? 'ENV MISSING' : 'NOT SET', detail: type === 'databricks_v2' ? 'Set DATABRICKS_HOST to the workspace HTTPS origin, then reload providers.' : 'Not configured. Add an account to use this provider.' }];
+    return accounts.length ? accounts : [{ id: `type:${type}`, name: labels[type]!, type: type as ProviderRow['type'], endpoint: '', state: type === 'databricks_v2' && !snapshot.databricksHost ? 'ENV MISSING' : 'NOT SET', detail: type === 'databricks_v2' ? 'Set DATABRICKS_HOST to the workspace HTTPS origin, then restart Beehive.' : 'Not configured. Add an account to use this provider.' }];
   });
 }
 /** Providers presentation. All durable changes and secret state live in Node. */
@@ -94,9 +94,9 @@ export class ProviderPanel {
     }
     return false;
   }
-  private async form(title: string, fields: DialogField[], submit = 'Save') {
+  private async form(title: string, fields: DialogField[], submit = 'Save', message?: string) {
     this.client.secret('clear');
-    const dialog = new ProviderDialog(this.renderer, title, fields, (action, value) => this.client.secret(action, value), submit);
+    const dialog = new ProviderDialog(this.renderer, title, fields, (action, value) => this.client.secret(action, value), submit, message);
     this.dialog = dialog;
     const result = await dialog.done;
     if (this.dialog === dialog) this.dialog = undefined;
@@ -110,8 +110,12 @@ export class ProviderPanel {
       if (!result || generation !== this.generation) return;
       type = result.Type as ProviderRow['type'];
     }
+    if (type === 'databricks_v2' && !this.snapshot.databricksHost) {
+      await this.form('DATABRICKS_HOST REQUIRED', [], 'Close', 'Set DATABRICKS_HOST to your workspace HTTPS origin, for example:\nhttps://your-workspace.cloud.databricks.com\nThen restart Beehive from that environment.\nNo changes have been saved.');
+      return;
+    }
     const fields: DialogField[] = [{ label: 'Name', value: row?.name ?? labels[type]! }];
-    if (type === 'databricks_v2') fields.push({ label: 'Workspace (DATABRICKS_HOST)', value: this.snapshot.databricksHost ?? 'Set DATABRICKS_HOST and reopen Beehive', choices: [this.snapshot.databricksHost ?? 'Set DATABRICKS_HOST and reopen Beehive'] });
+    if (type === 'databricks_v2') fields.push({ label: 'Workspace (DATABRICKS_HOST)', value: this.snapshot.databricksHost!, choices: [this.snapshot.databricksHost!] });
     else {
       if (type === 'openai-compat') fields.push({ label: 'Endpoint', value: row?.endpoint ?? 'https://' }, { label: 'Wire', value: row?.wire ?? 'auto', choices: ['auto', 'chat', 'responses'] });
       fields.push({ label: row ? 'API key (blank keeps saved)' : 'API key', secret: true });

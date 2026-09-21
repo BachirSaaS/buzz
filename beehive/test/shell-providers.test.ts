@@ -104,3 +104,34 @@ for (const [width, height] of [[120, 40], [60, 20]]) test(`fresh Providers alway
     assert.match(ui.captureCharFrame(), /API key/); assert.doesNotMatch(ui.captureCharFrame(), /Type  ←/);
   } finally { shell.close(); }
 });
+
+for (const [width, height] of [[120, 40], [60, 20]]) test(`Databricks prerequisite is non-committing and configured setup remains available at ${width}x${height}`, async () => {
+  const ui = await createTestRenderer({ width, height, exitOnCtrlC: false }), f = fixture();
+  f.snapshot.rows = [];
+  const shell = new OpenTuiShell(ui.renderer, f.inventory, undefined, f.client);
+  try {
+    for (let i = 0; i < 3; i++) ui.mockInput.pressArrow('right');
+    ui.mockInput.pressEnter();
+    for (let i = 0; i < 4; i++) ui.mockInput.pressArrow('down');
+    const before = structuredClone(f.snapshot), requests = structuredClone(f.requests);
+    ui.mockInput.pressTab(); ui.mockInput.pressEnter(); await ui.renderOnce();
+    const frame = ui.captureCharFrame();
+    assert.match(frame, /DATABRICKS_HOST REQUIRED/);
+    assert.match(frame.replace(/[│\s]+/g, ' '), /workspace HTTPS origin/);
+    assert.match(frame, /https:\/\/your-workspace.cloud.databricks.com/);
+    assert.match(frame, /Then restart Beehive from that environment/);
+    assert.match(frame, /No changes have been saved/);
+    assert.match(frame, /Close/); assert.doesNotMatch(frame, /Save|FAILED|Changes may already/);
+    ui.mockInput.pressEnter(); await ui.renderOnce();
+    assert.doesNotMatch(ui.captureCharFrame(), /DATABRICKS_HOST REQUIRED/);
+    assert.match(ui.captureCharFrame(), /ENV MISSING/);
+    assert.deepEqual(f.requests, requests); assert.deepEqual(f.snapshot, before);
+    f.snapshot.databricksHost = 'https://fixture.cloud.databricks.com'; f.emit();
+    ui.mockInput.pressEnter(); await ui.renderOnce();
+    assert.match(ui.captureCharFrame(), /ADD PROVIDER/);
+    assert.match(ui.captureCharFrame(), /https:\/\/fixture.cloud.databricks.com/);
+    assert.match(ui.captureCharFrame(), /Save/);
+    ui.mockInput.pressEnter(); ui.mockInput.pressEnter(); ui.mockInput.pressEnter(); await ui.renderOnce();
+    assert.equal(f.requests.at(-1)?.action, 'save');
+  } finally { shell.close(); }
+});
