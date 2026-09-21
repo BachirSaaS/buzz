@@ -7072,3 +7072,150 @@ test("settings-card-other-demotion-does-not-reruns-probe: demoting a different o
 
   await unmount();
 });
+
+test("settings-card-stale-self-mutation-ignored-after-origin-switch: stale self-mutation callback does not override a newer origin's authorized state", async () => {
+  // Regression for the deferred-mutation cross-origin race (Carl review
+  // PRR_kwDORgXb2s8AAAABOhppRA): a self-mutation callback captured for
+  // origin A must be ignored if savedOrigin has advanced to B by the time
+  // the callback fires — otherwise runProbe(A) supersedes B's authorized state.
+  //
+  // Mutation evidence: remove the `if (savedOriginRef.current === originAtRender)`
+  // guard in SettingsCard.tsx onSelfMutation → stale runProbe(A) fires →
+  // probeCount exceeds 2 → panel shows denied state → test RED.
+
+  const pubkey = "a0".repeat(32); // self
+  const otherPubkey = "b1".repeat(32); // second operator (required so self-remove is allowed)
+
+  const originA = "https://relay-a-admin.example.com";
+  const originB = "https://relay-b-admin.example.com";
+
+  // Manual-resolve for A's delete so we can let it resolve after Save B.
+  let resolveDeleteA = null;
+  const deleteAInFlight = new Promise((resolve) => {
+    resolveDeleteA = resolve;
+  });
+
+  let probeCount = 0;
+  // Call 1: A authorized (operator) on mount.
+  // Call 2: B authorized (operator) after Save B.
+  // Call 3+ would mean the stale fence failed — must NOT happen.
+  setIpcHandler("admin_probe", (_args) => {
+    probeCount += 1;
+    return Promise.resolve({
+      state: "nip98Authorized",
+      role: "operator",
+      source: "db",
+    });
+  });
+
+  setIpcHandler("get_admin_origin", () => Promise.resolve(originA));
+  setIpcHandler("admin_list_reports", () => Promise.resolve([]));
+  setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
+  setIpcHandler("admin_list_operators", () =>
+    Promise.resolve([
+      { pubkey: pubkey, effectiveRole: "operator", sources: ["db"] },
+      { pubkey: otherPubkey, effectiveRole: "operator", sources: ["db"] },
+    ]),
+  );
+  // Self-remove on A: blocks until resolveDeleteA() fires.
+  setIpcHandler("admin_delete_operator", () => deleteAInFlight);
+  // Save B returns canonical B immediately.
+  setIpcHandler("set_admin_origin", () => Promise.resolve(originB));
+  setIpcHandler("get_users_batch", () =>
+    Promise.resolve({ profiles: {}, missing: [] }),
+  );
+
+  const qc = makeQueryClient(pubkey);
+  const { container, doRender, unmount } = mountCardFull(qc);
+  await doRender();
+  await settle(120);
+
+  assert.equal(probeCount, 1, "should have probed once on mount for A");
+  const staffingTab = container.querySelector(
+    "[data-testid='admin-tab-staffing']",
+  );
+  assert.ok(
+    staffingTab !== null,
+    "Staffing tab must be visible (operator on A)",
+  );
+
+  // Navigate to Staffing and start self-removal (DELETE in flight, unresolved).
+  await act(async () => {
+    fireEvent.click(staffingTab);
+    await new Promise((r) => setTimeout(r, 20));
+  });
+
+  const removeButton = container.querySelector(
+    `[data-testid='staffing-remove-btn-${pubkey}']`,
+  );
+  assert.ok(removeButton !== null, "self remove button must be present");
+  await act(async () => {
+    fireEvent.click(removeButton);
+    await new Promise((r) => setTimeout(r, 20));
+  });
+
+  // AlertDialog portals to document.body, not container.
+  const confirmButton = document.body.querySelector(
+    "[data-testid='staffing-remove-confirm']",
+  );
+  assert.ok(confirmButton !== null, "removal confirm button must be present");
+  await act(async () => {
+    fireEvent.click(confirmButton);
+    await new Promise((r) => setTimeout(r, 20));
+  });
+  // A's DELETE is now in flight and blocked.
+
+  // Save B: updates savedOrigin → B, triggers probe 2 for B (authorized).
+  const saveInput = container.querySelector(
+    "[data-testid='admin-origin-input']",
+  );
+  assert.ok(saveInput !== null, "admin origin input must be present");
+  await act(async () => {
+    fireEvent.change(saveInput, { target: { value: originB } });
+    await new Promise((r) => setTimeout(r, 20));
+  });
+  const saveButton = container.querySelector(
+    "[data-testid='admin-origin-save']",
+  );
+  assert.ok(saveButton !== null, "Save button must be present");
+  await act(async () => {
+    fireEvent.click(saveButton);
+    await new Promise((r) => setTimeout(r, 80));
+  });
+
+  assert.equal(
+    probeCount,
+    2,
+    `probe must have fired twice (A-mount + B-save); got ${probeCount}`,
+  );
+
+  // Let A's DELETE resolve — stale onSelfMutation callback fires.
+  await act(async () => {
+    resolveDeleteA();
+    await new Promise((r) => setTimeout(r, 80));
+  });
+
+  // Fence must have blocked the third probe (A's origin ≠ current savedOrigin=B).
+  assert.equal(
+    probeCount,
+    2,
+    `stale self-mutation must NOT trigger a third probe; probeCount=${probeCount}. ` +
+      "Remove the savedOriginRef fence in onSelfMutation (SettingsCard.tsx) to reproduce.",
+  );
+
+  // B's authorized panel must still be visible.
+  const panel = container.querySelector("[data-testid='admin-console-panel']");
+  assert.ok(
+    panel !== null,
+    "admin-console-panel must remain visible; B is still authorized",
+  );
+
+  // No denied-state text from the stale A probe.
+  const text = container.textContent ?? "";
+  assert.ok(
+    !text.toLowerCase().includes("access denied"),
+    `panel must not show 'access denied' after stale A completion; got: ${text.slice(0, 300)}`,
+  );
+
+  await unmount();
+});

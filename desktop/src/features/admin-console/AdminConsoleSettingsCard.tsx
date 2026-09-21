@@ -268,6 +268,17 @@ function AdminConsoleSettingsSession({ pubkeyHex }: { pubkeyHex: string }) {
   type SessionToken = { pubkey: string; origin: string };
   const sessionTokenRef = useRef<SessionToken | null>(null);
 
+  // Mirrors savedOrigin state as a ref so closures can read the current value
+  // without stale capture. Mutated synchronously alongside setSavedOrigin via
+  // the setSavedOriginBoth helper below; never set directly.
+  const savedOriginRef = useRef<string | null>(null);
+
+  // Use this in place of bare setSavedOrigin to keep the ref in sync.
+  function setSavedOriginBoth(v: string | null) {
+    savedOriginRef.current = v;
+    setSavedOrigin(v);
+  }
+
   // Synchronously abort any active probe and reset probe UI state.
   // Call before starting a new probe or on any input change.
   function abortAndResetProbe() {
@@ -310,7 +321,7 @@ function AdminConsoleSettingsSession({ pubkeyHex }: { pubkeyHex: string }) {
         if (saved) {
           // A persisted origin (manual fallback or previously auto-saved
           // discovery) takes precedence — probe it immediately.
-          setSavedOrigin(saved);
+          setSavedOriginBoth(saved);
           setOriginInput(saved);
           runProbe(saved);
           return;
@@ -334,7 +345,7 @@ function AdminConsoleSettingsSession({ pubkeyHex }: { pubkeyHex: string }) {
             // and open Advanced so the operator can review and Save explicitly.
             setOriginInput(discovered.origin);
             setAdvancedOpen(true);
-            setSavedOrigin(null);
+            setSavedOriginBoth(null);
             return;
           }
           // Same-host advertisement: auto-save the discovered origin (same path
@@ -349,7 +360,7 @@ function AdminConsoleSettingsSession({ pubkeyHex }: { pubkeyHex: string }) {
             );
             if (!active) return;
             if (canonical) {
-              setSavedOrigin(canonical);
+              setSavedOriginBoth(canonical);
               setOriginInput(canonical);
               runProbe(canonical);
               return;
@@ -363,7 +374,7 @@ function AdminConsoleSettingsSession({ pubkeyHex }: { pubkeyHex: string }) {
           setOriginInput(discovered.origin);
           setAdvancedOpen(true);
         }
-        setSavedOrigin(null);
+        setSavedOriginBoth(null);
       } catch (e) {
         if (!active) return;
         // Surface storage/signing errors rather than silently degrading.
@@ -371,7 +382,7 @@ function AdminConsoleSettingsSession({ pubkeyHex }: { pubkeyHex: string }) {
           kind: "error",
           message: e instanceof Error ? e.message : String(e),
         });
-        setSavedOrigin(null);
+        setSavedOriginBoth(null);
         setOriginInput("");
       }
     })();
@@ -416,13 +427,13 @@ function AdminConsoleSettingsSession({ pubkeyHex }: { pubkeyHex: string }) {
         const canonical = await setAdminOrigin(null, pubkeyHex);
         // Discard if the session changed while the native call was in flight.
         if (sessionTokenRef.current !== token) return;
-        setSavedOrigin(canonical);
+        setSavedOriginBoth(canonical);
         setProbeUiState({ kind: "idle" });
         return;
       }
       const canonical = await setAdminOrigin(trimmed, pubkeyHex);
       if (sessionTokenRef.current !== token) return;
-      setSavedOrigin(canonical);
+      setSavedOriginBoth(canonical);
       if (canonical) {
         runProbe(canonical);
       } else {
@@ -459,7 +470,18 @@ function AdminConsoleSettingsSession({ pubkeyHex }: { pubkeyHex: string }) {
           role={
             probeUiState.kind === "authorized" ? probeUiState.role : undefined
           }
-          onSelfMutation={() => runProbe(savedOrigin)}
+          onSelfMutation={() => {
+            // Fence: the panel was mounted for `savedOrigin`. If the origin
+            // changed while Staffing's mutation was in flight (e.g. operator
+            // saved a new origin before A's DELETE resolved), the captured
+            // value no longer matches the current session — ignore the
+            // completion rather than probing the stale relay and overwriting
+            // the new session's authorized state.
+            const originAtRender = savedOrigin;
+            if (savedOriginRef.current === originAtRender) {
+              runProbe(originAtRender);
+            }
+          }}
         />
       )}
 
