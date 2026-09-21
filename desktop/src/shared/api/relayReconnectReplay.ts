@@ -373,6 +373,8 @@ export async function replayLiveSubscriptions({
     ),
     pageReplayConcurrency,
     async ({ subId, subscription, channelId, replaySince }) => {
+      // Queued workers can start after a successor has repaired this same entry.
+      if (!isActive() || subscriptions.get(subId) !== subscription) return;
       // Backfill is best-effort: a failure here (typically a `rate-limited:`
       // CLOSED on a history REQ) must never escape to the session and tear
       // down the healthy, authenticated socket carrying the live REQs — that

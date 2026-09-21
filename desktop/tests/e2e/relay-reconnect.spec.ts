@@ -826,3 +826,178 @@ test("reconnect shares overlapping native repair pages and recovers offline mess
   });
   expect(reads[1].beforeId).toBeTruthy();
 });
+
+test("warm channel freshness is not blocked by another channel's reconnect repair", async ({
+  page,
+}) => {
+  const start = new Date("2026-09-21T12:00:00Z");
+  await page.clock.setFixedTime(start);
+  await page.goto("/");
+  await page.getByTestId("channel-random").click();
+  await expect(page.getByTestId("chat-title")).toHaveText("random");
+  await expect(page.getByTestId("message-input")).toBeVisible();
+  // Warm the actual query; the subsequent visit uses its cached head and the
+  // post-subscribe authoritative refresh, not a cold independent HTTP query.
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const state = window.__BUZZ_E2E_QUERY_CLIENT__?.getQueryState([
+          "channel-messages",
+          "9dae0116-799b-5071-a0a8-fdd30a91a35d",
+        ]);
+        return state?.status === "success" && state.fetchStatus === "idle";
+      }),
+    )
+    .toBe(true);
+  await page.getByTestId("channel-general").click();
+  await expect(page.getByTestId("chat-title")).toHaveText("general");
+  await emitMockMessages(page, [
+    {
+      content: "foreground availability cursor",
+      createdAt: start.getTime() / 1000,
+    },
+  ]);
+  await expect(page.getByTestId("message-timeline")).toContainText(
+    "foreground availability cursor",
+  );
+  await page.evaluate(() => {
+    const w = window as unknown as {
+      __TAURI_INTERNALS__: {
+        invoke: (
+          command: string,
+          args?: unknown,
+          options?: unknown,
+        ) => Promise<unknown>;
+      };
+      recoveryGate: {
+        started: number;
+        finished: number;
+        foregroundReqs: number;
+        windows: number;
+        release: () => void;
+      };
+    };
+    const original = w.__TAURI_INTERNALS__.invoke.bind(w.__TAURI_INTERNALS__);
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    w.recoveryGate = {
+      started: 0,
+      finished: 0,
+      foregroundReqs: 0,
+      windows: 0,
+      release,
+    };
+    w.__TAURI_INTERNALS__.invoke = async (command, args, options) => {
+      if (command === "plugin:websocket|send") {
+        const frame = JSON.parse(
+          (args as { message: { data: string } }).message.data,
+        );
+        if (
+          frame[0] === "REQ" &&
+          frame[2]?.["#h"]?.includes("9dae0116-799b-5071-a0a8-fdd30a91a35d") &&
+          frame[2]?.kinds?.includes(39005)
+        ) {
+          w.recoveryGate.foregroundReqs++;
+        }
+      }
+      if (
+        command === "get_channel_window" &&
+        w.recoveryGate.foregroundReqs > 0 &&
+        (args as { channelId?: string }).channelId ===
+          "9dae0116-799b-5071-a0a8-fdd30a91a35d"
+      ) {
+        w.recoveryGate.windows++;
+      }
+      if (command !== "get_channel_reconnect_repair")
+        return original(command, args, options);
+      w.recoveryGate.started++;
+      await gate;
+      const result = await original(command, args, options);
+      w.recoveryGate.finished++;
+      return result;
+    };
+  });
+  await setMockWebsocketUnavailable(page, true);
+  await disconnectMockWebsockets(page);
+  const missed = "fresh random head during unrelated recovery";
+  await page.evaluate(
+    ({ content, createdAt }) => {
+      window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
+        channelName: "random",
+        content,
+        createdAt,
+      });
+    },
+    { content: missed, createdAt: start.getTime() / 1000 + 1 },
+  );
+  await page.clock.setFixedTime(new Date(start.getTime() + 10_000));
+  await setMockWebsocketUnavailable(page, false);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as unknown as { recoveryGate: { started: number } })
+            .recoveryGate.started,
+      ),
+    )
+    .toBeGreaterThan(0);
+  await page.evaluate(() => {
+    const gate = (
+      window as unknown as {
+        recoveryGate: { foregroundReqs: number; windows: number };
+      }
+    ).recoveryGate;
+    gate.foregroundReqs = 0;
+    gate.windows = 0;
+  });
+  try {
+    await page.getByTestId("channel-random").click();
+    await expect(page.getByTestId("chat-title")).toHaveText("random");
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (window as unknown as { recoveryGate: { foregroundReqs: number } })
+              .recoveryGate.foregroundReqs,
+        ),
+      )
+      .toBeGreaterThan(0);
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (window as unknown as { recoveryGate: { windows: number } })
+              .recoveryGate.windows,
+        ),
+      )
+      .toBeGreaterThan(0);
+    await expect(page.getByTestId("message-timeline")).toContainText(missed);
+    expect(
+      await page.evaluate(
+        () =>
+          (window as unknown as { recoveryGate: { finished: number } })
+            .recoveryGate.finished,
+      ),
+    ).toBe(0);
+  } finally {
+    await page.evaluate(() =>
+      (
+        window as unknown as { recoveryGate: { release: () => void } }
+      ).recoveryGate.release(),
+    );
+  }
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const gate = (
+          window as unknown as {
+            recoveryGate: { started: number; finished: number };
+          }
+        ).recoveryGate;
+        return gate.finished > 0 && gate.finished === gate.started;
+      }),
+    )
+    .toBe(true);
+});

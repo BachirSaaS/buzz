@@ -38,7 +38,10 @@ import {
 import { getChannelReconnectRepairEvents } from "@/shared/api/channelReconnectRepair";
 import { replayLiveSubscriptions } from "@/shared/api/relayReconnectReplay";
 import { publishSessionEvent } from "@/shared/api/relayEventPublisher";
-import { activateRateLimitIfSignalled } from "@/shared/api/relayRateLimitGate";
+import {
+  activateRateLimitIfSignalled,
+  waitForRateLimit,
+} from "@/shared/api/relayRateLimitGate";
 import {
   fetchChunkedHistory,
   requestFirstEventGated,
@@ -562,15 +565,34 @@ export class RelayClient {
       await Promise.race([drain, authentication, inbound.overflow]);
       await drain;
       await authentication;
+      if (generation !== this.connectionGeneration || this.wsId !== wsId) {
+        throw new Error("Relay authentication was superseded.");
+      }
       this.stabilityTimer = window.setTimeout(() => {
         this.stabilityTimer = null;
         this.reconnectDelayMs = RECONNECT_BASE_DELAY_MS;
       }, BACKOFF_RESET_STABLE_MS);
 
       this.connectionStateEmitter.set("connected");
-      await this.replayLiveSubscriptions();
-      this.stallWatchdog.start();
-      this.emitReconnectIfNeeded();
+      // Authentication makes the socket usable. Unrelated channel backfill
+      // must not hold new subscriptions, reads, or writes behind connectPromise.
+      // Reconnect notifications still mean the recovery pass has finished.
+      void this.replayLiveSubscriptions().then(
+        () => {
+          if (generation !== this.connectionGeneration) return;
+          this.stallWatchdog.start();
+          this.emitReconnectIfNeeded();
+        },
+        (error) => {
+          if (generation !== this.connectionGeneration) return;
+          this.resetConnection(
+            this.normalizeRelayError(
+              error,
+              "Failed to restore relay subscriptions.",
+            ),
+          );
+        },
+      );
       return generation;
     } catch (error) {
       const connectionError = this.normalizeRelayError(
@@ -590,7 +612,15 @@ export class RelayClient {
     onReady?: (readiness: LiveSubscriptionReadiness) => void,
     readinessTimeoutMs = 250,
   ) {
-    await this.ensureConnected();
+    const ownership = this.sessionEpoch;
+    const generation = await this.ensureConnected();
+    await waitForRateLimit();
+    if (
+      ownership !== this.sessionEpoch ||
+      generation !== this.connectionGeneration
+    ) {
+      throw new Error("Relay subscription was superseded by a session change.");
+    }
 
     const subId = `live-${crypto.randomUUID()}`;
     let resolveReady = (_readiness: LiveSubscriptionReadiness) => {};
@@ -679,21 +709,38 @@ export class RelayClient {
     payload: unknown[],
     fallbackMessage: string,
   ) {
+    const ownership = this.sessionEpoch;
+    let generation = this.connectionGeneration;
     try {
-      await this.sendRaw(payload);
+      await this.sendRawForGeneration(payload, generation);
     } catch (error) {
+      if (
+        ownership !== this.sessionEpoch ||
+        generation !== this.connectionGeneration
+      ) {
+        throw this.normalizeRelayError(error, fallbackMessage);
+      }
       const normalizedError = this.recoverFromSocketFailure(
         error,
         fallbackMessage,
       );
       try {
-        await this.ensureConnected();
-        await this.sendRaw(payload);
+        generation = await this.ensureConnected();
+        await waitForRateLimit();
+        if (
+          ownership !== this.sessionEpoch ||
+          generation !== this.connectionGeneration
+        ) {
+          throw new Error(
+            "Relay subscription was superseded by a session change.",
+          );
+        }
+        await this.sendRawForGeneration(payload, generation);
       } catch (retryError) {
-        throw this.recoverFromSocketFailure(
-          retryError,
-          normalizedError.message,
-        );
+        throw ownership === this.sessionEpoch &&
+          generation === this.connectionGeneration
+          ? this.recoverFromSocketFailure(retryError, normalizedError.message)
+          : this.normalizeRelayError(retryError, normalizedError.message);
       }
     }
   }
@@ -908,23 +955,14 @@ export class RelayClient {
 
   private async replayLiveSubscriptions() {
     const generation = this.connectionGeneration;
-    try {
-      await replayLiveSubscriptions({
-        subscriptions: this.subscriptions,
-        sendRaw: (payload) => this.sendRaw(payload),
-        requestRepair: getChannelReconnectRepairEvents,
-        generation,
-        visibleChannelId: this.visibleChannelId,
-        isActive: () => this.connectionGeneration === generation,
-      });
-    } catch (error) {
-      const reconnectError =
-        error instanceof Error
-          ? error
-          : new Error("Failed to restore relay subscriptions.");
-      this.resetConnection(reconnectError);
-      throw reconnectError;
-    }
+    await replayLiveSubscriptions({
+      subscriptions: this.subscriptions,
+      sendRaw: (payload) => this.sendRawForGeneration(payload, generation),
+      requestRepair: getChannelReconnectRepairEvents,
+      generation,
+      visibleChannelId: this.visibleChannelId,
+      isActive: () => this.connectionGeneration === generation,
+    });
   }
 
   private scheduleReconnect() {

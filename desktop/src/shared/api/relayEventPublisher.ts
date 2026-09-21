@@ -56,6 +56,7 @@ export async function publishSessionEvent(
 
         try {
           retryGeneration = await session.reconnect();
+          await waitForRateLimit();
           if (
             publishOwnership !== session.ownership() ||
             session.generation() !== retryGeneration ||
