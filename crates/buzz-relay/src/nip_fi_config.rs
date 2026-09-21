@@ -174,11 +174,12 @@ impl NipFiRelayConfig {
         let mut registry = IssuerRegistry::new();
         let mut jwks_configs = Vec::with_capacity(issuer_entries.len());
 
-        for entry in issuer_entries {
-            let (policy, jwks_config) = build_issuer(&entry).map_err(|e| {
+        for (issuer_idx, entry) in issuer_entries.iter().enumerate() {
+            let (policy, jwks_config) = build_issuer(entry).map_err(|e| {
                 ConfigError::InvalidValue(format!(
-                    "BUZZ_NIP_FI_ISSUERS: issuer {:?}: {e}",
-                    entry.issuer
+                    // issuer_idx is a non-identifying diagnostic code.
+                    // Raw `iss` is excluded per NIP-FI.md:777-779.
+                    "BUZZ_NIP_FI_ISSUERS: issuer at index {issuer_idx}: {e}"
                 ))
             })?;
             registry.insert(policy);

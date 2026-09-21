@@ -224,6 +224,17 @@ impl<X> NipFiAdmission<X> {
 /// 7. Check deny map for `(iss, proven_pubkey)`.  [FI-INV-14]
 /// 8. Return `Ok(NipFiAdmission { proven_pubkey, assertion: Some(...), extra: X })`.
 ///
+/// ## NIP-98 failure remapping in active modes
+///
+/// When the NIP-98 closure fails in Enforce mode, the closure typically returns
+/// a legacy JSON 401/403 (`api_error`).  NIP-FI.md §Admission procedure step 3
+/// requires NIP-FI DenialClass responses instead:
+/// - Absent `Authorization` header → `MissingEvidence` (401 "authentication required")
+/// - Present but malformed/invalid `Authorization` → `EvidenceRejected` (403)
+///
+/// In Off mode the legacy response is returned unchanged ([FI-INV-15]).
+/// [FI-TRACE-DENIAL-ORACLE]
+///
 /// ## Bypass impossibility
 ///
 /// [`NipFiAdmission`] has a private constructor.  The only source of a
@@ -255,21 +266,41 @@ where
     F: FnOnce() -> Result<Nip98Proof<X>, Response<Body>>,
 {
     // Step 1: run NIP-98 extraction.  Always runs regardless of mode.
-    let Nip98Proof {
-        pubkey: proven_pubkey,
-        extra,
-    } = extract_nip98()?;
+    let nip98_result = extract_nip98();
 
     // Step 2 — Off mode: NIP-FI not required.  Return admission immediately.
     // The NIP-98 closure already enforced whatever auth the surface required.
     // [FI-INV-15 exemption]
     if matches!(mode, NipFiMode::Off) {
+        // Off mode: propagate the closure result unchanged (legacy behavior).
+        let Nip98Proof {
+            pubkey: proven_pubkey,
+            extra,
+        } = nip98_result?;
         return Ok(NipFiAdmission {
             proven_pubkey,
             assertion: None,
             extra,
         });
     }
+
+    // Active mode (Enforce or DenyProtected): NIP-98 closure failure MUST
+    // produce a NIP-FI DenialClass response, not a legacy JSON error.
+    // [NIP-FI.md §Admission procedure step 3; FI-TRACE-DENIAL-ORACLE]
+    let Nip98Proof {
+        pubkey: proven_pubkey,
+        extra,
+    } = nip98_result.map_err(|_legacy| {
+        // Determine the appropriate denial class from Authorization header presence.
+        // Absent header → MissingEvidence (401); present-but-invalid → EvidenceRejected (403).
+        // [FI-TRACE-DENIAL-ORACLE]
+        let class = if headers.contains_key("authorization") {
+            DenialClass::EvidenceRejected
+        } else {
+            DenialClass::MissingEvidence
+        };
+        http_denial(class)
+    })?;
 
     // Step 3 — DenyProtected mode: unconditional 503.
     if matches!(mode, NipFiMode::DenyProtected) {
@@ -665,6 +696,89 @@ mod tests {
         );
         let resp = outcome.unwrap_err();
         assert_eq!(resp.status(), deny_status);
+    }
+
+    // ── F3: NIP-98 failure remapping in active modes ─────────────────────────
+    //
+    // In Enforce mode, NIP-98 closure failure MUST produce NIP-FI DenialClass
+    // responses (not legacy JSON).  The class depends on whether the
+    // Authorization header was present:
+    //   - Absent header → MissingEvidence (401)
+    //   - Present-but-invalid → EvidenceRejected (403)
+    //
+    // In Off mode the legacy response is propagated unchanged.
+    //
+    // Mutation evidence (absent-header path): replacing MissingEvidence with
+    // EvidenceRejected makes the `assert_eq!(status, 401)` assertion panic.
+    // Mutation evidence (present-header path): replacing EvidenceRejected with
+    // MissingEvidence makes the `assert_eq!(status, 403)` assertion panic.
+
+    #[test]
+    fn enforce_nip98_failure_absent_auth_yields_missing_evidence() {
+        // Authorization header absent → NIP-98 closure fails → MissingEvidence (401).
+        let headers = HeaderMap::new(); // no Authorization header
+        let legacy_resp = http_denial(DenialClass::EvidenceRejected); // would be 403 if propagated
+        let outcome = admit_nip_fi_http::<_, (), _>(
+            &headers,
+            || Err(legacy_resp),
+            None::<&dyn VerifyAssertion>,
+            NipFiMode::Enforce,
+            &AlwaysAdmitStubDenyMap,
+        );
+        let resp = outcome.unwrap_err();
+        assert_eq!(
+            resp.status(),
+            StatusCode::UNAUTHORIZED,
+            "absent-header NIP-98 failure MUST yield 401 MissingEvidence in Enforce mode"
+        );
+        assert_eq!(body_bytes(resp), b"authentication required\n");
+    }
+
+    #[test]
+    fn enforce_nip98_failure_present_auth_yields_evidence_rejected() {
+        // Authorization header present (but NIP-98 fails) → EvidenceRejected (403).
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            axum::http::header::AUTHORIZATION,
+            HeaderValue::from_static("Nostr invalid_base64!!!"),
+        );
+        let legacy_resp = http_denial(DenialClass::MissingEvidence); // would be 401 if propagated
+        let outcome = admit_nip_fi_http::<_, (), _>(
+            &headers,
+            || Err(legacy_resp),
+            None::<&dyn VerifyAssertion>,
+            NipFiMode::Enforce,
+            &AlwaysAdmitStubDenyMap,
+        );
+        let resp = outcome.unwrap_err();
+        assert_eq!(
+            resp.status(),
+            StatusCode::FORBIDDEN,
+            "present-but-invalid Authorization MUST yield 403 EvidenceRejected in Enforce mode"
+        );
+        assert_eq!(body_bytes(resp), b"evidence rejected\n");
+    }
+
+    #[test]
+    fn off_mode_nip98_failure_propagates_legacy_response() {
+        // Off mode: legacy response is returned unchanged ([FI-INV-15]).
+        // If this test breaks, Off mode is remapping errors it should leave alone.
+        let headers = HeaderMap::new(); // no Authorization header
+        let legacy_status = StatusCode::UNAUTHORIZED;
+        let legacy_resp = http_denial(DenialClass::MissingEvidence);
+        let outcome = admit_nip_fi_http::<_, (), _>(
+            &headers,
+            || Err(legacy_resp),
+            None::<&dyn VerifyAssertion>,
+            NipFiMode::Off,
+            &AlwaysAdmitStubDenyMap,
+        );
+        let resp = outcome.unwrap_err();
+        assert_eq!(
+            resp.status(),
+            legacy_status,
+            "Off mode MUST propagate legacy NIP-98 failure response unchanged"
+        );
     }
 
     // ── admit_nip_fi_http — deny_protected ───────────────────────────────────

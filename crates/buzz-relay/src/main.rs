@@ -542,14 +542,16 @@ async fn run_relay_main(boot: BootTracker) -> anyhow::Result<()> {
             issuer_count = jwks_configs.len(),
             "NIP-FI: warming JWKS snapshots for HTTP enforcement"
         );
-        for cfg in &jwks_configs {
+        for (idx, cfg) in jwks_configs.iter().enumerate() {
             match jwks_source.get_snapshot(&cfg.issuer).await {
                 Some(_) => {
-                    info!(issuer = %cfg.issuer, "NIP-FI: JWKS snapshot warmed");
+                    // issuer_index is a non-identifying diagnostic code.
+                    // Raw `iss` is excluded from logs per NIP-FI.md:777-779.
+                    info!(issuer_index = idx, "NIP-FI: JWKS snapshot warmed");
                 }
                 None => {
                     warn!(
-                        issuer = %cfg.issuer,
+                        issuer_index = idx,
                         "NIP-FI: JWKS warm failed — HTTP ingress will deny 503 until \
                          a snapshot lands; background refresh will retry"
                     );
@@ -585,15 +587,25 @@ async fn run_relay_main(boot: BootTracker) -> anyhow::Result<()> {
                     _ = refresh_cancel.cancelled() => break,
                 }
                 let now = tokio::time::Instant::now();
-                for (issuer, interval, last) in &mut intervals {
+                for (idx, (issuer, interval, last)) in intervals.iter_mut().enumerate() {
                     if now >= *last + std::time::Duration::from_secs(*interval) {
                         if refresh_source.get_snapshot(issuer).await.is_none() {
+                            // issuer_index is a non-identifying diagnostic code.
+                            // Raw `iss` is excluded from logs per NIP-FI.md:777-779.
                             warn!(
-                                %issuer,
+                                issuer_index = idx,
                                 "NIP-FI: background JWKS refresh returned no snapshot"
                             );
                         }
-                        *last = now;
+                        // Schedule the NEXT refresh from when this fetch completed,
+                        // not from the instant captured before the await.  Scheduling
+                        // from the pre-fetch snapshot drifts the interval backward by
+                        // the fetch latency on every cycle; scheduling from post-fetch
+                        // keeps the interval at least `refresh_interval_seconds` even
+                        // under nonzero network latency.  The hard-deadline contract
+                        // (jwks_hard_deadline_seconds) is enforced by the JWKS source
+                        // itself, not by this timer.
+                        *last = tokio::time::Instant::now();
                     }
                 }
             }

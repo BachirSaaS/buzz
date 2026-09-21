@@ -203,6 +203,19 @@ async fn nip_fi_assertion_guard(
         return next.run(request).await;
     }
 
+    // Admin SPA document routes are exempt when the request is on the admin
+    // host.  The admin SPA serves its own documents at bare paths (`/reports`,
+    // `/reports/<id>`, `/feedback`) — the browser navigates there directly.
+    // These paths carry no NIP-FI-protected tenant data; the actual data calls
+    // go to `/api/admin/v1/...` (already exempt via the `/api/admin/` prefix).
+    //
+    // The exemption is host-qualified: `/reports` on a tenant host is NOT
+    // exempt and stays protected.  Off mode is already handled above.
+    // [FI-TRACE-AUTHORITY-UNIFORM]
+    if is_admin_spa_path(path) && api::admin::is_admin_host(&state, request.headers()) {
+        return next.run(request).await;
+    }
+
     // Non-exempt path in Enforce or DenyProtected mode.
     //
     // DenyProtected: unconditional 503 regardless of assertion presence.
@@ -1744,6 +1757,62 @@ mod tests {
             !is_exempt("/api/invites/new-endpoint"),
             "a new invite sub-path must not be exempt just because /api/invites/ exists; \
              only /api/invites/claim and /api/invites/accept-policy are explicitly exempt"
+        );
+    }
+
+    // ── F6: admin SPA document paths are NOT broadly exempt ─────────────────
+    //
+    // Admin SPA document routes (`/reports`, `/reports/<id>`, `/feedback`) are
+    // served by the SPA fallback on the admin host.  They are NOT in
+    // `NIP_FI_EXEMPT_PREFIXES` — the broad exempt list would make `/reports`
+    // exempt on tenant hosts too, which is unintentional.  Instead, the guard
+    // exempts them conditionally via a host-qualified `is_admin_spa_path` +
+    // `is_admin_host` check (see `nip_fi_assertion_guard`).
+    //
+    // This test proves two things:
+    // 1. `is_admin_spa_path` recognises the admin document routes.
+    // 2. These paths are NOT broadly exempt (no entry in NIP_FI_EXEMPT_PREFIXES)
+    //    so tenant hosts remain protected.
+    //
+    // Mutation evidence: adding "/reports" to NIP_FI_EXEMPT_PREFIXES makes
+    // `is_exempt("/reports")` return true and the assertion below panics.
+    #[test]
+    fn admin_spa_paths_are_not_broadly_exempt_but_are_admin_spa_paths() {
+        // /reports and /feedback ARE admin SPA document paths.
+        assert!(
+            is_admin_spa_path("/reports"),
+            "/reports must be an admin SPA path (for host-qualified exemption)"
+        );
+        assert!(
+            is_admin_spa_path("/reports/abc-123"),
+            "/reports/<id> must be an admin SPA path"
+        );
+        assert!(
+            is_admin_spa_path("/feedback"),
+            "/feedback must be an admin SPA path"
+        );
+        assert!(
+            is_admin_spa_path("/feedback/abc"),
+            "/feedback/<id> must be an admin SPA path"
+        );
+
+        // But they are NOT in NIP_FI_EXEMPT_PREFIXES (not broadly exempt).
+        // The guard exempts them only when the request is on the admin host.
+        assert!(
+            !is_exempt("/reports"),
+            "/reports must NOT be broadly exempt; exemption is host-qualified in the guard"
+        );
+        assert!(
+            !is_exempt("/reports/abc-123"),
+            "/reports/<id> must NOT be broadly exempt"
+        );
+        assert!(
+            !is_exempt("/feedback"),
+            "/feedback must NOT be broadly exempt"
+        );
+        assert!(
+            !is_exempt("/feedback/abc"),
+            "/feedback/<id> must NOT be broadly exempt"
         );
     }
 
