@@ -459,6 +459,7 @@ function AdminConsoleSettingsSession({ pubkeyHex }: { pubkeyHex: string }) {
           role={
             probeUiState.kind === "authorized" ? probeUiState.role : undefined
           }
+          onSelfMutation={() => runProbe(savedOrigin)}
         />
       )}
 

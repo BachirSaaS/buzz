@@ -182,6 +182,7 @@ function mountPanel({
   canMutate = true,
   role = undefined,
   initialTab = undefined,
+  onSelfMutation = undefined,
 }) {
   const qc = makeQueryClient(pubkey);
   // StaffingTab calls useUsersBatchQuery which needs QueryClientProvider +
@@ -210,6 +211,7 @@ function mountPanel({
               pubkey: p,
               ...(role !== undefined ? { role } : {}),
               ...(initialTab !== undefined ? { initialTab } : {}),
+              ...(onSelfMutation !== undefined ? { onSelfMutation } : {}),
             }),
           ),
         ),
@@ -6262,15 +6264,23 @@ test("staffing-role-change-success: role selector change calls putAdminOperator 
   }
 });
 
-test("staffing-role-change-409: a 409 conflict from putAdminOperator surfaces the config-backed copy", async () => {
-  // Verifies that a 409 response to a role change is surfaced as a clear
-  // config-backed error message, not a raw error string.
+test("staffing-role-change-409: a 409 conflict from putAdminOperator surfaces the relay error message", async () => {
+  // Verifies that a 409 response to a role change surfaces the relay's parsed
+  // error message directly, not a hardcoded "config-backed" copy.
   //
-  // The handler classifies on the typed AdminMutationError's `relayStatus`
-  // (adminMutationRelayStatus), NOT by string-matching "409" in the message.
-  // Rejecting with the typed wire shape (mutationReject) is what proves the
-  // typed path: a bare `new Error("409: …")` would carry no relayStatus and so
-  // would fall through to adminErrorMessage — the very defect this guards.
+  // Two sub-cases cover the two distinct 409 messages the relay sends:
+  //   (a) config-backed key: "pubkey is backed by config ..."
+  //   (b) last-operator conflict: "operation would remove the last relay
+  //       operator — add a replacement operator first"
+  //
+  // Before the fix, case (b) was incorrectly classified as config-backed,
+  // hiding the relay's recovery guidance. The fix replaces the 409 hardcode
+  // with adminErrorMessage(e), which parses the relay's error envelope.
+  //
+  // Mutation evidence:
+  //   - Restore the old adminMutationRelayStatus === 409 branch →
+  //     case (b) shows "config-backed" instead of the relay message → RED.
+  //   - Remove the adminErrorMessage(e) call → raw JSON renders → RED.
   const origin = "https://admin-staffing-role-reject.example.com";
   const pubkey = "07".repeat(32);
   const opPubkey = "18".repeat(32);
@@ -6281,13 +6291,13 @@ test("staffing-role-change-409: a 409 conflict from putAdminOperator surfaces th
       { pubkey: opPubkey, effectiveRole: "moderator", sources: ["db"] },
     ]),
   );
-  // The message deliberately omits "409" and "config" — this reproduces a
-  // native-transport AdminMutationError whose text carries no HTTP status. Only
-  // the typed `relayStatus` reveals the 409, so a string-match on the message
-  // would misclassify and fall through, making this test falsifiable.
-  setIpcHandler("admin_put_operator", () =>
-    mutationReject("transport error: operator entry is immutable", 409),
-  );
+
+  let putResult = () =>
+    mutationReject(
+      'admin API error: {"error":{"code":"conflict","message":"pubkey is backed by config (RELAY_OPERATOR_PUBKEYS or owner fallback) — immutable through the API"}}',
+      409,
+    );
+  setIpcHandler("admin_put_operator", () => putResult());
 
   const { container, doRender, unmount } = mountPanel({
     origin,
@@ -6305,51 +6315,87 @@ test("staffing-role-change-409: a 409 conflict from putAdminOperator surfaces th
     );
     assert.ok(roleSelect !== null, "role selector must be present");
 
+    // ── Case (a): config-backed 409 surfaces relay's config-backed message ──
     await act(async () => {
       fireEvent.change(roleSelect, { target: { value: "operator" } });
       await new Promise((r) => setTimeout(r, 30));
     });
 
-    // Error message must mention config-backed (not raw "409: ..." string)
-    const errEls = Array.from(
+    let errEls = Array.from(
       container.querySelectorAll(
         "[data-testid='staffing-tab'] [class*='destructive']",
       ),
     );
     assert.ok(
       errEls.length > 0,
-      "an error message element must appear after rejected role change",
+      "an error element must appear after rejected role change",
+    );
+    assert.ok(
+      errEls.some((el) => el.textContent.includes("immutable through the API")),
+      `config-backed 409 must surface relay message; got: ${errEls.map((e) => e.textContent).join(", ")}`,
+    );
+    assert.ok(
+      !errEls.some((el) => el.textContent.includes("admin API error")),
+      "raw envelope prefix must not render",
+    );
+
+    // ── Case (b): last-operator 409 surfaces relay's distinct recovery message ──
+    putResult = () =>
+      mutationReject(
+        'admin API error: {"error":{"code":"conflict","message":"operation would remove the last relay operator — add a replacement operator first"}}',
+        409,
+      );
+    await act(async () => {
+      // Re-select moderator first so the change is non-trivial, then operator.
+      fireEvent.change(roleSelect, { target: { value: "moderator" } });
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    // roleSelect may have been refreshed — re-query.
+    const roleSelectB = container.querySelector(
+      `[data-testid='staffing-role-select-${opPubkey}']`,
+    );
+    await act(async () => {
+      fireEvent.change(roleSelectB, { target: { value: "operator" } });
+      await new Promise((r) => setTimeout(r, 30));
+    });
+
+    errEls = Array.from(
+      container.querySelectorAll(
+        "[data-testid='staffing-tab'] [class*='destructive']",
+      ),
     );
     assert.ok(
       errEls.some((el) =>
-        el.textContent.toLowerCase().includes("config-backed"),
+        el.textContent.includes("add a replacement operator first"),
       ),
-      `error must mention config-backed key; got: ${errEls.map((e) => e.textContent).join(", ")}`,
-    );
-    // The raw transport message must never leak — only the typed-branch copy.
-    assert.ok(
-      !errEls.some((el) => el.textContent.includes("transport error")),
-      "raw transport message must not render when relayStatus is 409",
+      `last-operator 409 must surface the relay's recovery message, not "config-backed"; got: ${errEls.map((e) => e.textContent).join(", ")}`,
     );
   } finally {
     await unmount();
   }
 });
 
-test("staffing-add-409: a typed 409 from putAdminOperator surfaces the config-backed copy; a non-409 renders adminErrorMessage", async () => {
-  // handleAdd classifies on the typed AdminMutationError's `relayStatus`
-  // (adminMutationRelayStatus), not by string-matching "409" on the message.
-  // A 409 → config-backed copy; any other rejection → adminErrorMessage's
-  // parsed envelope message, never the raw serialized error.
+test("staffing-add-409: a typed 409 from putAdminOperator surfaces the relay error message; non-409 renders adminErrorMessage", async () => {
+  // handleAdd surfaces adminErrorMessage(e) for ALL errors — a 409 shows the
+  // relay's parsed message (config-backed OR last-operator conflict), not a
+  // hardcoded copy.
+  //
+  // Two 409 sub-cases (a) config-backed and (b) last-operator verify that the
+  // distinct relay messages reach the UI unchanged.
+  //
+  // Mutation evidence:
+  //   - Restore the old adminMutationRelayStatus === 409 hardcode →
+  //     case (b) shows "config-backed" not the relay message → RED.
+  //   - Remove adminErrorMessage(e) → raw JSON envelope renders → RED.
   const origin = "https://admin-staffing-add-reject.example.com";
   const pubkey = "07".repeat(32);
   const newPubkey = "19".repeat(32);
 
-  // The 409 message omits "409"/"config" so only the typed `relayStatus`
-  // classifies it — a string-match on the message would misclassify, making
-  // Case 1 falsifiable against the pre-fix code.
   let putResult = () =>
-    mutationReject("transport error: operator entry is immutable", 409);
+    mutationReject(
+      'admin API error: {"error":{"code":"conflict","message":"pubkey is backed by config (RELAY_OPERATOR_PUBKEYS or owner fallback) — immutable through the API"}}',
+      409,
+    );
   setIpcHandler("admin_list_reports", () => Promise.resolve([]));
   setIpcHandler("admin_list_operators", () => Promise.resolve([]));
   setIpcHandler("admin_put_operator", () => putResult());
@@ -6372,7 +6418,7 @@ test("staffing-add-409: a typed 409 from putAdminOperator surfaces the config-ba
     const addBtn = container.querySelector("[data-testid='staffing-add-btn']");
     assert.ok(addBtn, "Add button must be present");
 
-    // ── Case 1: typed 409 → config-backed copy ──
+    // ── Case (a): config-backed 409 → relay's config-backed message ──
     await act(async () => {
       fireEvent.change(pubkeyInput, { target: { value: newPubkey } });
       await new Promise((r) => setTimeout(r, 10));
@@ -6388,20 +6434,47 @@ test("staffing-add-409: a typed 409 from putAdminOperator surfaces the config-ba
       ),
     );
     assert.ok(
-      errEls.some((el) =>
-        el.textContent.toLowerCase().includes("config-backed"),
-      ),
-      `409 add must surface config-backed copy; got: ${errEls.map((e) => e.textContent).join(", ")}`,
+      errEls.some((el) => el.textContent.includes("immutable through the API")),
+      `config-backed 409 add must surface relay message; got: ${errEls.map((e) => e.textContent).join(", ")}`,
     );
 
-    // ── Case 2: non-409 typed failure → adminErrorMessage's envelope text ──
+    // ── Case (b): last-operator 409 → relay's recovery message, not "config-backed" ──
+    putResult = () =>
+      mutationReject(
+        'admin API error: {"error":{"code":"conflict","message":"operation would remove the last relay operator — add a replacement operator first"}}',
+        409,
+      );
+    const anotherPubkey = "2a".repeat(32);
+    await act(async () => {
+      fireEvent.change(pubkeyInput, { target: { value: anotherPubkey } });
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    await act(async () => {
+      fireEvent.click(addBtn);
+      await new Promise((r) => setTimeout(r, 30));
+    });
+
+    errEls = Array.from(
+      container.querySelectorAll(
+        "[data-testid='staffing-tab'] .text-destructive",
+      ),
+    );
+    assert.ok(
+      errEls.some((el) =>
+        el.textContent.includes("add a replacement operator first"),
+      ),
+      `last-operator 409 add must surface relay recovery message; got: ${errEls.map((e) => e.textContent).join(", ")}`,
+    );
+
+    // ── Case (c): non-409 typed failure → adminErrorMessage's envelope text ──
     putResult = () =>
       mutationReject(
         'admin API error: {"error":{"code":"forbidden","message":"pubkey not permitted"}}',
         403,
       );
+    const yetAnotherPubkey = "3b".repeat(32);
     await act(async () => {
-      fireEvent.change(pubkeyInput, { target: { value: newPubkey } });
+      fireEvent.change(pubkeyInput, { target: { value: yetAnotherPubkey } });
       await new Promise((r) => setTimeout(r, 10));
     });
     await act(async () => {
@@ -6427,20 +6500,26 @@ test("staffing-add-409: a typed 409 from putAdminOperator surfaces the config-ba
   }
 });
 
-test("staffing-remove-409: a typed 409 from deleteAdminOperator surfaces the config-backed copy; a non-409 renders adminErrorMessage", async () => {
-  // handleConfirmRemove classifies on the typed AdminMutationError's
-  // `relayStatus` (adminMutationRelayStatus), matching add/role-change. A 409
-  // → config-backed copy; any other rejection → adminErrorMessage's envelope
-  // message, never the raw serialized error.
+test("staffing-remove-409: a typed 409 from deleteAdminOperator surfaces the relay error message; non-409 renders adminErrorMessage", async () => {
+  // handleConfirmRemove surfaces adminErrorMessage(e) for ALL errors — a 409
+  // shows the relay's parsed message (config-backed OR last-operator conflict).
+  //
+  // Before the fix, a last-operator 409 was misclassified as "config-backed",
+  // hiding the relay's "add a replacement operator first" recovery guidance.
+  //
+  // Mutation evidence:
+  //   - Restore the old adminMutationRelayStatus === 409 branch →
+  //     case (b) shows "config-backed" not the relay message → RED.
+  //   - Remove adminErrorMessage(e) → raw JSON envelope renders → RED.
   const origin = "https://admin-staffing-remove-reject.example.com";
   const pubkey = "07".repeat(32);
   const opPubkey = "1a".repeat(32);
 
-  // The 409 message omits "409"/"config" so only the typed `relayStatus`
-  // classifies it — a string-match on the message would misclassify, making
-  // Case 1 falsifiable against the pre-fix code.
   let deleteResult = () =>
-    mutationReject("transport error: operator entry is immutable", 409);
+    mutationReject(
+      'admin API error: {"error":{"code":"conflict","message":"pubkey is backed by config (RELAY_OPERATOR_PUBKEYS or owner fallback) — immutable through the API"}}',
+      409,
+    );
   setIpcHandler("admin_list_reports", () => Promise.resolve([]));
   setIpcHandler("admin_list_operators", () =>
     Promise.resolve([
@@ -6479,7 +6558,7 @@ test("staffing-remove-409: a typed 409 from deleteAdminOperator surfaces the con
   };
 
   try {
-    // ── Case 1: typed 409 → config-backed copy ──
+    // ── Case (a): config-backed 409 → relay's config-backed message ──
     await confirmRemove();
 
     let errEls = Array.from(
@@ -6488,13 +6567,31 @@ test("staffing-remove-409: a typed 409 from deleteAdminOperator surfaces the con
       ),
     );
     assert.ok(
-      errEls.some((el) =>
-        el.textContent.toLowerCase().includes("config-backed"),
-      ),
-      `409 remove must surface config-backed copy; got: ${errEls.map((e) => e.textContent).join(", ")}`,
+      errEls.some((el) => el.textContent.includes("immutable through the API")),
+      `config-backed 409 remove must surface relay message; got: ${errEls.map((e) => e.textContent).join(", ")}`,
     );
 
-    // ── Case 2: non-409 typed failure → adminErrorMessage's envelope text ──
+    // ── Case (b): last-operator 409 → relay's recovery message ──
+    deleteResult = () =>
+      mutationReject(
+        'admin API error: {"error":{"code":"conflict","message":"operation would remove the last relay operator — add a replacement operator first"}}',
+        409,
+      );
+    await confirmRemove();
+
+    errEls = Array.from(
+      container.querySelectorAll(
+        "[data-testid='staffing-tab'] [class*='destructive']",
+      ),
+    );
+    assert.ok(
+      errEls.some((el) =>
+        el.textContent.includes("add a replacement operator first"),
+      ),
+      `last-operator 409 remove must surface relay recovery message, not "config-backed"; got: ${errEls.map((e) => e.textContent).join(", ")}`,
+    );
+
+    // ── Case (c): non-409 typed failure → adminErrorMessage's envelope text ──
     deleteResult = () =>
       mutationReject(
         'admin API error: {"error":{"code":"internal","message":"operator store unavailable"}}',
@@ -6516,6 +6613,210 @@ test("staffing-remove-409: a typed 409 from deleteAdminOperator surfaces the con
     assert.ok(
       !errEls.some((el) => el.textContent.includes("admin API error")),
       "non-409 remove must not render the raw serialized error prefix",
+    );
+  } finally {
+    await unmount();
+  }
+});
+
+// ── P2-1: stale principal after self-demotion/removal ─────────────────────────
+
+test("staffing-self-demotion-fires-onSelfMutation: successful role change on own pubkey calls onSelfMutation", async () => {
+  // Verifies that handleRoleChange calls onSelfMutation when the mutation
+  // targets the current principal's own pubkey.
+  //
+  // The parent probe re-run (triggered by onSelfMutation) is what refreshes the
+  // role badge and tab visibility after self-demotion. Without it, the UI keeps
+  // claiming "Connected as operator" and Staffing remains visible even after
+  // the operator has removed their own operator role.
+  //
+  // Mutation evidence:
+  //   - Remove the `if (op.pubkey === pubkey) onSelfMutation?.()` guard →
+  //     onSelfMutationCalls remains 0 → RED.
+  //   - Keep the guard but check a different key →
+  //     same RED.
+  const origin = "https://admin-staffing-self-demote.example.com";
+  const pubkey = "aa".repeat(32); // self
+  const otherPubkey = "bb".repeat(32); // other operator, should NOT trigger
+
+  let onSelfMutationCalls = 0;
+
+  setIpcHandler("admin_list_reports", () => Promise.resolve([]));
+  setIpcHandler("admin_list_operators", () =>
+    Promise.resolve([
+      { pubkey: pubkey, effectiveRole: "operator", sources: ["db"] },
+      { pubkey: otherPubkey, effectiveRole: "operator", sources: ["db"] },
+    ]),
+  );
+  setIpcHandler("admin_put_operator", () =>
+    Promise.resolve({
+      pubkey: pubkey,
+      effectiveRole: "moderator",
+      sources: ["db"],
+    }),
+  );
+
+  const { container, doRender, unmount } = mountPanel({
+    origin,
+    pubkey,
+    canMutate: true,
+    role: "operator",
+    initialTab: "staffing",
+    onSelfMutation: () => {
+      onSelfMutationCalls += 1;
+    },
+  });
+  await doRender();
+  await settle(30);
+
+  try {
+    // Change own role (operator → moderator)
+    const selfRoleSelect = container.querySelector(
+      `[data-testid='staffing-role-select-${pubkey}']`,
+    );
+    assert.ok(selfRoleSelect !== null, "self role selector must be present");
+
+    await act(async () => {
+      fireEvent.change(selfRoleSelect, { target: { value: "moderator" } });
+      await new Promise((r) => setTimeout(r, 30));
+    });
+
+    assert.equal(
+      onSelfMutationCalls,
+      1,
+      `onSelfMutation must be called exactly once after self role-change; called ${onSelfMutationCalls} times`,
+    );
+  } finally {
+    await unmount();
+  }
+});
+
+test("staffing-other-mutation-does-not-fire-onSelfMutation: role change on another pubkey does not call onSelfMutation", async () => {
+  // Verifies that mutating a different operator's role does NOT call
+  // onSelfMutation (only mutations on the current principal's own key trigger it).
+  //
+  // Mutation evidence: change the guard to always call onSelfMutation →
+  // onSelfMutationCalls becomes 1 → RED.
+  const origin = "https://admin-staffing-other-change.example.com";
+  const pubkey = "cc".repeat(32); // self
+  const otherPubkey = "dd".repeat(32); // different operator
+
+  let onSelfMutationCalls = 0;
+
+  setIpcHandler("admin_list_reports", () => Promise.resolve([]));
+  setIpcHandler("admin_list_operators", () =>
+    Promise.resolve([
+      { pubkey: pubkey, effectiveRole: "operator", sources: ["db"] },
+      { pubkey: otherPubkey, effectiveRole: "moderator", sources: ["db"] },
+    ]),
+  );
+  setIpcHandler("admin_put_operator", () =>
+    Promise.resolve({
+      pubkey: otherPubkey,
+      effectiveRole: "operator",
+      sources: ["db"],
+    }),
+  );
+
+  const { container, doRender, unmount } = mountPanel({
+    origin,
+    pubkey,
+    canMutate: true,
+    role: "operator",
+    initialTab: "staffing",
+    onSelfMutation: () => {
+      onSelfMutationCalls += 1;
+    },
+  });
+  await doRender();
+  await settle(30);
+
+  try {
+    // Change a different operator's role
+    const otherRoleSelect = container.querySelector(
+      `[data-testid='staffing-role-select-${otherPubkey}']`,
+    );
+    assert.ok(
+      otherRoleSelect !== null,
+      "other operator role selector must be present",
+    );
+
+    await act(async () => {
+      fireEvent.change(otherRoleSelect, { target: { value: "operator" } });
+      await new Promise((r) => setTimeout(r, 30));
+    });
+
+    assert.equal(
+      onSelfMutationCalls,
+      0,
+      `onSelfMutation must NOT be called when mutating a different operator; called ${onSelfMutationCalls} times`,
+    );
+  } finally {
+    await unmount();
+  }
+});
+
+test("staffing-self-removal-fires-onSelfMutation: confirming removal of own pubkey calls onSelfMutation", async () => {
+  // Verifies that handleConfirmRemove calls onSelfMutation when deleting the
+  // current principal's own operator row.
+  //
+  // Without this callback the parent probe is never re-run after self-removal,
+  // leaving the UI showing "Connected as operator" + Staffing tab even after
+  // the operator has removed themselves.
+  //
+  // Mutation evidence:
+  //   - Remove the `if (op.pubkey === pubkey) onSelfMutation?.()` guard →
+  //     onSelfMutationCalls remains 0 → RED.
+  const origin = "https://admin-staffing-self-remove.example.com";
+  const pubkey = "ee".repeat(32); // self
+
+  let onSelfMutationCalls = 0;
+
+  setIpcHandler("admin_list_reports", () => Promise.resolve([]));
+  setIpcHandler("admin_list_operators", () =>
+    Promise.resolve([
+      { pubkey: pubkey, effectiveRole: "operator", sources: ["db"] },
+    ]),
+  );
+  setIpcHandler("admin_delete_operator", () => Promise.resolve());
+
+  const { container, doRender, unmount } = mountPanel({
+    origin,
+    pubkey,
+    canMutate: true,
+    role: "operator",
+    initialTab: "staffing",
+    onSelfMutation: () => {
+      onSelfMutationCalls += 1;
+    },
+  });
+  await doRender();
+  await settle(30);
+
+  try {
+    // Open confirmation dialog for self-removal
+    const removeBtn = container.querySelector(
+      `[data-testid='staffing-remove-btn-${pubkey}']`,
+    );
+    assert.ok(removeBtn !== null, "self remove button must be present");
+    await act(async () => {
+      fireEvent.click(removeBtn);
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    const confirmBtn = document.body.querySelector(
+      "[data-testid='staffing-remove-confirm']",
+    );
+    assert.ok(confirmBtn !== null, "confirm button must be present in dialog");
+    await act(async () => {
+      fireEvent.click(confirmBtn);
+      await new Promise((r) => setTimeout(r, 30));
+    });
+
+    assert.equal(
+      onSelfMutationCalls,
+      1,
+      `onSelfMutation must be called exactly once after self-removal; called ${onSelfMutationCalls} times`,
     );
   } finally {
     await unmount();

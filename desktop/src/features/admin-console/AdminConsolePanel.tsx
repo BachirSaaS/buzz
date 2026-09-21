@@ -90,6 +90,7 @@ export function AdminConsolePanel({
   pubkey,
   role,
   initialTab,
+  onSelfMutation,
 }: {
   /**
    * Whether mutation controls should be enabled. `false` when the relay probe
@@ -103,6 +104,13 @@ export function AdminConsolePanel({
   pubkey: string;
   /** Principal role from probe — `"operator"` | `"moderator"` | undefined */
   role?: AdminPrincipalRole | null;
+  /**
+   * Called after a successful mutation that modified the current principal's
+   * own operator row (self-demotion or self-removal). The parent should
+   * re-probe the admin origin so the displayed role and visible tabs reflect
+   * the new server state.
+   */
+  onSelfMutation?: () => void;
   /**
    * Override the initially active tab. Intended for unit tests that need to
    * land on a specific tab without driving click events through MinimalDocument.
@@ -173,6 +181,7 @@ export function AdminConsolePanel({
           origin={origin}
           pubkey={pubkey}
           generation={generation}
+          onSelfMutation={onSelfMutation}
         />
       )}
     </div>

@@ -37,7 +37,6 @@ import {
 } from "./api";
 import {
   adminErrorMessage,
-  adminMutationRelayStatus,
   type AsyncState,
   ErrorMessage,
   LoadingSpinner,
@@ -127,6 +126,7 @@ export function StaffingTab({
   pubkey,
   generation,
   canMutate,
+  onSelfMutation,
 }: {
   origin: string;
   pubkey: string;
@@ -136,6 +136,13 @@ export function StaffingTab({
    * The operator list is still readable; only add/remove/edit controls are absent.
    */
   canMutate: boolean;
+  /**
+   * Called after a successful mutation that modified the current principal's
+   * own operator row (role change or removal of self). The parent re-probes
+   * the admin origin so the displayed role and visible tabs reflect the new
+   * server state.
+   */
+  onSelfMutation?: () => void;
 }) {
   const [listGen, setListGen] = useState(0);
   const [addPubkey, setAddPubkey] = useState("");
@@ -189,14 +196,10 @@ export function StaffingTab({
       setAddPubkey("");
       setListGen((g) => g + 1);
     } catch (e) {
-      // 409 = config-backed key; surface clearly. A typed AdminMutationError
-      // carries the relay's status, so classify on it rather than string-matching
-      // the message — the native transport layer never embeds "409" in the text.
-      setAddError(
-        adminMutationRelayStatus(e) === 409
-          ? "This pubkey is config-backed and cannot be changed via the API."
-          : adminErrorMessage(e),
-      );
+      // Surface the relay's parsed error message — a 409 may indicate either
+      // a config-backed key (immutable) or a last-operator conflict, both of
+      // which the relay communicates with distinct messages.
+      setAddError(adminErrorMessage(e));
     } finally {
       setIsAdding(false);
     }
@@ -212,12 +215,13 @@ export function StaffingTab({
     try {
       await putAdminOperator(origin, op.pubkey, newRole);
       setListGen((g) => g + 1);
+      // Self-demotion: re-probe so the parent updates role badge and tab
+      // visibility to reflect the new server state.
+      if (op.pubkey === pubkey) {
+        onSelfMutation?.();
+      }
     } catch (e) {
-      setActionError(
-        adminMutationRelayStatus(e) === 409
-          ? `Cannot change ${truncatePubkey(op.pubkey)}: config-backed key.`
-          : adminErrorMessage(e),
-      );
+      setActionError(adminErrorMessage(e));
     } finally {
       setWorkingPubkey(null);
     }
@@ -232,12 +236,13 @@ export function StaffingTab({
     try {
       await deleteAdminOperator(origin, op.pubkey);
       setListGen((g) => g + 1);
+      // Self-removal: re-probe so the parent updates role badge and tab
+      // visibility to reflect the new server state.
+      if (op.pubkey === pubkey) {
+        onSelfMutation?.();
+      }
     } catch (e) {
-      setActionError(
-        adminMutationRelayStatus(e) === 409
-          ? `Cannot remove ${truncatePubkey(op.pubkey)}: config-backed key.`
-          : adminErrorMessage(e),
-      );
+      setActionError(adminErrorMessage(e));
     } finally {
       setWorkingPubkey(null);
     }
