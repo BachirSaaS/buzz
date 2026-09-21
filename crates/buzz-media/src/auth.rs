@@ -251,10 +251,18 @@ pub fn verify_blossom_auth_event_for_verb(
             }
         }
     } else {
-        // Permissive: validate only when server tags are present.
-        // Any-match semantics: a proof with multiple server tags is accepted if
-        // at least one matches our host (preserves origin/main base behavior).
-        if server_count > 0 {
+        // Permissive: validate only when VALUED server tags are present.
+        // A valueless `["server"]` tag does not constitute a server-tag binding
+        // and must not change the admission decision (FI-INV-15: Permissive/Off
+        // must preserve pre-NIP-FI base behavior, which gated on the collected
+        // valued-tag list being nonempty).  Using `server_values.is_empty()`
+        // (not `server_count > 0`) ensures a lone valueless server tag is
+        // treated the same as no server tag — the proof is admitted without a
+        // server check, matching origin/main behavior.
+        //
+        // Any-match semantics: a proof with multiple VALUED server tags is
+        // accepted if at least one matches our host.
+        if !server_values.is_empty() {
             let Some(domain) = server_domain else {
                 // Server tags present but our host is unknown — fail closed.
                 return Err(MediaError::ServerMismatch);
@@ -1550,6 +1558,82 @@ mod tests {
             )
             .is_err(),
             "valueless x tag in Strict get must not grant host-wide read scope"
+        );
+    }
+
+    // ── Finding 1 compatibility edge (F1): valueless server tag must not change Permissive/Off behavior ─
+
+    /// Permissive: a proof with a valid matching `x`, a valid expiration, and a
+    /// lone VALUELESS `["server"]` tag (no content) was admitted by the pre-NIP-FI
+    /// base verifier, which gated server validation on the collected valued-tag list
+    /// being nonempty.  The fix gates on `!server_values.is_empty()` (not
+    /// `server_count > 0`) so a valueless server tag is treated as absent.
+    ///
+    /// Before the fix, `server_count > 0` was true (count includes valueless tags),
+    /// entering the branch, and `server_values.iter().any(...)` over an empty vec
+    /// always returned false → `ServerMismatch` — a regression vs. base behavior.
+    #[test]
+    fn test_permissive_valueless_server_tag_does_not_change_admission() {
+        let keys = Keys::generate();
+        let sha256 = "a".repeat(64);
+        let now = Timestamp::now().as_secs();
+        let exp_str = (now + 300).to_string();
+        // Valid proof: matching x, valid expiration, lone valueless server tag.
+        let tags = vec![
+            Tag::parse(["t", "upload"]).unwrap(),
+            Tag::parse(["x", &sha256]).unwrap(),
+            Tag::parse(["expiration", &exp_str]).unwrap(),
+            Tag::parse(["server"]).unwrap(), // valueless — must be ignored in Permissive
+        ];
+        let event = EventBuilder::new(Kind::from(24242), "Upload buzz-media")
+            .tags(tags)
+            .sign_with_keys(&keys)
+            .unwrap();
+        // Permissive: valueless server tag must not trigger ServerMismatch.
+        // The proof has a matching x tag so it must be admitted on the x-scope path.
+        assert!(
+            verify_blossom_upload_auth(
+                &event,
+                &sha256,
+                Some("relay.example"),
+                BlossomStrictness::Permissive
+            )
+            .is_ok(),
+            "Permissive must admit a proof whose only server tag is valueless — \
+             valueless server tag must not change admission (FI-INV-15)"
+        );
+    }
+
+    /// Permissive (used for both Permissive and Off NIP-FI modes on the Blossom path):
+    /// same invariant as above, tested on its own to confirm the fix is not
+    /// order-dependent.  Permissive is the only non-Strict variant; Off mode
+    /// selects Permissive strictness at the API layer.
+    #[test]
+    fn test_off_valueless_server_tag_does_not_change_admission() {
+        let keys = Keys::generate();
+        let sha256 = "b".repeat(64);
+        let now = Timestamp::now().as_secs();
+        let exp_str = (now + 300).to_string();
+        let tags = vec![
+            Tag::parse(["t", "upload"]).unwrap(),
+            Tag::parse(["x", &sha256]).unwrap(),
+            Tag::parse(["expiration", &exp_str]).unwrap(),
+            Tag::parse(["server"]).unwrap(), // valueless
+        ];
+        let event = EventBuilder::new(Kind::from(24242), "Upload buzz-media")
+            .tags(tags)
+            .sign_with_keys(&keys)
+            .unwrap();
+        // BlossomStrictness::Off is represented as Permissive on the Blossom path.
+        assert!(
+            verify_blossom_upload_auth(
+                &event,
+                &sha256,
+                Some("relay.example"),
+                BlossomStrictness::Permissive
+            )
+            .is_ok(),
+            "Off must admit a proof whose only server tag is valueless (FI-INV-15)"
         );
     }
 }

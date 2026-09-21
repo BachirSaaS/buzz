@@ -209,6 +209,15 @@ pub struct Config {
     /// are permitted regardless of auth method (API token, NIP-42).
     pub require_relay_membership: bool,
 
+    /// Test-only override for Blossom strictness.
+    ///
+    /// In production builds this field is absent — `blossom_strictness_from_state`
+    /// always returns `Permissive` until #7264 wires `config.nip_fi` into
+    /// `AppState`.  In test builds, set this to `Some(Strict)` to exercise Strict
+    /// response shapes without activating production enforcement.
+    #[cfg(test)]
+    pub test_blossom_strictness: Option<buzz_media::auth::BlossomStrictness>,
+
     /// Whether this deployment can serve huddle (voice) audio.
     ///
     /// Huddle audio frames are relayed peer-to-peer *within a single pod*
@@ -1265,6 +1274,8 @@ impl Config {
             admin,
             web_dir,
             serve_git_web_gui,
+            #[cfg(test)]
+            test_blossom_strictness: None,
         })
     }
 }

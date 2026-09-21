@@ -77,7 +77,12 @@ class MediaVideoViewerPage extends HookConsumerWidget {
             return;
           }
           if (response.statusCode < 200 || response.statusCode >= 300) {
-            await response.stream.drain<void>();
+            // Cancel (not drain) the error-body stream so a stalled server body
+            // cannot hold the download open.  `drain()` waits for the upstream
+            // to close the stream; `_cancelVideoResponse` subscribes and
+            // immediately cancels, which closes the underlying connection without
+            // waiting for the full response body [F2r(b)].
+            await _cancelVideoResponse(response);
             throw HttpException(
               'Video download failed (${response.statusCode})',
               uri: uri,
@@ -125,14 +130,36 @@ class MediaVideoViewerPage extends HookConsumerWidget {
           }
 
           final localController = VideoPlayerController.file(file);
-          await localController.initialize();
-          await localController.play();
-          if (disposed) {
+          // Own the controller before any async suspension so a failed
+          // initialize() or play() — or a disposal that races with init —
+          // can always call dispose() unconditionally [F2r(a)].
+          // video_player 2.11.1 completes the init future with an error on
+          // native failure but does NOT dispose the player; Android 2.9.5
+          // retains the native player until explicit disposal.  Without this
+          // wrapper, a PlatformException from initialize() unwinds to the
+          // outer catch where controller.value is still null, so the cleanup
+          // teardown's `if (activeController != null)` guard silently skips
+          // disposal — leaking the native player and its event subscription.
+          try {
+            await localController.initialize();
+            if (disposed) {
+              await localController.dispose();
+              await deleteVideoFile();
+              return;
+            }
+            await localController.play();
+            if (disposed) {
+              await localController.dispose();
+              await deleteVideoFile();
+              return;
+            }
+            controller.value = localController;
+          } catch (_) {
+            // dispose() before re-throwing so the native player is released
+            // even if the outer catch is the only error handler.
             await localController.dispose();
-            await deleteVideoFile();
-            return;
+            rethrow;
           }
-          controller.value = localController;
         } catch (loadError) {
           if (!disposed) error.value = loadError.toString();
         }
