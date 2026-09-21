@@ -698,3 +698,39 @@ checked synthetic refresh. HTTPS destinations are denied except the exact fixtur
 route, rewritten to a test-created loopback provider. Do not replace this with
 HOME isolation or run these fixtures against an installed harness. The negative
 Pi boundary tests use only saved synthetic OpenAI keys and make no provider call.
+
+## OpenTUI Host lifecycle and Reset
+
+The owner Node service creates the missing Host during first sign-in, without
+starting it. Host uses one full-width pane. Start/Stop use the authenticated local
+service; Reset requires an exact stopped target and explicit confirmation.
+
+- `host-owner.test.ts`: owner gate, immutable binding, exact-instance Stop,
+  running/unknown refusal, reset cancellation/retry, concurrent sign-out and
+  reset/sign-in fencing. Populated Providers, runtimes, and Harness inventory
+  survive reset; local agent registrations and exact Host/agent keys do not.
+- `host-service.test.ts`: detached real Host startup, reconnect inspection,
+  authenticated Stop, failed teardown and unowned locks remain unknown.
+- `host-settings.test.ts`: registered but stopped agents count zero; actual
+  owned runners count while alive and return to zero after Stop.
+- `shell-host.test.ts`: both 120×40 and 60×20, real Bun→Node IPC, pointer and
+  keyboard confirmations, detached lifecycle and synthetic credential-denial
+  recovery. Fixture transport is offline and never accesses real OS credentials.
+
+Activate Hermit and resolve the real Node executable before isolating HOME:
+
+```sh
+export BEEHIVE_NODE="$(node -p 'process.execPath')"
+cd beehive
+bun run check
+bun test test/shell-*.test.ts
+node --experimental-transform-types --test test/host-owner.test.ts test/host-service.test.ts test/owner-service.test.ts
+```
+
+The Host campaign's broad Node run had 279 pass, 10 fail, 19 skip. One stale
+file-list expectation was updated for the new public credential-recovery record
+and passed its focused rerun. The other nine failures reproduce at the unchanged
+preceding `9117c995a` head: four legacy manager-controller assertions, three Pi
+conversation cases, the Pi Host isolation-loader seam, and one legacy direct-agent
+configuration journey. These are not a green-suite claim. No live relay/provider
+or real Keychain deletion is established by the synthetic tests.

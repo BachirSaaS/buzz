@@ -20,7 +20,7 @@ export function localOwner(options: { helper?: URL; environment?: NodeJS.Process
   const unavailable = () => {
     for (const resolve of pending.values()) resolve(false); pending.clear();
     if (disposed) return;
-    snapshot = { ...snapshot, signedIn: false, owner: undefined, phase: 'error', secretLength: 0, message: 'Owner controller stopped. Reopen Beehive. Saved data was not reset.' }; emit();
+    snapshot = { ...snapshot, signedIn: false, owner: undefined, host: undefined, hostMessage: undefined, phase: 'error', secretLength: 0, message: 'Owner controller stopped. Reopen Beehive. Saved data was not reset.' }; emit();
   };
   child.stdout?.resume(); child.stderr?.resume(); child.on('error', unavailable); child.on('close', unavailable);
   child.on('message', (message: any) => {

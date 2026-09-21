@@ -13,7 +13,7 @@ test('detached actual host survives client return; verified duplicate/reopen/sto
   const directory = join(root,'host'); mkdirSync(directory,{mode:0o700});
   const entry = join(root,'service.mjs');
   writeFileSync(entry, `import {serveHost} from ${JSON.stringify(new URL('../src/host-service.ts',import.meta.url).href)};import {host} from ${JSON.stringify(new URL('../src/host.ts',import.meta.url).href)};
-await serveHost(process.argv[2],process.argv[3],async()=>{const h=await host(process.argv[2],'ws://127.0.0.1',undefined,{binding:{host:'fixture-host',owner:'fixture-owner'},validate(){},connect(){return {ready:Promise.resolve(),send(){},close(){}}}});return {close:()=>h.close(),status:()=>({agents:h.agents.length,relay:'disconnected',revision:h.settingsRevision})};});`);
+await serveHost(process.argv[2],process.argv[3],async()=>{const h=await host(process.argv[2],'ws://127.0.0.1',undefined,{binding:{host:'fixture-host',owner:'fixture-owner'},validate(){},connect(){return {ready:Promise.resolve(),send(){},close(){}}}});return {close:()=>h.close(),status:()=>({agents:h.runningAgents,relay:'disconnected',revision:h.settingsRevision})};});`);
   assert.equal((await serviceStatus(directory)).state,'stopped');
   const first = await startService(directory,pathToFileURL(entry));
   assert.equal(first.state,'running'); assert.equal(first.agents,0);

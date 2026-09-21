@@ -10,7 +10,7 @@ function fixture() {
   const emit = () => { for (const fn of listeners) fn(structuredClone(snapshot)); };
   const client: OwnerClient = {
     snapshot: () => structuredClone(snapshot), subscribe(fn) { listeners.add(fn); fn(structuredClone(snapshot)); return () => { listeners.delete(fn); }; },
-    async request(r) { requests.push(r); if (r.action.startsWith('signin')) { snapshot.signedIn = true; snapshot.owner = 'npub1fixture'; snapshot.secretLength = 0; snapshot.message = 'Signed in. No operation was started.'; } else if (r.action === 'signout') { snapshot.signedIn = false; snapshot.owner = undefined; snapshot.message = 'Signed out. Host and agents keep running.'; } emit(); return true; },
+    async request(r) { requests.push(r); if (r.action === 'host-status') { snapshot.host = { name: 'Fixture Host', host: 'a'.repeat(64), owner: 'b'.repeat(64), relay: snapshot.relay!, state: 'stopped', agents: 0, revision: 'fixture', resetPending: false }; } else if (r.action.startsWith('signin')) { snapshot.signedIn = true; snapshot.owner = 'npub1fixture'; snapshot.secretLength = 0; snapshot.message = 'Signed in. No operation was started.'; } else if (r.action === 'signout') { snapshot.signedIn = false; snapshot.owner = undefined; snapshot.message = 'Signed out. Host and agents keep running.'; } emit(); return true; },
     secret(action, value) { snapshot.secretLength = action === 'clear' ? 0 : action === 'backspace' ? Math.max(0, snapshot.secretLength - 1) : snapshot.secretLength + (value?.length ?? 0); emit(); },
     cancel() {}, dispose() {},
   };
@@ -29,7 +29,7 @@ for (const [width, height] of [[120,40],[60,20]]) test(`owner standalone sign-in
     assert.equal(shell.state.focus, 'header'); assert.match(ui.captureCharFrame(), /SIGNED IN/);
     assert.match(ui.captureCharFrame(), /Continue to Host/); assert.equal(shell.state.mode, 'owner');
     ui.mockInput.pressEnter(); ui.mockInput.pressEnter(); await ui.renderOnce();
-    assert.match(ui.captureCharFrame(), /not implemented/); assert.equal(shell.state.activeSection, 0);
+    assert.match(ui.captureCharFrame(), /Fixture Host/); assert.match(ui.captureCharFrame(), /Start Host/); assert.match(ui.captureCharFrame(), /Reset Host/); assert.equal(shell.state.activeSection, 0);
     ui.mockInput.pressKey('\x1b'); await new Promise(r => setTimeout(r, 50));
     for (let i=0;i<4;i++) ui.mockInput.pressArrow('right');
     ui.mockInput.pressEnter(); ui.mockInput.pressEnter(); await ui.renderOnce();
@@ -37,7 +37,7 @@ for (const [width, height] of [[120,40],[60,20]]) test(`owner standalone sign-in
     ui.mockInput.pressEnter(); await ui.renderOnce();
     assert.equal(shell.state.signedIn, true); assert.equal(shell.state.mode, 'owner');
     assert.doesNotMatch(ui.captureCharFrame(), /Continue to/);
-    assert.deepEqual(f.requests.map(r=>r.action), ['signin-desktop','signout','signin-desktop']);
+    assert.deepEqual(f.requests.map(r=>r.action), ['signin-desktop','host-status','signout','signin-desktop']);
   } finally { shell.close(); }
 });
 for (const [width,height] of [[120,40],[60,20]]) test(`owner unavailable identity, masked input, cancellation and pointer at ${width}x${height}`, async () => {

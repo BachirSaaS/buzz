@@ -15,7 +15,13 @@ import { providerModelOptions } from './settings-models.ts';
 process.once('message', async (input: any) => {
   try {
     if (input.action === 'configure') {
-      bootstrapHostIdentity(input.directory, input.label, input.owner, input.relay);
+      bootstrapHostIdentity(input.directory, input.label, input.owner, input.relay, systemCredentials, input.ownerDirectory);
+      process.send?.({ ok: true });
+    } else if (input.action === 'remove-host-credential') {
+      const ref = input.reference;
+      if (!['host', 'agent'].includes(ref.role) || JSON.stringify(ref) !== JSON.stringify(credentialReference(ref.role, ref.publicKey))) throw Error('Invalid reset credential');
+      if (systemCredentials.read(ref) !== null) systemCredentials.remove(ref);
+      if (systemCredentials.read(ref) !== null) throw Error('Credential removal unverified');
       process.send?.({ ok: true });
     } else if (input.action === 'provision') {
       const identity = readHostIdentity(input.directory);

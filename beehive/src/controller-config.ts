@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, rmdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fields, object } from './protocol.ts';
 import { readPrivate, writePrivate } from './storage.ts';
@@ -21,9 +21,13 @@ export function readControllerConfig(directory: string): ControllerConfig | unde
 
 /** First-use public routing configuration. Existing owner/relay authority is immutable here. */
 export function createControllerConfig(directory: string, owner: string, relay: string): ControllerConfig {
-  if (readControllerConfig(directory)) throw Error('Controller already configured; use Settings for deliberate changes');
-  const value = { version: 1 as const, owner: ownerPublicInput(owner), relay: relay.trim() };
-  if (!/^(wss|ws):\/\//.test(value.relay)) throw Error('Management relay requires wss:// (ws://127.0.0.1 for fixtures)');
-  writePrivate(file(directory), value, true);
-  return value;
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const lock = join(directory, 'controller.lock'); mkdirSync(lock, { mode: 0o700 });
+  try {
+    if (readControllerConfig(directory)) throw Error('Controller already configured; Reset Host is required to change its binding');
+    const value = { version: 1 as const, owner: ownerPublicInput(owner), relay: relay.trim() };
+    if (!/^(wss|ws):\/\//.test(value.relay)) throw Error('Management relay requires wss:// (ws://127.0.0.1 for fixtures)');
+    writePrivate(file(directory), value, true);
+    return value;
+  } finally { rmdirSync(lock); }
 }

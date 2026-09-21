@@ -51,6 +51,8 @@ export async function serviceStatus(directory: string): Promise<ServiceStatus> {
 /** Explicit detached Node launch. Closing the manager cannot stop this service. */
 export async function startService(directory: string, entry = new URL('./host-service-child.ts',import.meta.url)): Promise<ServiceStatus> {
   if (Buffer.byteLength(join(directory,'service.sock')) > 100) throw Error('Host directory path is too long for a private service socket');
+  if (existsSync(join(directory, 'host-reset.json'))) throw Error('Host reset incomplete');
+  const identity = existsSync(join(directory, 'host-identity.json')) ? JSON.stringify(readPrivate(join(directory, 'host-identity.json'))) : undefined;
   const status = await serviceStatus(directory);
   if (status.state === 'running') return status;
   if (status.state !== 'stopped') throw Error('Host ownership is unknown. No process was started or stopped.');
@@ -58,6 +60,7 @@ export async function startService(directory: string, entry = new URL('./host-se
   const record: Instance = { version: 1, instance: randomBytes(16).toString('hex'), token: randomBytes(32).toString('hex'), socket: join(directory,'service.sock') };
   let written = false;
   try {
+    if (existsSync(join(directory, 'host-reset.json')) || (identity !== undefined && (!existsSync(join(directory, 'host-identity.json')) || JSON.stringify(readPrivate(join(directory, 'host-identity.json'))) !== identity))) throw Error('Host changed before launch');
     writePrivate(recordPath(directory),record,true); written = true;
     const child = spawn(process.execPath,[fileURLToPath(entry),directory,record.instance],{ detached: true, stdio: 'ignore', env: { PATH: '/usr/bin:/bin', ...(process.env.HOME ? { HOME: process.env.HOME } : {}) } });
     await new Promise<void>((resolve,reject) => { child.once('spawn',resolve); child.once('error',reject); }); child.unref();

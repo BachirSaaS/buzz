@@ -62,7 +62,7 @@ export function readSettings(directory: string): Settings {
 export function settingsLock<T>(directory: string, action: () => T): T {
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   const lock = join(directory, 'settings.lock'); mkdirSync(lock, { mode: 0o700 });
-  try { return action(); } finally { rmdirSync(lock); }
+  try { if (existsSync(join(directory, 'host-reset.json'))) throw Error('Host reset incomplete; retry Reset Host first'); return action(); } finally { rmdirSync(lock); }
 }
 /** One complete CAS snapshot; failures preserve the previous revision. */
 export function saveSettings(directory: string, candidate: Settings, expected: number): Settings {

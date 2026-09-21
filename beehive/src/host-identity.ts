@@ -1,3 +1,6 @@
+import { readControllerConfig } from './controller-config.ts';
+import { retainCredentialAttempt } from './settings-credentials.ts';
+import { settingsLock } from './settings.ts';
 import { createCredential, credentialReference, readCredential, systemCredentials, type CredentialBackend } from './credential-store.ts';
 import { existsSync, mkdirSync, rmdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -14,13 +17,21 @@ function locked<T>(directory: string, operation: () => T): T {
   try { return operation(); } finally { rmdirSync(lock); }
 }
 /** Offline bootstrap; neither requires admission nor copies the owner's secret. */
-export function bootstrapHostIdentity(directory: string, label: string, owner: string, relay: string, credentials: CredentialBackend = systemCredentials): HostIdentity {
+export function bootstrapHostIdentity(directory: string, label: string, owner: string, relay: string, credentials: CredentialBackend = systemCredentials, ownerDirectory?: string): HostIdentity {
   return locked(directory, () => {
+    if (ownerDirectory) {
+      const binding = readControllerConfig(ownerDirectory);
+      if (!binding || binding.owner !== owner || binding.relay !== relay) throw Error('Owner binding changed before Host creation');
+    }
+    if (existsSync(join(directory, 'host-reset.json'))) throw Error('Host reset incomplete');
     if (existsSync(join(directory, 'setup.json'))) throw Error('Legacy installation retained; use a clean directory');
     if (existsSync(join(directory, 'host-identity.json'))) throw Error('Host identity already exists; no replacement or automatic migration');
     const secret = newKey();
     const pairing = hostPairing({ version: 1, purpose: 'beehive-host-registration', host: publicKey(secret), owner, label, relay, nonce: newKey() });
-    const key = createCredential('host', secret, credentials);
+    const key = settingsLock(directory, () => {
+      retainCredentialAttempt(directory, credentialReference('host', pairing.host));
+      return createCredential('host', secret, credentials);
+    });
     const identity: HostIdentity = { version: 3, pairing, secret, registration: null };
     writePrivate(join(directory, 'host-identity.json'), { version: 3, pairing, key, registration: null }, true);
     return identity;

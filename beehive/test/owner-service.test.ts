@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { nip19 } from 'nostr-tools';
+import { fixtureHostDependencies } from './host-fixture-deps.ts';
 import { OwnerService } from '../src/owner-service.ts';
 import { publicKey } from '../src/protocol.ts';
 import { createControllerConfig } from '../src/controller-config.ts';
@@ -13,7 +14,7 @@ const nsec = nip19.nsecEncode(Buffer.from(secret, 'hex'));
 const relay = 'wss://relay.example';
 function fixture(desktop: ConstructorParameters<typeof OwnerService>[1] = async probe => probe ? ({ available: true }) : ({ secret })) {
   const home = mkdtempSync(join(tmpdir(), 'owner-session-'));
-  const service = new OwnerService(home, desktop);
+  const service = new OwnerService(home, desktop, fixtureHostDependencies(home));
   return { home, service, close() { service.dispose(); rmSync(home, { recursive: true, force: true }); } };
 }
 test('nsec session persists only public binding; signout and reopen never restore a signer', async () => {
@@ -28,7 +29,7 @@ test('nsec session persists only public binding; signout and reopen never restor
     assert.ok(!saved.includes(nsec) && !saved.includes(secret));
     assert.doesNotMatch(JSON.stringify(f.service.snapshot()), new RegExp(nsec+'|'+secret));
     assert.equal(f.service.snapshot().secretLength, 0);
-    assert.equal(existsSync(join(f.home, '.beehive/host')), false);
+    assert.equal(existsSync(join(f.home, '.beehive/host/host-identity.json')), true);
     await f.service.request({ action: 'signout' });
     assert.equal(f.service.snapshot().signedIn, false); assert.equal(f.service.snapshot().owner, undefined);
     const reopened = new OwnerService(f.home, async () => { throw Error('No automatic Keychain read'); });

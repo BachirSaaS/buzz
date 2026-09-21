@@ -91,7 +91,7 @@ test('actual standalone CLI private pairing, existing-owner approval and bootstr
     assert.equal(enrolled.secret, original.secret);
     assert.ok(!readFileSync(join(host, 'host-identity.json'), 'utf8').includes(original.secret));
     assert.deepEqual(enrolled.pairing, original.pairing);
-    assert.deepEqual(readdirSync(host), ['exchange', 'host-identity.json']);
+    assert.deepEqual(readdirSync(host), ['credential-attempts.json', 'exchange', 'host-identity.json']);
     assert.equal(statSync(join(host, 'exchange')).mode & 0o777, 0o700);
     for (const file of [request, approval, defaultApproval]) assert.equal(statSync(file).mode & 0o777, 0o600);
     const ownerOnHost = await wizard(host, [['Enrollment [', 'approve']], poison, 1);

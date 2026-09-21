@@ -87,8 +87,10 @@ for (const providerType of ['openai','databricks_v2','codex-openai','anthropic',
   let providerReads = 0;
   const running = await host(root,'ws://127.0.0.1',undefined,transport,undefined,async (input,signal) => { signal.throwIfAborted(); assert.equal((input as any).provider,providerType === 'openai' || codex ? 'openai-compat' : providerType); if (providerType === 'databricks_v2') assert.equal((input as any).host,'https://fixture.example'); providerReads++; return {ok:true,secret:codex ? 'fixture-codex-private-key' : 'synthetic-provider-key'}; });
   t.after(() => running.close());
+  assert.equal(running.agents.length, 1); assert.equal(running.runningAgents, 0);
   const start = message('start',hostKey,publicKey(agent),0); receive(start);
   await wait(() => reports.some(m => m.type === 'inventory' && m.body.phase === 'running'));
+  assert.equal(running.runningAgents, 1);
   const active = reports.filter(m => m.type === 'inventory').at(-1)!.body.actualRun;
   let stored: string | null = null;
   if (added) addProvider(root,'Fixture','synthetic',{read:()=>stored,create:(_r,v)=>{stored=v;}},providerType as 'anthropic'|'openai-compat'|'openrouter','https://fixture.example/v1',providerType === 'openai-compat' ? 'responses' : undefined);
@@ -153,7 +155,7 @@ await import(${JSON.stringify(new URL('./conversation-harness-fixture.ts',import
   const current = reports.filter(m => m.type === 'inventory').at(-1)!;
   const stop = message('stop',hostKey,publicKey(agent),current.revision); receive(stop); await wait(() => reports.some(m => m.body.operation === stop.id));
   const stopped = reports.filter(m => m.type === 'inventory').at(-1)!;
-  assert.equal(stopped.body.phase,'stopped');
+  assert.equal(stopped.body.phase,'stopped'); assert.equal(running.runningAgents, 0);
   const nextStart = message('start',hostKey,publicKey(agent),stopped.revision); receive(nextStart); await wait(() => reports.some(m => m.body.operation === nextStart.id));
   assert.equal(reports.find(m => m.body.operation === nextStart.id)?.body.result,'accepted');
   assert.equal((reports.filter(m => m.type === 'inventory').at(-1)!.body.actualRun as any).selection.model,model);

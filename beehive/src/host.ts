@@ -611,7 +611,7 @@ function slot(setup: Setup, path: string, agent: string, currentSetup: (id: stri
     Object.defineProperty(state.operations,m.id,{ value: { fingerprint, reply }, enumerable: true, configurable: true, writable: true });
     state.outbox.push(reply); save(); publish(reply); publish(inventory());
   }
-  return { agent, receive, replay, validateBindings(projected: Record<string, Setup>) {
+  return { agent, get running() { return !!owned && !owned.exited || !!restartProbe && !restartProbe.owned.exited; }, receive, replay, validateBindings(projected: Record<string, Setup>) {
     // Check the real inventory, including retained state and duplicated selected
     // models/workspaces, not a row-count estimate. Reserve 8 KiB (the existing
     // configuration budget) for subsequent lifecycle/selection growth. Both
@@ -639,6 +639,8 @@ export async function host(directory: string, url: string, signal?: AbortSignal,
   signal?.throwIfAborted();
   (transport?.validate ?? validateRelayURL)(url);
   let effectiveSettings = readSettings(directory);
+  const retainedIdentity = existsSync(join(directory, 'host-identity.json')) ? JSON.stringify(readPrivate(join(directory, 'host-identity.json'))) : undefined;
+  if (existsSync(join(directory, 'host-reset.json'))) throw Error('Host reset incomplete');
   const lock = join(directory, 'host.lock');
   mkdirSync(lock, { mode: 0o700 }); // Never infer ownership from a recovered PID.
   let client: { ready: Promise<void>; send(m: Message): void; close(): void } | undefined;
@@ -663,6 +665,8 @@ export async function host(directory: string, url: string, signal?: AbortSignal,
   // Abort uses the same owner as ready shutdown, including quarantine fences.
   const abort = () => { void close().catch(() => {}); };
   try {
+    if (existsSync(join(directory, 'host-reset.json')) || retainedIdentity !== undefined && (!existsSync(join(directory, 'host-identity.json')) || JSON.stringify(readPrivate(join(directory, 'host-identity.json'))) !== retainedIdentity)) throw Error('Host changed before startup');
+    effectiveSettings = readSettings(directory);
     const entries = transport && !existsSync(join(directory, 'setup.json')) ? [] : await installationSlotsAsync(directory, credentials, signal);
     signal?.throwIfAborted();
     signal?.addEventListener('abort', abort, { once: true });
@@ -775,7 +779,7 @@ export async function host(directory: string, url: string, signal?: AbortSignal,
   if (transport?.availability) publish(transport.availability());
   for (const s of slots.values()) s.replay();
   heartbeat = setInterval(() => { reloadSettings(); if (transport?.availability) publish(transport.availability()); for (const s of slots.values()) s.heartbeat(); }, 2000);
-  return { agent: [...slots.keys()][0], agents: [...slots.keys()], get settingsRevision() { return effectiveSettings.revision; }, close() {
+  return { agent: [...slots.keys()][0], agents: [...slots.keys()], get runningAgents() { return [...slots.values()].filter(slot => slot.running).length; }, get settingsRevision() { return effectiveSettings.revision; }, close() {
     signal?.removeEventListener('abort', abort);
     return close();
   } };

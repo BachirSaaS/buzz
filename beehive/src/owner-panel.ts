@@ -34,7 +34,7 @@ export class OwnerPanel {
       const action = text(palette.text); action.onMouseDown = () => { if (!this.shown || this.dialog || this.state.helpOpen) return; this.index = i; this.state.focus = 'detail'; this.repaint(); void this.run(); }; this.actions.push(action);
     }
     this.message = text(palette.text); this.note = text(palette.muted);
-    this.unsubscribe = client.subscribe(snapshot => { this.snapshot = snapshot; this.state.signedIn = snapshot.signedIn; this.dialog?.updateSecretLength(snapshot.secretLength); this.repaint(); });
+    this.unsubscribe = client.subscribe(snapshot => { if (this.snapshot.signedIn && !snapshot.signedIn && !snapshot.relay) this.relay = ''; this.snapshot = snapshot; this.state.signedIn = snapshot.signedIn; this.dialog?.updateSecretLength(snapshot.secretLength); this.repaint(); });
   }
   get modal() { return !!this.dialog; }
   private commands() {
@@ -50,7 +50,7 @@ export class OwnerPanel {
     if (command === 'Stay here') return 'Keeps you signed in without opening the requested section.';
     if (command === 'Sign out') return 'Signs out of Beehive. Host and agents keep running.';
     if (command.startsWith('Continue')) return 'Opens the requested section. No Host or agent operation runs.';
-    if (command.includes('relay')) return 'Sets public routing on first sign-in. Does not connect or configure a Host.';
+    if (command.includes('relay')) return 'First sign-in binds this Host to the owner and relay.';
     return 'Host and Agents require owner sign-in. Harnesses and Providers do not.';
   }
   private openOwner() {
@@ -120,7 +120,7 @@ export class OwnerPanel {
   }
   paint() {
     const owner = this.state.ownerActive;
-    const shown = !this.state.belowMinimum && (owner || this.state.protectedSection);
+    const shown = !this.state.belowMinimum && (owner || this.state.protectedSection && !(this.state.activeSection === 0 && this.snapshot.signedIn));
     const left = (this.wasOwner && !owner) || (this.shown && !shown);
     const entered = owner && !this.wasOwner;
     this.wasOwner = owner; this.shown = shown; this.box.visible = shown;
