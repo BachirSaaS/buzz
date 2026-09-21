@@ -314,8 +314,12 @@ test('environment Databricks is normalized, visible and durable before any provi
     assert.equal(providers.length,1); assert.equal(providers[0]!.type,'databricks_v2');
     assert.equal(providers[0]!.endpoint,'https://synthetic-workspace.example');
     controller.close();
+    process.env.DATABRICKS_HOST = 'https://different-environment.example';
     const reopened = new ManagerController(home,()=>{});
     assert.deepEqual(reopened.snapshot().settings!.providers,providers); reopened.close();
+    delete process.env.DATABRICKS_HOST;
+    const withoutEnvironment = new ManagerController(home,()=>{});
+    assert.deepEqual(withoutEnvironment.snapshot().settings!.providers,providers); withoutEnvironment.close();
     assert.ok(!existsSync(join(home,'credentials.json')));
   } finally { if (prior === undefined) delete process.env.DATABRICKS_HOST; else process.env.DATABRICKS_HOST = prior; }
 });

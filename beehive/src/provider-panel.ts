@@ -12,7 +12,7 @@ const labels: Record<string, string> = { openai: 'OpenAI', anthropic: 'Anthropic
 export function providerInventory(snapshot: ProviderSnapshot): ProviderRow[] {
   return types.flatMap(type => {
     const accounts = snapshot.rows.filter(row => row.type === type);
-    return accounts.length ? accounts : [{ id: `type:${type}`, name: labels[type]!, type: type as ProviderRow['type'], endpoint: '', state: type === 'databricks_v2' && !snapshot.databricksHost ? 'ENV MISSING' : 'NOT SET', detail: type === 'databricks_v2' ? 'Set DATABRICKS_HOST to the workspace HTTPS origin, then restart Beehive.' : 'Not configured. Add an account to use this provider.' }];
+    return accounts.length ? accounts : [{ id: `type:${type}`, name: labels[type]!, type: type as ProviderRow['type'], endpoint: '', state: 'NOT SET', detail: 'Not configured. Select Configure to get started.' }];
   });
 }
 /** Providers presentation. All durable changes and secret state live in Node. */
@@ -61,8 +61,8 @@ export class ProviderPanel {
   private row() { return providerInventory(this.snapshot).find(row => row.id === this.selected); }
   private commands() {
     if (this.selected === 'reload') return ['Reload providers'];
-    if (this.selected.startsWith('type:')) return [this.row()?.type === 'databricks_v2' ? 'Set up Databricks' : `Add ${labels[this.row()!.type]} account`];
-    return ['Edit provider', 'Test provider', 'Load models', ...(this.row()?.type === 'databricks_v2' ? ['Sign in to Databricks'] : []), 'Set up Codex', 'Set up Pi'];
+    if (this.selected.startsWith('type:')) return ['Configure'];
+    return ['Edit configuration', 'Refresh models', ...(this.row()?.type === 'databricks_v2' ? ['Sign in to Databricks'] : [])];
   }
   private select(index: number) {
     if (!this.active || this.dialog) return;
@@ -106,33 +106,15 @@ export class ProviderPanel {
   }
   private async edit(row: ProviderRow | undefined, type: ProviderRow['type']) {
     const generation = this.generation, revision = this.snapshot.revision;
-    if (type === 'databricks_v2' && !this.snapshot.databricksHost) {
-      await this.form('DATABRICKS_HOST REQUIRED', [], 'Close', 'Set DATABRICKS_HOST to your workspace HTTPS origin, for example:\nhttps://your-workspace.cloud.databricks.com\nThen restart Beehive from that environment.\nNo changes have been saved.');
-      return;
-    }
     const fields: DialogField[] = [{ label: 'Name', value: row?.name ?? labels[type]! }];
-    if (type === 'databricks_v2') fields.push({ label: 'Workspace (DATABRICKS_HOST)', value: this.snapshot.databricksHost!, choices: [this.snapshot.databricksHost!] });
+    if (type === 'databricks_v2') fields.push({ label: 'Workspace (DATABRICKS_HOST)', value: row?.endpoint ?? this.snapshot.databricksHost ?? '' });
     else {
       if (type === 'openai-compat') fields.push({ label: 'Endpoint', value: row?.endpoint ?? 'https://' }, { label: 'Wire', value: row?.wire ?? 'auto', choices: ['auto', 'chat', 'responses'] });
       fields.push({ label: row ? 'API key (blank keeps saved)' : 'API key', secret: true });
     }
     const result = await this.form(row ? 'EDIT PROVIDER' : 'ADD PROVIDER', fields);
     if (!result || generation !== this.generation) return;
-    await this.client.request({ action: 'save', provider: row?.id ?? `type:${type}`, revision, values: { type, name: result.Name!, endpoint: result.Endpoint ?? '', wire: result.Wire ?? 'auto' } });
-  }
-  private async setup(row: ProviderRow, harness: string) {
-    const generation = this.generation;
-    if (!await this.client.request({ action: 'discover', provider: row.id, revision: this.snapshot.revision }) || generation !== this.generation) return;
-    const available = this.snapshot.setup?.find(value => value.id === harness);
-    if (!available || available.state !== 'available' || !available.providers.includes(row.type)) {
-      await this.form('SETUP UNAVAILABLE', [{ label: 'Reason', value: available?.reason ?? 'Harness not installed', choices: [available?.reason ?? 'Harness not installed'] }], 'Close'); return;
-    }
-    const revision = this.snapshot.revision;
-    const fields: DialogField[] = [{ label: 'Name', value: `${available.label} configuration` }, { label: 'Model', value: this.snapshot.modelProvider === row.id ? this.snapshot.models[0] : '' }];
-    if (harness === 'pi') fields.push({ label: 'Effort', value: 'Inherit', choices: ['Inherit', 'minimal', 'low', 'medium', 'high', 'xhigh'] });
-    const result = await this.form(`SET UP ${available.label.toUpperCase()}`, fields);
-    if (!result || generation !== this.generation) return;
-    await this.client.request({ action: 'setup', provider: row.id, revision, values: { harness, name: result.Name!, model: result.Model!, effort: result.Effort ?? 'Inherit' } });
+    await this.client.request({ action: 'save', provider: row?.id ?? `type:${type}`, revision, values: { type, name: result.Name!, endpoint: result['Workspace (DATABRICKS_HOST)'] ?? result.Endpoint ?? '', wire: result.Wire ?? 'auto' } });
   }
   pointer(y: number) {
     if (!this.active || this.dialog) return;
@@ -153,9 +135,8 @@ export class ProviderPanel {
     if (command === 'Reload providers') await this.client.request({ action: 'reload' });
     else if (row) {
       if (row.id.startsWith('type:')) { await this.edit(undefined, row.type); return; }
-      if (command === 'Edit provider') await this.edit(row, row.type);
-      else if (command === 'Set up Codex' || command === 'Set up Pi') await this.setup(row, command === 'Set up Codex' ? 'codex' : 'pi');
-      else await this.client.request({ action: command === 'Test provider' ? 'test' : command === 'Load models' ? 'models' : 'login', provider: row.id, revision: this.snapshot.revision });
+      if (command === 'Edit configuration') await this.edit(row, row.type);
+      else await this.client.request({ action: command === 'Refresh models' ? 'models' : 'login', provider: row.id, revision: this.snapshot.revision });
     }
   }
   paint() {
@@ -184,14 +165,14 @@ export class ProviderPanel {
     const commands = this.commands();
     const compact = this.renderer.height < 28;
     const ownsResult = this.snapshot.resultTarget === this.selected;
-    const info = row ? [`State       ${row.state}`, `Type        ${row.type}`, ...(row.endpoint ? [`Connects to ${row.endpoint}`] : []), '', row.detail] : ['Reload saved providers and the DATABRICKS_HOST workspace. No owner sign-in is required.'];
+    const info = row ? [`State       ${row.state}${row.modelCount === undefined ? '' : ` · ${row.modelCount} models`}`, `Type        ${row.type}`, ...(row.endpoint ? [`Connects to ${row.endpoint}`] : []), '', row.detail] : ['Reload saved providers and check their model catalogs. No owner sign-in is required.'];
     const wrap = (lines: string[]) => lines.flatMap(line => { const result: string[] = []; for (let start = 0; start < Math.max(1, line.length); start += width) result.push(line.slice(start, start + width)); return result; });
     const fullDetails = wrap(info);
     // Reserve every action and a result viewport before allocating detail rows.
     this.detailTitle.top = 1;
     const detailTop = compact ? 2 : 3;
     const detailCapacity = compact ? 2 : Math.max(1, height - commands.length - 10);
-    const summary = compact ? wrap(row ? [`State ${row.state}`, row.detail] : info).slice(0, detailCapacity) : fullDetails.slice(0, detailCapacity);
+    const summary = compact ? wrap(row ? [`${row.state}${row.modelCount === undefined ? '' : ` · ${row.modelCount} models`}`, row.detail] : info).slice(0, detailCapacity) : fullDetails.slice(0, detailCapacity);
     this.details.top = detailTop; this.details.width = width; this.details.height = summary.length; this.details.content = summary.join('\n');
     this.actionTitle.top = detailTop + summary.length + (compact ? 0 : 1); this.actionTitle.width = width;
     this.actionTitle.content = 'AVAILABLE ACTIONS ' + '─'.repeat(Math.max(1, width - 18));
@@ -208,13 +189,13 @@ export class ProviderPanel {
     const output = [
       ...(ownsResult && this.snapshot.message ? [`${this.snapshot.phase === 'error' ? 'FAILED' : this.snapshot.phase === 'busy' ? 'WORKING' : 'RESULT'}: ${this.snapshot.message}`] : []),
       ...(compact || fullDetails.length > detailCapacity ? ['DETAILS', ...info] : []),
-      ...(this.snapshot.modelProvider === row?.id ? ['MODELS', ...this.snapshot.models] : []),
     ];
     const wrapped = wrap(output);
     this.detailOffset = Math.min(this.detailOffset, Math.max(0, wrapped.length - resultCapacity));
     this.result.top = resultTop; this.result.width = width; this.result.height = resultCapacity;
     this.result.content = wrapped.slice(this.detailOffset, this.detailOffset + resultCapacity).join('\n');
-    this.result.fg = ownsResult && this.snapshot.phase === 'error' ? palette.failure : palette.text;
+    this.result.fg = row?.state === 'Failed' || ownsResult && this.snapshot.phase === 'error' ? palette.failure : palette.text;
+    this.details.fg = row?.state === 'Failed' ? palette.failure : palette.text;
     this.status.top = height - 2; this.status.width = width; this.status.height = 1;
     this.status.content = ownsResult && this.snapshot.phase === 'busy' ? 'Working… Esc stops waiting' : '↑↓ actions · PgUp/PgDn output';
     this.status.fg = palette.muted;

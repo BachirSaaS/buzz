@@ -93,11 +93,10 @@ impl BrowserOpener for Browser {
     }
 }
 fn auth_intent(action: &str) -> AuthIntent {
-    // The helper is launched only by deliberate Beehive actions. Match Buzz
-    // Desktop by letting Models/Start repair absent or rejected credentials via
-    // browser PKCE. Passive provider discovery never launches this process.
+    // Catalog checks run automatically. They may refresh stored credentials but
+    // must never open a browser. Login and Start remain deliberate actions.
     match action {
-        "login" | "models" | "token" => AuthIntent::UserInitiated,
+        "login" | "token" => AuthIntent::UserInitiated,
         _ => AuthIntent::Headless,
     }
 }
@@ -218,9 +217,9 @@ fn main() {
 mod tests {
     use super::*;
     #[test]
-    fn deliberate_beehive_actions_match_buzz_interactive_auth() {
+    fn automatic_catalog_checks_never_request_browser_auth() {
         assert_eq!(auth_intent("login"), AuthIntent::UserInitiated);
-        assert_eq!(auth_intent("models"), AuthIntent::UserInitiated);
+        assert_eq!(auth_intent("models"), AuthIntent::Headless);
         assert_eq!(auth_intent("token"), AuthIntent::UserInitiated);
         assert_eq!(auth_intent("passive-discovery"), AuthIntent::Headless);
     }

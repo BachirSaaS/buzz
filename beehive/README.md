@@ -890,25 +890,31 @@ Refresh replaces the saved inventory; saved runtime configurations are unchanged
 
 ### Providers in the OpenTUI manager
 
-Providers is available while signed out. Add provider supports OpenAI, Anthropic,
+Providers is available while signed out. Configuration supports OpenAI, Anthropic,
 OpenAI-compatible (endpoint and wire mode), OpenRouter, and Databricks v2.
 Select a saved row, then use Tab or `a` to focus its actions. Arrows select an
-action; Enter runs it. PgUp/PgDn scroll details, model IDs, and the full result.
+action; Enter runs it. PgUp/PgDn scroll details and the full result.
 Forms use Tab/Shift-Tab, Left/Right choices, Enter to advance/submit, Ctrl-U to
 clear a field, and Esc to cancel. API-key input is masked; its value stays in the
 Node controller and credential helper, not renderer state or settings.
 
 Edit preserves provider identity and affects future launches. A replacement API
 key gets a fresh exact OS entry; old entries remain for active launch snapshots.
-Blank key input keeps the saved key. Test checks access to the provider model
-catalog, not generation or every model. Load models displays exact model IDs.
-Codex/Pi setup checks installed adapters and supported provider combinations,
-then saves an exact model configuration without starting an agent.
+Blank key input keeps the saved key. Opening Providers checks every saved
+account's model catalog automatically. Saving credentials and completing
+Databricks sign-in recheck the selected account. Each account shows Checking,
+Connected with a model count (including zero), or Failed with recovery steps.
+Connected means catalog access, not model execution. Model IDs are not listed.
+Refresh models is the single manual retry action. Harness and model setup belong
+in agent configuration, not Providers; existing saved runtime records are retained.
 
-Databricks reads the HTTPS workspace origin from `DATABRICKS_HOST`; unset or
-mismatched origins produce an actionable unavailable state. Browser sign-in is
-explicit and uses the packaged native helper. Reload providers refreshes durable
-state and projects the environment workspace without reading credentials.
+The Databricks workspace is editable. Its saved HTTPS origin takes precedence
+over `DATABRICKS_HOST`; the variable only prefills new configuration when available.
+Without either, the field starts empty. Changing workspace clears connection
+status and assigns a fresh credential reference; old credentials are not reused.
+Restart and reload preserve the saved choice even if the environment differs.
+Browser sign-in is explicit and uses the packaged native helper. Catalog checks
+may refresh stored credentials but never launch browser authorization.
 Esc stops waiting, not committed storage: inspect/reload before retrying. Quit
 closes the provider controller and cancels its bounded helpers.
 
@@ -920,8 +926,7 @@ from the production launcher. API key `deny` exercises provider denial. The
 fixture is not proof of live vendor authentication.
 
 The Providers list always includes every supported provider type, even before
-any account is saved. Missing accounts show NOT SET; Databricks shows ENV MISSING
-without its workspace variable. Saved accounts show SAVED, not READY: saving
-credentials does not prove live access. Each left-hand row displays its state.
-Selecting an unconfigured type opens its own setup action; Add provider remains
-available for additional accounts.
+any account is saved. Missing accounts show NOT SET. Saving configuration alone
+does not establish connection. Select an unconfigured type and use Configure,
+or select a saved account and use Edit configuration. The global Add provider
+command is removed; all existing saved accounts remain accessible.

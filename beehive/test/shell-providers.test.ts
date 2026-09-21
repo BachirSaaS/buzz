@@ -9,7 +9,7 @@ import { ProviderDialog } from '../src/provider-dialog.ts';
 function fixture() {
   const requests: ProviderRequest[] = [];
   const secrets: string[] = [];
-  const snapshot: ProviderSnapshot = { revision: 1, rows: [{ id: 'p', name: 'Fixture', type: 'openai', endpoint: 'https://api.openai.com/v1', state: 'SAVED', detail: 'Access untested' }], phase: 'idle', message: 'Select a provider.', secretLength: 0, models: [] };
+  const snapshot: ProviderSnapshot = { revision: 1, rows: [{ id: 'p', name: 'Fixture', type: 'openai', endpoint: 'https://api.openai.com/v1', state: 'SAVED', detail: 'Access untested' }], phase: 'idle', message: 'Select a provider.', secretLength: 0 };
   const listeners = new Set<(s: ProviderSnapshot) => void>();
   const client: ProviderClient = {
     snapshot: () => structuredClone(snapshot),
@@ -30,9 +30,9 @@ for (const [width, height] of [[120, 40], [60, 20]]) test(`Providers signed-out 
     assert.doesNotMatch(ui.captureCharFrame(), /Add provider/);
     ui.mockInput.pressTab(); await ui.renderOnce();
     assert.equal(shell.state.focus, 'detail');
-    assert.match(ui.captureCharFrame(), /Test provider/);
+    assert.match(ui.captureCharFrame(), /Refresh models/);
     ui.mockInput.pressArrow('down'); ui.mockInput.pressEnter(); await ui.renderOnce();
-    assert.deepEqual(f.requests.at(-1), { action: 'test', provider: 'p', revision: 1 });
+    assert.deepEqual(f.requests.at(-1), { action: 'models', provider: 'p', revision: 1 });
     ui.mockInput.pressArrow('up'); ui.mockInput.pressEnter(); await ui.renderOnce();
     assert.match(ui.captureCharFrame(), /EDIT PROVIDER/);
     ui.mockInput.pressTab(); await ui.renderOnce();
@@ -56,7 +56,7 @@ test('form input preserves q as text and cancellation clears secret without save
   } finally { ui.renderer.destroy(); }
 });
 
-test('minimum-size results, recovery text and models remain reachable through real page keys', async () => {
+test('minimum-size results and recovery text remain reachable; only the model count is shown', async () => {
   const ui = await createTestRenderer({ width: 60, height: 20, exitOnCtrlC: false }), f = fixture();
   const shell = new OpenTuiShell(ui.renderer, f.inventory, undefined, f.client);
   try {
@@ -65,10 +65,10 @@ test('minimum-size results, recovery text and models remain reachable through re
     f.snapshot.resultTarget = 'p'; f.snapshot.phase = 'error'; f.snapshot.message = 'Denied. Check provider access. Reload before retrying.'; f.emit();
     await ui.renderOnce(); assert.match(ui.captureCharFrame(), /Denied/); assert.match(ui.captureCharFrame(), /retrying/);
     ui.mockInput.pressKey('\x1b[6~'); await ui.renderOnce(); assert.match(ui.captureCharFrame(), /State/);
-    f.snapshot.phase = 'idle'; f.snapshot.message = 'Models loaded.'; f.snapshot.modelProvider = 'p'; f.snapshot.models = ['gpt-visible']; f.emit();
+    f.snapshot.phase = 'idle'; f.snapshot.message = 'Models loaded.'; f.snapshot.rows[0]!.state = 'Connected'; f.snapshot.rows[0]!.modelCount = 2; f.emit();
     await ui.renderOnce(); assert.match(ui.captureCharFrame(), /Models loaded/);
     for (let i = 0; i < 12; i++) ui.mockInput.pressKey('\x1b[6~');
-    await ui.renderOnce(); assert.match(ui.captureCharFrame(), /gpt-visible/);
+    await ui.renderOnce(); assert.match(ui.captureCharFrame(), /Connected · 2 models/); assert.doesNotMatch(ui.captureCharFrame(), /gpt-visible|MODELS/);
     f.snapshot.message = 'Stopped waiting. Changes may already be saved. Reload before retrying.'; f.emit();
     await ui.renderOnce(); assert.match(ui.captureCharFrame(), /Stopped waiting/);
   } finally { shell.close(); }
@@ -99,40 +99,35 @@ for (const [width, height] of [[120, 40], [60, 20]]) test(`fresh Providers alway
     ui.mockInput.pressEnter(); await ui.renderOnce();
     const frame = ui.captureCharFrame();
     assert.match(frame, /MODEL ACCOUNTS/); assert.match(frame, /OpenAI/); assert.match(frame, /Anthropic/); assert.match(frame, /OpenRouter/);
-    assert.match(frame, /NOT SET/); assert.match(frame, /ENV MISSING/);
+    assert.match(frame, /NOT SET/); assert.doesNotMatch(frame, /ENV MISSING/);
     ui.mockInput.pressTab(); ui.mockInput.pressEnter(); await ui.renderOnce();
     assert.match(ui.captureCharFrame(), /API key/); assert.doesNotMatch(ui.captureCharFrame(), /Type  ←/);
   } finally { shell.close(); }
 });
 
-for (const [width, height] of [[120, 40], [60, 20]]) test(`Databricks prerequisite is non-committing and configured setup remains available at ${width}x${height}`, async () => {
+for (const [width, height] of [[120, 40], [60, 20]]) for (const saved of [false, true]) test(`Databricks workspace is editable with saved/default/empty precedence at ${width}x${height}, saved=${saved}`, async () => {
   const ui = await createTestRenderer({ width, height, exitOnCtrlC: false }), f = fixture();
-  f.snapshot.rows = [];
+  f.snapshot.rows = saved ? [{ id: 'dbr', name: 'Databricks', type: 'databricks_v2', endpoint: 'https://saved.example', state: 'Not checked', detail: 'Saved' }] : [];
+  f.snapshot.databricksHost = saved ? 'https://environment.example' : undefined;
   const shell = new OpenTuiShell(ui.renderer, f.inventory, undefined, f.client);
   try {
     for (let i = 0; i < 3; i++) ui.mockInput.pressArrow('right');
     ui.mockInput.pressEnter();
     for (let i = 0; i < 4; i++) ui.mockInput.pressArrow('down');
-    const before = structuredClone(f.snapshot), requests = structuredClone(f.requests);
     ui.mockInput.pressTab(); ui.mockInput.pressEnter(); await ui.renderOnce();
-    const frame = ui.captureCharFrame();
-    assert.match(frame, /DATABRICKS_HOST REQUIRED/);
-    assert.match(frame.replace(/[│\s]+/g, ' '), /workspace HTTPS origin/);
-    assert.match(frame, /https:\/\/your-workspace.cloud.databricks.com/);
-    assert.match(frame, /Then restart Beehive from that environment/);
-    assert.match(frame, /No changes have been saved/);
-    assert.match(frame, /Close/); assert.doesNotMatch(frame, /Save|FAILED|Changes may already/);
-    ui.mockInput.pressEnter(); await ui.renderOnce();
-    assert.doesNotMatch(ui.captureCharFrame(), /DATABRICKS_HOST REQUIRED/);
-    assert.match(ui.captureCharFrame(), /ENV MISSING/);
-    assert.deepEqual(f.requests, requests); assert.deepEqual(f.snapshot, before);
-    f.snapshot.databricksHost = 'https://fixture.cloud.databricks.com'; f.emit();
-    ui.mockInput.pressEnter(); await ui.renderOnce();
-    assert.match(ui.captureCharFrame(), /ADD PROVIDER/);
-    assert.match(ui.captureCharFrame(), /https:\/\/fixture.cloud.databricks.com/);
-    assert.match(ui.captureCharFrame(), /Save/);
-    ui.mockInput.pressEnter(); ui.mockInput.pressEnter(); ui.mockInput.pressEnter(); await ui.renderOnce();
+    assert.match(ui.captureCharFrame(), /Workspace \(DATABRICKS_HOST\)/);
+    assert.doesNotMatch(ui.captureCharFrame(), /REQUIRED|← →|environment.example/);
+    if (saved) assert.match(ui.captureCharFrame(), /https:\/\/saved.example/);
+    ui.mockInput.pressTab(); ui.mockInput.pressKey('\x15'); ui.mockInput.typeText('https://edited.example');
+    await ui.renderOnce(); assert.match(ui.captureCharFrame(), /https:\/\/edited.example/);
+    ui.mockInput.pressEnter(); ui.mockInput.pressEnter(); await ui.renderOnce();
     assert.equal(f.requests.at(-1)?.action, 'save');
+    assert.equal(f.requests.at(-1)?.values?.endpoint, 'https://edited.example');
+    if (!saved) {
+      f.snapshot.databricksHost = 'https://environment.example'; f.emit();
+      ui.mockInput.pressEnter(); await ui.renderOnce();
+      assert.match(ui.captureCharFrame(), /https:\/\/environment.example/);
+    }
   } finally { shell.close(); }
 });
 
@@ -192,7 +187,7 @@ for (const [width, height] of [[120, 40], [60, 20]]) test(`all provider actions 
     await ui.renderOnce();
     const lines = () => ui.captureCharFrame().split('\n');
     const actionRow = (name: string) => lines().findIndex(line => line.includes(name));
-    const names = ['Edit provider', 'Test provider', 'Load models', 'Sign in to Databricks', 'Set up Codex', 'Set up Pi'];
+    const names = ['Edit configuration', 'Refresh models', 'Sign in to Databricks'];
     const heading = actionRow('AVAILABLE ACTIONS');
     assert.ok(heading < height / 2);
     for (const [i, name] of names.entries()) assert.equal(actionRow(name), heading + i + 1);
@@ -200,17 +195,18 @@ for (const [width, height] of [[120, 40], [60, 20]]) test(`all provider actions 
     const rgb = (value: { buffer: Uint16Array }) => Array.from(value.buffer).slice(0, 3).join(',');
     assert.equal(rgb(spans().find(span => span.text.includes('AVAILABLE ACTIONS'))!.fg), '255,211,78');
     ui.mockInput.pressTab(); ui.mockInput.pressArrow('down'); await ui.renderOnce();
-    const focused = spans().find(span => span.text.includes('› Test provider'))!;
+    const focused = spans().find(span => span.text.includes('› Refresh models'))!;
     assert.equal(rgb(focused.fg), '255,211,78'); assert.equal(rgb(focused.bg), '13,16,14');
     const keyboard = ui.captureCharFrame();
     ui.mockInput.pressTab(); await ui.renderOnce();
-    const y = actionRow('Test provider'), x = lines()[y]!.indexOf('Test provider');
+    const y = actionRow('Refresh models'), x = lines()[y]!.indexOf('Refresh models');
     await ui.mockMouse.click(x, y); await ui.renderOnce();
     assert.equal(ui.captureCharFrame(), keyboard);
-    assert.equal(f.requests.at(-1)?.action, 'test');
+    assert.equal(f.requests.at(-1)?.action, 'models');
     f.snapshot.resultTarget = 'p'; f.snapshot.phase = 'error'; f.snapshot.message = 'Denied. Check access. Reload before retrying.'; f.emit();
     await ui.renderOnce(); assert.match(ui.captureCharFrame(), /FAILED: Denied/);
-    assert.ok(actionRow('FAILED') > actionRow('Set up Pi'));
+    assert.ok(actionRow('FAILED') > actionRow('Sign in to Databricks'));
+    assert.doesNotMatch(ui.captureCharFrame(), /Set up Codex|Set up Pi|Test provider|Load models/);
     let recoveryVisible = false;
     for (let i = 0; i < 10; i++) {
       recoveryVisible ||= /retrying/.test(ui.captureCharFrame());

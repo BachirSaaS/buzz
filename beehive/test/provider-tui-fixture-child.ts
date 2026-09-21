@@ -2,6 +2,7 @@
 import { ProviderService } from '../src/provider-service.ts';
 import { addProvider, editProvider, type ProviderCredentials } from '../src/settings-credentials.ts';
 import { join } from 'node:path';
+import { readSettings } from '../src/settings.ts';
 const home = process.env.BEEHIVE_HOME;
 if (!home || !home.includes('provider-tui-fixture-')) throw Error('Explicit fixture root required');
 const directory = join(home, '.beehive', 'host');
@@ -14,13 +15,17 @@ const service = new ProviderService(home, process.env, {
     else if (input.action === 'models') {
       await new Promise(resolve => setTimeout(resolve, 400)); signal.throwIfAborted();
       // A deterministic failure enables real TUI retry/correction exercise.
-      if ([...keys.values()].includes('deny')) throw Error('Fixture denial');
+      if (keys.get(readSettings(directory).providers.find(p => p.id === input.provider)!.key.account) === 'deny') throw Error('Fixture denial');
       return { models: ['gpt-fixture', 'gpt-other'] };
     } else throw Error('Unexpected fixture operation');
     return { ok: true };
   },
-  native: async (_input, signal) => { signal.throwIfAborted(); return { ok: true, models: ['databricks-fixture'] }; },
-  discover: async () => ['codex', 'pi'].map(id => ({ id, label: id === 'pi' ? 'Pi' : 'Codex', executable: `/fixture/${id}-acp`, cli: `/fixture/${id}`, state: 'available' as const, providers: id === 'pi' ? ['openai', 'databricks_v2'] : ['openai'], reason: 'Synthetic installed adapter' })),
+  native: async (input, signal) => {
+    await new Promise(resolve => setTimeout(resolve, 400)); signal.throwIfAborted();
+    if (input.action === 'login') keys.set(input.key.account, input.host);
+    else if (keys.get(input.key.account) !== input.host) throw Error('Synthetic explicit sign-in required');
+    return { ok: true, models: ['databricks-fixture'] };
+  },
 });
 service.subscribe(snapshot => process.send?.({ type: 'snapshot', snapshot }));
 process.on('message', async (message: any) => {

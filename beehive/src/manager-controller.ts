@@ -453,15 +453,11 @@ A Stop result is not a recent host report that confirms the agent is stopped.` }
       } else if (request.action === 'add-openai' || request.action === 'add-provider') {
         await this.credential({ action: request.action, directory: this.hostDirectory, name: v.name, secret: v.secret, type:v.type, endpoint:v.endpoint, wire:v.wire },abort.signal); check(); this.status = 'Provider saved. No agent was started.';
       } else if (request.action === 'runtime-form' || request.action === 'configuration-form') {
-        if (process.env.DATABRICKS_HOST) {
-          const endpoint = databricksHost(process.env.DATABRICKS_HOST);
-          const before = readSettings(this.hostDirectory);
-          if (!before.providers.some(p => p.type === 'databricks_v2' && p.endpoint === endpoint)) {
-            await addDatabricks(this.hostDirectory, 'Databricks', endpoint, abort.signal);
-            if (this.continuation?.settingsRevision === before.revision) this.continuation.settingsRevision = before.revision + 1;
-          }
-          check();
-        }
+        const beforeEnvironment = readSettings(this.hostDirectory);
+        rememberEnvironmentDatabricks(this.hostDirectory, process.env.DATABRICKS_HOST);
+        const afterEnvironment = readSettings(this.hostDirectory);
+        if (this.continuation?.settingsRevision === beforeEnvironment.revision) this.continuation.settingsRevision = afterEnvironment.revision;
+        check();
         this.models = undefined; this.modelLabels = undefined;
         const harnesses = await discoverHarnesses(abort.signal, { home: this.home }); check();
         const previous = readSettings(this.hostDirectory);

@@ -54,11 +54,12 @@ export async function addDatabricks(directory: string, name: string, endpoint: s
   return saveSettings(directory,{ ...previous,providers:[...previous.providers,{ id,name,type:'databricks_v2',endpoint,key }] },previous.revision);
 }
 
-/** Project an environment workspace into the durable public provider catalog without authentication. */
+/** Seed an environment default only when no saved workspace exists. Saved choices always win. */
 export function rememberEnvironmentDatabricks(directory: string, value: string | undefined) {
   if (!value) return;
-  const endpoint = databricksHost(value), previous = readSettings(directory);
-  if (previous.providers.some(p => p.type === 'databricks_v2' && p.endpoint === endpoint)) return;
+  const previous = readSettings(directory);
+  if (previous.providers.some(p => p.type === 'databricks_v2')) return;
+  const endpoint = databricksHost(value);
   const id = settingsId();
   saveSettings(directory, { ...previous, providers: [...previous.providers, { id, name: 'Databricks', type: 'databricks_v2', endpoint, key: { service: 'beehive', account: `provider:${id}` } }] }, previous.revision);
 }

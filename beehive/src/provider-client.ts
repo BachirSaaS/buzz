@@ -12,7 +12,7 @@ export function localProviders(options: { helper?: URL; environment?: NodeJS.Pro
     execArgv: ['--experimental-transform-types'], silent: true,
     env: { PATH: environment.PATH ?? '/usr/bin:/bin', ...(environment.HOME ? { HOME: environment.HOME } : {}), ...(environment.BEEHIVE_HOME ? { BEEHIVE_HOME: environment.BEEHIVE_HOME } : {}), ...(environment.DATABRICKS_HOST ? { DATABRICKS_HOST: environment.DATABRICKS_HOST } : {}) },
   });
-  let snapshot: ProviderSnapshot = { revision: 0, rows: [], phase: 'busy', message: 'Loading local providers…', secretLength: 0, models: [] };
+  let snapshot: ProviderSnapshot = { revision: 0, rows: [], phase: 'busy', message: 'Loading local providers…', secretLength: 0 };
   let serial = 0, disposed = false;
   const listeners = new Set<(snapshot: ProviderSnapshot) => void>();
   const pending = new Map<number, (ok: boolean) => void>();
