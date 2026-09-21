@@ -1,0 +1,11 @@
+import { createCliRenderer } from '@opentui/core';
+import { OpenTuiShell } from '../src/opentui-shell.ts';
+import { localOwner } from '../src/owner-client.ts';
+import { HarnessInventoryController } from '../src/harness-inventory.ts';
+if (!process.env.BEEHIVE_HOME?.includes('owner-tui-fixture-')) throw Error('Isolated owner fixture required');
+const renderer = await createCliRenderer({ exitOnCtrlC: false, screenMode: 'alternate-screen', consoleMode: 'disabled', openConsoleOnError: false });
+const inventory = new HarnessInventoryController({ read: () => ({ version: 1, revision: 0, agents: [], providers: [], runtimes: [] }), save: candidate => candidate }, async () => []);
+const client = localOwner({ helper: new URL('./owner-tui-fixture-child.ts', import.meta.url) });
+const shell = new OpenTuiShell(renderer, inventory, undefined, undefined, client);
+process.once('SIGTERM', () => shell.close()); process.once('SIGINT', () => shell.close());
+await shell.done;

@@ -107,7 +107,7 @@ export class ProviderDialog {
       // First input replaces it; the existing empty-secret save contract retains it.
       const value = field.secret ? '•'.repeat(Math.min(field.savedSecret ? 12 : this.secretLength, width - 10)) : field.value ?? '';
       const focused = this.index === i;
-      const prompt = field.secret ? 'Enter API key' : `Enter ${field.label.toLowerCase()}`;
+      const prompt = field.secret && field.label === 'API key' ? 'Enter API key' : `Enter ${field.label.toLowerCase()}`;
       const suffix = field.choices ? '  ← →' : '';
       row.content = (value || prompt).slice(-(width - 10 - suffix.length)).padEnd(width - 10 - suffix.length) + suffix;
       row.fg = value ? palette.text : palette.muted;

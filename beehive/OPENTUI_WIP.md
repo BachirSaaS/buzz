@@ -174,3 +174,26 @@ credentials, relay, provider, host lifecycle or installed-package change was use
 Narrow renderer checks cover the 40-column footer, input and pane routing; this is
 not an exhaustive screenshot matrix for every prompt or launch error. Publication
 and installed desktop/laptop smoke belong to the next continuation.
+
+### Owner sign-in slice
+
+The current OpenTUI manager uses a separate offline Node owner authority, not the
+legacy saved-owner-key manager. Its header is SIGN IN / SIGNED IN. Signed-out
+Host/Agents show the access gate. The full-width owner screen offers Desktop
+identity first, then a masked nsec form. True first use chooses public relay
+routing before sign-in. Existing controller/Host owner and relay bindings cannot
+be changed by signing in; a different owner is refused.
+
+Desktop availability is a prompt-free metadata check of one exact entry. Explicit
+selection performs the session-only read and validates the identity. Keychain
+presence alone cannot prove the blob is valid or access will be granted. See
+`native/README.md` for the helper packaging and evidence boundary.
+
+Manual nsec and Desktop session keys stay in the Node authority's memory. Only
+public state and input length return to the renderer. First use saves the public
+owner/relay binding only. Sign-out and quit discard the session; relaunch starts
+signed out. No relay is contacted. Contextual success requires explicit Continue;
+standalone success stays on the owner screen. Host/Agents content remains an
+explicit unimplemented placeholder after sign-in. Host setup, relay discovery,
+registration, lifecycle and agent controls are not part of this slice. Existing
+advanced CLI and legacy manager flows are unchanged by this implementation.

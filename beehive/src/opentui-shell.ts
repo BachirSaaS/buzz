@@ -1,4 +1,6 @@
 import { BoxRenderable, ScrollBoxRenderable, TextRenderable, type CliRenderer, type KeyEvent } from '@opentui/core';
+import { OwnerPanel } from './owner-panel.ts';
+import type { OwnerClient } from './owner-protocol.ts';
 import { ProviderPanel } from './provider-panel.ts';
 import type { ProviderClient } from './provider-protocol.ts';
 import { brand, destinations, listWidth, ownerLabel, ShellState, type FocusRegion } from './shell-state.ts';
@@ -72,6 +74,7 @@ export class OpenTuiShell {
   private unsubscribeInventory: () => void;
   private screenGeneration = 0;
   private providers?: ProviderPanel;
+  private owner?: OwnerPanel;
   private readonly footerRule: TextRenderable;
   private readonly footer: TextRenderable;
   private helpScrim?: BoxRenderable;
@@ -81,7 +84,7 @@ export class OpenTuiShell {
   private helpTitle?: TextRenderable;
   private helpActions?: TextRenderable;
 
-  constructor(readonly renderer: CliRenderer, private readonly inventory: HarnessInventoryController, private readonly helpContent = helpBody, providers?: ProviderClient) {
+  constructor(readonly renderer: CliRenderer, private readonly inventory: HarnessInventoryController, private readonly helpContent = helpBody, providers?: ProviderClient, owner?: OwnerClient) {
     this.inventorySnapshot = inventory.snapshot();
     this.done = new Promise(resolve => { this.finish = resolve; });
     this.root = new BoxRenderable(renderer, { width: '100%', height: '100%', flexDirection: 'column', backgroundColor: palette.surface });
@@ -109,6 +112,7 @@ export class OpenTuiShell {
     this.divider = new TextRenderable(renderer, { width: 1, height: '100%', fg: palette.divider, content: '│' });
     this.focusPerimeter = new BoxRenderable(renderer, { position: 'absolute', visible: false, border: true, borderColor: palette.focus, backgroundColor: 'transparent',
       onMouseDown: event => {
+        if (this.state.ownerActive || this.state.protectedSection) { this.owner?.pointer(event.y); return; }
         if (this.state.activeSection === 3) { this.providers?.pointer(event.y); return; }
         if (this.state.focus === 'list') this.clickListSlot(event.y - 6);
         else if (this.state.focus === 'detail' && event.y === 15) this.activateSelectedRow();
@@ -137,7 +141,8 @@ export class OpenTuiShell {
     this.footer = new TextRenderable(renderer, { height: 1, fg: palette.muted, content: wideFooter }); this.root.add(this.footer);
 
     if (providers) this.providers = new ProviderPanel(renderer, this.listPane, this.detailPane, this.state, providers, () => this.paint());
-    renderer.keyInput.on('paste', event => { if (this.providers?.paste(new TextDecoder().decode(event.bytes))) event.preventDefault(); });
+    if (owner) this.owner = new OwnerPanel(renderer, this.detailPane, this.state, owner, () => this.paint());
+    renderer.keyInput.on('paste', event => { if (this.owner?.paste(new TextDecoder().decode(event.bytes)) || this.providers?.paste(new TextDecoder().decode(event.bytes))) event.preventDefault(); });
     renderer.keyInput.on('keypress', key => this.key(key));
     renderer.on('resize', () => this.resize());
     renderer.on('destroy', () => this.close(false));
@@ -167,7 +172,7 @@ export class OpenTuiShell {
   }
 
   private key(key: KeyEvent) {
-    if (!(key.ctrl && ['q', 'c'].includes(key.name)) && !this.state.belowMinimum && !this.state.helpOpen && this.providers?.key(key)) { key.preventDefault(); return; }
+    if (!(key.ctrl && ['q', 'c'].includes(key.name)) && !this.state.belowMinimum && !this.state.helpOpen && (this.owner?.key(key) || this.providers?.key(key))) { key.preventDefault(); return; }
     const wasHarnesses = this.state.mode === 'section' && this.state.activeSection === 2;
     const effect = this.state.key(key.name, { ctrl: key.ctrl, shift: key.shift });
     if (wasHarnesses && !(this.state.mode === 'section' && this.state.activeSection === 2)) { this.screenGeneration++; this.inventory.cancel(); }
@@ -178,7 +183,7 @@ export class OpenTuiShell {
   }
 
   private activate(index: number) {
-    if (this.state.belowMinimum || this.state.helpOpen) return;
+    if (this.state.belowMinimum || this.state.helpOpen || this.owner?.modal) return;
     const wasHarnesses = this.state.mode === 'section' && this.state.activeSection === 2;
     this.state.activateHeader(index);
     if (wasHarnesses && !(this.state.mode === 'section' && this.state.activeSection === 2)) { this.screenGeneration++; this.inventory.cancel(); }
@@ -209,7 +214,9 @@ export class OpenTuiShell {
   private paint() {
     if (this.closed) return;
     const width = this.renderer.width;
-    this.ownerText.left = Math.max(0, width - ownerLabel.length - 1);
+    const label = this.owner ? this.state.signedIn ? 'SIGNED IN' : 'SIGN IN' : ownerLabel;
+    this.ownerText.content = label;
+    this.ownerText.left = Math.max(0, width - label.length - 1);
     this.brandText.width = Math.max(0, this.ownerText.left - 1);
     const rule = '─'.repeat(Math.max(1, width));
     this.headerRule.content = rule; this.footerRule.content = rule;
@@ -219,7 +226,7 @@ export class OpenTuiShell {
       const focused = this.state.focus === 'header' && this.state.headerIndex === index;
       const active = this.state.mode === 'section' && this.state.activeSection === index;
       item.bg = focused ? palette.selected : palette.surface;
-      item.fg = focused ? palette.selectedText : active ? palette.focus : index < 2 ? palette.muted : palette.text;
+      item.fg = focused ? palette.selectedText : active ? palette.focus : index < 2 && !this.state.signedIn ? palette.muted : palette.text;
     });
     const ownerFocused = this.state.focus === 'header' && this.state.headerIndex === destinations.length;
     this.ownerText.bg = ownerFocused ? palette.selected : palette.surface;
@@ -235,6 +242,7 @@ export class OpenTuiShell {
     }
     this.paintHarnesses();
     this.providers?.setActive(!this.state.belowMinimum && this.state.mode === 'section' && this.state.activeSection === 3);
+    this.owner?.paint();
     const focusedPane = this.state.focus === 'list' || this.state.focus === 'detail' ? this.state.focus : undefined;
     this.focusPerimeter.visible = Boolean(focusedPane);
     if (focusedPane) {
@@ -336,6 +344,7 @@ export class OpenTuiShell {
     this.unsubscribeInventory();
     this.inventory.dispose();
     this.providers?.dispose();
+    this.owner?.dispose();
     if (destroy) this.renderer.destroy();
     this.finish();
   }

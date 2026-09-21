@@ -10,6 +10,7 @@ export type HarnessListRow = Readonly<{ id: string; kind: 'harness' | 'command' 
 
 /** Framework-independent state for the never-signed-in shell tracer. */
 export class ShellState {
+  signedIn = false;
   headerIndex = 0;
   activeSection = 0;
   focus: FocusRegion = 'header';

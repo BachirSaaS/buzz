@@ -87,3 +87,7 @@ path = "src/bin/beehive_databricks.rs"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework = "=3.7.0"
+
+[[bin]]
+name = "beehive-owner-key"
+path = "src/bin/beehive_owner_key.rs"

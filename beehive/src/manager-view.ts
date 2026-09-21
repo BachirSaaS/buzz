@@ -1,5 +1,6 @@
 import { createCliRenderer } from '@opentui/core';
 import { OpenTuiShell } from './opentui-shell.ts';
+import { localOwner } from './owner-client.ts';
 import { localProviders } from './provider-client.ts';
 import { localHarnessInventory } from './harness-inventory.ts';
 
@@ -10,7 +11,7 @@ const renderer = await createCliRenderer({
   openConsoleOnError: false,
 });
 const inventory = localHarnessInventory();
-const shell = new OpenTuiShell(renderer, inventory, undefined, localProviders());
+const shell = new OpenTuiShell(renderer, inventory, undefined, localProviders(), localOwner());
 void inventory.refresh();
 const stop = () => shell.close();
 process.once('SIGINT', stop);

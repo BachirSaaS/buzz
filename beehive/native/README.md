@@ -86,3 +86,27 @@ contract explicitly with `python3 beehive/tools/export-harnesses.py <reviewed-SH
 from the repository root; its current source is Desktop main
 `78618804ec86a014524ad7d1fb55928e8f5c3edf`. Keep the existing helper binary in
 `bin/beehive-databricks`; do not build/install anything at runtime.
+
+## Owner session helper
+
+The OpenTUI manager also packages `beehive-owner-key`. Build it with the normal
+repository toolchain and default features, scoped to this binary:
+
+```sh
+cargo build --locked --release -p buzz-agent --bin beehive-owner-key
+install -m 700 target/release/beehive-owner-key "$PACKAGE/beehive/bin/beehive-owner-key"
+```
+
+This helper belongs only in the Beehive package. It makes no credential writes.
+On macOS its exact query is generic password service `buzz-desktop`, account
+`secrets`. The `probe` request returns metadata availability only, with Keychain
+interaction disabled and authenticated items skipped. Presence is not proof that
+the blob contains a valid owner identity; explicit `read` checks that next. Only
+explicit Desktop sign-in reads the `identity` member. No fallback, enumeration,
+agent-key selection or migration is permitted. Other platforms report unsupported;
+manual owner nsec remains available. The Node authority bounds output, owns the
+helper process and kills it on cancel or timeout. No secret returns to Bun.
+
+Tests inject a synthetic executable or Desktop adapter. A fresh HOME is **not**
+Keychain isolation. Do not run the native read against real Desktop secrets as a
+smoke test. OS access/denial needs a separately authorized isolated Keychain test.
