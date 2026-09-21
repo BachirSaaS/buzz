@@ -13,7 +13,7 @@ use axum::{
     response::Json,
 };
 use chrono::{DateTime, SecondsFormat, Utc};
-use nostr::PublicKey;
+use nostr::{secp256k1::XOnlyPublicKey, PublicKey};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
@@ -34,7 +34,7 @@ struct RevocationNotificationRequest {
     id: String,
     #[serde(rename = "type")]
     notification_type: String,
-    target_pubkey: String,
+    target_pubkey: XOnlyPublicKey,
     occurred_at: String,
 }
 
@@ -68,7 +68,7 @@ fn validate_notification(
         return Err("id must be a canonical UUID");
     }
 
-    let target_pubkey = parse_target_pubkey(&request.target_pubkey)?;
+    let target_pubkey = PublicKey::from(request.target_pubkey);
     let occurred_at = validate_occurred_at(&request.occurred_at)?;
 
     Ok(ValidatedRevocationNotification {
@@ -76,18 +76,6 @@ fn validate_notification(
         target_pubkey,
         occurred_at,
     })
-}
-
-fn parse_target_pubkey(value: &str) -> Result<PublicKey, &'static str> {
-    let pubkey = PublicKey::from_hex(value)
-        .map_err(|_| "target_pubkey must be 64 lowercase hex characters")?;
-    if pubkey.to_hex() != value {
-        return Err("target_pubkey must be 64 lowercase hex characters");
-    }
-    pubkey
-        .xonly()
-        .map_err(|_| "target_pubkey is not a valid x-only secp256k1 public key")?;
-    Ok(pubkey)
 }
 
 fn validate_occurred_at(value: &str) -> Result<DateTime<Utc>, &'static str> {
@@ -165,9 +153,15 @@ mod tests {
             version: 1,
             id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
             notification_type: "identity.revoked".to_string(),
-            target_pubkey: VALID_PUBKEY.to_string(),
+            target_pubkey: VALID_PUBKEY.parse().expect("valid x-only public key"),
             occurred_at: "2026-09-21T12:34:56Z".to_string(),
         }
+    }
+
+    fn request_json(target_pubkey: &str) -> String {
+        format!(
+            r#"{{"version":1,"id":"550e8400-e29b-41d4-a716-446655440000","type":"identity.revoked","target_pubkey":"{target_pubkey}","occurred_at":"2026-09-21T12:34:56Z"}}"#
+        )
     }
 
     #[test]
@@ -204,14 +198,24 @@ mod tests {
         let mut noncanonical_id = valid_request();
         noncanonical_id.id = "550E8400-E29B-41D4-A716-446655440000".to_string();
         assert!(validate_notification(noncanonical_id).is_err());
+    }
 
-        let mut uppercase_key = valid_request();
-        uppercase_key.target_pubkey = VALID_PUBKEY.to_uppercase();
-        assert!(validate_notification(uppercase_key).is_err());
+    #[test]
+    fn target_pubkey_deserialization_uses_sdk_hex_type() {
+        let uppercase = VALID_PUBKEY.to_uppercase();
+        let request =
+            serde_json::from_str::<RevocationNotificationRequest>(&request_json(&uppercase))
+                .expect("uppercase hex public key");
+        let notification = validate_notification(request).expect("valid notification");
+        assert_eq!(notification.target_pubkey.to_hex(), VALID_PUBKEY);
 
-        let mut invalid_point = valid_request();
-        invalid_point.target_pubkey = "0".repeat(64);
-        assert!(validate_notification(invalid_point).is_err());
+        let invalid_point = "0".repeat(64);
+        for invalid in ["not-hex", invalid_point.as_str()] {
+            assert!(
+                serde_json::from_str::<RevocationNotificationRequest>(&request_json(invalid))
+                    .is_err()
+            );
+        }
     }
 
     #[test]

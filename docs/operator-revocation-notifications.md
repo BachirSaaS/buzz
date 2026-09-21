@@ -14,7 +14,7 @@ Authorization: Nostr <base64 signed kind-27235 event>
   "version": 1,
   "id": "550e8400-e29b-41d4-a716-446655440000",
   "type": "identity.revoked",
-  "target_pubkey": "<64 lowercase hex characters>",
+  "target_pubkey": "<64 hex characters>",
   "occurred_at": "2026-09-21T12:34:56Z"
 }
 ```
@@ -28,11 +28,13 @@ accepts at most 4 KiB.
 
 The JSON contract is strict: unknown fields are rejected; `version` and `type`
 have the fixed values above; `id` is a canonical hyphenated UUID;
-`target_pubkey` is a valid lowercase x-only secp256k1 public key; and
-`occurred_at` is an RFC3339 UTC timestamp ending in `Z`. Fractional seconds are
-accepted. An equivalent `+00:00` suffix is not accepted because the wire
-contract requires `Z`. The occurrence time is informational and has no recency
-requirement; NIP-98 independently supplies authentication freshness.
+`target_pubkey` is a valid 64-character hexadecimal x-only secp256k1 public
+key; and `occurred_at` is an RFC3339 UTC timestamp ending in `Z`. Public-key
+hex is accepted in either letter case and normalized to lowercase in logs.
+Fractional seconds are accepted. An equivalent `+00:00` suffix is not accepted
+because the wire contract requires `Z`. The occurrence time is informational
+and has no recency requirement; NIP-98 independently supplies authentication
+freshness.
 
 Success returns:
 
