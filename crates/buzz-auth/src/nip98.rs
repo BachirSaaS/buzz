@@ -345,6 +345,26 @@ mod tests {
     }
 
     #[test]
+    fn payload_tag_without_hash_rejected_with_body() {
+        let keys = Keys::generate();
+        for payload in [vec!["payload"], vec!["payload", ""]] {
+            let json = make_nip98_event_raw_tags(
+                &keys,
+                vec![
+                    nostr::Tag::parse(["u", TEST_URL]).unwrap(),
+                    nostr::Tag::parse(["method", TEST_METHOD]).unwrap(),
+                    nostr::Tag::parse(payload).unwrap(),
+                ],
+            );
+            let result = verify_nip98_event(&json, TEST_URL, TEST_METHOD, Some(b"some body"));
+            assert!(
+                matches!(result, Err(AuthError::Nip98Invalid(_))),
+                "{result:?}"
+            );
+        }
+    }
+
+    #[test]
     fn payload_tag_absent_with_body_passes() {
         // Contract: the shared verifier does NOT require a payload tag even when
         // a body is supplied (at-most-one globally, not exactly-one-with-body).
