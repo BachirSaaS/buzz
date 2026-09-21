@@ -16,6 +16,8 @@ name = "buzz-acp"
 path = "src/main.rs"
 
 [dependencies]
+buzz-agent = { path = "../buzz-agent" }
+rustls-native-certs = "0.8"
 buzz-security-policy = { path = "../buzz-security-policy" }
 # Private immutable security snapshots
 tempfile = "3"

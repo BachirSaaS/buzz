@@ -1,5 +1,7 @@
 #![deny(unsafe_code)]
 //! Private host-local confinement policy shared by Desktop and the ACP harness.
+pub mod tls;
+
 use anyhow::{ensure, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Component, Path, PathBuf};
@@ -118,7 +120,8 @@ impl SecurityPolicy {
 
 /// Whether an environment key controls enforcement rather than the agent.
 pub fn reserved(key: &str) -> bool {
-    key.starts_with("SANDPIT_")
+    key.starts_with("BUZZ_SANDBOX_")
+        || key.starts_with("SANDPIT_")
         || key.starts_with("DYLD_")
         || key.starts_with("BUZZ_ACP_SECURITY_")
         || matches!(key, "LD_PRELOAD" | "LD_LIBRARY_PATH")

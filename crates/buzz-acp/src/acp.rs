@@ -475,7 +475,7 @@ impl AcpClient {
         }
         let mut cmd = match security {
             Some(policy) => policy
-                .command(command)
+                .command(command, extra_env)
                 .await
                 .map_err(|e| AcpError::Protocol(format!("security unavailable: {e:#}")))?,
             None => tokio::process::Command::new(command),

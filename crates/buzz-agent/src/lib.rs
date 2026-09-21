@@ -12,6 +12,7 @@ mod llm;
 mod mcp;
 pub mod model_capabilities;
 mod permission;
+pub mod sandbox_runtime;
 pub mod types;
 mod wire;
 

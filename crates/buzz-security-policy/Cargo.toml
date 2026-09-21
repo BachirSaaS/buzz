@@ -11,3 +11,4 @@ description = "Private host-local agent confinement policy"
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+reqwest.workspace = true

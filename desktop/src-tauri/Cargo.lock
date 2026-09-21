@@ -1040,6 +1040,7 @@ dependencies = [
  "async-trait",
  "axum",
  "base64 0.22.1",
+ "buzz-security-policy",
  "dirs",
  "fs2",
  "getrandom 0.4.3",
@@ -1234,6 +1235,7 @@ name = "buzz-security-policy"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "reqwest 0.13.4",
  "serde",
  "serde_json",
 ]

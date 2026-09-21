@@ -19,6 +19,9 @@ pub(crate) struct LaunchPolicy {
     policy: SecurityPolicy,
     status_path: Option<PathBuf>,
     runtime_temp: tempfile::TempDir,
+    auth_listener: std::sync::Mutex<Option<std::net::TcpListener>>,
+    auth_port: u16,
+    auth_broker: tokio::sync::OnceCell<(String, tokio::task::JoinHandle<()>)>,
 }
 
 static POLICY: OnceLock<Result<Option<LaunchPolicy>, String>> = OnceLock::new();
@@ -48,6 +51,9 @@ pub(crate) fn configured() -> Result<Option<&'static LaunchPolicy>> {
 /// may leave a private temp directory; engine session leases remain separate.
 pub(crate) fn cleanup() -> Result<()> {
     if let Some(Ok(Some(policy))) = POLICY.get() {
+        if let Some((_, task)) = policy.auth_broker.get() {
+            task.abort();
+        }
         std::fs::remove_dir_all(policy.snapshot.path())
             .context("cannot remove private launch snapshot")?;
         std::fs::remove_dir_all(policy.runtime_temp.path())
@@ -115,7 +121,24 @@ impl LaunchPolicy {
             );
             blocked.push(parent);
         }
-        let (deny_all, allow, local_ports) = match &policy.network {
+        let auth_listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+        auth_listener.set_nonblocking(true)?;
+        let auth_port = auth_listener.local_addr()?.port();
+        let roots = rustls_native_certs::load_native_certs();
+        ensure!(
+            !roots.certs.is_empty(),
+            "no native TLS trust roots available"
+        );
+        let roots: Vec<Vec<u8>> = roots
+            .certs
+            .iter()
+            .map(|cert| cert.as_ref().to_vec())
+            .collect();
+        std::fs::write(
+            snapshot.path().join("tls-roots.json"),
+            serde_json::to_vec(&roots)?,
+        )?;
+        let (deny_all, allow, mut local_ports) = match &policy.network {
             NetworkPolicy::Unrestricted => (false, vec![], vec![]),
             NetworkPolicy::DenyAll => (true, vec![], vec![]),
             NetworkPolicy::Allowlist { destinations } => {
@@ -143,6 +166,9 @@ impl LaunchPolicy {
                 roots
             })
             .unwrap_or_default();
+        if !deny_all {
+            local_ports.push(auth_port);
+        }
         let config = serde_json::json!({
             "files": {"allow_write": writable,
                 "block_read": policy.denied_reads, "block_write": blocked},
@@ -160,6 +186,9 @@ impl LaunchPolicy {
             policy,
             status_path,
             runtime_temp,
+            auth_listener: std::sync::Mutex::new(Some(auth_listener)),
+            auth_port,
+            auth_broker: tokio::sync::OnceCell::new(),
         })
     }
 
@@ -174,7 +203,11 @@ impl LaunchPolicy {
         Ok(())
     }
 
-    pub(crate) async fn command(&self, original: &str) -> Result<tokio::process::Command> {
+    pub(crate) async fn command(
+        &self,
+        original: &str,
+        extra_env: &[(String, String)],
+    ) -> Result<tokio::process::Command> {
         let identity = crate::config::normalize_agent_command_identity(original);
         ensure!(
             !matches!(identity.as_str(), "codex" | "codex-acp"),
@@ -210,6 +243,76 @@ impl LaunchPolicy {
             }
         }
         cmd.env("TMPDIR", self.runtime_temp.path());
+        if identity == "buzz-agent" {
+            cmd.env(
+                buzz_agent::sandbox_runtime::ROOTS_ENV,
+                self.snapshot.path().join("tls-roots.json"),
+            );
+            let value = |key: &str| -> Option<String> {
+                if !self.allows_env(key) {
+                    return None;
+                }
+                std::env::var(key).ok().or_else(|| {
+                    extra_env
+                        .iter()
+                        .find(|(k, _)| k == key)
+                        .map(|(_, v)| v.clone())
+                })
+            };
+            let provider = value("BUZZ_AGENT_PROVIDER").unwrap_or_default();
+            if matches!(
+                provider.as_str(),
+                "databricks" | "databricks_v2" | "databricks-v2"
+            ) && value("DATABRICKS_TOKEN").is_none_or(|v| v.is_empty())
+                && !matches!(self.policy.network, NetworkPolicy::DenyAll)
+            {
+                let host = value("DATABRICKS_HOST").context("missing Databricks workspace")?;
+                let parsed = url::Url::parse(&host)?;
+                let domain = parsed.host_str().context("missing workspace hostname")?;
+                ensure!(
+                    parsed.scheme() == "https"
+                        && parsed.username().is_empty()
+                        && parsed.password().is_none(),
+                    "invalid workspace URL"
+                );
+                if let NetworkPolicy::Allowlist { destinations } = &self.policy.network {
+                    ensure!(
+                        destinations
+                            .iter()
+                            .any(|d| domain == d || domain.ends_with(&format!(".{d}"))),
+                        "workspace excluded by security policy"
+                    );
+                }
+                let (serialized, _) = self
+                    .auth_broker
+                    .get_or_try_init(|| async {
+                        let listener = self
+                            .auth_listener
+                            .lock()
+                            .map_err(|_| anyhow::anyhow!("auth listener poisoned"))?
+                            .take()
+                            .context("auth listener already consumed")?;
+                        let listener = tokio::net::TcpListener::from_std(listener)?;
+                        let secret = format!("{}{}", uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
+                        let task =
+                            buzz_agent::sandbox_runtime::serve(listener, &host, secret.clone())?;
+                        let config = buzz_agent::sandbox_runtime::BrokerConfig {
+                            port: self.auth_port,
+                            secret,
+                            host: host.clone(),
+                        };
+                        Ok::<_, anyhow::Error>((serde_json::to_string(&config)?, task))
+                    })
+                    .await?;
+                let broker: buzz_agent::sandbox_runtime::BrokerConfig =
+                    serde_json::from_str(serialized)?;
+                ensure!(
+                    broker.host == host,
+                    "provider changed; restart protected harness"
+                );
+                cmd.env(buzz_agent::sandbox_runtime::BROKER_ENV, serialized);
+            }
+        }
         Ok(cmd)
     }
 
@@ -259,6 +362,8 @@ mod tests {
             "DYLD_INSERT_LIBRARIES",
             "SANDPIT_CONFIG",
             "BUZZ_ACP_SECURITY_POLICY",
+            "BUZZ_SANDBOX_AUTH_BROKER",
+            "BUZZ_SANDBOX_TLS_ROOTS",
         ] {
             let mut p = policy();
             p.environment.push(name.into());
