@@ -37,13 +37,12 @@ export class ShellState {
     if (this.belowMinimum) this.helpOpen = false;
   }
 
-  setHarnessRows(rows: readonly HarnessListRow[]) {
+  setHarnessRows(rows: readonly HarnessListRow[], preserveSelection = false) {
     const previous = this.harnessSelection;
     const previousHarnesses = this.harnessRows.filter(row => row.kind === 'harness');
     const previousHarnessIndex = previousHarnesses.findIndex(row => row.id === previous);
-    const initialCommandOnly = this.harnessRows.length === 1 && this.harnessRows[0]?.id === 'command:refresh';
     this.harnessRows = rows.length ? rows : [{ id: 'command:refresh', kind: 'command' }];
-    if (initialCommandOnly && this.harnessRows[0]?.kind === 'harness') this.harnessSelection = this.harnessRows[0].id;
+    if (!preserveSelection && previous === 'command:refresh' && this.harnessRows[0]?.kind === 'harness') this.harnessSelection = this.harnessRows[0].id;
     else if (this.harnessRows.some(row => row.id === previous)) this.harnessSelection = previous;
     else {
       const harnesses = this.harnessRows.filter(row => row.kind === 'harness');

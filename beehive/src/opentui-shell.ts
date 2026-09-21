@@ -137,7 +137,7 @@ export class OpenTuiShell {
     renderer.on('destroy', () => this.close(false));
     this.unsubscribeInventory = inventory.subscribe(snapshot => {
       this.inventorySnapshot = snapshot;
-      this.state.setHarnessRows([...snapshot.harnesses.map(harness => ({ id: `harness:${harness.id}`, kind: 'harness' as const })), { id: 'command:refresh', kind: 'command' }]);
+      this.state.setHarnessRows([...snapshot.harnesses.map(harness => ({ id: `harness:${harness.id}`, kind: 'harness' as const })), { id: 'command:refresh', kind: 'command' }], snapshot.generation > 0);
       this.paint();
     });
     this.resize();

@@ -138,8 +138,8 @@ test('memory renderer binds refresh to its command row and applies real async re
     complete([{ id: 'codex', label: 'Codex', state: 'incompatible', providers: [], reason: 'Codex ACP 1.10.0 or newer required; version unknown/outdated' }]);
     await new Promise(resolve => setTimeout(resolve, 0)); await ui.renderOnce();
     const frame = ui.captureCharFrame();
-    assert.ok(frame.includes('Codex · Incompatible')); assert.ok(frame.includes('State: incompatible'));
-    assert.equal(shell.state.harnessSelection, 'harness:codex', 'disappearing command selection uses deterministic first-row fallback');
+    assert.ok(frame.includes('Codex · Incompatible')); assert.ok(frame.includes('Refresh harnesses'));
+    assert.equal(shell.state.harnessSelection, 'command:refresh', 'surviving command identity and its completed operation Details remain selected');
   } finally { shell.close(); }
 });
 
