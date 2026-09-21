@@ -17,23 +17,20 @@ export class ShellState {
   helpOpen = false;
   width = 120;
   height = 40;
-  narrowPane: 'list' | 'detail' = 'list';
   harnessRows: readonly HarnessListRow[] = [{ id: 'command:refresh', kind: 'command' }];
   harnessSelection = 'command:refresh';
   listOffset = 0;
   listCapacity = 1;
 
-  get belowMinimum() { return this.width < 50 || this.height < 20; }
+  get belowMinimum() { return this.width < 60 || this.height < 20; }
   get protectedSection() { return this.activeSection < 2; }
   get collection() { return this.mode === 'section' && !this.protectedSection; }
-  get splitPane() { return this.collection && this.width >= 60; }
+  get splitPane() { return this.collection; }
   get ownerActive() { return this.mode === 'owner'; }
 
   resize(width: number, height: number) {
-    const wasSplit = this.splitPane;
     this.width = Math.max(1, Math.floor(width));
     this.height = Math.max(1, Math.floor(height));
-    if (wasSplit && !this.splitPane && this.collection) this.narrowPane = this.focus === 'detail' ? 'detail' : 'list';
     if (this.belowMinimum) this.helpOpen = false;
   }
 
@@ -84,9 +81,6 @@ export class ShellState {
     if (!options.ctrl && !options.shift && name === 'q') return 'quit';
     if (!options.ctrl && name === '?') { this.helpOpen = true; return 'render'; }
     if (name === 'escape') {
-      if (this.collection && !this.splitPane && this.narrowPane === 'detail') {
-        this.narrowPane = 'list'; this.focus = 'list'; return 'render';
-      }
       if (this.focus !== 'header') {
         this.focus = 'header';
         this.headerIndex = this.mode === 'owner' ? destinations.length : this.activeSection;
@@ -114,7 +108,6 @@ export class ShellState {
       }
       if (name === 'right' || name === 'return') {
         this.focus = 'detail';
-        if (!this.splitPane) this.narrowPane = 'detail';
         return 'render';
       }
     }
@@ -125,14 +118,13 @@ export class ShellState {
       }
       if (name === 'left') {
         this.focus = 'list';
-        if (!this.splitPane) this.narrowPane = 'list';
         return 'render';
       }
     }
     if (name === 'tab') {
       const harnessAction = this.activeSection === 2 && this.selectedHarnessRow?.kind === 'command';
       const regions: FocusRegion[] = this.collection
-        ? this.splitPane ? harnessAction ? ['header', 'list', 'detail'] : ['header', 'list'] : this.narrowPane === 'list' ? ['header', 'list'] : harnessAction ? ['header', 'detail'] : ['header']
+        ? harnessAction ? ['header', 'list', 'detail'] : ['header', 'list']
         : ['header', 'detail'];
       const current = Math.max(0, regions.indexOf(this.focus));
       this.focus = regions[(current + (options.shift ? regions.length - 1 : 1)) % regions.length]!;
@@ -150,13 +142,11 @@ export class ShellState {
     }
     this.mode = 'section';
     this.activeSection = this.headerIndex;
-    this.narrowPane = 'list';
     this.focus = this.collection ? 'list' : 'detail';
   }
 }
 
 export function listWidth(width: number) {
   if (width >= 90) return Math.min(35, Math.max(28, Math.floor((width - 1) * 0.32)));
-  if (width >= 60) return Math.min(28, Math.max(24, Math.floor((width - 1) * 0.36)));
-  return width;
+  return Math.min(28, Math.max(24, Math.floor((width - 1) * 0.36)));
 }

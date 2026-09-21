@@ -74,12 +74,10 @@ test('memory renderer keeps keyboard, pointer, resize, and Help return focus vis
     ui.mockInput.pressArrow('right'); ui.mockInput.pressArrow('right'); ui.mockInput.pressEnter(); await ui.renderOnce();
     await ui.mockMouse.click(60, 10); await ui.renderOnce();
     assert.equal(shell.state.focus, 'detail', 'pointer focuses the visible Details pane');
-    ui.resize(50, 20); await ui.renderOnce();
-    assert.deepEqual({ focus: shell.state.focus, pane: shell.state.narrowPane }, { focus: 'detail', pane: 'detail' });
+    ui.resize(90, 30); await ui.renderOnce(); assert.equal(shell.state.focus, 'detail');
     ui.mockInput.pressKey('?'); await ui.renderOnce(); ui.mockInput.pressEscape(); await waitForEscape(); await ui.renderOnce();
-    assert.deepEqual({ focus: shell.state.focus, pane: shell.state.narrowPane, help: shell.state.helpOpen }, { focus: 'detail', pane: 'detail', help: false });
-    ui.mockInput.pressArrow('left'); await ui.renderOnce();
-    assert.deepEqual({ focus: shell.state.focus, pane: shell.state.narrowPane }, { focus: 'list', pane: 'list' });
+    assert.deepEqual({ focus: shell.state.focus, help: shell.state.helpOpen }, { focus: 'detail', help: false });
+    ui.mockInput.pressArrow('left'); await ui.renderOnce(); assert.equal(shell.state.focus, 'list');
     await ui.mockMouse.click(10, 10); await ui.renderOnce();
     assert.equal(shell.state.focus, 'list', 'pointer returns focus to the visible List pane');
   } finally { shell.close(); }
@@ -99,25 +97,6 @@ test('memory renderer layers a full scrim and naturally sized help surface with 
     const overflowing = Array.from({ length: 12 }, (_, row) => `overflow row ${row}`).join('\n');
     assert.deepEqual(helpDialogGeometry(50, 20, overflowing), { width: 46, maxHeight: 16, naturalHeight: 20, height: 16, bodyHeight: 8, bodyWidth: 39, scrollbar: true });
     assert.equal(helpDialogGeometry(50, 20).height, 15); // short help stays natural, below its max of 16
-  } finally { shell.close(); }
-});
-
-test('memory renderer reserves the overflow scrollbar cell outside help text and chrome', async () => {
-  const content = Array.from({ length: 12 }, (_, row) => `overflow row ${row} ends here`).join('\n');
-  const ui = await createTestRenderer({ width: 50, height: 20, exitOnCtrlC: false });
-  const shell = new OpenTuiShell(ui.renderer, inventory(), content);
-  try {
-    ui.mockInput.pressKey('?'); await ui.renderOnce();
-    const frame = text(ui.captureCharFrame());
-    // The 46-cell dialog begins at x=2. Its 40-cell inner body has 39 text
-    // cells (x=5..43) and an independently reserved scrollbar at x=44.
-    assert.equal(frame[6]!.slice(5, 44), 'overflow row 0 ends here'.padEnd(39));
-    assert.match(frame[6]![44]!, /[█▀]/, `missing reserved scrollbar: ${frame[6]}`);
-    assert.equal(frame[5]![44], '─'); // title divider owns its complete final cell
-    assert.equal(frame[14]![44], '─'); // action divider is outside the scrollbar viewport
-    assert.equal(frame[6]![47], '│'); // dialog border remains untouched
-    ui.mockInput.pressArrow('down'); await ui.renderOnce();
-    assert.match(text(ui.captureCharFrame())[6]!, /overflow row [1-9]/, 'the constrained body remains scrollable');
   } finally { shell.close(); }
 });
 
@@ -187,7 +166,7 @@ test('pointer selection does not execute a command and its Details action dispat
 
 test('virtual list click mapping targets the currently visible row after overflow scroll', async () => {
   const harnesses = Array.from({ length: 20 }, (_, index) => ({ id: `fixture-${index}`, label: `Harness ${index}`, state: 'available' as const, providers: [], reason: 'Synthetic test executable detected', executable: `/fixture/${index}` }));
-  const ui = await createTestRenderer({ width: 50, height: 20, exitOnCtrlC: false });
+  const ui = await createTestRenderer({ width: 60, height: 20, exitOnCtrlC: false });
   const shell = new OpenTuiShell(ui.renderer, inventoryWith(harnesses));
   try {
     ui.mockInput.pressArrow('right'); ui.mockInput.pressArrow('right'); ui.mockInput.pressEnter(); await ui.renderOnce();
@@ -197,30 +176,5 @@ test('virtual list click mapping targets the currently visible row after overflo
     const expected = shell.state.harnessRows[shell.state.listOffset]!.id;
     await ui.mockMouse.click(3, 6); await ui.renderOnce();
     assert.equal(shell.state.harnessSelection, expected, 'the slot maps through the current virtual offset, never a stale absolute index');
-  } finally { shell.close(); }
-});
-
-test('memory renderer preserves the 50x20 narrow shell, help, keyboard, and pointer activation', async () => {
-  const ui = await createTestRenderer({ width: 50, height: 20, exitOnCtrlC: false });
-  const shell = new OpenTuiShell(ui.renderer, inventory());
-  try {
-    await ui.renderOnce(); let frame = ui.captureCharFrame();
-    assert.equal(text(frame).length, 20); assert.ok(frame.includes(footerGuides.compact)); assert.ok(frame.includes('PROVIDERS'));
-    // Click Harnesses in the centered destination strip.
-    const navLine = text(frame)[1]!; const x = navLine.indexOf('HARNESSES');
-    await ui.mockMouse.click(x, 1); await ui.renderOnce();
-    assert.equal(shell.state.activeSection, 2); assert.equal(shell.state.narrowPane, 'list');
-    ui.mockInput.pressEnter(); await ui.renderOnce(); assert.equal(shell.state.narrowPane, 'detail');
-    ui.mockInput.pressEscape(); await waitForEscape(); await ui.renderOnce(); assert.equal(shell.state.narrowPane, 'list');
-    ui.mockInput.pressKey('?'); await ui.renderOnce(); frame = ui.captureCharFrame();
-    assert.ok(frame.includes('HELP')); assert.ok(frame.includes('Shift-Tab'));
-    // The fitting body is a plain box: every truthful navigation line and its
-    // last cell are visible, with neither OpenTUI's scrollbar nor a replacement glyph.
-    assert.doesNotMatch(frame, /[█▀�]/);
-    for (const line of ['Header: ←→ destination; Enter / ↓ opens', 'List: ↑ header; → / Enter Details', 'Details: ↑ header; ← List', 'Tab / Shift-Tab  visible regions', 'Esc  active header', '? / Enter / Esc  close help', 'q  quit Beehive']) assert.ok(frame.includes(line), `missing complete help line: ${line}`);
-    ui.mockInput.pressEscape(); await waitForEscape(); await ui.renderOnce(); assert.ok(!ui.captureCharFrame().includes('Shift-Tab'));
-    ui.resize(49, 19); await ui.renderOnce(); assert.ok(ui.captureCharFrame().includes(footerGuides.minimum));
-    ui.mockInput.pressKey('q'); await ui.renderOnce(); assert.equal(shell.state.belowMinimum, true);
-    ui.mockInput.pressKey('q', { ctrl: true }); await shell.done;
   } finally { shell.close(); }
 });

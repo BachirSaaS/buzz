@@ -8,7 +8,6 @@ export const palette = {
 } as const;
 
 const wideFooter = '←→ move  Enter open  Tab panes  Esc return  ? help  q quit';
-const compactFooter = '←→ move ↵ open Tab panes Esc back ? help q quit';
 const minimumFooter = 'Ctrl-Q quit';
 const helpBody = 'Header: ←→ destination; Enter / ↓ opens\nList: ↑ header; → / Enter Details\nDetails: ↑ header; ← List\nTab / Shift-Tab  visible regions\nEsc  active header\n? / Enter / Esc  close help\nq  quit Beehive';
 const helpTitleRows = 2;
@@ -156,7 +155,7 @@ export class OpenTuiShell {
 
   private visible(region: 'list' | 'detail') {
     if (!this.state.collection) return region === 'detail';
-    return this.state.splitPane || this.state.narrowPane === region;
+    return this.state.splitPane || region === 'detail';
   }
 
   private key(key: KeyEvent) {
@@ -190,7 +189,6 @@ export class OpenTuiShell {
     const row = this.state.selectedHarnessRow;
     if (this.state.activeSection !== 2 || row?.id !== 'command:refresh') { this.paint(); return; }
     void this.inventory.refresh();
-    if (!this.state.splitPane) { this.state.focus = 'detail'; this.state.narrowPane = 'detail'; }
     this.paint();
   }
 
@@ -206,7 +204,7 @@ export class OpenTuiShell {
     this.brandText.width = Math.max(0, this.ownerText.left - 1);
     const rule = '─'.repeat(Math.max(1, width));
     this.headerRule.content = rule; this.footerRule.content = rule;
-    this.footer.content = this.state.belowMinimum ? minimumFooter : width >= 70 ? wideFooter : compactFooter;
+    this.footer.content = this.state.belowMinimum ? minimumFooter : wideFooter;
 
     this.navItems.forEach((item, index) => {
       const focused = this.state.focus === 'header' && this.state.headerIndex === index;
@@ -322,4 +320,4 @@ export class OpenTuiShell {
   }
 }
 
-export const footerGuides = { wide: wideFooter, compact: compactFooter, minimum: minimumFooter } as const;
+export const footerGuides = { wide: wideFooter, minimum: minimumFooter } as const;

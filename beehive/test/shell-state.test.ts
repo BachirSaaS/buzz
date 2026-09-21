@@ -25,21 +25,6 @@ test('wide collection arrows traverse header, List and Details without activatin
   state.headerIndex = 0; state.activateHeader(); assert.equal(state.protectedSection, true); assert.equal(state.splitPane, false); assert.equal(state.focus, 'detail');
 });
 
-test('narrow pane transitions, resize, and Help preserve a visible valid focus target', () => {
-  const state = new ShellState();
-  state.setHarnessRows([{ id: 'harness:fixture', kind: 'harness' }, { id: 'command:refresh', kind: 'command' }]);
-  state.activateHeader(2); state.key('right');
-  assert.equal(state.focus, 'detail');
-  state.resize(50, 20); assert.deepEqual({ focus: state.focus, pane: state.narrowPane, split: state.splitPane }, { focus: 'detail', pane: 'detail', split: false });
-  state.key('?'); assert.equal(state.helpOpen, true); state.key('escape');
-  assert.deepEqual({ focus: state.focus, pane: state.narrowPane, help: state.helpOpen }, { focus: 'detail', pane: 'detail', help: false });
-  state.key('left'); assert.deepEqual({ focus: state.focus, pane: state.narrowPane }, { focus: 'list', pane: 'list' });
-  state.key('up'); assert.deepEqual({ focus: state.focus, header: state.headerIndex }, { focus: 'header', header: 2 });
-  state.key('down'); assert.deepEqual({ focus: state.focus, pane: state.narrowPane }, { focus: 'list', pane: 'list' });
-  state.key('return'); assert.deepEqual({ focus: state.focus, pane: state.narrowPane }, { focus: 'detail', pane: 'detail' });
-  state.resize(120, 40); assert.deepEqual({ focus: state.focus, split: state.splitPane }, { focus: 'detail', split: true });
-});
-
 test('help, q semantics, minimum guard and narrow return are deterministic', () => {
   const state = new ShellState();
   state.setHarnessRows([{ id: 'harness:fixture', kind: 'harness' }, { id: 'command:refresh', kind: 'command' }]);
@@ -48,8 +33,7 @@ test('help, q semantics, minimum guard and narrow return are deterministic', () 
   assert.equal(state.key('escape'), 'render'); assert.equal(state.helpOpen, false);
   assert.equal(state.key('q'), 'quit');
   state.resize(49, 20); assert.equal(state.key('q'), 'none'); assert.equal(state.key('c', { ctrl: true }), 'none'); assert.equal(state.key('q', { ctrl: true }), 'quit');
-  state.resize(50, 20); state.activateHeader(2); assert.equal(state.splitPane, false); assert.equal(state.narrowPane, 'list');
-  state.key('return'); assert.equal(state.narrowPane, 'detail'); state.key('escape'); assert.equal(state.narrowPane, 'list'); assert.equal(state.focus, 'list');
+  state.resize(59, 20); assert.equal(state.belowMinimum, true); state.resize(120, 40); assert.equal(state.belowMinimum, false);
 });
 
 test('harness rows preserve stable identity, fall back deterministically, and virtualize overflow', () => {
@@ -73,5 +57,5 @@ test('harness rows preserve stable identity, fall back deterministically, and vi
 });
 
 test('prototype breakpoint formulas are exact', () => {
-  assert.equal(listWidth(120), 35); assert.equal(listWidth(90), 28); assert.equal(listWidth(72), 25); assert.equal(listWidth(50), 50);
+  assert.equal(listWidth(120), 35); assert.equal(listWidth(90), 28); assert.equal(listWidth(72), 25); assert.equal(listWidth(60), 24);
 });
