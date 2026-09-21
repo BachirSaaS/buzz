@@ -94,8 +94,9 @@ function behaviorFromDraft(
     // Include permissionPolicy only when non-null; omitting it means "clear"
     // within a present behavior group (replace-as-a-unit semantics).
     ...(hasPermissionField && { permissionPolicy }),
-    // Include sessionPolicy only when the session scope has something to say;
-    // a permission-policy-only group carries no session-scope opinion.
+    // Include sessionPolicy only when the session scope has something to say.
+    // A permission-policy-only group omits it; the backend treats a missing
+    // sessionPolicy as the channel default — it does NOT preserve the old value.
     ...(hasSessionFields && { sessionPolicy }),
   };
 }
@@ -146,9 +147,12 @@ export function behaviorForSubmit(
     return group;
   }
   // Draft is completely empty (nothing in either scope). Check whether the
-  // seed had session-scoped fields: if so, submit the channel default to
-  // explicitly clear them server-side. If the seed had only a permission
-  // policy, submit {} to clear just that field.
+  // seed had session-scoped fields: if so, submit the channel default from the
+  // draft to explicitly clear them server-side. If the seed had only a
+  // permission policy, submit {} to clear just that field.
+  // NOTE: use draft.sessionPolicy (the cleared default), not seed.sessionPolicy,
+  // so that editing "Each thread → Entire channel" with no other fields set
+  // actually submits "channel" rather than silently resubmitting "thread".
   const seedHadSessionFields =
     seed.respondTo !== null ||
     Number.parseInt(seed.parallelism, 10) > 0 ||
@@ -158,7 +162,7 @@ export function behaviorForSubmit(
         respondTo: undefined,
         respondToAllowlist: undefined,
         parallelism: undefined,
-        sessionPolicy: seed.sessionPolicy,
+        sessionPolicy: draft.sessionPolicy,
       }
     : {};
 }
