@@ -74,6 +74,7 @@ impl IntoResponse for MediaDenial {
                 let class = match kind {
                     BlossomDenialKind::MissingEvidence => DenialClass::MissingEvidence,
                     BlossomDenialKind::EvidenceRejected => DenialClass::EvidenceRejected,
+                    BlossomDenialKind::AuthorizationDenied => DenialClass::AuthorizationDenied,
                 };
                 tracing::warn!(
                     error = %error,
@@ -287,7 +288,7 @@ impl FromRequestParts<Arc<AppState>> for AuthenticatedUpload {
             Some(auth_event.created_at.as_secs()),
         )
         .await
-        .map_err(|_| MediaError::RelayMembershipRequired)?;
+        .map_err(|_| media_denial(MediaError::RelayMembershipRequired, strictness))?;
 
         if upload_rate_limited(state, tenant.community(), &auth_event.pubkey) {
             metrics::counter!("buzz_media_upload_rejections_total", "reason" => "rate_limit")
@@ -634,7 +635,7 @@ async fn authenticate_media_read(
         Some(auth_event.created_at.as_secs()),
     )
     .await
-    .map_err(|_| MediaError::RelayMembershipRequired)?;
+    .map_err(|_| media_denial(MediaError::RelayMembershipRequired, strictness))?;
 
     Ok(MediaReadAuth { tenant })
 }
@@ -1405,6 +1406,68 @@ mod tests {
             serving_write_error(backend),
             MediaError::ServiceUnavailable
         ));
+    }
+
+    // ── Finding 5 (F5): membership denials in Strict mode → authorization denied ─
+
+    #[tokio::test]
+    async fn strict_relay_membership_required_produces_nip_fi_403_authorization_denied() {
+        let denial = MediaDenial(
+            MediaError::RelayMembershipRequired,
+            BlossomStrictness::Strict,
+        );
+        let resp = denial.into_response();
+
+        assert_eq!(
+            resp.status(),
+            StatusCode::FORBIDDEN,
+            "membership denial must be 403 in Strict mode"
+        );
+        let ct = resp
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        assert!(
+            ct.contains("text/plain"),
+            "expected text/plain CT, got: {ct}"
+        );
+        assert!(
+            resp.headers().get("www-authenticate").is_none(),
+            "403 authorization denied must not have WWW-Authenticate"
+        );
+        let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        assert_eq!(
+            body.as_ref(),
+            b"authorization denied\n",
+            "NIP-FI membership denial body must be 'authorization denied\\n'"
+        );
+    }
+
+    #[tokio::test]
+    async fn permissive_relay_membership_required_keeps_legacy_json_403() {
+        // In Permissive mode membership denial falls through to MediaError::into_response()
+        // which produces the legacy JSON 403.
+        let denial = MediaDenial(
+            MediaError::RelayMembershipRequired,
+            BlossomStrictness::Permissive,
+        );
+        let resp = denial.into_response();
+
+        assert_eq!(
+            resp.status(),
+            StatusCode::FORBIDDEN,
+            "membership denial must still be 403 in Permissive mode"
+        );
+        let ct = resp
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        assert!(
+            ct.contains("application/json"),
+            "Permissive membership denial must keep JSON CT, got: {ct}"
+        );
     }
 
     #[test]

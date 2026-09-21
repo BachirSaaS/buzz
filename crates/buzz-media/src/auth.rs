@@ -95,8 +95,10 @@ pub fn verify_blossom_auth_event_for_verb(
     let mut x_count: u8 = 0;
 
     let mut exp_value: u64 = 0;
-    // Stored as owned String to avoid lifetime entanglement across the tag iterator.
-    let mut server_value: Option<String> = None;
+    // All server tag values, collected for Permissive any-match semantics.
+    // Strict mode returns early on duplicate-server before reaching the
+    // validation block, so server_values[0] is always safe to use there.
+    let mut server_values: Vec<String> = Vec::new();
 
     for tag in auth_event.tags.iter() {
         let kind = tag.kind().to_string();
@@ -150,8 +152,10 @@ pub fn verify_blossom_auth_event_for_verb(
                 if strict && server_count > 1 {
                     return Err(MediaError::DuplicateTag("server"));
                 }
-                if server_count == 1 {
-                    server_value = tag.content().map(|s| s.to_owned());
+                // Collect all valued server tags for Permissive any-match; Strict
+                // will only ever have at most one here (duplicate check above).
+                if let Some(v) = tag.content() {
+                    server_values.push(v.to_owned());
                 }
             }
             "x" => {
@@ -218,10 +222,16 @@ pub fn verify_blossom_auth_event_for_verb(
     // Strict (NIP-FI active): exactly one server tag MUST be present and MUST
     // match the bound tenant host. Absent or mismatched → evidence_rejected.
     //
-    // Permissive (Off mode): if server tag present, our host must appear
-    // (fail-closed when present but our host is unknown); absent is accepted.
+    // Permissive (Off mode): if ANY server tag is present, at least one MUST
+    // match our host (any-match semantics, preserving origin/main behavior);
+    // absent server tags are accepted [FI-INV-15].
     if strict {
-        match (server_count, server_value.as_deref(), server_domain) {
+        // Strict: server_values has at most one entry (duplicate rejected above).
+        match (
+            server_count,
+            server_values.first().map(String::as_str),
+            server_domain,
+        ) {
             (0, _, _) => {
                 // Strict: server tag mandatory
                 return Err(MediaError::ServerMismatch);
@@ -236,26 +246,25 @@ pub fn verify_blossom_auth_event_for_verb(
                 return Err(MediaError::ServerMismatch);
             }
             (_, None, _) => {
-                // server tag present but empty — treat as mismatch
+                // server tag present but valueless — treat as mismatch
                 return Err(MediaError::ServerMismatch);
             }
         }
     } else {
-        // Permissive: validate only when server tags are present
+        // Permissive: validate only when server tags are present.
+        // Any-match semantics: a proof with multiple server tags is accepted if
+        // at least one matches our host (preserves origin/main base behavior).
         if server_count > 0 {
-            match (server_value.as_deref(), server_domain) {
-                (Some(tag_host), Some(domain)) => {
-                    if normalize_server_host(tag_host) != normalize_server_host(domain) {
-                        return Err(MediaError::ServerMismatch);
-                    }
-                }
-                (_, None) => {
-                    // Server tags present but we don't know our own host — reject.
-                    return Err(MediaError::ServerMismatch);
-                }
-                (None, _) => {
-                    return Err(MediaError::ServerMismatch);
-                }
+            let Some(domain) = server_domain else {
+                // Server tags present but our host is unknown — fail closed.
+                return Err(MediaError::ServerMismatch);
+            };
+            let want = normalize_server_host(domain);
+            let any_match = server_values
+                .iter()
+                .any(|tag_host| normalize_server_host(tag_host) == want);
+            if !any_match {
+                return Err(MediaError::ServerMismatch);
             }
         }
     }
@@ -361,6 +370,16 @@ pub fn verify_blossom_get_auth(
     // x tag scope check for get: if an x tag is present it must match sha256.
     // In Strict mode duplicate x is already rejected above; here we check the value.
     // In Permissive mode we use the original "any matching x OR matching server" logic.
+
+    // Count ALL x tags (including valueless) — presence of a valueless x in Strict
+    // mode is a malformed proof and must not become absent scope.
+    let x_tag_count: usize = auth_event
+        .tags
+        .iter()
+        .filter(|tag| tag.kind().to_string() == "x")
+        .count();
+
+    // Collect only valued x tags for hash comparison.
     let x_tags: Vec<&str> = auth_event
         .tags
         .iter()
@@ -386,8 +405,10 @@ pub fn verify_blossom_get_auth(
 
     if strictness == BlossomStrictness::Strict {
         // Strict: server is already validated as present+matching by the base verifier.
-        // x tag, if present, must match sha256 (mismatched x → evidence_rejected).
-        if !x_tags.is_empty() && !has_matching_x {
+        // If any x tag is present (including a valueless one), it MUST contain the
+        // exact requested sha256 — a valueless or mismatched x is malformed evidence
+        // (evidence_rejected). No x tags → server-scoped read, admitted here.
+        if x_tag_count > 0 && !has_matching_x {
             return Err(MediaError::ServerMismatch);
         }
         // Server-scoped read (no x) is always admitted here — server was validated above.
@@ -1399,6 +1420,136 @@ mod tests {
                 Err(MediaError::DuplicateTag("x"))
             ),
             "valueless+valid x combo must be rejected as DuplicateTag in Strict mode"
+        );
+    }
+
+    // ── Finding 1 (F1): Permissive multi-server any-match regression ─────────
+
+    /// Permissive: `[[\"server\",\"other.example\"],[\"server\",\"relay.example\"]]` —
+    /// relay.example is second; must be admitted (any-match). Restores origin/main semantics.
+    #[test]
+    fn test_permissive_multi_server_second_matches() {
+        let keys = Keys::generate();
+        let sha256 = "a".repeat(64);
+        let now = Timestamp::now().as_secs();
+        let exp_str = (now + 300).to_string();
+        let tags = vec![
+            Tag::parse(["t", "upload"]).unwrap(),
+            Tag::parse(["x", &sha256]).unwrap(),
+            Tag::parse(["expiration", &exp_str]).unwrap(),
+            Tag::parse(["server", "other.example"]).unwrap(),
+            Tag::parse(["server", "relay.example"]).unwrap(),
+        ];
+        let event = EventBuilder::new(Kind::from(24242), "Upload multi-server")
+            .tags(tags)
+            .sign_with_keys(&keys)
+            .unwrap();
+        assert!(
+            verify_blossom_upload_auth(
+                &event,
+                &sha256,
+                Some("relay.example"),
+                BlossomStrictness::Permissive
+            )
+            .is_ok(),
+            "Permissive must accept multi-server proof when any server matches (relay.example second)"
+        );
+    }
+
+    /// Permissive: `[[\"server\",\"relay.example\"],[\"server\",\"other.example\"]]` —
+    /// relay.example is first; must also be admitted.
+    #[test]
+    fn test_permissive_multi_server_first_matches() {
+        let keys = Keys::generate();
+        let sha256 = "a".repeat(64);
+        let now = Timestamp::now().as_secs();
+        let exp_str = (now + 300).to_string();
+        let tags = vec![
+            Tag::parse(["t", "upload"]).unwrap(),
+            Tag::parse(["x", &sha256]).unwrap(),
+            Tag::parse(["expiration", &exp_str]).unwrap(),
+            Tag::parse(["server", "relay.example"]).unwrap(),
+            Tag::parse(["server", "other.example"]).unwrap(),
+        ];
+        let event = EventBuilder::new(Kind::from(24242), "Upload multi-server")
+            .tags(tags)
+            .sign_with_keys(&keys)
+            .unwrap();
+        assert!(
+            verify_blossom_upload_auth(
+                &event,
+                &sha256,
+                Some("relay.example"),
+                BlossomStrictness::Permissive
+            )
+            .is_ok(),
+            "Permissive must accept multi-server proof when any server matches (relay.example first)"
+        );
+    }
+
+    /// Permissive multi-server: neither server matches our host → still rejected.
+    #[test]
+    fn test_permissive_multi_server_none_match() {
+        let keys = Keys::generate();
+        let sha256 = "a".repeat(64);
+        let now = Timestamp::now().as_secs();
+        let exp_str = (now + 300).to_string();
+        let tags = vec![
+            Tag::parse(["t", "upload"]).unwrap(),
+            Tag::parse(["x", &sha256]).unwrap(),
+            Tag::parse(["expiration", &exp_str]).unwrap(),
+            Tag::parse(["server", "other.example"]).unwrap(),
+            Tag::parse(["server", "another.example"]).unwrap(),
+        ];
+        let event = EventBuilder::new(Kind::from(24242), "Upload multi-server")
+            .tags(tags)
+            .sign_with_keys(&keys)
+            .unwrap();
+        assert!(
+            matches!(
+                verify_blossom_upload_auth(
+                    &event,
+                    &sha256,
+                    Some("relay.example"),
+                    BlossomStrictness::Permissive
+                ),
+                Err(MediaError::ServerMismatch)
+            ),
+            "Permissive must reject multi-server proof when no server matches"
+        );
+    }
+
+    // ── Finding 4 (F4): valueless x tag on Strict get must not become host-wide scope ─
+
+    /// Strict get: proof with exactly one `[\"x\"]` (valueless) and a valid server —
+    /// the valueless x tag must not become absent scope (host-wide authorization).
+    /// Before the fix, `filter_map(tag.content())` dropped it silently and the read passed.
+    #[test]
+    fn test_strict_get_valueless_x_tag_does_not_grant_host_wide_scope() {
+        let keys = Keys::generate();
+        let sha256 = "a".repeat(64);
+        let now = Timestamp::now().as_secs();
+        let exp_str = (now + 55).to_string();
+        let tags = vec![
+            Tag::parse(["t", "get"]).unwrap(),
+            Tag::parse(["x"]).unwrap(), // valueless — must not become absent scope
+            Tag::parse(["server", "relay.example"]).unwrap(),
+            Tag::parse(["expiration", &exp_str]).unwrap(),
+        ];
+        let event = EventBuilder::new(Kind::from(24242), "Get buzz-media")
+            .tags(tags)
+            .sign_with_keys(&keys)
+            .unwrap();
+        // Must be rejected: valueless x is present but matches no sha256.
+        assert!(
+            verify_blossom_get_auth(
+                &event,
+                &sha256,
+                Some("relay.example"),
+                BlossomStrictness::Strict
+            )
+            .is_err(),
+            "valueless x tag in Strict get must not grant host-wide read scope"
         );
     }
 }

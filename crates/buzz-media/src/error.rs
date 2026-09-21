@@ -16,6 +16,10 @@ pub enum BlossomDenialKind {
     /// Authorization header or proof was present but structurally invalid,
     /// malformed, expired, or otherwise rejected. Maps to HTTP 403.
     EvidenceRejected,
+    /// A local-policy denial: relay membership required, community write fenced,
+    /// or similar authorization refusal that is not an auth-credential failure.
+    /// Maps to HTTP 403 with fixed `authorization denied\n` body [NIP-FI.md:764-775].
+    AuthorizationDenied,
 }
 
 /// Errors from media operations.
@@ -132,8 +136,9 @@ impl MediaError {
     ///
     /// Returns `Some(BlossomDenialKind::MissingEvidence)` when the
     /// `Authorization` header was absent, `Some(BlossomDenialKind::EvidenceRejected)`
-    /// for any structurally present but invalid/malformed/expired proof, and
-    /// `None` for non-auth errors.
+    /// for any structurally present but invalid/malformed/expired proof,
+    /// `Some(BlossomDenialKind::AuthorizationDenied)` for local-policy denials
+    /// (relay membership, community write fence), and `None` for non-auth errors.
     ///
     /// Relay call sites that know the active `BlossomStrictness` use this to
     /// select the appropriate response shape: NIP-FI fixed text/plain in Strict
@@ -156,6 +161,11 @@ impl MediaError {
             | Self::HashMismatch
             | Self::ServerMismatch
             | Self::MissingTag(_) => Some(BlossomDenialKind::EvidenceRejected),
+            // Local-policy denials: identity proved, but access refused by relay policy.
+            // Maps to AuthorizationDenied per NIP-FI.md:764-775.
+            Self::RelayMembershipRequired | Self::CommunityWriteFenced => {
+                Some(BlossomDenialKind::AuthorizationDenied)
+            }
             _ => None,
         }
     }
@@ -282,6 +292,20 @@ mod tests {
                 error.blossom_denial_kind(),
                 None,
                 "expected None for {error:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn local_policy_denials_are_authorization_denied() {
+        for error in [
+            MediaError::RelayMembershipRequired,
+            MediaError::CommunityWriteFenced,
+        ] {
+            assert_eq!(
+                error.blossom_denial_kind(),
+                Some(BlossomDenialKind::AuthorizationDenied),
+                "expected AuthorizationDenied for {error:?}"
             );
         }
     }

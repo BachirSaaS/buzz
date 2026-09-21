@@ -48,34 +48,13 @@ class MediaVideoViewerPage extends HookConsumerWidget {
         final auth = ref.read(mediaGetAuthServiceProvider);
         final uri = Uri.parse(videoUrl);
 
-        // ExoPlayer supports the request headers on every range request, so
-        // keep Android on its streaming path. iOS uses the authenticated local
-        // copy below because AVPlayer can drop those headers after the first
-        // request.
-        if (Platform.isAndroid) {
-          VideoPlayerController? streamingController;
-          try {
-            streamingController = VideoPlayerController.networkUrl(
-              uri,
-              httpHeaders: auth.headersFor(videoUrl),
-            );
-            await streamingController.initialize();
-            await streamingController.play();
-            if (disposed) {
-              await streamingController.dispose();
-              return;
-            }
-            controller.value = streamingController;
-            return;
-          } catch (_) {
-            if (streamingController != null) {
-              await streamingController.dispose();
-            }
-            // Fall through to the authenticated local-file path only when the
-            // streaming controller cannot initialize.
-          }
-        }
-
+        // All platforms: download to an authenticated local file so the proof
+        // is bound at request time rather than frozen into controller headers.
+        // (iOS already used this path; Android previously used streaming headers
+        // but video_player_android 2.9.5 freezes those headers into static
+        // DefaultHttpDataSource request properties — a proof minted at
+        // controller creation time becomes stale after 60 s, causing seeks
+        // outside the buffer to fail with expiry rejection.)
         try {
           final client = ref.read(mediaHttpClientProvider);
           final requestAbort = Completer<void>();
