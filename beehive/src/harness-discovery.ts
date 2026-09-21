@@ -57,13 +57,13 @@ function customHarnesses(directory: string, reserved: Set<string>): HarnessDefin
     const value = JSON.parse(readFileSync(path, 'utf8')) as Partial<HarnessDefinition>;
     if (!value.id || !validCustomId(value.id) || reserved.has(value.id) || typeof value.label !== 'string' || !value.label.trim() || typeof value.command !== 'string' || !value.command.trim()) continue;
     reserved.add(value.id); result.push({ id: value.id, label: value.label, command: value.command });
-  } catch { /* One malformed Desktop definition must not suppress the rest. */ }
+  } catch { /* One malformed local definition must not suppress the rest. */ }
   return result;
 }
 
 /** Forced local discovery at startup or explicit refresh. Inputs permit isolated
- * fixture roots and fake probe executables. Desktop custom definitions are
- * included from the same app-data directory when that directory exists. */
+ * fixture roots and fake probe executables. Beehive owns its custom definitions;
+ * Desktop installation state is not a catalog input. */
 export async function discoverHarnesses(signal: AbortSignal, options: { home?: string; path?: string; bundled?: string[]; common?: string[]; loginShells?: string[]; customDirectories?: string[]; probe?: typeof harnessProbe } = {}): Promise<DetectedHarness[]> {
   const home = options.home ?? homedir(), path = options.path ?? process.env.PATH ?? '', probe = options.probe ?? harnessProbe;
   const bundled = options.bundled ?? [fileURLToPath(new URL('../bin', import.meta.url)), '/Applications/Buzz.app/Contents/MacOS'];
@@ -107,11 +107,11 @@ export async function discoverHarnesses(signal: AbortSignal, options: { home?: s
     result.push({ id: row.id, label: row.label!, executable: binary, cli, ...(detectedVersion ? { version: detectedVersion } : {}), state, providers, reason });
   }
   const reserved = new Set(result.map(row => row.id));
-  for (const directory of options.customDirectories ?? (process.platform === 'darwin' ? [join(data, 'xyz.block.buzz.app/custom_harnesses')] : [])) {
+  for (const directory of options.customDirectories ?? [join(home, '.beehive', 'custom_harnesses')]) {
     for (const definition of customHarnesses(directory, reserved)) {
       signal.throwIfAborted();
       const binary = await resolve(definition.command);
-      result.push({ id: definition.id, label: definition.label, ...(binary ? { executable: binary } : {}), state: binary ? 'available' : 'not-installed', providers: [], reason: binary ? 'Detected from Buzz Desktop custom harnesses; native configuration is retained by that harness.' : 'Custom harness executable not installed' });
+      result.push({ id: definition.id, label: definition.label, ...(binary ? { executable: binary } : {}), state: binary ? 'available' : 'not-installed', providers: [], reason: binary ? 'Detected from Beehive custom harnesses; native configuration is retained by that harness.' : 'Custom harness executable not installed' });
     }
   }
   return result;

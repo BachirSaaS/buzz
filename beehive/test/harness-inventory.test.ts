@@ -83,15 +83,21 @@ test('production adapter discovers and durably saves only an explicit isolated H
   } finally { rmSync(home, { recursive: true, force: true }); }
 });
 
-test('discovers Buzz Desktop custom harness definitions with absolute commands and skips malformed entries', async () => {
+test('discovers Beehive-owned definitions without Desktop and skips malformed entries', async () => {
   const root = mkdtempSync(join(tmpdir(), 'beehive-custom-harnesses-'));
   try {
     const command = join(root, 'pic-pi-acp'); writeFileSync(command, '#!/bin/sh\necho custom\n'); chmodSync(command, 0o700);
-    const definitions = join(root, 'custom_harnesses'); mkdirSync(definitions);
+    const definitions = join(root, '.beehive', 'custom_harnesses'); mkdirSync(definitions, { recursive: true });
     writeFileSync(join(definitions, 'custom.json'), JSON.stringify({ id: 'pic-pi', label: 'Pi custom', command, args: [] }));
     writeFileSync(join(definitions, 'bad.json'), '{');
+    // Desktop-only entries must not leak into Beehive, even when installed.
+    const desktop = join(root, 'Library/Application Support/xyz.block.buzz.app/custom_harnesses');
+    mkdirSync(desktop, { recursive: true });
+    writeFileSync(join(desktop, 'desktop.json'), JSON.stringify({ id: 'desktop-only', label: 'Desktop only', command }));
     const { discoverHarnesses } = await import('../src/harness-discovery.ts');
-    const rows = await discoverHarnesses(new AbortController().signal, { home: root, path: '', bundled: [], common: [], loginShells: [], customDirectories: [definitions] });
+    const rows = await discoverHarnesses(new AbortController().signal, { home: root, path: '', bundled: [], common: [], loginShells: [] });
+    assert.equal(rows.some(value => value.id === 'desktop-only'), false);
+    assert.equal(rows.some(value => value.id === 'buzz-agent'), true, 'built-in catalog requires no Desktop');
     assert.deepEqual(rows.filter(value => value.id === 'pic-pi').map(value => ({ label: value.label, state: value.state, executable: value.executable })), [{ label: 'Pi custom', state: 'available', executable: realpathSync(command) }]);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

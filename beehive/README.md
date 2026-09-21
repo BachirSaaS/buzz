@@ -872,3 +872,18 @@ CHECKPOINT's MODEL_PROVIDER_CORRECTION entry for validation and observation limi
 Public identity editing/publication is separate from private instructions: see
 [PUBLIC_METADATA.md](PUBLIC_METADATA.md) for offline metadata drafts, deliberate
 agent-signed kind0 publication while stopped, and pending/error recovery.
+
+### Standalone harness inventory
+
+Beehive ships its built-in runtime catalog in `src/harness-contract.json`.
+Desktop is not required. Additional local detection definitions live in
+`~/.beehive/custom_harnesses/*.json` on every platform (under `BEEHIVE_HOME`
+when set). A definition has `id`, `label`, and `command` fields; `command` is
+an absolute executable path or a command name resolved through local discovery.
+Built-in IDs cannot be overridden. Malformed definitions are ignored.
+
+Beehive does not read or automatically import Desktop's `custom_harnesses`.
+To reuse a local definition, explicitly copy its JSON into the Beehive directory
+and choose **Refresh harnesses**. Only detection fields are read: launch arguments,
+environment variables, credentials, and Desktop agent state are not imported.
+Refresh replaces the saved inventory; saved runtime configurations are unchanged.
