@@ -76,10 +76,11 @@ type BridgeAuthResult = Result<VerifiedBridgeAuth, (StatusCode, Json<Value>)>;
 /// the verified signed auth timestamp. For X-Pubkey dev mode, the event ID is
 /// a zero hash and the timestamp is absent.
 ///
-/// Private: external callers use [`make_nip98_closure_for_admission`] (admitted
-/// surfaces) or [`verify_nip98_exempt_invite_claim`] /
-/// [`verify_nip98_exempt_operator`] (explicitly-named exempt paths).
-fn verify_bridge_auth(
+/// Most callers use [`make_nip98_closure_for_admission`] (admitted surfaces),
+/// [`verify_nip98_exempt_invite_claim`] / [`verify_nip98_exempt_operator`]
+/// (explicitly-named exempt paths), or the `pub(crate)` form below for
+/// git-settings and other crate-local specialized handlers.
+pub(crate) fn verify_bridge_auth(
     headers: &HeaderMap,
     method: &str,
     url: &str,
@@ -89,7 +90,7 @@ fn verify_bridge_auth(
     verify_bridge_auth_with_options(headers, method, url, body, require_auth_token, false)
 }
 
-fn verify_bridge_auth_with_options(
+pub(crate) fn verify_bridge_auth_with_options(
     headers: &HeaderMap,
     method: &str,
     url: &str,

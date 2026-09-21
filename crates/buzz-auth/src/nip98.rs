@@ -169,27 +169,33 @@ pub fn verify_nip98_event(
             )));
         }
     }
-    // Validate the payload tag digest format when the tag is present.
-    // `.and_then(|t| t.content())` returns `None` for a one-element tag
-    // with no content — treat that the same as a missing tag (no binding).
-    // A present content value must be exactly 64 lowercase hex chars.
+    // Validate the payload tag digest when the tag is present.
+    //
+    // A present tag *claims* body-hash binding.  A missing hash value (one-element
+    // tag or empty string content) is structurally invalid — the claim is made but
+    // no digest is provided — and must be rejected.  An absent tag makes no claim;
+    // body-bearing routes that opt out of payload binding (e.g. `/events`, `/query`,
+    // `/count`) fall here legitimately.
+    //
+    // When the tag is present, the content must be exactly 64 lowercase hex chars.
     let payload_tag = if let Some(tag) = event.tags.find(TagKind::Payload) {
-        match tag.content() {
-            None => None, // one-element ["payload"] with no digest — no binding
-            Some(hex_str) => {
-                // Must be exactly 64 lowercase hex chars (valid sha256 digest).
-                if hex_str.len() != 64
-                    || !hex_str.chars().all(|c| c.is_ascii_hexdigit())
-                    || hex_str.chars().any(|c| c.is_ascii_uppercase())
-                {
-                    return Err(AuthError::Nip98Invalid(format!(
-                        "payload tag digest must be 64 lowercase hex chars, got {:?}",
-                        &hex_str[..hex_str.len().min(80)]
-                    )));
-                }
-                Some(hex_str)
-            }
+        let hex_str = tag.content().unwrap_or("");
+        if hex_str.is_empty() {
+            return Err(AuthError::Nip98Invalid(
+                "payload tag is missing its SHA-256 hash".to_string(),
+            ));
         }
+        // Must be exactly 64 lowercase hex chars (valid sha256 digest).
+        if hex_str.len() != 64
+            || !hex_str.chars().all(|c| c.is_ascii_hexdigit())
+            || hex_str.chars().any(|c| c.is_ascii_uppercase())
+        {
+            return Err(AuthError::Nip98Invalid(format!(
+                "payload tag digest must be 64 lowercase hex chars, got {:?}",
+                &hex_str[..hex_str.len().min(80)]
+            )));
+        }
+        Some(hex_str)
     } else {
         None
     };
@@ -508,44 +514,19 @@ mod tests {
         );
     }
 
-    // ── F1 regression: one-element payload tag with no digest ───────────────
+    // ── F1 regression: payload tag present with no or empty digest ─────────
     //
     // The old code did `.and_then(|t| t.content())` which returned `None` for a
     // one-element `["payload"]` tag — silently skipping the body-hash check.
     // A client could sign an event with `["payload"]` (no digest), present any
     // body, and the verifier would not check the body against the tag.
     //
-    // Fix: a present tag with no content still results in `None` (no binding),
-    // but a present tag with content MUST be a valid 64-char lowercase hex string;
-    // invalid format rejects the event.
+    // Fix: a present tag with no content (or empty string) is rejected as
+    // structurally invalid — the claim is made but no digest is provided.
+    // An absent tag makes no claim and is accepted.  A present tag with content
+    // must be exactly 64 lowercase hex chars; invalid format rejects the event.
     //
     // Mutation evidence: removing the format check makes `unwrap_err()` panic.
-
-    #[test]
-    fn payload_tag_no_content_treated_as_absent() {
-        // A one-element ["payload"] tag (no content) is treated as no payload tag.
-        // The body-hash check is skipped — no error, same as tag absent.
-        // This preserves the pre-fix behavior for clients that emit the tag
-        // without a value, while closing the bypass for clients that pair it
-        // with a body to avoid signing the content.
-        use nostr::Tag;
-        let keys = Keys::generate();
-        let body = b"any body";
-        // Build event with one-element ["payload"] tag.
-        let json = make_nip98_event_raw_tags(
-            &keys,
-            vec![
-                Tag::parse(["u", TEST_URL]).unwrap(),
-                Tag::parse(["method", TEST_METHOD]).unwrap(),
-                Tag::parse(["payload"]).unwrap(),
-            ],
-        );
-        let result = verify_nip98_event(&json, TEST_URL, TEST_METHOD, Some(body));
-        assert!(
-            result.is_ok(),
-            "one-element ['payload'] with no content must not error (treated as absent): {result:?}"
-        );
-    }
 
     #[test]
     fn payload_tag_malformed_digest_rejected() {
