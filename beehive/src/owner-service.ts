@@ -20,7 +20,7 @@ export class OwnerService implements OwnerClient {
   private generation = 0;
   private disposed = false;
   constructor(private home = homedir(), private desktop = desktopOwnerKey) {
-    try { this.projectBinding(); } catch { this.current.phase = 'error'; this.current.message = 'Saved owner routing is invalid or inconsistent. Repair the retained configuration; nothing was reset.'; }
+    try { this.projectBinding(); } catch { this.current.phase = 'error'; this.current.message = 'Saved owner routing is invalid. Repair the retained configuration; nothing was reset.'; }
   }
   private binding() {
     const controller = readControllerConfig(join(this.home, '.beehive', 'owner'));
@@ -67,7 +67,7 @@ export class OwnerService implements OwnerClient {
         if (url.username || url.password || url.hash || !(url.protocol === 'wss:' || (url.protocol === 'ws:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)))) throw Error();
         let secret: string;
         if (request.action === 'signin-desktop') {
-          error = 'Buzz Desktop key access failed or was cancelled. Unlock Keychain and check again, or provide an owner nsec. No session was opened.';
+          error = 'Desktop key access failed or was cancelled. Unlock Keychain or provide owner nsec. No session opened.';
           const result = await this.desktop(false, abort.signal); check();
           if (!result.secret) throw Error();
           secret = result.secret;
@@ -76,10 +76,10 @@ export class OwnerService implements OwnerClient {
           secret = agentNsec(this.input);
         } else throw Error('Unsupported action');
         const owner = publicKey(secret); check();
-        error = 'This identity does not match the configured owner. Use the matching identity. Owner and relay were not changed.';
+        error = 'Identity does not match this owner. Use the matching key. Owner and relay were not changed.';
         const now = this.binding();
         if (now && (now.owner !== owner || now.relay !== relay)) throw Error();
-        error = 'Owner routing changed or could not be saved. Reopen sign-in and check the retained configuration. No session was opened.';
+        error = 'Owner routing changed or was not saved. Reopen sign-in and check configuration. No session opened.';
         if (!now) createControllerConfig(join(this.home, '.beehive', 'owner'), owner, relay);
         // Read back the sole public authority after first-use activation.
         const saved = this.binding();

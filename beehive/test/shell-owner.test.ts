@@ -59,3 +59,23 @@ for (const [width,height] of [[120,40],[60,20]]) test(`owner unavailable identit
     assert.equal(f.requests.at(-1)?.action,'signin-nsec');assert.equal(shell.state.signedIn,true);
   }finally{shell.close();}
 });
+for (const [width,height] of [[120,40],[60,20]]) for (const target of [0,1]) test(`contextual request fact and decline keep owner screen at ${width}x${height}, target ${target}`, async () => {
+  for (const decline of ['action','escape','left']) {
+    const ui=await createTestRenderer({width,height,exitOnCtrlC:false}),f=fixture();
+    const shell=new OpenTuiShell(ui.renderer,f.inventory,undefined,undefined,f.client);
+    try {
+      if(target) ui.mockInput.pressArrow('right');
+      ui.mockInput.pressEnter();ui.mockInput.pressEnter();await ui.renderOnce();
+      assert.match(ui.captureCharFrame(),new RegExp(`Requested section\\s+${target?'Agents':'Host'}`));
+      ui.mockInput.pressEnter();await ui.renderOnce();
+      assert.equal(shell.state.signedIn,true);assert.match(ui.captureCharFrame(),/Stay here/);
+      if(decline==='action') { ui.mockInput.pressEnter();ui.mockInput.pressArrow('down');ui.mockInput.pressEnter(); }
+      else if(decline==='escape') {ui.mockInput.pressEscape();await new Promise(r=>setTimeout(r,50));}
+      else {ui.mockInput.pressEnter();ui.mockInput.pressArrow('left');}
+      await ui.renderOnce();
+      assert.equal(shell.state.mode,'owner');assert.equal(shell.state.signedIn,true);assert.equal(shell.state.focus,'header');
+      assert.doesNotMatch(ui.captureCharFrame(),/Continue to|Requested section|not implemented/);
+      assert.deepEqual(f.requests.map(r=>r.action),['signin-desktop']);
+    }finally{shell.close();}
+  }
+});
