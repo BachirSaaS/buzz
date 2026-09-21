@@ -57,7 +57,7 @@ const OPERATOR_REPLAY_SCOPE: &str = "operator-management";
 /// Shared deployment-global operator auth prelude. The canonical management
 /// origin and replay namespace are configuration, never tenant registry state
 /// or an inbound proxy `Host` header.
-async fn authorize_operator_request(
+pub(super) async fn authorize_operator_request(
     state: &Arc<AppState>,
     headers: &HeaderMap,
     method: &str,

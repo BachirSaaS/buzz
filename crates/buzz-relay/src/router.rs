@@ -104,6 +104,11 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/operator/communities/transfer",
             post(api::operator::transfer_community),
         )
+        .route(
+            "/operator/revocation-notifications",
+            post(api::operator_revocations::receive_revocation_notification)
+                .layer(RequestBodyLimitLayer::new(4096)),
+        )
         // Relay invites: mint (owner/admin) + claim (membership-gate exempt)
         .route("/api/invites", post(api::invites::mint_invite))
         .route("/api/join-policy", get(api::invites::join_policy))
