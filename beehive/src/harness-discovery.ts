@@ -7,7 +7,7 @@ import { spawnOwned } from './owned.ts';
 
 /** Public capabilities, never login evidence. Non-Buzz adapters remain visible,
  * but cannot consume this catalog's OS-backed provider contract without an adapter. */
-export type DetectedHarness = { id: string; label: string; executable?: string; cli?: string; state: 'available' | 'not-installed' | 'cli-missing' | 'incompatible'; providers: string[]; reason: string };
+export type DetectedHarness = { id: string; label: string; executable?: string; cli?: string; version?: string; state: 'available' | 'not-installed' | 'cli-missing' | 'incompatible'; providers: string[]; reason: string };
 const executable = (path: string) => { try { const p = realpathSync(path); accessSync(p, constants.X_OK); return statSync(p).isFile() ? p : undefined; } catch { return undefined; } };
 const version = (s: string) => { const last = s.trim().split(/\s+/).at(-1) ?? ''; return /^\d+\.\d+\.\d+$/.test(last) ? last.split('.').map(BigInt) : undefined; };
 /** Desktop's strict adapter floor: unknown/prerelease/partial versions fail closed. */
@@ -76,11 +76,17 @@ export async function discoverHarnesses(signal: AbortSignal, options: { home?: s
     for (const command of row.commands) { binary = await resolve(command); if (binary) break; }
     const cli = row.underlyingCli ? await resolve(row.underlyingCli) : undefined;
     let state: DetectedHarness['state'] = !binary ? 'not-installed' : row.underlyingCli && !cli ? 'cli-missing' : 'available';
-    if (state === 'available' && row.id === 'codex' && !compatibleCodex(await probe(binary!, ['--version'], [...managed, path].join(delimiter), home, signal) ?? '')) state = 'incompatible';
+    let detectedVersion: string | undefined;
+    if (state === 'available') {
+      const output = await probe(binary!, ['--version'], [...managed, path].join(delimiter), home, signal);
+      detectedVersion = output?.trim().split(/\s+/).at(-1);
+      if (!detectedVersion || !version(detectedVersion)) detectedVersion = undefined;
+      if (row.id === 'codex' && !compatibleCodex(output ?? '')) state = 'incompatible';
+    }
     signal.throwIfAborted();
     const providers = state === 'available' && ['buzz-agent','pi'].includes(row.id) ? row.id === 'buzz-agent' ? ['openai', 'anthropic', 'openai-compat', 'openrouter', 'databricks_v2'] : ['openai', 'databricks_v2'] : state === 'available' && row.id === 'codex' ? ['openai'] : [];
     const reason = state === 'not-installed' ? 'Not installed' : state === 'cli-missing' ? `Underlying ${row.underlyingCli} CLI not installed` : state === 'incompatible' ? 'Codex ACP 1.10.0 or newer required; version unknown/outdated' : providers.length ? 'Detected; provider/model access unverified' : 'Detected; this catalog’s OS-backed providers are not supported by this adapter. Use existing local setup for native authentication.';
-    result.push({ id: row.id, label: row.label!, executable: binary, cli, state, providers, reason });
+    result.push({ id: row.id, label: row.label!, executable: binary, cli, ...(detectedVersion ? { version: detectedVersion } : {}), state, providers, reason });
   }
   return result;
 }

@@ -5,7 +5,8 @@ export const brand = '⬢ BEEHIVE';
 
 export type FocusRegion = 'header' | 'list' | 'detail';
 export type ShellMode = 'section' | 'owner';
-export type ShellEffect = 'render' | 'quit' | 'none';
+export type ShellEffect = 'render' | 'activate' | 'quit' | 'none';
+export type HarnessListRow = Readonly<{ id: string; kind: 'harness' | 'command' }>;
 
 /** Framework-independent state for the never-signed-in shell tracer. */
 export class ShellState {
@@ -17,6 +18,10 @@ export class ShellState {
   width = 120;
   height = 40;
   narrowPane: 'list' | 'detail' = 'list';
+  harnessRows: readonly HarnessListRow[] = [{ id: 'command:refresh', kind: 'command' }];
+  harnessSelection = 'command:refresh';
+  listOffset = 0;
+  listCapacity = 1;
 
   get belowMinimum() { return this.width < 50 || this.height < 20; }
   get protectedSection() { return this.activeSection < 2; }
@@ -31,6 +36,43 @@ export class ShellState {
     if (wasSplit && !this.splitPane && this.collection) this.narrowPane = this.focus === 'detail' ? 'detail' : 'list';
     if (this.belowMinimum) this.helpOpen = false;
   }
+
+  setHarnessRows(rows: readonly HarnessListRow[]) {
+    const previous = this.harnessSelection;
+    const previousHarnesses = this.harnessRows.filter(row => row.kind === 'harness');
+    const previousHarnessIndex = previousHarnesses.findIndex(row => row.id === previous);
+    const initialCommandOnly = this.harnessRows.length === 1 && this.harnessRows[0]?.id === 'command:refresh';
+    this.harnessRows = rows.length ? rows : [{ id: 'command:refresh', kind: 'command' }];
+    if (initialCommandOnly && this.harnessRows[0]?.kind === 'harness') this.harnessSelection = this.harnessRows[0].id;
+    else if (this.harnessRows.some(row => row.id === previous)) this.harnessSelection = previous;
+    else {
+      const harnesses = this.harnessRows.filter(row => row.kind === 'harness');
+      this.harnessSelection = harnesses[previousHarnessIndex]?.id
+        ?? harnesses[Math.min(previousHarnessIndex - 1, harnesses.length - 1)]?.id
+        ?? this.harnessRows.find(row => row.kind === 'command')?.id
+        ?? this.harnessRows[0]!.id;
+    }
+    this.revealHarnessSelection();
+  }
+
+  setListCapacity(capacity: number) { this.listCapacity = Math.max(1, capacity); this.revealHarnessSelection(); }
+  private revealHarnessSelection() {
+    const index = Math.max(0, this.harnessRows.findIndex(row => row.id === this.harnessSelection));
+    if (index < this.listOffset) this.listOffset = index;
+    if (index >= this.listOffset + this.listCapacity) this.listOffset = index - this.listCapacity + 1;
+    this.listOffset = Math.max(0, Math.min(this.listOffset, Math.max(0, this.harnessRows.length - this.listCapacity)));
+  }
+  selectHarness(id: string) {
+    if (!this.harnessRows.some(row => row.id === id)) return false;
+    this.harnessSelection = id; this.revealHarnessSelection(); return true;
+  }
+  private moveHarness(delta: number) {
+    const index = Math.max(0, this.harnessRows.findIndex(row => row.id === this.harnessSelection));
+    const next = Math.max(0, Math.min(this.harnessRows.length - 1, index + delta));
+    if (next === index) return false;
+    this.harnessSelection = this.harnessRows[next]!.id; this.revealHarnessSelection(); return true;
+  }
+  get selectedHarnessRow() { return this.harnessRows.find(row => row.id === this.harnessSelection); }
 
   key(name: string, options: { ctrl?: boolean; shift?: boolean } = {}): ShellEffect {
     if (options.ctrl && name === 'q') return 'quit';
@@ -66,7 +108,9 @@ export class ShellState {
     // active destination remain separate: only header activation changes the
     // destination, while these transitions only move the focus perimeter.
     if (this.collection && this.focus === 'list') {
+      if (this.activeSection === 2 && name === 'down') return this.moveHarness(1) ? 'render' : 'none';
       if (name === 'up') {
+        if (this.activeSection === 2 && this.moveHarness(-1)) return 'render';
         this.focus = 'header'; this.headerIndex = this.activeSection; return 'render';
       }
       if (name === 'right' || name === 'return') {
@@ -76,6 +120,7 @@ export class ShellState {
       }
     }
     if (this.collection && this.focus === 'detail') {
+      if (name === 'return' && this.activeSection === 2 && this.selectedHarnessRow?.kind === 'command') return 'activate';
       if (name === 'up') {
         this.focus = 'header'; this.headerIndex = this.activeSection; return 'render';
       }
@@ -86,8 +131,9 @@ export class ShellState {
       }
     }
     if (name === 'tab') {
+      const harnessAction = this.activeSection === 2 && this.selectedHarnessRow?.kind === 'command';
       const regions: FocusRegion[] = this.collection
-        ? this.splitPane ? ['header', 'list', 'detail'] : ['header', this.narrowPane]
+        ? this.splitPane ? harnessAction ? ['header', 'list', 'detail'] : ['header', 'list'] : this.narrowPane === 'list' ? ['header', 'list'] : harnessAction ? ['header', 'detail'] : ['header']
         : ['header', 'detail'];
       const current = Math.max(0, regions.indexOf(this.focus));
       this.focus = regions[(current + (options.shift ? regions.length - 1 : 1)) % regions.length]!;

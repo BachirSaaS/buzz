@@ -12,6 +12,7 @@ test('never-signed-in shell labels and initial state are exact', () => {
 
 test('wide collection arrows traverse header, List and Details without activating a new destination', () => {
   const state = new ShellState();
+  state.setHarnessRows([{ id: 'harness:fixture', kind: 'harness' }, { id: 'command:refresh', kind: 'command' }]);
   assert.equal(state.key('right'), 'render'); assert.equal(state.headerIndex, 1); assert.equal(state.activeSection, 0);
   state.key('right'); state.key('return');
   assert.deepEqual({ active: state.activeSection, header: state.headerIndex, focus: state.focus, split: state.splitPane }, { active: 2, header: 2, focus: 'list', split: true });
@@ -26,6 +27,7 @@ test('wide collection arrows traverse header, List and Details without activatin
 
 test('narrow pane transitions, resize, and Help preserve a visible valid focus target', () => {
   const state = new ShellState();
+  state.setHarnessRows([{ id: 'harness:fixture', kind: 'harness' }, { id: 'command:refresh', kind: 'command' }]);
   state.activateHeader(2); state.key('right');
   assert.equal(state.focus, 'detail');
   state.resize(50, 20); assert.deepEqual({ focus: state.focus, pane: state.narrowPane, split: state.splitPane }, { focus: 'detail', pane: 'detail', split: false });
@@ -40,6 +42,7 @@ test('narrow pane transitions, resize, and Help preserve a visible valid focus t
 
 test('help, q semantics, minimum guard and narrow return are deterministic', () => {
   const state = new ShellState();
+  state.setHarnessRows([{ id: 'harness:fixture', kind: 'harness' }, { id: 'command:refresh', kind: 'command' }]);
   assert.equal(state.key('?'), 'render'); assert.equal(state.helpOpen, true);
   assert.equal(state.key('q'), 'none'); assert.equal(state.helpOpen, true);
   assert.equal(state.key('escape'), 'render'); assert.equal(state.helpOpen, false);
@@ -47,6 +50,26 @@ test('help, q semantics, minimum guard and narrow return are deterministic', () 
   state.resize(49, 20); assert.equal(state.key('q'), 'none'); assert.equal(state.key('c', { ctrl: true }), 'none'); assert.equal(state.key('q', { ctrl: true }), 'quit');
   state.resize(50, 20); state.activateHeader(2); assert.equal(state.splitPane, false); assert.equal(state.narrowPane, 'list');
   state.key('return'); assert.equal(state.narrowPane, 'detail'); state.key('escape'); assert.equal(state.narrowPane, 'list'); assert.equal(state.focus, 'list');
+});
+
+test('harness rows preserve stable identity, fall back deterministically, and virtualize overflow', () => {
+  const state = new ShellState();
+  const rows: Array<{ id: string; kind: 'harness' | 'command' }> = [...Array.from({ length: 20 }, (_, index) => ({ id: `harness:${index}`, kind: 'harness' as const })), { id: 'command:refresh', kind: 'command' }];
+  state.setHarnessRows(rows); state.setListCapacity(5); state.activateHeader(2);
+  for (let index = 0; index < 9; index++) assert.equal(state.key('down'), 'render');
+  assert.equal(state.harnessSelection, 'harness:9'); assert.equal(state.listOffset, 5);
+  state.setHarnessRows(rows.filter(row => row.id !== 'harness:3'));
+  assert.equal(state.harnessSelection, 'harness:9', 'stable identity survives row reindexing');
+  state.setHarnessRows([{ id: 'harness:replacement', kind: 'harness' }, { id: 'command:refresh', kind: 'command' }]);
+  assert.equal(state.harnessSelection, 'harness:replacement', 'disappearing identity falls back to the next surviving harness');
+  state.setHarnessRows([{ id: 'harness:a', kind: 'harness' }, { id: 'harness:b', kind: 'harness' }, { id: 'harness:c', kind: 'harness' }, { id: 'command:refresh', kind: 'command' }]);
+  state.selectHarness('harness:b');
+  state.setHarnessRows([{ id: 'harness:a', kind: 'harness' }, { id: 'harness:c', kind: 'harness' }, { id: 'command:refresh', kind: 'command' }]);
+  assert.equal(state.harnessSelection, 'harness:c', 'removed row falls forward at the same harness position');
+  state.setHarnessRows([{ id: 'harness:a', kind: 'harness' }, { id: 'command:refresh', kind: 'command' }]);
+  assert.equal(state.harnessSelection, 'harness:a', 'then falls back to the previous surviving harness');
+  state.key('down'); assert.equal(state.key('return'), 'render', 'the command row opens Details without executing');
+  assert.equal(state.key('return'), 'activate', 'only the explicit command Details action activates');
 });
 
 test('prototype breakpoint formulas are exact', () => {

@@ -1,5 +1,6 @@
 import { createCliRenderer } from '@opentui/core';
 import { OpenTuiShell } from './opentui-shell.ts';
+import { localHarnessInventory } from './harness-inventory.ts';
 
 const renderer = await createCliRenderer({
   exitOnCtrlC: false,
@@ -7,7 +8,7 @@ const renderer = await createCliRenderer({
   consoleMode: 'disabled',
   openConsoleOnError: false,
 });
-const shell = new OpenTuiShell(renderer);
+const shell = new OpenTuiShell(renderer, localHarnessInventory());
 const stop = () => shell.close();
 process.once('SIGINT', stop);
 process.once('SIGTERM', stop);

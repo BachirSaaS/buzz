@@ -2,7 +2,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createTestRenderer } from '@opentui/core/testing';
 import { OpenTuiShell, footerGuides, helpDialogGeometry, palette } from '../src/opentui-shell.ts';
+import { HarnessInventoryController } from '../src/harness-inventory.ts';
+import type { Settings } from '../src/settings.ts';
 
+const inventoryWith = (harnesses: NonNullable<Settings['harnesses']>, discover: (signal: AbortSignal) => Promise<NonNullable<Settings['harnesses']>> = async () => []) => {
+  let settings: Settings = { version: 1, revision: 0, agents: [], providers: [], runtimes: [], harnesses };
+  return new HarnessInventoryController({ read: () => structuredClone(settings), save: (candidate, expected) => settings = { ...structuredClone(candidate), revision: expected + 1 } }, discover);
+};
+const inventory = () => inventoryWith([{ id: 'fixture', label: 'Fixture Harness', state: 'available', providers: [], reason: 'Synthetic test executable detected', executable: '/fixture/bin/harness' }]);
 const text = (frame: string) => frame.endsWith('\n') ? frame.slice(0, -1).split('\n') : frame.split('\n');
 const waitForEscape = () => new Promise(resolve => setTimeout(resolve, 50));
 const cell = (ui: Awaited<ReturnType<typeof createTestRenderer>>, x: number, y: number) => {
@@ -17,7 +24,7 @@ const rgb = (value: any) => [value.buffer['0'], value.buffer['1'], value.buffer[
 
 test('memory renderer draws the exact wide empty shell and focus perimeter', async () => {
   const ui = await createTestRenderer({ width: 120, height: 40, exitOnCtrlC: false });
-  const shell = new OpenTuiShell(ui.renderer);
+  const shell = new OpenTuiShell(ui.renderer, inventory());
   try {
     await ui.renderOnce(); let frame = ui.captureCharFrame();
     assert.ok(frame.includes('⬢ BEEHIVE')); assert.ok(frame.includes('HOST AGENTS HARNESSES PROVIDERS')); assert.ok(frame.includes('SIGNED OUT'));
@@ -29,7 +36,8 @@ test('memory renderer draws the exact wide empty shell and focus perimeter', asy
     assert.equal(shell.state.headerIndex, 1); assert.equal(shell.state.activeSection, 0);
     ui.mockInput.pressArrow('right'); ui.mockInput.pressEnter(); await ui.renderOnce(); frame = ui.captureCharFrame();
     assert.equal(shell.state.activeSection, 2); assert.equal(shell.state.focus, 'list'); assert.ok(frame.includes('│'));
-    assert.equal(text(frame).slice(3, 38).join('').replace(/[│─┌┐└┘ ]/g, ''), '');
+    assert.ok(frame.includes('Fixture Harness · Available'));
+    assert.ok(frame.includes('State: available'));
     const spans = JSON.stringify(ui.captureSpans());
     assert.ok(spans.includes('"0":255,"1":211,"2":78'), `focus color missing from ${spans.slice(0, 300)}`);
   } finally { shell.close(); }
@@ -37,7 +45,7 @@ test('memory renderer draws the exact wide empty shell and focus perimeter', asy
 
 test('memory renderer owns split geometry, flat hierarchy, and focus inset without width shifts', async () => {
   const ui = await createTestRenderer({ width: 120, height: 40, exitOnCtrlC: false });
-  const shell = new OpenTuiShell(ui.renderer);
+  const shell = new OpenTuiShell(ui.renderer, inventory());
   try {
     ui.mockInput.pressArrow('right'); ui.mockInput.pressArrow('right'); ui.mockInput.pressEnter(); await ui.renderOnce();
     let frame = text(ui.captureCharFrame());
@@ -53,7 +61,7 @@ test('memory renderer owns split geometry, flat hierarchy, and focus inset witho
     ui.mockInput.pressArrow('left'); await ui.renderOnce();
     assert.equal(shell.state.focus, 'list'); assert.equal(rgb(cell(ui, 0, 3).fg), '255,211,78');
     ui.mockInput.pressTab(); await ui.renderOnce(); frame = text(ui.captureCharFrame());
-    assert.equal(shell.state.focus, 'detail'); assert.equal(rgb(cell(ui, 36, 3).fg), '255,211,78');
+    assert.equal(shell.state.focus, 'header', 'Tab skips informational Details that have no action');
     ui.mockInput.pressEscape(); await waitForEscape(); await ui.renderOnce(); frame = text(ui.captureCharFrame());
     assert.equal(frame[3]![35], '│'); assert.doesNotMatch(frame.slice(3, 38).join('\n'), /[┌┐└┘]/); // unfocused panes remain flat
   } finally { shell.close(); }
@@ -61,7 +69,7 @@ test('memory renderer owns split geometry, flat hierarchy, and focus inset witho
 
 test('memory renderer keeps keyboard, pointer, resize, and Help return focus visible', async () => {
   const ui = await createTestRenderer({ width: 120, height: 40, exitOnCtrlC: false });
-  const shell = new OpenTuiShell(ui.renderer);
+  const shell = new OpenTuiShell(ui.renderer, inventory());
   try {
     ui.mockInput.pressArrow('right'); ui.mockInput.pressArrow('right'); ui.mockInput.pressEnter(); await ui.renderOnce();
     await ui.mockMouse.click(60, 10); await ui.renderOnce();
@@ -79,7 +87,7 @@ test('memory renderer keeps keyboard, pointer, resize, and Help return focus vis
 
 test('memory renderer layers a full scrim and naturally sized help surface with constrained-body geometry', async () => {
   const ui = await createTestRenderer({ width: 120, height: 40, exitOnCtrlC: false });
-  const shell = new OpenTuiShell(ui.renderer);
+  const shell = new OpenTuiShell(ui.renderer, inventory());
   try {
     ui.mockInput.pressKey('?'); await ui.renderOnce();
     const geometry = helpDialogGeometry(120, 40);
@@ -97,7 +105,7 @@ test('memory renderer layers a full scrim and naturally sized help surface with 
 test('memory renderer reserves the overflow scrollbar cell outside help text and chrome', async () => {
   const content = Array.from({ length: 12 }, (_, row) => `overflow row ${row} ends here`).join('\n');
   const ui = await createTestRenderer({ width: 50, height: 20, exitOnCtrlC: false });
-  const shell = new OpenTuiShell(ui.renderer, content);
+  const shell = new OpenTuiShell(ui.renderer, inventory(), content);
   try {
     ui.mockInput.pressKey('?'); await ui.renderOnce();
     const frame = text(ui.captureCharFrame());
@@ -113,9 +121,88 @@ test('memory renderer reserves the overflow scrollbar cell outside help text and
   } finally { shell.close(); }
 });
 
+test('memory renderer binds refresh to its command row and applies real async results coherently', async () => {
+  let complete!: (rows: NonNullable<Settings['harnesses']>) => void;
+  const discovered = new Promise<NonNullable<Settings['harnesses']>>(resolve => { complete = resolve; });
+  const ui = await createTestRenderer({ width: 120, height: 40, exitOnCtrlC: false });
+  const controller = inventoryWith([], () => discovered);
+  const shell = new OpenTuiShell(ui.renderer, controller);
+  try {
+    ui.mockInput.pressArrow('right'); ui.mockInput.pressArrow('right'); ui.mockInput.pressEnter(); await ui.renderOnce();
+    assert.ok(ui.captureCharFrame().includes('Saved local harness inventory'));
+    ui.mockInput.pressEnter(); await ui.renderOnce();
+    assert.equal(shell.state.focus, 'detail', 'the command row opens its owned Details action without executing');
+    assert.ok(ui.captureCharFrame().includes('Refresh harnesses'));
+    ui.mockInput.pressEnter(); await ui.renderOnce();
+    assert.ok(ui.captureCharFrame().includes('Refreshing local harness inventory'));
+    complete([{ id: 'codex', label: 'Codex', state: 'incompatible', providers: [], reason: 'Codex ACP 1.10.0 or newer required; version unknown/outdated' }]);
+    await new Promise(resolve => setTimeout(resolve, 0)); await ui.renderOnce();
+    const frame = ui.captureCharFrame();
+    assert.ok(frame.includes('Codex · Incompatible')); assert.ok(frame.includes('State: incompatible'));
+    assert.equal(shell.state.harnessSelection, 'harness:codex', 'disappearing command selection uses deterministic first-row fallback');
+  } finally { shell.close(); }
+});
+
+test('renderer shows refresh failure, permits recovery, and fences completion after leaving Harnesses', async () => {
+  let attempts = 0;
+  let lateResolve!: (rows: NonNullable<Settings['harnesses']>) => void;
+  const late = new Promise<NonNullable<Settings['harnesses']>>(resolve => { lateResolve = resolve; });
+  const controller = inventoryWith([], async () => {
+    attempts++;
+    if (attempts === 1) throw Error('/private/diagnostic');
+    if (attempts === 2) return [{ id: 'buzz-agent', label: 'Buzz Agent', state: 'available', providers: ['openai'], reason: 'Detected; provider/model access unverified', executable: '/fixture/buzz-agent' }];
+    return late;
+  });
+  const ui = await createTestRenderer({ width: 120, height: 40, exitOnCtrlC: false });
+  const shell = new OpenTuiShell(ui.renderer, controller);
+  try {
+    ui.mockInput.pressArrow('right'); ui.mockInput.pressArrow('right'); ui.mockInput.pressEnter(); await ui.renderOnce();
+    ui.mockInput.pressEnter(); ui.mockInput.pressEnter(); await new Promise(resolve => setTimeout(resolve, 0)); await ui.renderOnce();
+    assert.ok(ui.captureCharFrame().includes('Harness refresh failed'));
+    assert.doesNotMatch(ui.captureCharFrame(), /private\/diagnostic/);
+    ui.mockInput.pressEnter(); await new Promise(resolve => setTimeout(resolve, 0)); await ui.renderOnce();
+    assert.ok(ui.captureCharFrame().includes('Buzz Agent · Available'));
+    ui.mockInput.pressArrow('down'); ui.mockInput.pressEnter(); ui.mockInput.pressEnter(); await ui.renderOnce();
+    ui.mockInput.pressArrow('up'); ui.mockInput.pressArrow('up'); ui.mockInput.pressArrow('right'); ui.mockInput.pressEnter(); await ui.renderOnce();
+    assert.equal(shell.state.activeSection, 3);
+    lateResolve([{ id: 'late', label: 'Late', state: 'available', providers: [], reason: 'late', executable: '/fixture/late' }]);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(controller.snapshot().harnesses.some(row => row.id === 'late'), false);
+  } finally { shell.close(); }
+});
+
+test('pointer selection does not execute a command and its Details action dispatches once', async () => {
+  let attempts = 0;
+  const ui = await createTestRenderer({ width: 120, height: 40, exitOnCtrlC: false });
+  const shell = new OpenTuiShell(ui.renderer, inventoryWith([], async () => { attempts++; return []; }));
+  try {
+    ui.mockInput.pressArrow('right'); ui.mockInput.pressArrow('right'); ui.mockInput.pressEnter(); await ui.renderOnce();
+    await ui.mockMouse.click(3, 6); await ui.renderOnce();
+    assert.equal(attempts, 0, 'a List click only selects the command row');
+    ui.mockInput.pressEnter(); await ui.renderOnce();
+    await ui.mockMouse.click(40, 15); await new Promise(resolve => setTimeout(resolve, 0)); await ui.renderOnce();
+    assert.equal(attempts, 1, 'mouse bubbling cannot double-dispatch the Details action');
+  } finally { shell.close(); }
+});
+
+test('virtual list click mapping targets the currently visible row after overflow scroll', async () => {
+  const harnesses = Array.from({ length: 20 }, (_, index) => ({ id: `fixture-${index}`, label: `Harness ${index}`, state: 'available' as const, providers: [], reason: 'Synthetic test executable detected', executable: `/fixture/${index}` }));
+  const ui = await createTestRenderer({ width: 50, height: 20, exitOnCtrlC: false });
+  const shell = new OpenTuiShell(ui.renderer, inventoryWith(harnesses));
+  try {
+    ui.mockInput.pressArrow('right'); ui.mockInput.pressArrow('right'); ui.mockInput.pressEnter(); await ui.renderOnce();
+    for (let index = 0; index < 14; index++) ui.mockInput.pressArrow('down');
+    await ui.renderOnce();
+    assert.ok(shell.state.listOffset > 0);
+    const expected = shell.state.harnessRows[shell.state.listOffset]!.id;
+    await ui.mockMouse.click(3, 6); await ui.renderOnce();
+    assert.equal(shell.state.harnessSelection, expected, 'the slot maps through the current virtual offset, never a stale absolute index');
+  } finally { shell.close(); }
+});
+
 test('memory renderer preserves the 50x20 narrow shell, help, keyboard, and pointer activation', async () => {
   const ui = await createTestRenderer({ width: 50, height: 20, exitOnCtrlC: false });
-  const shell = new OpenTuiShell(ui.renderer);
+  const shell = new OpenTuiShell(ui.renderer, inventory());
   try {
     await ui.renderOnce(); let frame = ui.captureCharFrame();
     assert.equal(text(frame).length, 20); assert.ok(frame.includes(footerGuides.compact)); assert.ok(frame.includes('PROVIDERS'));

@@ -42,13 +42,14 @@ export function validateSettings(value: Settings): Settings {
     if (r.harness === 'codex' ? !r.cli || !isAbsolute(r.cli) || r.effort !== undefined || value.providers.find(p => p.id === r.providerId)?.type !== 'openai' : r.harness === 'pi' ? !['openai','databricks_v2'].includes(value.providers.find(p => p.id === r.providerId)!.type) || !r.cli || !isAbsolute(r.cli) || r.effort !== undefined && !piEfforts(value.providers.find(p => p.id === r.providerId)!.type, r.model).includes(r.effort) : r.cli !== undefined) throw Error('Unsupported runtime provider/CLI/effort combination');
   }
   for (const r of value.runtimes) validateRuntimeEffort(value.providers.find(p => p.id === r.providerId)!.type, r.model, r.effort);
-  if (value.harnesses !== undefined && (!Array.isArray(value.harnesses) || value.harnesses.length > 32 || value.harnesses.some(h => typeof h.id !== 'string' || typeof h.label !== 'string' || typeof h.reason !== 'string' || !['available','not-installed','cli-missing','incompatible'].includes(h.state) || !Array.isArray(h.providers) || h.providers.some(p => typeof p !== 'string') || (h.executable !== undefined && !isAbsolute(h.executable)) || (h.cli !== undefined && !isAbsolute(h.cli))))) throw Error('Invalid harness inventory');
+  if (value.harnesses !== undefined && (!Array.isArray(value.harnesses) || value.harnesses.length > 32 || value.harnesses.some(h => typeof h.id !== 'string' || typeof h.label !== 'string' || typeof h.reason !== 'string' || (h.version !== undefined && (typeof h.version !== 'string' || !/^\d+\.\d+\.\d+$/.test(h.version))) || !['available','not-installed','cli-missing','incompatible'].includes(h.state) || !Array.isArray(h.providers) || h.providers.some(p => typeof p !== 'string') || (h.executable !== undefined && !isAbsolute(h.executable)) || (h.cli !== undefined && !isAbsolute(h.cli))))) throw Error('Invalid harness inventory');
   // Reject unknown fields, including accidental secret-bearing input.
   const fields = (o: object, allowed: string[]) => { if (Object.keys(o).some(k => !allowed.includes(k))) throw Error('Unexpected settings field'); };
   fields(value, ['version','revision','agents','providers','runtimes','harnesses']);
   for (const a of value.agents) { fields(a, ['publicKey','key','profile','profileState','runtimeId']); if (a.profile) fields(a.profile, ['relay','name','picture','about']); }
   for (const p of value.providers) { fields(p, ['id','name','type','endpoint','key','wire']); fields(p.key, ['service','account']); }
   for (const r of value.runtimes) fields(r, ['id','name','harness','executable','providerId','model','effort','cli','environment']);
+  for (const h of value.harnesses ?? []) fields(h, ['id','label','executable','cli','version','state','providers','reason']);
   return structuredClone(value);
 }
 /** Absent settings means an empty catalog, never reconstructed credentials. */

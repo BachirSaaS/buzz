@@ -1,5 +1,6 @@
 import { BoxRenderable, ScrollBoxRenderable, TextRenderable, type CliRenderer, type KeyEvent } from '@opentui/core';
 import { brand, destinations, listWidth, ownerLabel, ShellState, type FocusRegion } from './shell-state.ts';
+import { HarnessInventoryController, type HarnessInventorySnapshot } from './harness-inventory.ts';
 
 export const palette = {
   surface: '#0d100e', text: '#dce1d8', muted: '#7d867c', divider: '#4a5149',
@@ -61,6 +62,14 @@ export class OpenTuiShell {
   private readonly detailPane: BoxRenderable;
   private readonly divider: TextRenderable;
   private readonly focusPerimeter: BoxRenderable;
+  private readonly listTitle: TextRenderable;
+  private readonly detailTitle: TextRenderable;
+  private readonly detailText: TextRenderable;
+  private readonly detailAction: TextRenderable;
+  private readonly listRows: TextRenderable[] = [];
+  private inventorySnapshot: HarnessInventorySnapshot;
+  private unsubscribeInventory: () => void;
+  private screenGeneration = 0;
   private readonly footerRule: TextRenderable;
   private readonly footer: TextRenderable;
   private helpScrim?: BoxRenderable;
@@ -70,7 +79,8 @@ export class OpenTuiShell {
   private helpTitle?: TextRenderable;
   private helpActions?: TextRenderable;
 
-  constructor(readonly renderer: CliRenderer, private readonly helpContent = helpBody) {
+  constructor(readonly renderer: CliRenderer, private readonly inventory: HarnessInventoryController, private readonly helpContent = helpBody) {
+    this.inventorySnapshot = inventory.snapshot();
     this.done = new Promise(resolve => { this.finish = resolve; });
     this.root = new BoxRenderable(renderer, { width: '100%', height: '100%', flexDirection: 'column', backgroundColor: palette.surface });
     renderer.root.add(this.root);
@@ -95,8 +105,29 @@ export class OpenTuiShell {
     this.root.add(this.body);
     this.listPane = this.pane('list'); this.detailPane = this.pane('detail');
     this.divider = new TextRenderable(renderer, { width: 1, height: '100%', fg: palette.divider, content: '│' });
-    this.focusPerimeter = new BoxRenderable(renderer, { position: 'absolute', visible: false, border: true, borderColor: palette.focus, backgroundColor: 'transparent' });
+    this.focusPerimeter = new BoxRenderable(renderer, { position: 'absolute', visible: false, border: true, borderColor: palette.focus, backgroundColor: 'transparent',
+      onMouseDown: event => {
+        if (this.state.focus === 'list') this.clickListSlot(Math.floor((event.y - 6) / 2));
+        else if (this.state.focus === 'detail' && event.y === 15) this.activateSelectedRow();
+      },
+      onMouseScroll: event => {
+        if (this.state.focus !== 'list') return;
+        if (event.scroll?.direction === 'up') this.state.key('up');
+        else if (event.scroll?.direction === 'down') this.state.key('down');
+        this.paint();
+      } });
     this.body.add(this.listPane); this.body.add(this.divider); this.body.add(this.detailPane); this.body.add(this.focusPerimeter);
+    this.listTitle = new TextRenderable(renderer, { position: 'absolute', left: 2, top: 1, height: 1, fg: palette.muted, content: 'LIST' });
+    this.detailTitle = new TextRenderable(renderer, { position: 'absolute', left: 2, top: 1, height: 1, fg: palette.muted, content: 'DETAILS' });
+    this.detailText = new TextRenderable(renderer, { position: 'absolute', left: 2, top: 3, width: '90%', height: '80%', fg: palette.text, wrapMode: 'word', content: '' });
+    this.detailAction = new TextRenderable(renderer, { position: 'absolute', left: 2, top: 12, height: 1, fg: palette.selectedText, bg: palette.selected, content: ' Refresh harnesses ', visible: false,
+      onMouseDown: () => this.activateSelectedRow() });
+    this.listPane.add(this.listTitle); this.detailPane.add(this.detailTitle); this.detailPane.add(this.detailText); this.detailPane.add(this.detailAction);
+    for (let slot = 0; slot < 32; slot++) {
+      const row = new TextRenderable(renderer, { position: 'absolute', left: 2, top: slot * 2 + 3, height: 2, fg: palette.text, content: '', visible: false,
+        onMouseDown: () => this.clickListSlot(slot) });
+      this.listPane.add(row); this.listRows.push(row);
+    }
 
     this.footerRule = new TextRenderable(renderer, { height: 1, fg: palette.divider }); this.root.add(this.footerRule);
     this.footer = new TextRenderable(renderer, { height: 1, fg: palette.muted, content: wideFooter }); this.root.add(this.footer);
@@ -104,11 +135,22 @@ export class OpenTuiShell {
     renderer.keyInput.on('keypress', key => this.key(key));
     renderer.on('resize', () => this.resize());
     renderer.on('destroy', () => this.close(false));
+    this.unsubscribeInventory = inventory.subscribe(snapshot => {
+      this.inventorySnapshot = snapshot;
+      this.state.setHarnessRows([...snapshot.harnesses.map(harness => ({ id: `harness:${harness.id}`, kind: 'harness' as const })), { id: 'command:refresh', kind: 'command' }]);
+      this.paint();
+    });
     this.resize();
   }
 
   private pane(region: Exclude<FocusRegion, 'header'>) {
     return new BoxRenderable(this.renderer, { height: '100%', backgroundColor: palette.surface,
+      onMouseScroll: event => {
+        if (region !== 'list' || this.state.activeSection !== 2 || !this.visible(region)) return;
+        if (event.scroll?.direction === 'up') this.state.key('up');
+        else if (event.scroll?.direction === 'down') this.state.key('down');
+        this.paint();
+      },
       onMouseDown: () => { if (!this.visible(region)) return; this.state.focus = region; this.paint(); } });
   }
 
@@ -118,15 +160,38 @@ export class OpenTuiShell {
   }
 
   private key(key: KeyEvent) {
+    const wasHarnesses = this.state.mode === 'section' && this.state.activeSection === 2;
     const effect = this.state.key(key.name, { ctrl: key.ctrl, shift: key.shift });
+    if (wasHarnesses && !(this.state.mode === 'section' && this.state.activeSection === 2)) { this.screenGeneration++; this.inventory.cancel(); }
     if (effect !== 'none') key.preventDefault();
     if (effect === 'quit') this.close();
+    else if (effect === 'activate') this.activateSelectedRow();
     else if (effect === 'render') this.paint();
   }
 
   private activate(index: number) {
     if (this.state.belowMinimum || this.state.helpOpen) return;
-    this.state.activateHeader(index); this.paint();
+    const wasHarnesses = this.state.mode === 'section' && this.state.activeSection === 2;
+    this.state.activateHeader(index);
+    if (wasHarnesses && !(this.state.mode === 'section' && this.state.activeSection === 2)) { this.screenGeneration++; this.inventory.cancel(); }
+    this.paint();
+  }
+
+  private clickListSlot(slot: number) {
+    if (this.closed || this.state.helpOpen || this.state.activeSection !== 2 || !this.visible('list')) return;
+    const generation = this.screenGeneration;
+    const row = this.state.harnessRows[this.state.listOffset + slot];
+    if (!row || generation !== this.screenGeneration || !this.state.selectHarness(row.id)) return;
+    this.state.focus = 'list';
+    this.paint();
+  }
+
+  private activateSelectedRow() {
+    const row = this.state.selectedHarnessRow;
+    if (this.state.activeSection !== 2 || row?.id !== 'command:refresh') { this.paint(); return; }
+    void this.inventory.refresh();
+    if (!this.state.splitPane) { this.state.focus = 'detail'; this.state.narrowPane = 'detail'; }
+    this.paint();
   }
 
   private resize() {
@@ -161,6 +226,7 @@ export class OpenTuiShell {
     } else {
       this.listPane.width = '100%'; this.detailPane.width = '100%'; this.detailPane.flexGrow = 1; this.divider.visible = false;
     }
+    this.paintHarnesses();
     const focusedPane = this.state.focus === 'list' || this.state.focus === 'detail' ? this.state.focus : undefined;
     this.focusPerimeter.visible = Boolean(focusedPane);
     if (focusedPane) {
@@ -170,6 +236,41 @@ export class OpenTuiShell {
       this.focusPerimeter.height = Math.max(1, this.renderer.height - 5);
     }
     this.syncHelp();
+  }
+
+  private paintHarnesses() {
+    const shown = this.state.mode === 'section' && this.state.activeSection === 2;
+    this.listTitle.visible = shown; this.detailTitle.visible = shown; this.detailText.visible = shown; this.detailAction.visible = false;
+    for (const row of this.listRows) row.visible = false;
+    if (!shown) { this.detailText.content = ''; return; }
+    const bodyHeight = Math.max(1, this.renderer.height - 5);
+    const capacity = Math.max(1, Math.min(this.listRows.length, Math.floor((bodyHeight - 4) / 2)));
+    this.state.setListCapacity(capacity);
+    for (let slot = 0; slot < capacity; slot++) {
+      const descriptor = this.state.harnessRows[this.state.listOffset + slot];
+      const renderable = this.listRows[slot]!;
+      if (!descriptor) continue;
+      const selected = descriptor.id === this.state.harnessSelection;
+      const harness = descriptor.kind === 'harness' ? this.inventorySnapshot.harnesses.find(value => `harness:${value.id}` === descriptor.id) : undefined;
+      const status = harness ? harness.state === 'available' ? 'Available' : harness.state === 'not-installed' ? 'Not installed' : harness.state === 'cli-missing' ? 'CLI missing' : 'Incompatible' : this.inventorySnapshot.phase === 'refreshing' ? 'Refreshing…' : 'Refresh harnesses';
+      renderable.content = descriptor.kind === 'command' ? `↻ ${status}\n  Re-read and save local facts` : `${harness?.label ?? descriptor.id} · ${status}\n  ${harness?.reason ?? 'Reason unavailable'}`;
+      renderable.width = Math.max(1, (this.state.splitPane ? listWidth(this.renderer.width) : this.renderer.width) - 4);
+      renderable.bg = selected ? palette.selected : palette.surface;
+      renderable.fg = selected ? palette.selectedText : palette.text;
+      renderable.visible = true;
+    }
+    const selected = this.state.selectedHarnessRow;
+    if (selected?.kind === 'harness') {
+      const harness = this.inventorySnapshot.harnesses.find(value => `harness:${value.id}` === selected.id);
+      if (harness) {
+        const saved = this.inventorySnapshot.savedConfigurations[harness.id] ?? 0;
+        this.detailText.content = `${harness.label}\n\nState: ${harness.state}\nReason: ${harness.reason}\nVersion: ${harness.version ?? 'Not established'}\nExecutable: ${harness.executable ? 'Detected' : 'Not established'}\nUnderlying CLI: ${harness.cli ? 'Detected' : 'Not established'}\nProvider integrations: ${harness.providers.join(', ') || 'None'}\nSaved configurations: ${saved}\n\nThis inventory is local to this computer.`;
+      } else this.detailText.content = 'This harness is no longer in the current inventory.';
+    } else {
+      this.detailText.content = `Refresh harnesses\n\nRe-read bounded local executable and version evidence, then save the complete harness inventory.\n\nStatus: ${this.inventorySnapshot.message}\n\nNo owner sign-in, relay, Host, agent, provider, browser, or credential operation is used.`;
+      this.detailAction.content = this.inventorySnapshot.phase === 'refreshing' ? ' Refresh in progress ' : ' Refresh harnesses ';
+      this.detailAction.visible = this.state.focus === 'detail' && this.visible('detail');
+    }
   }
 
   private syncHelp() {
@@ -214,6 +315,8 @@ export class OpenTuiShell {
   close(destroy = true) {
     if (this.closed) return;
     this.closed = true;
+    this.unsubscribeInventory();
+    this.inventory.dispose();
     if (destroy) this.renderer.destroy();
     this.finish();
   }
