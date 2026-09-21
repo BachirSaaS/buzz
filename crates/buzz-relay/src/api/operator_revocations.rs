@@ -41,7 +41,7 @@ struct RevocationNotificationRequest {
 #[derive(Debug)]
 struct ValidatedRevocationNotification {
     id: String,
-    target_pubkey: String,
+    target_pubkey: PublicKey,
     occurred_at: DateTime<Utc>,
 }
 
@@ -68,29 +68,26 @@ fn validate_notification(
         return Err("id must be a canonical UUID");
     }
 
-    validate_target_pubkey(&request.target_pubkey)?;
+    let target_pubkey = parse_target_pubkey(&request.target_pubkey)?;
     let occurred_at = validate_occurred_at(&request.occurred_at)?;
 
     Ok(ValidatedRevocationNotification {
         id: request.id,
-        target_pubkey: request.target_pubkey,
+        target_pubkey,
         occurred_at,
     })
 }
 
-fn validate_target_pubkey(value: &str) -> Result<(), &'static str> {
-    if value.len() != 64
-        || !value
-            .bytes()
-            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
-    {
+fn parse_target_pubkey(value: &str) -> Result<PublicKey, &'static str> {
+    let pubkey = PublicKey::from_hex(value)
+        .map_err(|_| "target_pubkey must be 64 lowercase hex characters")?;
+    if pubkey.to_hex() != value {
         return Err("target_pubkey must be 64 lowercase hex characters");
     }
-    let pubkey = PublicKey::from_hex(value).map_err(|_| "target_pubkey is invalid")?;
     pubkey
         .xonly()
         .map_err(|_| "target_pubkey is not a valid x-only secp256k1 public key")?;
-    Ok(())
+    Ok(pubkey)
 }
 
 fn validate_occurred_at(value: &str) -> Result<DateTime<Utc>, &'static str> {
@@ -142,7 +139,7 @@ pub(crate) async fn receive_revocation_notification(
     tracing::info!(
         notification_id = %notification.id,
         signer = %signer.to_hex(),
-        target_pubkey = %notification.target_pubkey,
+        target_pubkey = %notification.target_pubkey.to_hex(),
         occurred_at = %occurred_at,
         status = "logged_stub",
         revocation_applied = false,
@@ -177,7 +174,7 @@ mod tests {
     fn exact_contract_is_valid() {
         let notification = validate_notification(valid_request()).expect("valid notification");
         assert_eq!(notification.id, "550e8400-e29b-41d4-a716-446655440000");
-        assert_eq!(notification.target_pubkey, VALID_PUBKEY);
+        assert_eq!(notification.target_pubkey.to_hex(), VALID_PUBKEY);
     }
 
     #[test]
