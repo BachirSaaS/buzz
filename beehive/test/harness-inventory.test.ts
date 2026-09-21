@@ -83,6 +83,19 @@ test('production adapter discovers and durably saves only an explicit isolated H
   } finally { rmSync(home, { recursive: true, force: true }); }
 });
 
+test('discovers Buzz Desktop custom harness definitions with absolute commands and skips malformed entries', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'beehive-custom-harnesses-'));
+  try {
+    const command = join(root, 'pic-pi-acp'); writeFileSync(command, '#!/bin/sh\necho custom\n'); chmodSync(command, 0o700);
+    const definitions = join(root, 'custom_harnesses'); mkdirSync(definitions);
+    writeFileSync(join(definitions, 'custom.json'), JSON.stringify({ id: 'pic-pi', label: 'Pi custom', command, args: [] }));
+    writeFileSync(join(definitions, 'bad.json'), '{');
+    const { discoverHarnesses } = await import('../src/harness-discovery.ts');
+    const rows = await discoverHarnesses(new AbortController().signal, { home: root, path: '', bundled: [], common: [], loginShells: [], customDirectories: [definitions] });
+    assert.deepEqual(rows.filter(value => value.id === 'pic-pi').map(value => ({ label: value.label, state: value.state, executable: value.executable })), [{ label: 'Pi custom', state: 'available', executable: realpathSync(command) }]);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test('isolated production adapter fails closed unless both fixture root and executable path are explicit', () => {
   assert.throws(() => localHarnessInventory({ BEEHIVE_HARNESS_ISOLATED: '1', BEEHIVE_HARNESS_PATH: '/fixture/bin' }), /explicit BEEHIVE_HOME/);
   assert.throws(() => localHarnessInventory({ BEEHIVE_HARNESS_ISOLATED: '1', BEEHIVE_HOME: '/fixture/home' }), /explicit BEEHIVE_HOME/);

@@ -1,6 +1,6 @@
 import contract from './harness-contract.json' with { type: 'json' };
 import { accessSync, constants, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
-import { delimiter, join } from 'node:path';
+import { delimiter, isAbsolute, join } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { spawnOwned } from './owned.ts';
@@ -45,9 +45,26 @@ function nvmBin(home: string): string[] {
   try { const tag = read(join(root, 'alias/default')); if (safe(tag)) { const direct = directory(tag); if (direct.length) return direct; const hop = directory(read(join(root, 'alias', tag))); if (hop.length) return hop; } } catch { /* Missing tool metadata. */ }
   try { const tags = readdirSync(versions).slice(0, 1024).filter(t => /^v\d+\.\d+\.\d+(?:-.*)?$/.test(t)); tags.sort((a,b) => { const x = version(a.slice(1).split('-')[0]!)!, y = version(b.slice(1).split('-')[0]!)!; for (let i=0;i<3;i++) if (x[i] !== y[i]) return x[i]! > y[i]! ? -1 : 1; return 0; }); return tags[0] ? directory(tags[0]) : []; } catch { return []; }
 }
-/** Explicit form-open discovery; no passive polling or cached stale generations.
- * Inputs permit completely isolated fixture roots and fake probe executables. */
-export async function discoverHarnesses(signal: AbortSignal, options: { home?: string; path?: string; bundled?: string[]; common?: string[]; loginShells?: string[]; probe?: typeof harnessProbe } = {}): Promise<DetectedHarness[]> {
+type HarnessDefinition = { id: string; label: string; command: string };
+const validCustomId = (id: string) => /^[a-z0-9_][a-z0-9_-]*$/.test(id);
+function customHarnesses(directory: string, reserved: Set<string>): HarnessDefinition[] {
+  let files: string[];
+  try { files = readdirSync(directory).filter(file => file.endsWith('.json')).slice(0, 1024); } catch { return []; }
+  const result: HarnessDefinition[] = [];
+  for (const file of files) try {
+    const path = join(directory, file);
+    if (statSync(path).size > 64 * 1024) continue;
+    const value = JSON.parse(readFileSync(path, 'utf8')) as Partial<HarnessDefinition>;
+    if (!value.id || !validCustomId(value.id) || reserved.has(value.id) || typeof value.label !== 'string' || !value.label.trim() || typeof value.command !== 'string' || !value.command.trim()) continue;
+    reserved.add(value.id); result.push({ id: value.id, label: value.label, command: value.command });
+  } catch { /* One malformed Desktop definition must not suppress the rest. */ }
+  return result;
+}
+
+/** Forced local discovery at startup or explicit refresh. Inputs permit isolated
+ * fixture roots and fake probe executables. Desktop custom definitions are
+ * included from the same app-data directory when that directory exists. */
+export async function discoverHarnesses(signal: AbortSignal, options: { home?: string; path?: string; bundled?: string[]; common?: string[]; loginShells?: string[]; customDirectories?: string[]; probe?: typeof harnessProbe } = {}): Promise<DetectedHarness[]> {
   const home = options.home ?? homedir(), path = options.path ?? process.env.PATH ?? '', probe = options.probe ?? harnessProbe;
   const bundled = options.bundled ?? [fileURLToPath(new URL('../bin', import.meta.url)), '/Applications/Buzz.app/Contents/MacOS'];
   const data = process.platform === 'darwin' ? join(home, 'Library/Application Support') : join(home, '.local/share');
@@ -57,6 +74,7 @@ export async function discoverHarnesses(signal: AbortSignal, options: { home?: s
   const direct = (command: string, roots: string[]) => roots.filter(p => p.startsWith('/')).slice(0, 128).map(p => executable(join(p,command))).find(Boolean);
   let loginPath: string | undefined;
   async function resolve(command: string): Promise<string | undefined> {
+    if (isAbsolute(command)) return executable(command);
     const found = direct(command, [...bundled, ...(['codex-acp','claude-agent-acp','claude-code-acp','node','npm'].includes(command) ? managed : []), ...path.split(delimiter)]); if (found) return found;
     if (loginPath === undefined) {
       loginPath = '';
@@ -87,6 +105,14 @@ export async function discoverHarnesses(signal: AbortSignal, options: { home?: s
     const providers = state === 'available' && ['buzz-agent','pi'].includes(row.id) ? row.id === 'buzz-agent' ? ['openai', 'anthropic', 'openai-compat', 'openrouter', 'databricks_v2'] : ['openai', 'databricks_v2'] : state === 'available' && row.id === 'codex' ? ['openai'] : [];
     const reason = state === 'not-installed' ? 'Not installed' : state === 'cli-missing' ? `Underlying ${row.underlyingCli} CLI not installed` : state === 'incompatible' ? 'Codex ACP 1.10.0 or newer required; version unknown/outdated' : providers.length ? 'Detected; provider/model access unverified' : 'Detected; this catalog’s OS-backed providers are not supported by this adapter. Use existing local setup for native authentication.';
     result.push({ id: row.id, label: row.label!, executable: binary, cli, ...(detectedVersion ? { version: detectedVersion } : {}), state, providers, reason });
+  }
+  const reserved = new Set(result.map(row => row.id));
+  for (const directory of options.customDirectories ?? (process.platform === 'darwin' ? [join(data, 'xyz.block.buzz.app/custom_harnesses')] : [])) {
+    for (const definition of customHarnesses(directory, reserved)) {
+      signal.throwIfAborted();
+      const binary = await resolve(definition.command);
+      result.push({ id: definition.id, label: definition.label, ...(binary ? { executable: binary } : {}), state: binary ? 'available' : 'not-installed', providers: [], reason: binary ? 'Detected from Buzz Desktop custom harnesses; native configuration is retained by that harness.' : 'Custom harness executable not installed' });
+    }
   }
   return result;
 }

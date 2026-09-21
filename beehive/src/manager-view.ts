@@ -8,7 +8,9 @@ const renderer = await createCliRenderer({
   consoleMode: 'disabled',
   openConsoleOnError: false,
 });
-const shell = new OpenTuiShell(renderer, localHarnessInventory());
+const inventory = localHarnessInventory();
+const shell = new OpenTuiShell(renderer, inventory);
+void inventory.refresh();
 const stop = () => shell.close();
 process.once('SIGINT', stop);
 process.once('SIGTERM', stop);
