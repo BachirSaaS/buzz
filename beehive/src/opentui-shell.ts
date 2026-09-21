@@ -4,7 +4,7 @@ import { HarnessInventoryController, type HarnessInventorySnapshot } from './har
 
 export const palette = {
   surface: '#0d100e', text: '#dce1d8', muted: '#7d867c', divider: '#4a5149',
-  focus: '#ffd34e', selected: '#dce1d8', selectedText: '#10130f', dialog: '#9ca49b', scrim: '#070907',
+  focus: '#ffd34e', healthy: '#75d795', failure: '#ff8179', selected: '#dce1d8', selectedText: '#10130f', dialog: '#9ca49b', scrim: '#070907',
 } as const;
 
 const wideFooter = '←→ move  Enter open  Tab panes  Esc return  ? help  q quit';
@@ -123,7 +123,7 @@ export class OpenTuiShell {
       onMouseDown: () => this.activateSelectedRow() });
     this.listPane.add(this.listTitle); this.detailPane.add(this.detailTitle); this.detailPane.add(this.detailText); this.detailPane.add(this.detailAction);
     for (let slot = 0; slot < 32; slot++) {
-      const row = new TextRenderable(renderer, { position: 'absolute', left: 2, top: slot * 2 + 3, height: 2, fg: palette.text, content: '', visible: false,
+      const row = new TextRenderable(renderer, { position: 'absolute', left: 2, top: slot + 3, height: 1, fg: palette.text, content: '', visible: false,
         onMouseDown: () => this.clickListSlot(slot) });
       this.listPane.add(row); this.listRows.push(row);
     }
@@ -241,8 +241,9 @@ export class OpenTuiShell {
     this.listTitle.visible = shown; this.detailTitle.visible = shown; this.detailText.visible = shown; this.detailAction.visible = false;
     for (const row of this.listRows) row.visible = false;
     if (!shown) { this.detailText.content = ''; return; }
+    this.listTitle.content = 'LOCAL RUNTIMES';
     const bodyHeight = Math.max(1, this.renderer.height - 5);
-    const capacity = Math.max(1, Math.min(this.listRows.length, Math.floor((bodyHeight - 4) / 2)));
+    const capacity = Math.max(1, Math.min(this.listRows.length, bodyHeight - 4));
     this.state.setListCapacity(capacity);
     for (let slot = 0; slot < capacity; slot++) {
       const descriptor = this.state.harnessRows[this.state.listOffset + slot];
@@ -250,11 +251,15 @@ export class OpenTuiShell {
       if (!descriptor) continue;
       const selected = descriptor.id === this.state.harnessSelection;
       const harness = descriptor.kind === 'harness' ? this.inventorySnapshot.harnesses.find(value => `harness:${value.id}` === descriptor.id) : undefined;
-      const status = harness ? harness.state === 'available' ? 'Available' : harness.state === 'not-installed' ? 'Not installed' : harness.state === 'cli-missing' ? 'CLI missing' : 'Incompatible' : this.inventorySnapshot.phase === 'refreshing' ? 'Refreshing…' : 'Refresh harnesses';
-      renderable.content = descriptor.kind === 'command' ? `↻ ${status}\n  Re-read and save local facts` : `${harness?.label ?? descriptor.id} · ${status}\n  ${harness?.reason ?? 'Reason unavailable'}`;
-      renderable.width = Math.max(1, (this.state.splitPane ? listWidth(this.renderer.width) : this.renderer.width) - 4);
+      const status = harness ? harness.state === 'available' ? '● READY' : harness.state === 'not-installed' ? 'UNAVAILABLE' : harness.state === 'cli-missing' ? 'CLI MISSING' : 'INCOMPATIBLE' : this.inventorySnapshot.phase === 'refreshing' ? 'REFRESHING…' : '';
+      const icon = descriptor.kind === 'command' ? '↻' : harness?.state === 'available' ? '◆' : '◇';
+      const label = descriptor.kind === 'command' ? 'Refresh harnesses' : harness?.label ?? descriptor.id;
+      const width = Math.max(1, (this.state.splitPane ? listWidth(this.renderer.width) : this.renderer.width) - 4);
+      const gap = Math.max(1, width - icon.length - label.length - status.length - 2);
+      renderable.content = `${icon} ${label}${' '.repeat(gap)}${status}`;
+      renderable.width = width;
       renderable.bg = selected ? palette.selected : palette.surface;
-      renderable.fg = selected ? palette.selectedText : palette.text;
+      renderable.fg = selected ? palette.selectedText : harness?.state === 'available' ? palette.healthy : palette.text;
       renderable.visible = true;
     }
     const selected = this.state.selectedHarnessRow;
@@ -262,10 +267,15 @@ export class OpenTuiShell {
       const harness = this.inventorySnapshot.harnesses.find(value => `harness:${value.id}` === selected.id);
       if (harness) {
         const saved = this.inventorySnapshot.savedConfigurations[harness.id] ?? 0;
-        this.detailText.content = `${harness.label}\n\nState: ${harness.state}\nReason: ${harness.reason}\nVersion: ${harness.version ?? 'Not established'}\nExecutable: ${harness.executable ? 'Detected' : 'Not established'}\nUnderlying CLI: ${harness.cli ? 'Detected' : 'Not established'}\nProvider integrations: ${harness.providers.join(', ') || 'None'}\nSaved configurations: ${saved}\n\nThis inventory is local to this computer.`;
-      } else this.detailText.content = 'This harness is no longer in the current inventory.';
+        const state = harness.state === 'available' ? '● READY' : harness.state === 'not-installed' ? 'UNAVAILABLE' : harness.state === 'cli-missing' ? 'CLI MISSING' : 'INCOMPATIBLE';
+        const location = harness.executable ?? 'Not found';
+        this.detailTitle.content = harness.label.toUpperCase();
+        this.detailText.content = `State             ${state}\nVersion           ${harness.version ?? 'Version unavailable'}\nLocation          ${location}${harness.state === 'available' ? '' : `\n\nReason            ${harness.reason}\n\nInstall or repair this runtime, then refresh harnesses.`}${saved ? `\n\nSaved configurations  ${saved}` : ''}`;
+      } else { this.detailTitle.content = 'RUNTIME UNAVAILABLE'; this.detailText.content = 'This harness is no longer in the current inventory.'; }
     } else {
-      this.detailText.content = `Refresh harnesses\n\nRe-read bounded local executable and version evidence, then save the complete harness inventory.\n\nStatus: ${this.inventorySnapshot.message}\n\nNo owner sign-in, relay, Host, agent, provider, browser, or credential operation is used.`;
+      this.detailTitle.content = 'REFRESH HARNESSES';
+      this.detailText.content = `Check this Host again for supported harnesses and installed versions.\n\n${this.inventorySnapshot.message}\n\n────────────────────────────────────────────────────────\nAVAILABLE ACTIONS`;
+      this.detailAction.top = 10;
       this.detailAction.content = this.inventorySnapshot.phase === 'refreshing' ? ' Refresh in progress ' : ' Refresh harnesses ';
       this.detailAction.visible = this.state.focus === 'detail' && this.visible('detail');
     }

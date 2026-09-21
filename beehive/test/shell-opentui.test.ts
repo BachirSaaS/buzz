@@ -36,8 +36,8 @@ test('memory renderer draws the exact wide empty shell and focus perimeter', asy
     assert.equal(shell.state.headerIndex, 1); assert.equal(shell.state.activeSection, 0);
     ui.mockInput.pressArrow('right'); ui.mockInput.pressEnter(); await ui.renderOnce(); frame = ui.captureCharFrame();
     assert.equal(shell.state.activeSection, 2); assert.equal(shell.state.focus, 'list'); assert.ok(frame.includes('│'));
-    assert.ok(frame.includes('Fixture Harness · Available'));
-    assert.ok(frame.includes('State: available'));
+    assert.ok(frame.includes('Fixture Harness')); assert.ok(frame.includes('● READY'));
+    assert.ok(frame.includes('State             ● READY'));
     const spans = JSON.stringify(ui.captureSpans());
     assert.ok(spans.includes('"0":255,"1":211,"2":78'), `focus color missing from ${spans.slice(0, 300)}`);
   } finally { shell.close(); }
@@ -117,7 +117,7 @@ test('memory renderer binds refresh to its command row and applies real async re
     complete([{ id: 'codex', label: 'Codex', state: 'incompatible', providers: [], reason: 'Codex ACP 1.10.0 or newer required; version unknown/outdated' }]);
     await new Promise(resolve => setTimeout(resolve, 0)); await ui.renderOnce();
     const frame = ui.captureCharFrame();
-    assert.ok(frame.includes('Codex · Incompatible')); assert.ok(frame.includes('Refresh harnesses'));
+    assert.ok(frame.includes('Codex')); assert.ok(frame.includes('INCOMPATIBLE')); assert.ok(frame.includes('Refresh harnesses'));
     assert.equal(shell.state.harnessSelection, 'command:refresh', 'surviving command identity and its completed operation Details remain selected');
   } finally { shell.close(); }
 });
@@ -140,7 +140,7 @@ test('renderer shows refresh failure, permits recovery, and fences completion af
     assert.ok(ui.captureCharFrame().includes('Harness refresh failed'));
     assert.doesNotMatch(ui.captureCharFrame(), /private\/diagnostic/);
     ui.mockInput.pressEnter(); await new Promise(resolve => setTimeout(resolve, 0)); await ui.renderOnce();
-    assert.ok(ui.captureCharFrame().includes('Buzz Agent · Available'));
+    assert.ok(ui.captureCharFrame().includes('Buzz Agent')); assert.ok(ui.captureCharFrame().includes('● READY'));
     ui.mockInput.pressArrow('down'); ui.mockInput.pressEnter(); ui.mockInput.pressEnter(); await ui.renderOnce();
     ui.mockInput.pressArrow('up'); ui.mockInput.pressArrow('up'); ui.mockInput.pressArrow('right'); ui.mockInput.pressEnter(); await ui.renderOnce();
     assert.equal(shell.state.activeSection, 3);
