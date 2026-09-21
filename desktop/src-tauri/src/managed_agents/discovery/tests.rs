@@ -205,7 +205,6 @@ fn effective_agent_command_explicit_override_wins() {
         "codex-acp"
     );
 }
-/// Minimal record for `record_agent_command` tests; only resolution inputs vary.
 fn record_with(
     runtime: Option<&str>,
     persona_id: Option<&str>,
