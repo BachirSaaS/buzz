@@ -57,10 +57,9 @@ export class ProviderPanel {
     }
     this.unsubscribe = client.subscribe(snapshot => { if (this.snapshot.message !== snapshot.message) this.detailOffset = 0; this.snapshot = snapshot; this.dialog?.updateSecretLength(snapshot.secretLength); this.paint(); });
   }
-  private items() { return [...providerInventory(this.snapshot).map(row => row.id), 'add', 'reload']; }
+  private items() { return [...providerInventory(this.snapshot).map(row => row.id), 'reload']; }
   private row() { return providerInventory(this.snapshot).find(row => row.id === this.selected); }
   private commands() {
-    if (this.selected === 'add') return ['Add provider'];
     if (this.selected === 'reload') return ['Reload providers'];
     if (this.selected.startsWith('type:')) return [this.row()?.type === 'databricks_v2' ? 'Set up Databricks' : `Add ${labels[this.row()!.type]} account`];
     return ['Edit provider', 'Test provider', 'Load models', ...(this.row()?.type === 'databricks_v2' ? ['Sign in to Databricks'] : []), 'Set up Codex', 'Set up Pi'];
@@ -105,14 +104,8 @@ export class ProviderPanel {
     if (this.dialog === dialog) this.dialog = undefined;
     this.repaint(); return result;
   }
-  private async edit(row?: ProviderRow, preset?: ProviderRow['type']) {
+  private async edit(row: ProviderRow | undefined, type: ProviderRow['type']) {
     const generation = this.generation, revision = this.snapshot.revision;
-    let type = row?.type ?? preset;
-    if (!type) {
-      const result = await this.form('ADD PROVIDER', [{ label: 'Type', value: 'openai', choices: types }], 'Continue');
-      if (!result || generation !== this.generation) return;
-      type = result.Type as ProviderRow['type'];
-    }
     if (type === 'databricks_v2' && !this.snapshot.databricksHost) {
       await this.form('DATABRICKS_HOST REQUIRED', [], 'Close', 'Set DATABRICKS_HOST to your workspace HTTPS origin, for example:\nhttps://your-workspace.cloud.databricks.com\nThen restart Beehive from that environment.\nNo changes have been saved.');
       return;
@@ -125,7 +118,7 @@ export class ProviderPanel {
     }
     const result = await this.form(row ? 'EDIT PROVIDER' : 'ADD PROVIDER', fields);
     if (!result || generation !== this.generation) return;
-    await this.client.request({ action: 'save', provider: row?.id ?? (preset ? `type:${type}` : undefined), revision, values: { type, name: result.Name!, endpoint: result.Endpoint ?? '', wire: result.Wire ?? 'auto' } });
+    await this.client.request({ action: 'save', provider: row?.id ?? `type:${type}`, revision, values: { type, name: result.Name!, endpoint: result.Endpoint ?? '', wire: result.Wire ?? 'auto' } });
   }
   private async setup(row: ProviderRow, harness: string) {
     const generation = this.generation;
@@ -157,11 +150,10 @@ export class ProviderPanel {
   private async run() {
     if (this.snapshot.phase === 'busy' || this.dialog || !this.active) return;
     const command = this.commands()[this.actionIndex], row = this.row();
-    if (command === 'Add provider') await this.edit();
-    else if (command === 'Reload providers') await this.client.request({ action: 'reload' });
+    if (command === 'Reload providers') await this.client.request({ action: 'reload' });
     else if (row) {
       if (row.id.startsWith('type:')) { await this.edit(undefined, row.type); return; }
-      if (command === 'Edit provider') await this.edit(row);
+      if (command === 'Edit provider') await this.edit(row, row.type);
       else if (command === 'Set up Codex' || command === 'Set up Pi') await this.setup(row, command === 'Set up Codex' ? 'codex' : 'pi');
       else await this.client.request({ action: command === 'Test provider' ? 'test' : command === 'Load models' ? 'models' : 'login', provider: row.id, revision: this.snapshot.revision });
     }
@@ -184,15 +176,15 @@ export class ProviderPanel {
         const available = Math.max(1, leftWidth - status.length - 3);
         const name = row.name.length > available ? row.name.slice(0, Math.max(1, available - 1)) + '…' : row.name;
         renderable.content = `◇ ${name.padEnd(available)} ${status}`;
-      } else renderable.content = (id === 'add' ? '+ Add provider' : '↻ Reload providers').slice(0, leftWidth);
+      } else renderable.content = '↻ Reload providers'.slice(0, leftWidth);
       renderable.bg = id === this.selected ? palette.selected : palette.surface; renderable.fg = id === this.selected ? palette.selectedText : palette.text;
     });
     const row = this.row();
-    this.detailTitle.content = row ? row.name.toUpperCase() : this.selected === 'add' ? 'ADD PROVIDER' : 'RELOAD PROVIDERS'; this.detailTitle.width = width;
+    this.detailTitle.content = row ? row.name.toUpperCase() : 'RELOAD PROVIDERS'; this.detailTitle.width = width;
     const commands = this.commands();
     const compact = this.renderer.height < 28;
     const ownsResult = this.snapshot.resultTarget === this.selected;
-    const info = row ? [`State       ${row.state}`, `Type        ${row.type}`, ...(row.endpoint ? [`Connects to ${row.endpoint}`] : []), '', row.detail] : this.selected === 'add' ? ['Choose OpenAI, Anthropic, OpenAI-compatible, OpenRouter, or Databricks v2.', '', 'Credentials stay in the OS credential store.'] : ['Reload saved providers and the DATABRICKS_HOST workspace. No owner sign-in is required.'];
+    const info = row ? [`State       ${row.state}`, `Type        ${row.type}`, ...(row.endpoint ? [`Connects to ${row.endpoint}`] : []), '', row.detail] : ['Reload saved providers and the DATABRICKS_HOST workspace. No owner sign-in is required.'];
     const wrap = (lines: string[]) => lines.flatMap(line => { const result: string[] = []; for (let start = 0; start < Math.max(1, line.length); start += width) result.push(line.slice(start, start + width)); return result; });
     const fullDetails = wrap(info);
     // Reserve every action and a result viewport before allocating detail rows.

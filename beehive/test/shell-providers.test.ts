@@ -27,7 +27,7 @@ for (const [width, height] of [[120, 40], [60, 20]]) test(`Providers signed-out 
   try {
     for (let i = 0; i < 3; i++) ui.mockInput.pressArrow('right');
     ui.mockInput.pressEnter(); await ui.renderOnce();
-    assert.match(ui.captureCharFrame(), /Add provider/);
+    assert.doesNotMatch(ui.captureCharFrame(), /Add provider/);
     ui.mockInput.pressTab(); await ui.renderOnce();
     assert.equal(shell.state.focus, 'detail');
     assert.match(ui.captureCharFrame(), /Test provider/);
@@ -218,5 +218,37 @@ for (const [width, height] of [[120, 40], [60, 20]]) test(`all provider actions 
       ui.mockInput.pressKey('\x1b[6~'); await ui.renderOnce();
     }
     assert.ok(recoveryVisible);
+  } finally { shell.close(); }
+});
+
+for (const [width, height] of [[120, 40], [60, 20]]) test(`provider inventory has no global Add command and retains saved accounts at ${width}x${height}`, async () => {
+  const ui = await createTestRenderer({ width, height, exitOnCtrlC: false }), f = fixture();
+  f.snapshot.rows.push({ ...f.snapshot.rows[0]!, id: 'second', name: 'Second' });
+  const before = structuredClone(f.snapshot);
+  const shell = new OpenTuiShell(ui.renderer, f.inventory, undefined, f.client);
+  try {
+    for (let i = 0; i < 3; i++) ui.mockInput.pressArrow('right');
+    ui.mockInput.pressEnter(); await ui.renderOnce();
+    assert.doesNotMatch(ui.captureCharFrame(), /Add provider/);
+    assert.match(ui.captureCharFrame(), /Fixture/);
+    assert.match(ui.captureCharFrame(), /Second/);
+    ui.mockInput.pressArrow('down'); ui.mockInput.pressTab(); ui.mockInput.pressEnter(); await ui.renderOnce();
+    assert.match(ui.captureCharFrame(), /EDIT PROVIDER/);
+    assert.match(ui.captureCharFrame(), /Second/);
+    ui.mockInput.pressEscape(); await new Promise(resolve => setTimeout(resolve, 50)); await ui.renderOnce();
+    assert.doesNotMatch(ui.captureCharFrame(), /EDIT PROVIDER/);
+    ui.mockInput.pressTab();
+    for (let i = 0; i < 5; i++) ui.mockInput.pressArrow('down');
+    ui.mockInput.pressTab(); ui.mockInput.pressEnter(); await ui.renderOnce();
+    assert.deepEqual(f.requests.at(-1), { action: 'reload' });
+    assert.doesNotMatch(ui.captureCharFrame(), /Add provider|ADD PROVIDER/);
+    const lines = ui.captureCharFrame().split('\n');
+    const y = lines.findIndex(line => line.includes('› Reload providers'));
+    assert.ok(y >= 0, ui.captureCharFrame());
+    const count = f.requests.length;
+    await ui.mockMouse.click(lines[y]!.indexOf('Reload providers'), y); await ui.renderOnce();
+    assert.equal(f.requests.length, count + 1);
+    assert.deepEqual(f.requests.at(-1), { action: 'reload' });
+    assert.deepEqual(f.snapshot, before);
   } finally { shell.close(); }
 });
