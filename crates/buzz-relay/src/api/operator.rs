@@ -209,6 +209,9 @@ pub async fn register_listener_pubkeys(
 /// registrations do not produce an error. Both successful mutations return
 /// `200 OK` with an empty JSON object; callers should use the status code and
 /// not depend on response details.
+/// Removing a registration stops new deliveries but intentionally does not
+/// cancel already queued rows; receivers must tolerate duplicates and guard
+/// against unwanted mentions independently.
 pub async fn remove_listener_pubkeys(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
