@@ -62,11 +62,28 @@ export class ShellState {
       }
       if (name === 'return' || name === 'down') { this.activateHeader(); return 'render'; }
     }
-    if (this.collection && !this.splitPane && this.focus === 'list' && (name === 'right' || name === 'return')) {
-      this.narrowPane = 'detail'; this.focus = 'detail'; return 'render';
+    // Collection panes follow their visible geometry.  Header focus and the
+    // active destination remain separate: only header activation changes the
+    // destination, while these transitions only move the focus perimeter.
+    if (this.collection && this.focus === 'list') {
+      if (name === 'up') {
+        this.focus = 'header'; this.headerIndex = this.activeSection; return 'render';
+      }
+      if (name === 'right' || name === 'return') {
+        this.focus = 'detail';
+        if (!this.splitPane) this.narrowPane = 'detail';
+        return 'render';
+      }
     }
-    if (this.collection && !this.splitPane && this.focus === 'detail' && name === 'left') {
-      this.narrowPane = 'list'; this.focus = 'list'; return 'render';
+    if (this.collection && this.focus === 'detail') {
+      if (name === 'up') {
+        this.focus = 'header'; this.headerIndex = this.activeSection; return 'render';
+      }
+      if (name === 'left') {
+        this.focus = 'list';
+        if (!this.splitPane) this.narrowPane = 'list';
+        return 'render';
+      }
     }
     if (name === 'tab') {
       const regions: FocusRegion[] = this.collection

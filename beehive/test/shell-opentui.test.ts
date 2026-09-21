@@ -46,11 +46,34 @@ test('memory renderer owns split geometry, flat hierarchy, and focus inset witho
     assert.equal(frame[3]!.slice(0, 35).length, 35); assert.equal(frame[3]!.slice(36).length, 84);
     assert.doesNotMatch(frame[3]!, /┐┌/); assert.equal(rgb(cell(ui, 35, 4).fg), '74,81,73');
     assert.equal(rgb(cell(ui, 0, 3).fg), '255,211,78'); // focused list's inset perimeter
-    ui.mockInput.pressTab(); await ui.renderOnce(); frame = text(ui.captureCharFrame());
+    ui.mockInput.pressArrow('right'); await ui.renderOnce(); frame = text(ui.captureCharFrame());
+    assert.equal(shell.state.focus, 'detail'); assert.equal(shell.state.activeSection, 2, 'pane movement never activates another destination');
     assert.equal(frame[3]![35], '│'); assert.equal(frame[3]!.slice(36).length, 84);
-    assert.equal(rgb(cell(ui, 36, 3).fg), '255,211,78'); // detail focus moves the perimeter only
+    assert.equal(rgb(cell(ui, 36, 3).fg), '255,211,78'); // right moves the perimeter to Details
+    ui.mockInput.pressArrow('left'); await ui.renderOnce();
+    assert.equal(shell.state.focus, 'list'); assert.equal(rgb(cell(ui, 0, 3).fg), '255,211,78');
+    ui.mockInput.pressTab(); await ui.renderOnce(); frame = text(ui.captureCharFrame());
+    assert.equal(shell.state.focus, 'detail'); assert.equal(rgb(cell(ui, 36, 3).fg), '255,211,78');
     ui.mockInput.pressEscape(); await waitForEscape(); await ui.renderOnce(); frame = text(ui.captureCharFrame());
     assert.equal(frame[3]![35], '│'); assert.doesNotMatch(frame.slice(3, 38).join('\n'), /[┌┐└┘]/); // unfocused panes remain flat
+  } finally { shell.close(); }
+});
+
+test('memory renderer keeps keyboard, pointer, resize, and Help return focus visible', async () => {
+  const ui = await createTestRenderer({ width: 120, height: 40, exitOnCtrlC: false });
+  const shell = new OpenTuiShell(ui.renderer);
+  try {
+    ui.mockInput.pressArrow('right'); ui.mockInput.pressArrow('right'); ui.mockInput.pressEnter(); await ui.renderOnce();
+    await ui.mockMouse.click(60, 10); await ui.renderOnce();
+    assert.equal(shell.state.focus, 'detail', 'pointer focuses the visible Details pane');
+    ui.resize(50, 20); await ui.renderOnce();
+    assert.deepEqual({ focus: shell.state.focus, pane: shell.state.narrowPane }, { focus: 'detail', pane: 'detail' });
+    ui.mockInput.pressKey('?'); await ui.renderOnce(); ui.mockInput.pressEscape(); await waitForEscape(); await ui.renderOnce();
+    assert.deepEqual({ focus: shell.state.focus, pane: shell.state.narrowPane, help: shell.state.helpOpen }, { focus: 'detail', pane: 'detail', help: false });
+    ui.mockInput.pressArrow('left'); await ui.renderOnce();
+    assert.deepEqual({ focus: shell.state.focus, pane: shell.state.narrowPane }, { focus: 'list', pane: 'list' });
+    await ui.mockMouse.click(10, 10); await ui.renderOnce();
+    assert.equal(shell.state.focus, 'list', 'pointer returns focus to the visible List pane');
   } finally { shell.close(); }
 });
 
@@ -60,7 +83,7 @@ test('memory renderer layers a full scrim and naturally sized help surface with 
   try {
     ui.mockInput.pressKey('?'); await ui.renderOnce();
     const geometry = helpDialogGeometry(120, 40);
-    assert.deepEqual(geometry, { width: 62, maxHeight: 36, naturalHeight: 14, height: 14, bodyHeight: 6, bodyWidth: 56, scrollbar: false });
+    assert.deepEqual(geometry, { width: 62, maxHeight: 36, naturalHeight: 15, height: 15, bodyHeight: 7, bodyWidth: 56, scrollbar: false });
     assert.equal(rgb(cell(ui, 0, 0).bg), '7,9,7'); // scrim covers cells outside the dialog
     assert.equal(rgb(cell(ui, 30, 14).bg), '13,16,14'); // surface is above the scrim
     assert.equal(rgb(cell(ui, 29, 13).fg), '156,164,155'); // centered dialog boundary
@@ -104,10 +127,10 @@ test('memory renderer preserves the 50x20 narrow shell, help, keyboard, and poin
     ui.mockInput.pressEscape(); await waitForEscape(); await ui.renderOnce(); assert.equal(shell.state.narrowPane, 'list');
     ui.mockInput.pressKey('?'); await ui.renderOnce(); frame = ui.captureCharFrame();
     assert.ok(frame.includes('HELP')); assert.ok(frame.includes('Shift-Tab'));
-    // The fitting body is a plain box: every wrapped line and its last cell are
-    // visible, with neither OpenTUI's scrollbar nor a replacement glyph.
+    // The fitting body is a plain box: every truthful navigation line and its
+    // last cell are visible, with neither OpenTUI's scrollbar nor a replacement glyph.
     assert.doesNotMatch(frame, /[█▀�]/);
-    for (const line of ['← →  focus a destination', 'Enter  activate the focused destination', 'Tab / Shift-Tab  move between visible', 'regions', 'Esc  return to the active header control', '? / Enter / Esc  close help', 'q  quit Beehive']) assert.ok(frame.includes(line), `missing complete help line: ${line}`);
+    for (const line of ['Header: ←→ destination; Enter / ↓ opens', 'List: ↑ header; → / Enter Details', 'Details: ↑ header; ← List', 'Tab / Shift-Tab  visible regions', 'Esc  active header', '? / Enter / Esc  close help', 'q  quit Beehive']) assert.ok(frame.includes(line), `missing complete help line: ${line}`);
     ui.mockInput.pressEscape(); await waitForEscape(); await ui.renderOnce(); assert.ok(!ui.captureCharFrame().includes('Shift-Tab'));
     ui.resize(49, 19); await ui.renderOnce(); assert.ok(ui.captureCharFrame().includes(footerGuides.minimum));
     ui.mockInput.pressKey('q'); await ui.renderOnce(); assert.equal(shell.state.belowMinimum, true);

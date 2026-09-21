@@ -6,10 +6,10 @@ export const palette = {
   focus: '#ffd34e', selected: '#dce1d8', selectedText: '#10130f', dialog: '#9ca49b', scrim: '#070907',
 } as const;
 
-const wideFooter = '←→ focus  Enter open  Tab panes  Esc return  ? help  q quit';
-const compactFooter = '←→ nav ↵ open Tab panes Esc back ? help q quit';
+const wideFooter = '←→ move  Enter open  Tab panes  Esc return  ? help  q quit';
+const compactFooter = '←→ move ↵ open Tab panes Esc back ? help q quit';
 const minimumFooter = 'Ctrl-Q quit';
-const helpBody = '← →  focus a destination\nEnter  activate the focused destination\nTab / Shift-Tab  move between visible regions\nEsc  return to the active header control\n? / Enter / Esc  close help\nq  quit Beehive';
+const helpBody = 'Header: ←→ destination; Enter / ↓ opens\nList: ↑ header; → / Enter Details\nDetails: ↑ header; ← List\nTab / Shift-Tab  visible regions\nEsc  active header\n? / Enter / Esc  close help\nq  quit Beehive';
 const helpTitleRows = 2;
 const helpActionRows = 2;
 const helpVerticalChrome = 4; // one-cell border and one-row inset at both edges
