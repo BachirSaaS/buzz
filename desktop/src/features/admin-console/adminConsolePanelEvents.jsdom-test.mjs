@@ -7273,13 +7273,13 @@ test("settings-card-stale-self-mutation-ignored-after-session-teardown: deferred
   //   AdminConsoleSettingsCard.tsx → savedOriginRef retains A on teardown →
   //   fence passes → probeCount reaches 2 → this test goes RED.
   //
-  // StrictMode preservation:
+  // StrictMode preservation (source-level ordering):
   //   StrictMode fires mount→cleanup→mount. The simulated cleanup nulls
   //   savedOriginRef, but the second mount's load effect calls setSavedOriginBoth
-  //   which re-arms the ref. The ordinary-session test
-  //   (settings-card-self-demotion-reruns-probe) runs in StrictMode (jsdom IS_REACT_ACT_ENVIRONMENT)
-  //   and verifies that the normal same-session self-mutation path still fires
-  //   the probe — so the null + re-arm cycle does not break live sessions.
+  //   which re-arms the ref. The separate strict-mode-save test explicitly wraps
+  //   its tree in React.StrictMode and verifies a post-save probe. The
+  //   settings-card-self-demotion-reruns-probe test is not StrictMode-wrapped;
+  //   it verifies same-session self-mutation under the normal mount path.
 
   const pubkey = "a2".repeat(32); // self
   const otherPubkey = "b3".repeat(32); // second operator (required so self-remove is allowed)
@@ -7298,8 +7298,9 @@ test("settings-card-stale-self-mutation-ignored-after-session-teardown: deferred
   setIpcHandler("admin_probe", (args) => {
     probeCount += 1;
     probeOrigins.push(args?.origin ?? null);
-    // After the expected mount probe, return denied for any stale call so the
-    // failure is observable (both probeCount and any "access denied" render).
+    // After the expected mount probe, return denied for any stale call so
+    // a failure is observable in probeCount. The root is unmounted before
+    // DELETE resolves, so this test does not assert an "Access denied" render.
     if (probeCount > 1) {
       return Promise.resolve({ state: "nip98Denied" });
     }
