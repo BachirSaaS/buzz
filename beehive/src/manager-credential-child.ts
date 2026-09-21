@@ -7,7 +7,7 @@ import { object } from './protocol.ts';
 import { readHostIdentity, bootstrapHostIdentity } from './host-identity.ts';
 import { createCredential, credentialReference, readCredential, systemCredentials } from './credential-store.ts';
 import { publicKey } from './protocol.ts';
-import { registerAgent, agentNsec, addOpenAI, addProvider, providerCredentials } from './settings-credentials.ts';
+import { registerAgent, agentNsec, addOpenAI, addProvider, editProvider, providerCredentials } from './settings-credentials.ts';
 import { readSettings } from './settings.ts';
 import { providerModelOptions } from './settings-models.ts';
 
@@ -36,8 +36,11 @@ process.once('message', async (input: any) => {
       addOpenAI(input.directory,input.name,input.secret,providerCredentials());
       process.send?.({ ok: true });
     } else if (input.action === 'add-provider') {
-      addProvider(input.directory,input.name,input.secret,providerCredentials(),input.type,input.endpoint,input.wire);
+      addProvider(input.directory,input.name,input.secret,providerCredentials(),input.type,input.endpoint,input.wire,input.revision);
       process.send?.({ok:true});
+    } else if (input.action === 'edit-provider') {
+      editProvider(input.directory, input.provider, input.revision, input.name, input.endpoint, input.wire, input.secret ?? '', providerCredentials());
+      process.send?.({ ok: true });
     } else if (input.action === 'provider-read') {
       const secret = providerCredentials().read(input.key);
       if (!secret) throw Error('Missing provider credential');

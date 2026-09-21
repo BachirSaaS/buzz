@@ -1,0 +1,191 @@
+import { BoxRenderable, TextRenderable, type CliRenderer, type KeyEvent } from '@opentui/core';
+import { palette } from './opentui-shell.ts';
+import { ProviderDialog, type DialogField } from './provider-dialog.ts';
+import type { ProviderClient, ProviderRow, ProviderSnapshot } from './provider-protocol.ts';
+import type { ShellState } from './shell-state.ts';
+import { listWidth } from './shell-state.ts';
+
+const types = ['openai', 'anthropic', 'openai-compat', 'openrouter', 'databricks_v2'];
+/** Providers presentation. All durable changes and secret state live in Node. */
+export class ProviderPanel {
+  private snapshot: ProviderSnapshot;
+  private unsubscribe: () => void;
+  private selected = 'add';
+  private actionIndex = 0;
+  private actionOffset = 0;
+  private offset = 0;
+  private detailOffset = 0;
+  private list: BoxRenderable;
+  private detail: BoxRenderable;
+  private listTitle: TextRenderable;
+  private detailTitle: TextRenderable;
+  private details: TextRenderable;
+  private rows: TextRenderable[] = [];
+  private actions: TextRenderable[] = [];
+  private status: TextRenderable;
+  private actionTitle: TextRenderable;
+  private dialog?: ProviderDialog;
+  private active = false;
+  private generation = 0;
+  constructor(private renderer: CliRenderer, listPane: BoxRenderable, detailPane: BoxRenderable, private state: ShellState, private client: ProviderClient, private repaint: () => void) {
+    this.snapshot = client.snapshot();
+    this.list = new BoxRenderable(renderer, { width: '100%', height: '100%', backgroundColor: palette.surface });
+    this.detail = new BoxRenderable(renderer, { width: '100%', height: '100%', backgroundColor: palette.surface });
+    listPane.add(this.list); detailPane.add(this.detail);
+    this.listTitle = new TextRenderable(renderer, { left: 2, top: 1, position: 'absolute', height: 1, fg: palette.muted, content: 'PROVIDERS' }); this.list.add(this.listTitle);
+    this.detailTitle = new TextRenderable(renderer, { left: 2, top: 1, position: 'absolute', height: 1, fg: palette.muted }); this.detail.add(this.detailTitle);
+    this.details = new TextRenderable(renderer, { left: 2, top: 3, position: 'absolute', fg: palette.text, wrapMode: 'word' }); this.detail.add(this.details);
+    this.actionTitle = new TextRenderable(renderer, { left: 2, position: 'absolute', height: 1, fg: palette.muted, content: 'AVAILABLE ACTIONS' }); this.detail.add(this.actionTitle);
+    this.status = new TextRenderable(renderer, { left: 2, position: 'absolute', fg: palette.muted, wrapMode: 'word' }); this.detail.add(this.status);
+    for (let i = 0; i < 40; i++) {
+      const row = new TextRenderable(renderer, { left: 2, position: 'absolute', height: 1, fg: palette.text, onMouseDown: () => this.select(i + this.offset) }); this.list.add(row); this.rows.push(row);
+    }
+    for (let i = 0; i < 7; i++) {
+      const action = new TextRenderable(renderer, { left: 2, position: 'absolute', height: 1, fg: palette.text, onMouseDown: () => { if (!this.active || this.dialog) return; this.actionIndex = this.actionOffset + i; this.state.focus = 'detail'; void this.run(); } }); this.detail.add(action); this.actions.push(action);
+    }
+    this.unsubscribe = client.subscribe(snapshot => { this.snapshot = snapshot; this.dialog?.updateSecretLength(snapshot.secretLength); this.paint(); });
+  }
+  private items() { return [...this.snapshot.rows.map(row => row.id), 'add', 'reload']; }
+  private row() { return this.snapshot.rows.find(row => row.id === this.selected); }
+  private commands() {
+    if (this.selected === 'add') return ['Add provider'];
+    if (this.selected === 'reload') return ['Reload providers'];
+    return ['Edit provider', 'Test provider', 'Load models', ...(this.row()?.type === 'databricks_v2' ? ['Sign in to Databricks'] : []), 'Set up Codex', 'Set up Pi'];
+  }
+  private select(index: number) {
+    if (!this.active || this.dialog) return;
+    const id = this.items()[index]; if (!id) return;
+    this.selected = id; this.actionIndex = 0; this.actionOffset = 0; this.detailOffset = 0; this.state.focus = 'list'; this.repaint();
+  }
+  setActive(active: boolean) {
+    if (this.active && !active) { this.generation++; this.dialog?.cancel(); this.dialog = undefined; this.client.cancel(); }
+    const entered = active && !this.active;
+    this.active = active; this.list.visible = active; this.detail.visible = active;
+    if (entered) void this.client.request({ action: 'reload' });
+    this.paint();
+  }
+  paste(value: string) { if (this.dialog) { this.dialog.paste(value); return true; } return false; }
+  key(key: KeyEvent): boolean {
+    if (!this.active) return false;
+    if (this.dialog) { this.dialog.key(key); return true; }
+    if (this.snapshot.phase === 'busy' && key.name === 'escape') { this.client.cancel(); return true; }
+    if (key.name === 'a') { this.state.focus = 'detail'; this.repaint(); return true; }
+    if (key.name === 'tab') { this.state.focus = this.state.focus === 'list' ? 'detail' : this.state.focus === 'detail' ? 'list' : 'list'; this.repaint(); return true; }
+    if (this.state.focus === 'list' && ['up', 'down'].includes(key.name)) {
+      const index = this.items().indexOf(this.selected), next = index + (key.name === 'up' ? -1 : 1);
+      if (next < 0) { this.state.focus = 'header'; this.state.headerIndex = 3; this.repaint(); }
+      else this.select(Math.min(this.items().length - 1, next));
+      return true;
+    }
+    if (this.state.focus === 'detail') {
+      if (['up', 'down'].includes(key.name)) { this.actionIndex = Math.max(0, Math.min(this.commands().length - 1, this.actionIndex + (key.name === 'up' ? -1 : 1))); this.paint(); return true; }
+      if (['pageup', 'pagedown'].includes(key.name)) { this.detailOffset = Math.max(0, this.detailOffset + (key.name === 'pageup' ? -3 : 3)); this.paint(); return true; }
+      if (key.name === 'return') { void this.run(); return true; }
+    }
+    return false;
+  }
+  private async form(title: string, fields: DialogField[], submit = 'Save') {
+    this.client.secret('clear');
+    const dialog = new ProviderDialog(this.renderer, title, fields, (action, value) => this.client.secret(action, value), submit);
+    this.dialog = dialog;
+    const result = await dialog.done;
+    if (this.dialog === dialog) this.dialog = undefined;
+    this.repaint(); return result;
+  }
+  private async edit(row?: ProviderRow) {
+    const generation = this.generation, revision = this.snapshot.revision;
+    let type = row?.type;
+    if (!type) {
+      const result = await this.form('ADD PROVIDER', [{ label: 'Type', value: 'openai', choices: types }], 'Continue');
+      if (!result || generation !== this.generation) return;
+      type = result.Type as ProviderRow['type'];
+    }
+    const fields: DialogField[] = [{ label: 'Name', value: row?.name ?? (type === 'databricks_v2' ? 'Databricks' : type) }];
+    if (type === 'databricks_v2') fields.push({ label: 'Workspace (DATABRICKS_HOST)', value: this.snapshot.databricksHost ?? 'Set DATABRICKS_HOST and reopen Beehive', choices: [this.snapshot.databricksHost ?? 'Set DATABRICKS_HOST and reopen Beehive'] });
+    else {
+      if (type === 'openai-compat') fields.push({ label: 'Endpoint', value: row?.endpoint ?? 'https://' }, { label: 'Wire', value: row?.wire ?? 'auto', choices: ['auto', 'chat', 'responses'] });
+      fields.push({ label: row ? 'API key (blank keeps saved)' : 'API key', secret: true });
+    }
+    const result = await this.form(row ? 'EDIT PROVIDER' : 'ADD PROVIDER', fields);
+    if (!result || generation !== this.generation) return;
+    await this.client.request({ action: 'save', provider: row?.id, revision, values: { type, name: result.Name!, endpoint: result.Endpoint ?? '', wire: result.Wire ?? 'auto' } });
+  }
+  private async setup(row: ProviderRow, harness: string) {
+    const generation = this.generation;
+    if (!await this.client.request({ action: 'discover', provider: row.id, revision: this.snapshot.revision }) || generation !== this.generation) return;
+    const available = this.snapshot.setup?.find(value => value.id === harness);
+    if (!available || available.state !== 'available' || !available.providers.includes(row.type)) {
+      await this.form('SETUP UNAVAILABLE', [{ label: 'Reason', value: available?.reason ?? 'Harness not installed', choices: [available?.reason ?? 'Harness not installed'] }], 'Close'); return;
+    }
+    const revision = this.snapshot.revision;
+    const fields: DialogField[] = [{ label: 'Name', value: `${available.label} configuration` }, { label: 'Model', value: this.snapshot.modelProvider === row.id ? this.snapshot.models[0] : '' }];
+    if (harness === 'pi') fields.push({ label: 'Effort', value: 'Inherit', choices: ['Inherit', 'minimal', 'low', 'medium', 'high', 'xhigh'] });
+    const result = await this.form(`SET UP ${available.label.toUpperCase()}`, fields);
+    if (!result || generation !== this.generation) return;
+    await this.client.request({ action: 'setup', provider: row.id, revision, values: { harness, name: result.Name!, model: result.Model!, effort: result.Effort ?? 'Inherit' } });
+  }
+  pointer(y: number) {
+    if (!this.active || this.dialog) return;
+    if (this.state.focus === 'list') this.select(y - 6 + this.offset);
+    else {
+      const count = Math.min(this.commands().length, this.renderer.height < 28 ? 3 : 7);
+      const first = this.renderer.height - 5 - count - 4;
+      const index = y - 3 - first + this.actionOffset;
+      if (index >= 0 && index < this.commands().length) { this.actionIndex = index; void this.run(); }
+    }
+  }
+  scroll(direction: string) {
+    if (!this.active || this.dialog) return;
+    if (this.state.focus === 'list') this.select(Math.max(0, Math.min(this.items().length - 1, this.items().indexOf(this.selected) + (direction === 'up' ? -1 : 1))));
+    else { this.detailOffset = Math.max(0, this.detailOffset + (direction === 'up' ? -1 : 1)); this.paint(); }
+  }
+  private async run() {
+    if (this.snapshot.phase === 'busy' || this.dialog || !this.active) return;
+    const command = this.commands()[this.actionIndex], row = this.row();
+    if (command === 'Add provider') await this.edit();
+    else if (command === 'Reload providers') await this.client.request({ action: 'reload' });
+    else if (row) {
+      if (command === 'Edit provider') await this.edit(row);
+      else if (command === 'Set up Codex' || command === 'Set up Pi') await this.setup(row, command === 'Set up Codex' ? 'codex' : 'pi');
+      else await this.client.request({ action: command === 'Test provider' ? 'test' : command === 'Load models' ? 'models' : 'login', provider: row.id, revision: this.snapshot.revision });
+    }
+  }
+  paint() {
+    if (!this.active) return;
+    const height = this.renderer.height - 5, leftWidth = listWidth(this.renderer.width) - 4, width = this.renderer.width - listWidth(this.renderer.width) - 5;
+    const items = this.items(); if (!items.includes(this.selected)) this.selected = 'add';
+    const selectedIndex = items.indexOf(this.selected), capacity = Math.min(this.rows.length, Math.max(1, height - 4));
+    if (selectedIndex < this.offset) this.offset = selectedIndex;
+    if (selectedIndex >= this.offset + capacity) this.offset = selectedIndex - capacity + 1;
+    this.rows.forEach((renderable, slot) => {
+      const id = items[this.offset + slot], row = this.snapshot.rows.find(row => row.id === id);
+      renderable.visible = slot < capacity && !!id; renderable.top = slot + 3; renderable.width = leftWidth;
+      renderable.content = (id === 'add' ? '+ Add provider' : id === 'reload' ? '↻ Reload providers' : `◇ ${row?.name ?? ''}`).slice(0, leftWidth);
+      renderable.bg = id === this.selected ? palette.selected : palette.surface; renderable.fg = id === this.selected ? palette.selectedText : palette.text;
+    });
+    const row = this.row();
+    this.detailTitle.content = row ? row.name.toUpperCase() : this.selected === 'add' ? 'ADD PROVIDER' : 'RELOAD PROVIDERS'; this.detailTitle.width = width;
+    const commands = this.commands();
+    const actionCapacity = Math.min(commands.length, this.renderer.height < 28 ? 3 : 7);
+    if (this.actionIndex < this.actionOffset) this.actionOffset = this.actionIndex;
+    if (this.actionIndex >= this.actionOffset + actionCapacity) this.actionOffset = this.actionIndex - actionCapacity + 1;
+    const actionStart = height - actionCapacity - 4;
+    const info = row ? [`State       ${row.state}`, `Type        ${row.type}`, `Connects to ${row.endpoint}`, '', row.detail, ...(this.snapshot.modelProvider === row.id ? ['', 'MODELS', ...this.snapshot.models] : [])] : this.selected === 'add' ? ['Choose OpenAI, Anthropic, OpenAI-compatible, OpenRouter, or Databricks v2.', '', 'Credentials stay in the OS credential store.'] : ['Reload saved providers and the DATABRICKS_HOST workspace. No owner sign-in is required.'];
+    info.push('', 'RESULT', this.snapshot.message);
+    const wrapped = info.flatMap(line => { const result: string[] = []; for (let start = 0; start < Math.max(1, line.length); start += width) result.push(line.slice(start, start + width)); return result; });
+    this.detailOffset = Math.min(this.detailOffset, Math.max(0, wrapped.length - (actionStart - 4)));
+    this.details.width = width; this.details.height = Math.max(1, actionStart - 4); this.details.content = wrapped.slice(this.detailOffset, this.detailOffset + Math.max(1, actionStart - 4)).join('\n');
+    this.actionTitle.top = actionStart - 1; this.actionTitle.width = width;
+    this.actions.forEach((action, index) => {
+      const commandIndex = this.actionOffset + index;
+      action.visible = index < actionCapacity; action.top = actionStart + index; action.width = width;
+      action.content = commands[commandIndex] ?? ''; action.fg = this.state.focus === 'detail' && this.actionIndex === commandIndex ? palette.selectedText : palette.text;
+      action.bg = this.state.focus === 'detail' && this.actionIndex === commandIndex ? palette.selected : palette.surface;
+    });
+    this.status.top = height - 3; this.status.width = width; this.status.height = 2;
+    this.status.content = this.snapshot.phase === 'busy' ? 'Working… Esc stops waiting' : `${this.snapshot.phase === 'error' ? 'FAILED · ' : ''}PgUp/PgDn details\n↑↓ actions · Enter run`;
+    this.status.fg = this.snapshot.phase === 'error' ? palette.failure : palette.muted;
+    this.dialog?.paint();
+  }
+  dispose() { this.generation++; this.dialog?.cancel(); this.unsubscribe(); this.client.dispose(); }
+}

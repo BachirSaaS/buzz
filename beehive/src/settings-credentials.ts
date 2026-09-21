@@ -6,7 +6,7 @@ import { loadNativeEntry, type NativeEntry } from './native-credentials.ts';
 import { type CredentialBackend, credentialReference, createCredential, readCredential } from './credential-store.ts';
 import { nip19 } from 'nostr-tools';
 import { publicKey } from './protocol.ts';
-import { readSettings, saveSettings, settingsId, settingsLock, type ProviderReference, type RegisteredAgent, type SavedProvider, validateSettings } from './settings.ts';
+import { readSettings, saveSettings, settingsId, settingsLock, type ProviderReference, type RegisteredAgent, type SavedProvider, validateSettings, replaceProvider } from './settings.ts';
 
 /** Decode hidden nsec input on Node, never in the renderer's display state. */
 export function agentNsec(input: string): string {
@@ -49,10 +49,11 @@ export function addOpenAI(directory: string, name: string, secret: string, backe
   return addProvider(directory,name,secret,backend,'openai','https://api.openai.com/v1');
 }
 /** Verified immutable OS entry for each supported API-key provider. */
-export function addProvider(directory: string, name: string, secret: string, backend: ProviderCredentials, type: SavedProvider['type'], endpoint: string, wire?: SavedProvider['wire']) {
+export function addProvider(directory: string, name: string, secret: string, backend: ProviderCredentials, type: SavedProvider['type'], endpoint: string, wire?: SavedProvider['wire'], expected?: number) {
   if (!name || name.length > 128 || /[\x00-\x1f\x7f]/.test(name)) throw Error('Enter a provider name');
   if (!secret || secret.length > 16384 || /\s/.test(secret)) throw Error('Enter an API key');
   const previous = readSettings(directory), id = settingsId();
+  if (expected !== undefined && previous.revision !== expected) throw Error('Settings changed. Open the form again.');
   const key: ProviderReference = { service: 'beehive', account: `provider:${id}` };
   const candidate = validateSettings({ ...previous, providers: [...previous.providers, { id, name, type, endpoint, key, ...(wire ? {wire} : {}) }] });
   settingsLock(directory, () => { retainCredentialAttempt(directory,key); backend.create(key, secret); });
@@ -67,4 +68,22 @@ export function retainCredentialAttempt(directory: string, key: object) {
   const rows = existsSync(path) ? readPrivate(path) as object[] : [];
   if (!Array.isArray(rows) || rows.length >= 100) throw Error('Credential recovery log needs attention');
   if (!rows.some(row => JSON.stringify(row) === JSON.stringify(key))) writePrivate(path,[...rows,key]);
+}
+
+/** Verified credential rotation uses a fresh exact entry; active runs keep the old
+ * reference. Empty secret preserves the existing credential without reading it. */
+export function editProvider(directory: string, id: string, expected: number, name: string, endpoint: string, wire: SavedProvider['wire'], secret: string, backend: ProviderCredentials) {
+  const previous = readSettings(directory);
+  if (previous.revision !== expected) throw Error('Settings changed. Open the form again.');
+  const current = previous.providers.find(row => row.id === id);
+  if (!current || current.type === 'databricks_v2') throw Error('Select an API-key provider');
+  if (secret && (secret.length > 16384 || /\s/.test(secret))) throw Error('Enter an API key');
+  const key: ProviderReference = secret ? { service: 'beehive', account: `provider:${settingsId()}` } : current.key;
+  const provider: SavedProvider = { ...current, name, endpoint, key, ...(current.type === 'openai-compat' ? { wire } : {}) };
+  validateSettings({ ...previous, providers: previous.providers.map(row => row.id === id ? provider : row) });
+  if (secret) {
+    settingsLock(directory, () => { retainCredentialAttempt(directory, key); backend.create(key, secret); });
+    if (backend.read(key) !== secret) throw Error('Provider credential verification failed');
+  }
+  return replaceProvider(directory, provider, expected);
 }

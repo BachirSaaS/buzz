@@ -1,4 +1,6 @@
 import { BoxRenderable, ScrollBoxRenderable, TextRenderable, type CliRenderer, type KeyEvent } from '@opentui/core';
+import { ProviderPanel } from './provider-panel.ts';
+import type { ProviderClient } from './provider-protocol.ts';
 import { brand, destinations, listWidth, ownerLabel, ShellState, type FocusRegion } from './shell-state.ts';
 import { HarnessInventoryController, type HarnessInventorySnapshot } from './harness-inventory.ts';
 
@@ -9,7 +11,7 @@ export const palette = {
 
 const wideFooter = '←→ move  Enter open  Tab panes  Esc return  ? help  q quit';
 const minimumFooter = 'Ctrl-Q quit';
-const helpBody = 'Header: ←→ destination; Enter / ↓ opens\nList: ↑ header; → / Enter Details\nDetails: ↑ header; ← List\nTab / Shift-Tab  visible regions\nEsc  active header\n? / Enter / Esc  close help\nq  quit Beehive';
+const helpBody = 'Header: ←→ destination; Enter / ↓ opens\nList: ↑ header; → / Enter Details\nDetails: ↑ header; ← List\nTab / Shift-Tab  visible regions\nEsc  active header\n? / Enter / Esc  close help\nq  quit Beehive\nProviders: a / Tab actions; ↑↓ selects\nPgUp / PgDn scroll details and results\nForms: Tab next; ←→ choice; Ctrl-U clear';
 const helpTitleRows = 2;
 const helpActionRows = 2;
 const helpVerticalChrome = 4; // one-cell border and one-row inset at both edges
@@ -69,6 +71,7 @@ export class OpenTuiShell {
   private inventorySnapshot: HarnessInventorySnapshot;
   private unsubscribeInventory: () => void;
   private screenGeneration = 0;
+  private providers?: ProviderPanel;
   private readonly footerRule: TextRenderable;
   private readonly footer: TextRenderable;
   private helpScrim?: BoxRenderable;
@@ -78,7 +81,7 @@ export class OpenTuiShell {
   private helpTitle?: TextRenderable;
   private helpActions?: TextRenderable;
 
-  constructor(readonly renderer: CliRenderer, private readonly inventory: HarnessInventoryController, private readonly helpContent = helpBody) {
+  constructor(readonly renderer: CliRenderer, private readonly inventory: HarnessInventoryController, private readonly helpContent = helpBody, providers?: ProviderClient) {
     this.inventorySnapshot = inventory.snapshot();
     this.done = new Promise(resolve => { this.finish = resolve; });
     this.root = new BoxRenderable(renderer, { width: '100%', height: '100%', flexDirection: 'column', backgroundColor: palette.surface });
@@ -106,10 +109,12 @@ export class OpenTuiShell {
     this.divider = new TextRenderable(renderer, { width: 1, height: '100%', fg: palette.divider, content: '│' });
     this.focusPerimeter = new BoxRenderable(renderer, { position: 'absolute', visible: false, border: true, borderColor: palette.focus, backgroundColor: 'transparent',
       onMouseDown: event => {
-        if (this.state.focus === 'list') this.clickListSlot(Math.floor((event.y - 6) / 2));
+        if (this.state.activeSection === 3) { this.providers?.pointer(event.y); return; }
+        if (this.state.focus === 'list') this.clickListSlot(event.y - 6);
         else if (this.state.focus === 'detail' && event.y === 15) this.activateSelectedRow();
       },
       onMouseScroll: event => {
+        if (this.state.activeSection === 3) { this.providers?.scroll(event.scroll?.direction ?? ''); return; }
         if (this.state.focus !== 'list') return;
         if (event.scroll?.direction === 'up') this.state.key('up');
         else if (event.scroll?.direction === 'down') this.state.key('down');
@@ -131,6 +136,8 @@ export class OpenTuiShell {
     this.footerRule = new TextRenderable(renderer, { height: 1, fg: palette.divider }); this.root.add(this.footerRule);
     this.footer = new TextRenderable(renderer, { height: 1, fg: palette.muted, content: wideFooter }); this.root.add(this.footer);
 
+    if (providers) this.providers = new ProviderPanel(renderer, this.listPane, this.detailPane, this.state, providers, () => this.paint());
+    renderer.keyInput.on('paste', event => { if (this.providers?.paste(new TextDecoder().decode(event.bytes))) event.preventDefault(); });
     renderer.keyInput.on('keypress', key => this.key(key));
     renderer.on('resize', () => this.resize());
     renderer.on('destroy', () => this.close(false));
@@ -145,6 +152,7 @@ export class OpenTuiShell {
   private pane(region: Exclude<FocusRegion, 'header'>) {
     return new BoxRenderable(this.renderer, { height: '100%', backgroundColor: palette.surface,
       onMouseScroll: event => {
+        if (this.state.activeSection === 3) { this.providers?.scroll(event.scroll?.direction ?? ''); return; }
         if (region !== 'list' || this.state.activeSection !== 2 || !this.visible(region)) return;
         if (event.scroll?.direction === 'up') this.state.key('up');
         else if (event.scroll?.direction === 'down') this.state.key('down');
@@ -159,6 +167,7 @@ export class OpenTuiShell {
   }
 
   private key(key: KeyEvent) {
+    if (!(key.ctrl && ['q', 'c'].includes(key.name)) && !this.state.belowMinimum && !this.state.helpOpen && this.providers?.key(key)) { key.preventDefault(); return; }
     const wasHarnesses = this.state.mode === 'section' && this.state.activeSection === 2;
     const effect = this.state.key(key.name, { ctrl: key.ctrl, shift: key.shift });
     if (wasHarnesses && !(this.state.mode === 'section' && this.state.activeSection === 2)) { this.screenGeneration++; this.inventory.cancel(); }
@@ -225,6 +234,7 @@ export class OpenTuiShell {
       this.listPane.width = '100%'; this.detailPane.width = '100%'; this.detailPane.flexGrow = 1; this.divider.visible = false;
     }
     this.paintHarnesses();
+    this.providers?.setActive(!this.state.belowMinimum && this.state.mode === 'section' && this.state.activeSection === 3);
     const focusedPane = this.state.focus === 'list' || this.state.focus === 'detail' ? this.state.focus : undefined;
     this.focusPerimeter.visible = Boolean(focusedPane);
     if (focusedPane) {
@@ -325,6 +335,7 @@ export class OpenTuiShell {
     this.closed = true;
     this.unsubscribeInventory();
     this.inventory.dispose();
+    this.providers?.dispose();
     if (destroy) this.renderer.destroy();
     this.finish();
   }

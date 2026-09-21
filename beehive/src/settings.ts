@@ -88,3 +88,16 @@ export function retainedSettingsRow(previous: object, next: object, collection: 
   const { runtimeId: _, ...identity } = next as RegisteredAgent;
   return JSON.stringify(previous) === JSON.stringify(identity);
 }
+
+/** Provider edits affect future launches only. Existing launch snapshots retain
+ * their endpoint and credential reference; old OS entries are never overwritten. */
+export function replaceProvider(directory: string, provider: SavedProvider, expected: number): Settings {
+  return settingsLock(directory, () => {
+    const previous = readSettings(directory);
+    if (previous.revision !== expected) throw Error('Settings changed. Open the form again.');
+    if (!previous.providers.some(row => row.id === provider.id)) throw Error('Provider no longer exists');
+    const next = validateSettings({ ...previous, revision: expected + 1, providers: previous.providers.map(row => row.id === provider.id ? provider : row) });
+    writePrivate(path(directory), next);
+    return readSettings(directory);
+  });
+}

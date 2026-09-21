@@ -887,3 +887,34 @@ To reuse a local definition, explicitly copy its JSON into the Beehive directory
 and choose **Refresh harnesses**. Only detection fields are read: launch arguments,
 environment variables, credentials, and Desktop agent state are not imported.
 Refresh replaces the saved inventory; saved runtime configurations are unchanged.
+
+### Providers in the OpenTUI manager
+
+Providers is available while signed out. Add provider supports OpenAI, Anthropic,
+OpenAI-compatible (endpoint and wire mode), OpenRouter, and Databricks v2.
+Select a saved row, then use Tab or `a` to focus its actions. Arrows select an
+action; Enter runs it. PgUp/PgDn scroll details, model IDs, and the full result.
+Forms use Tab/Shift-Tab, Left/Right choices, Enter to advance/submit, Ctrl-U to
+clear a field, and Esc to cancel. API-key input is masked; its value stays in the
+Node controller and credential helper, not renderer state or settings.
+
+Edit preserves provider identity and affects future launches. A replacement API
+key gets a fresh exact OS entry; old entries remain for active launch snapshots.
+Blank key input keeps the saved key. Test checks access to the provider model
+catalog, not generation or every model. Load models displays exact model IDs.
+Codex/Pi setup checks installed adapters and supported provider combinations,
+then saves an exact model configuration without starting an agent.
+
+Databricks reads the HTTPS workspace origin from `DATABRICKS_HOST`; unset or
+mismatched origins produce an actionable unavailable state. Browser sign-in is
+explicit and uses the packaged native helper. Reload providers refreshes durable
+state and projects the environment workspace without reading credentials.
+Esc stops waiting, not committed storage: inspect/reload before retrying. Quit
+closes the provider controller and cancels its bounded helpers.
+
+For safe real-terminal acceptance without vendor or OS access, the explicit
+`test/provider-tui-fixture.ts` entrypoint uses the real renderer, IPC, controller,
+and settings with synthetic external adapters. It requires a temporary
+`BEEHIVE_HOME` whose name contains `provider-tui-fixture-`. It is not reachable
+from the production launcher. API key `deny` exercises provider denial. The
+fixture is not proof of live vendor authentication.

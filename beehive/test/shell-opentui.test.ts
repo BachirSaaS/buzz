@@ -89,14 +89,14 @@ test('memory renderer layers a full scrim and naturally sized help surface with 
   try {
     ui.mockInput.pressKey('?'); await ui.renderOnce();
     const geometry = helpDialogGeometry(120, 40);
-    assert.deepEqual(geometry, { width: 62, maxHeight: 36, naturalHeight: 15, height: 15, bodyHeight: 7, bodyWidth: 56, scrollbar: false });
+    assert.deepEqual(geometry, { width: 62, maxHeight: 36, naturalHeight: 18, height: 18, bodyHeight: 10, bodyWidth: 56, scrollbar: false });
     assert.equal(rgb(cell(ui, 0, 0).bg), '7,9,7'); // scrim covers cells outside the dialog
     assert.equal(rgb(cell(ui, 30, 14).bg), '13,16,14'); // surface is above the scrim
     assert.equal(rgb(cell(ui, 29, 13).fg), '156,164,155'); // centered dialog boundary
     // A longer body is constrained to H - 4 while title/actions retain their fixed rows.
     const overflowing = Array.from({ length: 12 }, (_, row) => `overflow row ${row}`).join('\n');
     assert.deepEqual(helpDialogGeometry(50, 20, overflowing), { width: 46, maxHeight: 16, naturalHeight: 20, height: 16, bodyHeight: 8, bodyWidth: 39, scrollbar: true });
-    assert.equal(helpDialogGeometry(50, 20).height, 15); // short help stays natural, below its max of 16
+    assert.equal(helpDialogGeometry(60, 20).height, 16); // added provider controls scroll at the supported minimum
   } finally { shell.close(); }
 });
 
