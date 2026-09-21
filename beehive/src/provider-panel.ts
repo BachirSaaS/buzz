@@ -6,11 +6,20 @@ import type { ShellState } from './shell-state.ts';
 import { listWidth } from './shell-state.ts';
 
 const types = ['openai', 'anthropic', 'openai-compat', 'openrouter', 'databricks_v2'];
+const labels: Record<string, string> = { openai: 'OpenAI', anthropic: 'Anthropic', 'openai-compat': 'OpenAI-compatible', openrouter: 'OpenRouter', databricks_v2: 'Databricks v2' };
+
+/** Supported types remain visible before any accounts are configured. */
+export function providerInventory(snapshot: ProviderSnapshot): ProviderRow[] {
+  return types.flatMap(type => {
+    const accounts = snapshot.rows.filter(row => row.type === type);
+    return accounts.length ? accounts : [{ id: `type:${type}`, name: labels[type]!, type: type as ProviderRow['type'], endpoint: '', state: type === 'databricks_v2' && !snapshot.databricksHost ? 'ENV MISSING' : 'NOT SET', detail: type === 'databricks_v2' ? 'Set DATABRICKS_HOST to the workspace HTTPS origin, then reload providers.' : 'Not configured. Add an account to use this provider.' }];
+  });
+}
 /** Providers presentation. All durable changes and secret state live in Node. */
 export class ProviderPanel {
   private snapshot: ProviderSnapshot;
   private unsubscribe: () => void;
-  private selected = 'add';
+  private selected = 'type:openai';
   private actionIndex = 0;
   private actionOffset = 0;
   private offset = 0;
@@ -32,7 +41,7 @@ export class ProviderPanel {
     this.list = new BoxRenderable(renderer, { width: '100%', height: '100%', backgroundColor: palette.surface });
     this.detail = new BoxRenderable(renderer, { width: '100%', height: '100%', backgroundColor: palette.surface });
     listPane.add(this.list); detailPane.add(this.detail);
-    this.listTitle = new TextRenderable(renderer, { left: 2, top: 1, position: 'absolute', height: 1, fg: palette.muted, content: 'PROVIDERS' }); this.list.add(this.listTitle);
+    this.listTitle = new TextRenderable(renderer, { left: 2, top: 1, position: 'absolute', height: 1, fg: palette.muted, content: 'MODEL ACCOUNTS' }); this.list.add(this.listTitle);
     this.detailTitle = new TextRenderable(renderer, { left: 2, top: 1, position: 'absolute', height: 1, fg: palette.muted }); this.detail.add(this.detailTitle);
     this.details = new TextRenderable(renderer, { left: 2, top: 3, position: 'absolute', fg: palette.text, wrapMode: 'word' }); this.detail.add(this.details);
     this.actionTitle = new TextRenderable(renderer, { left: 2, position: 'absolute', height: 1, fg: palette.muted, content: 'AVAILABLE ACTIONS' }); this.detail.add(this.actionTitle);
@@ -45,11 +54,12 @@ export class ProviderPanel {
     }
     this.unsubscribe = client.subscribe(snapshot => { if (this.snapshot.message !== snapshot.message) this.detailOffset = 0; this.snapshot = snapshot; this.dialog?.updateSecretLength(snapshot.secretLength); this.paint(); });
   }
-  private items() { return [...this.snapshot.rows.map(row => row.id), 'add', 'reload']; }
-  private row() { return this.snapshot.rows.find(row => row.id === this.selected); }
+  private items() { return [...providerInventory(this.snapshot).map(row => row.id), 'add', 'reload']; }
+  private row() { return providerInventory(this.snapshot).find(row => row.id === this.selected); }
   private commands() {
     if (this.selected === 'add') return ['Add provider'];
     if (this.selected === 'reload') return ['Reload providers'];
+    if (this.selected.startsWith('type:')) return [this.row()?.type === 'databricks_v2' ? 'Set up Databricks' : `Add ${labels[this.row()!.type]} account`];
     return ['Edit provider', 'Test provider', 'Load models', ...(this.row()?.type === 'databricks_v2' ? ['Sign in to Databricks'] : []), 'Set up Codex', 'Set up Pi'];
   }
   private select(index: number) {
@@ -92,15 +102,15 @@ export class ProviderPanel {
     if (this.dialog === dialog) this.dialog = undefined;
     this.repaint(); return result;
   }
-  private async edit(row?: ProviderRow) {
+  private async edit(row?: ProviderRow, preset?: ProviderRow['type']) {
     const generation = this.generation, revision = this.snapshot.revision;
-    let type = row?.type;
+    let type = row?.type ?? preset;
     if (!type) {
       const result = await this.form('ADD PROVIDER', [{ label: 'Type', value: 'openai', choices: types }], 'Continue');
       if (!result || generation !== this.generation) return;
       type = result.Type as ProviderRow['type'];
     }
-    const fields: DialogField[] = [{ label: 'Name', value: row?.name ?? (type === 'databricks_v2' ? 'Databricks' : type) }];
+    const fields: DialogField[] = [{ label: 'Name', value: row?.name ?? labels[type]! }];
     if (type === 'databricks_v2') fields.push({ label: 'Workspace (DATABRICKS_HOST)', value: this.snapshot.databricksHost ?? 'Set DATABRICKS_HOST and reopen Beehive', choices: [this.snapshot.databricksHost ?? 'Set DATABRICKS_HOST and reopen Beehive'] });
     else {
       if (type === 'openai-compat') fields.push({ label: 'Endpoint', value: row?.endpoint ?? 'https://' }, { label: 'Wire', value: row?.wire ?? 'auto', choices: ['auto', 'chat', 'responses'] });
@@ -108,7 +118,7 @@ export class ProviderPanel {
     }
     const result = await this.form(row ? 'EDIT PROVIDER' : 'ADD PROVIDER', fields);
     if (!result || generation !== this.generation) return;
-    await this.client.request({ action: 'save', provider: row?.id, revision, values: { type, name: result.Name!, endpoint: result.Endpoint ?? '', wire: result.Wire ?? 'auto' } });
+    await this.client.request({ action: 'save', provider: row?.id ?? (preset ? `type:${type}` : undefined), revision, values: { type, name: result.Name!, endpoint: result.Endpoint ?? '', wire: result.Wire ?? 'auto' } });
   }
   private async setup(row: ProviderRow, harness: string) {
     const generation = this.generation;
@@ -145,6 +155,7 @@ export class ProviderPanel {
     if (command === 'Add provider') await this.edit();
     else if (command === 'Reload providers') await this.client.request({ action: 'reload' });
     else if (row) {
+      if (row.id.startsWith('type:')) { await this.edit(undefined, row.type); return; }
       if (command === 'Edit provider') await this.edit(row);
       else if (command === 'Set up Codex' || command === 'Set up Pi') await this.setup(row, command === 'Set up Codex' ? 'codex' : 'pi');
       else await this.client.request({ action: command === 'Test provider' ? 'test' : command === 'Load models' ? 'models' : 'login', provider: row.id, revision: this.snapshot.revision });
@@ -153,14 +164,22 @@ export class ProviderPanel {
   paint() {
     if (!this.active) return;
     const height = this.renderer.height - 5, leftWidth = listWidth(this.renderer.width) - 4, width = this.renderer.width - listWidth(this.renderer.width) - 5;
-    const items = this.items(); if (!items.includes(this.selected)) this.selected = 'add';
+    const items = this.items(); if (!items.includes(this.selected)) {
+      const type = this.selected.startsWith('type:') ? this.selected.slice(5) : undefined;
+      this.selected = (type && this.snapshot.rows.find(row => row.type === type)?.id) || items[0]!;
+    }
     const selectedIndex = items.indexOf(this.selected), capacity = Math.min(this.rows.length, Math.max(1, height - 4));
     if (selectedIndex < this.offset) this.offset = selectedIndex;
     if (selectedIndex >= this.offset + capacity) this.offset = selectedIndex - capacity + 1;
     this.rows.forEach((renderable, slot) => {
-      const id = items[this.offset + slot], row = this.snapshot.rows.find(row => row.id === id);
+      const id = items[this.offset + slot], row = providerInventory(this.snapshot).find(row => row.id === id);
       renderable.visible = slot < capacity && !!id; renderable.top = slot + 3; renderable.width = leftWidth;
-      renderable.content = (id === 'add' ? '+ Add provider' : id === 'reload' ? '↻ Reload providers' : `◇ ${row?.name ?? ''}`).slice(0, leftWidth);
+      if (row) {
+        const status = row.state;
+        const available = Math.max(1, leftWidth - status.length - 3);
+        const name = row.name.length > available ? row.name.slice(0, Math.max(1, available - 1)) + '…' : row.name;
+        renderable.content = `◇ ${name.padEnd(available)} ${status}`;
+      } else renderable.content = (id === 'add' ? '+ Add provider' : '↻ Reload providers').slice(0, leftWidth);
       renderable.bg = id === this.selected ? palette.selected : palette.surface; renderable.fg = id === this.selected ? palette.selectedText : palette.text;
     });
     const row = this.row();

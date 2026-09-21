@@ -28,7 +28,7 @@ for (const [width, height] of [[120, 40], [60, 20]]) test(`Providers signed-out 
     for (let i = 0; i < 3; i++) ui.mockInput.pressArrow('right');
     ui.mockInput.pressEnter(); await ui.renderOnce();
     assert.match(ui.captureCharFrame(), /Add provider/);
-    ui.mockInput.pressArrow('up'); ui.mockInput.pressTab(); await ui.renderOnce();
+    ui.mockInput.pressTab(); await ui.renderOnce();
     assert.equal(shell.state.focus, 'detail');
     assert.match(ui.captureCharFrame(), /Test provider/);
     ui.mockInput.pressArrow('down'); ui.mockInput.pressEnter(); await ui.renderOnce();
@@ -61,7 +61,7 @@ test('minimum-size results, recovery text and models remain reachable through re
   const shell = new OpenTuiShell(ui.renderer, f.inventory, undefined, f.client);
   try {
     for (let i = 0; i < 3; i++) ui.mockInput.pressArrow('right');
-    ui.mockInput.pressEnter(); ui.mockInput.pressArrow('up'); ui.mockInput.pressTab();
+    ui.mockInput.pressEnter(); ui.mockInput.pressTab();
     f.snapshot.resultTarget = 'p'; f.snapshot.phase = 'error'; f.snapshot.message = 'Denied. Check provider access. Reload before retrying.'; f.emit();
     await ui.renderOnce(); assert.match(ui.captureCharFrame(), /Denied/); assert.match(ui.captureCharFrame(), /retrying/);
     ui.mockInput.pressKey('\x1b[6~'); await ui.renderOnce(); assert.match(ui.captureCharFrame(), /State/);
@@ -81,11 +81,26 @@ test('success and failure reports belong only to their selected provider', async
   const shell = new OpenTuiShell(ui.renderer, f.inventory, undefined, f.client);
   try {
     for (let i = 0; i < 3; i++) ui.mockInput.pressArrow('right');
-    ui.mockInput.pressEnter(); ui.mockInput.pressArrow('up'); await ui.renderOnce();
+    ui.mockInput.pressEnter(); ui.mockInput.pressArrow('down'); await ui.renderOnce();
     assert.doesNotMatch(ui.captureCharFrame(), /OpenAI result only/);
     ui.mockInput.pressArrow('up'); await ui.renderOnce(); assert.match(ui.captureCharFrame(), /OpenAI result only/);
     f.snapshot.phase = 'error'; f.snapshot.message = 'OpenAI denied only'; f.emit();
     ui.mockInput.pressArrow('down'); await ui.renderOnce(); assert.doesNotMatch(ui.captureCharFrame(), /OpenAI denied only|FAILED/);
     ui.mockInput.pressArrow('up'); await ui.renderOnce(); assert.match(ui.captureCharFrame(), /OpenAI denied only/);
+  } finally { shell.close(); }
+});
+
+for (const [width, height] of [[120, 40], [60, 20]]) test(`fresh Providers always exposes supported types and states at ${width}x${height}`, async () => {
+  const ui = await createTestRenderer({ width, height, exitOnCtrlC: false }), f = fixture();
+  f.snapshot.rows = [];
+  const shell = new OpenTuiShell(ui.renderer, f.inventory, undefined, f.client);
+  try {
+    for (let i = 0; i < 3; i++) ui.mockInput.pressArrow('right');
+    ui.mockInput.pressEnter(); await ui.renderOnce();
+    const frame = ui.captureCharFrame();
+    assert.match(frame, /MODEL ACCOUNTS/); assert.match(frame, /OpenAI/); assert.match(frame, /Anthropic/); assert.match(frame, /OpenRouter/);
+    assert.match(frame, /NOT SET/); assert.match(frame, /ENV MISSING/);
+    ui.mockInput.pressTab(); ui.mockInput.pressEnter(); await ui.renderOnce();
+    assert.match(ui.captureCharFrame(), /API key/); assert.doesNotMatch(ui.captureCharFrame(), /Type  ←/);
   } finally { shell.close(); }
 });

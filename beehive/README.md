@@ -918,3 +918,10 @@ and settings with synthetic external adapters. It requires a temporary
 `BEEHIVE_HOME` whose name contains `provider-tui-fixture-`. It is not reachable
 from the production launcher. API key `deny` exercises provider denial. The
 fixture is not proof of live vendor authentication.
+
+The Providers list always includes every supported provider type, even before
+any account is saved. Missing accounts show NOT SET; Databricks shows ENV MISSING
+without its workspace variable. Saved accounts show SAVED, not READY: saving
+credentials does not prove live access. Each left-hand row displays its state.
+Selecting an unconfigured type opens its own setup action; Add provider remains
+available for additional accounts.
