@@ -10,13 +10,15 @@ const service = new OwnerService(home, async (probe, signal) => {
   signal.throwIfAborted();
   return mode === 'missing' || mode === 'denied' ? { reason: mode === 'missing' ? 'missing' : 'access' } : probe ? { available: true } : { secret: mode === 'mismatch' ? '2'.repeat(64) : '1'.repeat(64) };
 }, fixtureHostDependencies(home));
+const pending = new Set<Promise<boolean>>();
 service.subscribe(snapshot => { if (process.connected) process.send?.({ type: 'snapshot', snapshot }); });
 process.on('message', async (message: any) => {
   if (message.type === 'secret') service.secret(message.action, message.value);
   else if (message.type === 'cancel') service.cancel();
   else if (message.type === 'request') {
-    const ok = await service.request(message.request);
+    const work = service.request(message.request); pending.add(work);
+    const ok = await work.finally(() => pending.delete(work));
     if (process.connected) process.send?.({ type: 'result', id: message.id, ok });
   }
 });
-process.on('disconnect', () => { service.dispose(); process.exit(); });
+process.on('disconnect', () => { service.dispose(); void Promise.allSettled([...pending]).finally(() => process.exit()); });
