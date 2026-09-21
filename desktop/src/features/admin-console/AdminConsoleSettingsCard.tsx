@@ -287,13 +287,26 @@ function AdminConsoleSettingsSession({ pubkeyHex }: { pubkeyHex: string }) {
     setProbeUiState({ kind: "idle" });
   }
 
-  // Null sessionTokenRef on unmount so A's deferred handleSave continuation
-  // fails the token check on all legs after A's component is torn down. Paired
-  // with the load-saved-origin effect below: that effect has an explicit
-  // lint suppression; this cleanup-only effect has no deps and Biome accepts it.
+  // Null both sessionTokenRef and savedOriginRef on unmount.
+  //
+  // sessionTokenRef: A's deferred handleSave continuation fails the token check
+  // on all legs after A's component is torn down.
+  //
+  // savedOriginRef: A's deferred self-mutation completion (handleConfirmRemove in
+  // StaffingTab) calls onSelfMutation?.() which closes over savedOriginRef. If
+  // the ref still holds A's origin after teardown, the fence
+  // `savedOriginRef.current === originAtRender` is A === A → true → runProbe(A)
+  // fires, signing a NIP-98 request with the now-active identity's keys. Nulling
+  // the ref makes the fence false (null !== A) regardless of which origin was
+  // active at session mount, closing the post-teardown signing leak.
+  //
+  // StrictMode safety: the simulated cleanup nulls both refs before the second
+  // mount's load effect resolves. setSavedOriginBoth is called again by that
+  // effect, re-arming the ref for the live session.
   useEffect(() => {
     return () => {
       sessionTokenRef.current = null;
+      savedOriginRef.current = null;
     };
   }, []);
 

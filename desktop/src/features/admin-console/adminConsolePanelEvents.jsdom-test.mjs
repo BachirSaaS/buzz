@@ -7096,11 +7096,24 @@ test("settings-card-stale-self-mutation-ignored-after-origin-switch: stale self-
   });
 
   let probeCount = 0;
+  const probeOrigins = [];
   // Call 1: A authorized (operator) on mount.
   // Call 2: B authorized (operator) after Save B.
   // Call 3+ would mean the stale fence failed — must NOT happen.
-  setIpcHandler("admin_probe", (_args) => {
+  //
+  // The mock discriminates by origin so the "no Access denied" check
+  // actually detects a stale fence: if call 3 fires for originA it returns
+  // nip98Denied, which would render "Access denied" in the panel — making
+  // both the probeCount assertion and the text assertion fail for the same
+  // defect. Tracking probeOrigins lets us assert the correct probe targets.
+  setIpcHandler("admin_probe", (args) => {
     probeCount += 1;
+    probeOrigins.push(args?.origin ?? null);
+    // Any call after the expected A-mount + B-save pair for origin A is the
+    // stale post-removal probe — return denied to surface the fence failure.
+    if (probeCount > 2 && args?.origin === originA) {
+      return Promise.resolve({ state: "nip98Denied" });
+    }
     return Promise.resolve({
       state: "nip98Authorized",
       role: "operator",
@@ -7188,6 +7201,26 @@ test("settings-card-stale-self-mutation-ignored-after-origin-switch: stale self-
     2,
     `probe must have fired twice (A-mount + B-save); got ${probeCount}`,
   );
+  assert.equal(
+    probeOrigins[0],
+    originA,
+    `first probe must target originA; got: ${probeOrigins[0]}`,
+  );
+  assert.equal(
+    probeOrigins[1],
+    originB,
+    `second probe must target originB; got: ${probeOrigins[1]}`,
+  );
+
+  // B's authorized panel must be visible BEFORE A's DELETE resolves, confirming
+  // the new session is correctly established independently of the deferred mutation.
+  const panelBeforeDelete = container.querySelector(
+    "[data-testid='admin-console-panel']",
+  );
+  assert.ok(
+    panelBeforeDelete !== null,
+    "admin-console-panel must be visible for B before A's DELETE resolves",
+  );
 
   // Let A's DELETE resolve — stale onSelfMutation callback fires.
   await act(async () => {
@@ -7218,4 +7251,139 @@ test("settings-card-stale-self-mutation-ignored-after-origin-switch: stale self-
   );
 
   await unmount();
+});
+
+test("settings-card-stale-self-mutation-ignored-after-session-teardown: deferred self-mutation after session unmount does not fire admin_probe", async () => {
+  // Regression for Thufir's session-teardown finding (review pass 1/1 on
+  // 6dcc6a105): the origin-switch fence protects against a savedOrigin change
+  // while the DELETE is in flight, but not against identity teardown.
+  //
+  // Counterexample without the fix: identity X starts self-removal on origin A;
+  // X's Settings session unmounts (pubkeyHex → ""); X's deferred DELETE resolves.
+  // The retained onSelfMutation callback closes over savedOriginRef. Without
+  // clearing savedOriginRef on unmount, savedOriginRef.current === A and
+  // originAtRender === A → fence passes → runProbe(A) fires, signing a NIP-98
+  // request with the *currently active* identity's keys (Y's, or none).
+  //
+  // Fix: unmount cleanup now also nulls savedOriginRef. When the fence runs,
+  // savedOriginRef.current is null and null !== A → early return, no probe.
+  //
+  // Mutation evidence:
+  //   Remove `savedOriginRef.current = null` from the unmount cleanup effect in
+  //   AdminConsoleSettingsCard.tsx → savedOriginRef retains A on teardown →
+  //   fence passes → probeCount reaches 2 → this test goes RED.
+  //
+  // StrictMode preservation:
+  //   StrictMode fires mount→cleanup→mount. The simulated cleanup nulls
+  //   savedOriginRef, but the second mount's load effect calls setSavedOriginBoth
+  //   which re-arms the ref. The ordinary-session test
+  //   (settings-card-self-demotion-reruns-probe) runs in StrictMode (jsdom IS_REACT_ACT_ENVIRONMENT)
+  //   and verifies that the normal same-session self-mutation path still fires
+  //   the probe — so the null + re-arm cycle does not break live sessions.
+
+  const pubkey = "a2".repeat(32); // self
+  const otherPubkey = "b3".repeat(32); // second operator (required so self-remove is allowed)
+  const origin = "https://relay-teardown-admin.example.com";
+
+  // Manual-resolve for the delete — held until after unmount.
+  let resolveDelete = null;
+  const deleteInFlight = new Promise((resolve) => {
+    resolveDelete = resolve;
+  });
+
+  let probeCount = 0;
+  const probeOrigins = [];
+  // Call 1: authorized on mount.
+  // Call 2+ would mean the teardown fence failed — must NOT happen after unmount.
+  setIpcHandler("admin_probe", (args) => {
+    probeCount += 1;
+    probeOrigins.push(args?.origin ?? null);
+    // After the expected mount probe, return denied for any stale call so the
+    // failure is observable (both probeCount and any "access denied" render).
+    if (probeCount > 1) {
+      return Promise.resolve({ state: "nip98Denied" });
+    }
+    return Promise.resolve({
+      state: "nip98Authorized",
+      role: "operator",
+      source: "db",
+    });
+  });
+
+  setIpcHandler("get_admin_origin", () => Promise.resolve(origin));
+  setIpcHandler("admin_list_reports", () => Promise.resolve([]));
+  setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
+  setIpcHandler("admin_list_operators", () =>
+    Promise.resolve([
+      { pubkey, effectiveRole: "operator", sources: ["db"] },
+      { pubkey: otherPubkey, effectiveRole: "operator", sources: ["db"] },
+    ]),
+  );
+  // Self-remove: blocks until resolveDelete() fires after unmount.
+  setIpcHandler("admin_delete_operator", () => deleteInFlight);
+  setIpcHandler("get_users_batch", () =>
+    Promise.resolve({ profiles: {}, missing: [] }),
+  );
+
+  const qc = makeQueryClient(pubkey);
+  const { container, doRender, unmount } = mountCardFull(qc);
+  await doRender();
+  await settle(120);
+
+  assert.equal(probeCount, 1, "should have probed once on mount");
+  assert.equal(
+    probeOrigins[0],
+    origin,
+    `mount probe must target origin; got: ${probeOrigins[0]}`,
+  );
+
+  const staffingTab = container.querySelector(
+    "[data-testid='admin-tab-staffing']",
+  );
+  assert.ok(staffingTab !== null, "Staffing tab must be visible (operator)");
+
+  // Navigate to Staffing and start self-removal (DELETE in flight, unresolved).
+  await act(async () => {
+    fireEvent.click(staffingTab);
+    await new Promise((r) => setTimeout(r, 20));
+  });
+
+  const removeButton = container.querySelector(
+    `[data-testid='staffing-remove-btn-${pubkey}']`,
+  );
+  assert.ok(removeButton !== null, "self remove button must be present");
+  await act(async () => {
+    fireEvent.click(removeButton);
+    await new Promise((r) => setTimeout(r, 20));
+  });
+
+  // AlertDialog portals to document.body.
+  const confirmButton = document.body.querySelector(
+    "[data-testid='staffing-remove-confirm']",
+  );
+  assert.ok(confirmButton !== null, "removal confirm button must be present");
+  await act(async () => {
+    fireEvent.click(confirmButton);
+    await new Promise((r) => setTimeout(r, 20));
+  });
+  // DELETE is now in flight and blocked.
+
+  // Unmount the entire session — simulates identity teardown (pubkeyHex → "").
+  // This fires the cleanup effect, nulling both sessionTokenRef and savedOriginRef.
+  await unmount();
+
+  // Now let the deferred DELETE resolve. The retained onSelfMutation closure
+  // runs and reaches the savedOriginRef fence.
+  await act(async () => {
+    resolveDelete();
+    await new Promise((r) => setTimeout(r, 80));
+  });
+
+  // Fence must have blocked any post-teardown probe.
+  assert.equal(
+    probeCount,
+    1,
+    `post-teardown self-mutation must NOT trigger any additional admin_probe; probeCount=${probeCount}. ` +
+      "Add `savedOriginRef.current = null` to the unmount cleanup in AdminConsoleSettingsCard.tsx to fix.",
+  );
 });
