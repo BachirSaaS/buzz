@@ -45,7 +45,7 @@ export class ProviderService implements ProviderClient {
   async request(request: ProviderRequest) {
     if (this.active || this.disposed) return false;
     const abort = new AbortController(), generation = ++this.generation;
-    this.active = abort; this.current.phase = 'busy'; this.current.message = 'Working… Esc stops waiting; changes may already be saved.'; this.publish();
+    this.active = abort; this.current.resultTarget = request.provider ?? (request.action === 'save' ? 'add' : 'reload'); this.current.phase = 'busy'; this.current.message = 'Working… Esc stops waiting; changes may already be saved.'; this.publish();
     const check = () => { abort.signal.throwIfAborted(); if (generation !== this.generation || this.disposed) throw Error('Cancelled'); };
     try {
       const before = readSettings(this.directory), values = request.values ?? {};

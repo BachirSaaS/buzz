@@ -35,6 +35,7 @@ test('signed-out add, edit, models and Codex setup retain active credential refe
     const oldKey = provider.key;
     assert.equal(await f.service.request({ action: 'models', provider: provider.id, revision: settings.revision }), true);
     assert.deepEqual(f.service.snapshot().models, ['gpt-fixture']);
+    assert.equal(f.service.snapshot().resultTarget, provider.id);
     assert.equal(await f.service.request({ action: 'setup', provider: provider.id, revision: settings.revision, values: { harness: 'codex', model: 'gpt-fixture' } }), true);
     settings = readSettings(f.directory);
     f.service.secret('append', 'second-private-key');
@@ -90,5 +91,6 @@ test('cancel fences late model result and duplicate operation; secrets clear', a
     f.service.cancel(); finish({ models: ['late'] });
     assert.equal(await pending, false); assert.deepEqual(f.service.snapshot().models, []);
     assert.match(f.service.snapshot().message, /may already be saved/);
+    assert.equal(f.service.snapshot().resultTarget, id);
   } finally { f.close(); }
 });

@@ -62,7 +62,7 @@ test('minimum-size results, recovery text and models remain reachable through re
   try {
     for (let i = 0; i < 3; i++) ui.mockInput.pressArrow('right');
     ui.mockInput.pressEnter(); ui.mockInput.pressArrow('up'); ui.mockInput.pressTab();
-    f.snapshot.phase = 'error'; f.snapshot.message = 'Denied. Check provider access. Reload before retrying.'; f.emit();
+    f.snapshot.resultTarget = 'p'; f.snapshot.phase = 'error'; f.snapshot.message = 'Denied. Check provider access. Reload before retrying.'; f.emit();
     await ui.renderOnce(); assert.match(ui.captureCharFrame(), /Denied/); assert.match(ui.captureCharFrame(), /retrying/);
     ui.mockInput.pressKey('\x1b[6~'); await ui.renderOnce(); assert.match(ui.captureCharFrame(), /State/);
     f.snapshot.phase = 'idle'; f.snapshot.message = 'Models loaded.'; f.snapshot.modelProvider = 'p'; f.snapshot.models = ['gpt-visible']; f.emit();
@@ -71,5 +71,21 @@ test('minimum-size results, recovery text and models remain reachable through re
     await ui.renderOnce(); assert.match(ui.captureCharFrame(), /gpt-visible/);
     f.snapshot.message = 'Stopped waiting. Changes may already be saved. Reload before retrying.'; f.emit();
     await ui.renderOnce(); assert.match(ui.captureCharFrame(), /Stopped waiting/);
+  } finally { shell.close(); }
+});
+
+test('success and failure reports belong only to their selected provider', async () => {
+  const ui = await createTestRenderer({ width: 60, height: 20, exitOnCtrlC: false }), f = fixture();
+  f.snapshot.rows.push({ id: 'other', name: 'Other account', type: 'anthropic', endpoint: 'https://api.anthropic.com', state: 'SAVED', detail: 'Untested' });
+  f.snapshot.resultTarget = 'p'; f.snapshot.message = 'OpenAI result only';
+  const shell = new OpenTuiShell(ui.renderer, f.inventory, undefined, f.client);
+  try {
+    for (let i = 0; i < 3; i++) ui.mockInput.pressArrow('right');
+    ui.mockInput.pressEnter(); ui.mockInput.pressArrow('up'); await ui.renderOnce();
+    assert.doesNotMatch(ui.captureCharFrame(), /OpenAI result only/);
+    ui.mockInput.pressArrow('up'); await ui.renderOnce(); assert.match(ui.captureCharFrame(), /OpenAI result only/);
+    f.snapshot.phase = 'error'; f.snapshot.message = 'OpenAI denied only'; f.emit();
+    ui.mockInput.pressArrow('down'); await ui.renderOnce(); assert.doesNotMatch(ui.captureCharFrame(), /OpenAI denied only|FAILED/);
+    ui.mockInput.pressArrow('up'); await ui.renderOnce(); assert.match(ui.captureCharFrame(), /OpenAI denied only/);
   } finally { shell.close(); }
 });

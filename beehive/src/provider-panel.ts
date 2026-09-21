@@ -171,7 +171,8 @@ export class ProviderPanel {
     if (this.actionIndex >= this.actionOffset + actionCapacity) this.actionOffset = this.actionIndex - actionCapacity + 1;
     const actionStart = height - actionCapacity - 4;
     const info = row ? [`State       ${row.state}`, `Type        ${row.type}`, `Connects to ${row.endpoint}`, '', row.detail, ...(this.snapshot.modelProvider === row.id ? ['', 'MODELS', ...this.snapshot.models] : [])] : this.selected === 'add' ? ['Choose OpenAI, Anthropic, OpenAI-compatible, OpenRouter, or Databricks v2.', '', 'Credentials stay in the OS credential store.'] : ['Reload saved providers and the DATABRICKS_HOST workspace. No owner sign-in is required.'];
-    if (this.snapshot.message) info.unshift('RESULT', this.snapshot.message, '');
+    const ownsResult = this.snapshot.resultTarget === this.selected;
+    if (ownsResult && this.snapshot.message) info.unshift('RESULT', this.snapshot.message, '');
     const wrapped = info.flatMap(line => { const result: string[] = []; for (let start = 0; start < Math.max(1, line.length); start += width) result.push(line.slice(start, start + width)); return result; });
     this.detailOffset = Math.min(this.detailOffset, Math.max(0, wrapped.length - (actionStart - 4)));
     this.details.width = width; this.details.height = Math.max(1, actionStart - 4); this.details.content = wrapped.slice(this.detailOffset, this.detailOffset + Math.max(1, actionStart - 4)).join('\n');
@@ -183,8 +184,8 @@ export class ProviderPanel {
       action.bg = this.state.focus === 'detail' && this.actionIndex === commandIndex ? palette.selected : palette.surface;
     });
     this.status.top = height - 3; this.status.width = width; this.status.height = 2;
-    this.status.content = this.snapshot.phase === 'busy' ? 'Working… Esc stops waiting' : `${this.snapshot.phase === 'error' ? 'FAILED · ' : ''}PgUp/PgDn details\n↑↓ actions · Enter run`;
-    this.status.fg = this.snapshot.phase === 'error' ? palette.failure : palette.muted;
+    this.status.content = ownsResult && this.snapshot.phase === 'busy' ? 'Working… Esc stops waiting' : `${ownsResult && this.snapshot.phase === 'error' ? 'FAILED · ' : ''}PgUp/PgDn details\n↑↓ actions · Enter run`;
+    this.status.fg = ownsResult && this.snapshot.phase === 'error' ? palette.failure : palette.muted;
     this.dialog?.paint();
   }
   dispose() { this.generation++; this.dialog?.cancel(); this.unsubscribe(); this.client.dispose(); }
