@@ -1589,9 +1589,9 @@ mod tests {
                 .get("content-type")
                 .and_then(|v| v.to_str().ok())
                 .unwrap_or("");
-            assert!(
-                ct.contains("text/plain"),
-                "Strict membership denial must be text/plain, got: {ct}"
+            assert_eq!(
+                ct, "text/plain; charset=utf-8",
+                "Strict membership denial must be exact text/plain; charset=utf-8, got: {ct}"
             );
             assert!(
                 response.headers().get("www-authenticate").is_none(),
@@ -1639,20 +1639,19 @@ mod tests {
                 .get("content-type")
                 .and_then(|v| v.to_str().ok())
                 .unwrap_or("");
-            assert!(
-                ct.contains("application/json"),
-                "Permissive read membership denial must keep JSON CT, got: {ct}"
+            assert_eq!(
+                ct, "application/json",
+                "Permissive read membership denial must be exact application/json CT, got: {ct}"
             );
             assert!(
                 response.headers().get("www-authenticate").is_none(),
                 "Permissive 403 must not carry WWW-Authenticate"
             );
             let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-            let json: serde_json::Value =
-                serde_json::from_slice(&body).expect("Permissive read body must be valid JSON");
             assert_eq!(
-                json["error"], "relay membership required",
-                "Permissive read JSON body must preserve legacy error text"
+                body.as_ref(),
+                br#"{"error":"relay membership required"}"#,
+                "Permissive read body must be exact legacy JSON bytes"
             );
         }
 
@@ -1695,9 +1694,9 @@ mod tests {
                 .get("content-type")
                 .and_then(|v| v.to_str().ok())
                 .unwrap_or("");
-            assert!(
-                ct.contains("text/plain"),
-                "Strict upload membership denial must be text/plain, got: {ct}"
+            assert_eq!(
+                ct, "text/plain; charset=utf-8",
+                "Strict upload membership denial must be exact text/plain; charset=utf-8, got: {ct}"
             );
             assert!(
                 response.headers().get("www-authenticate").is_none(),
@@ -1746,20 +1745,19 @@ mod tests {
                 .get("content-type")
                 .and_then(|v| v.to_str().ok())
                 .unwrap_or("");
-            assert!(
-                ct.contains("application/json"),
-                "Permissive upload denial must keep JSON CT, got: {ct}"
+            assert_eq!(
+                ct, "application/json",
+                "Permissive upload denial must be exact application/json CT, got: {ct}"
             );
             assert!(
                 response.headers().get("www-authenticate").is_none(),
                 "Permissive upload 403 must not carry WWW-Authenticate"
             );
             let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-            let json: serde_json::Value =
-                serde_json::from_slice(&body).expect("Permissive upload body must be valid JSON");
             assert_eq!(
-                json["error"], "relay membership required",
-                "Permissive upload JSON body must preserve legacy error text"
+                body.as_ref(),
+                br#"{"error":"relay membership required"}"#,
+                "Permissive upload body must be exact legacy JSON bytes"
             );
         }
 

@@ -13,7 +13,10 @@
 //   at `stream.pipe(ioRequest)` forever — test times out.
 //
 // Transport probe #2: abort trigger cancels an in-flight download.
-//   The server delays its response; the abort fires first and send() throws.
+//   The server waits for the client connection to close (signalled via a
+//   Completer) so the test does not race against a fixed sleep.  The abort
+//   fires after the server confirms request arrival; send() must throw the
+//   typed RequestAbortedException within a bounded deadline.
 
 import 'dart:async';
 import 'dart:io';
@@ -73,13 +76,21 @@ void main() {
   test(
     'Transport: abort trigger cancels an in-flight download — real IO loopback',
     () async {
-      // Server that stalls after reading the request body.
+      // The server signals that the request has arrived (so the abort fires
+      // AFTER the connection is established, not before).
+      final requestArrivedCompleter = Completer<void>();
+
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       addTearDown(() => server.close(force: true));
 
       server.listen((req) async {
         await req.drain<void>();
-        // Intentionally delay — the abort closes the connection before this.
+        // Signal that the server has received the request.
+        if (!requestArrivedCompleter.isCompleted) {
+          requestArrivedCompleter.complete();
+        }
+        // Hold the response open until the client closes the connection.
+        // The abort closes the socket, which unblocks this 60-second delay.
         await Future<void>.delayed(const Duration(seconds: 60));
         await req.response.close();
       });
@@ -99,22 +110,23 @@ void main() {
       );
       unawaited(request.sink.close());
 
-      // Start the request, give it time to reach the server, then abort.
+      // Start the request, wait for server-arrival confirmation, then abort.
       final sendFuture = client.send(request);
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      // Bounded wait: if the server doesn't see the request within 5s, fail.
+      await requestArrivedCompleter.future.timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => throw TimeoutException(
+          'Loopback server did not receive request within 5 s',
+        ),
+      );
       requestAbort.complete();
 
-      // send() must throw because the abort fires before the response.
-      Object? caughtError;
-      try {
-        await sendFuture;
-      } catch (e) {
-        caughtError = e;
-      }
-      expect(
-        caughtError,
-        isNotNull,
-        reason: 'abort must cause send() to throw',
+      // send() must throw RequestAbortedException within a bounded deadline.
+      // The typed assertion distinguishes an abort from any other exception.
+      await expectLater(
+        sendFuture.timeout(const Duration(seconds: 5)),
+        throwsA(isA<http.RequestAbortedException>()),
+        reason: 'abort must cause send() to throw RequestAbortedException',
       );
     },
   );

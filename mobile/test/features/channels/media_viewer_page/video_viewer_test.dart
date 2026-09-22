@@ -18,6 +18,14 @@
 //         arriving while initialize() was awaiting the initialized event left
 //         the native player allocated forever.
 //
+// F2r(d): createWithOptions() failure shows the error UI instead of leaving
+//         the viewer in an infinite loading state.  video_player 2.11.1
+//         creates _creatingCompleter before awaiting createWithOptions() and
+//         completes it only AFTER the await returns.  If creation throws,
+//         _creatingCompleter is never completed and dispose() deadlocks waiting
+//         on it.  The fix uses unawaited(dispose()) in the catch so the outer
+//         catch runs immediately and sets error.value.
+//
 // Transport: AbortableStreamedRequest sink must be closed before send().
 //         Without it, IOClient.send() awaits stream.pipe(ioRequest) which
 //         blocks until the sink is closed — every download hangs indefinitely
@@ -63,6 +71,12 @@ class _FakePathProviderPlatform extends Fake
 class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
   final bool forceInitError;
   final bool neverInitialize;
+  // When true, createWithOptions() itself throws a PlatformException.
+  // video_player 2.11.1 awaits createWithOptions() before completing
+  // _creatingCompleter (video_player.dart:587-590); if creation throws,
+  // _creatingCompleter is never completed and dispose() deadlocks waiting
+  // on it.  This flag exercises the F2r(d) production fix.
+  final bool forceCreateError;
   int disposeCallCount = 0;
   int nextPlayerId = 0;
   final Map<int, StreamController<VideoEvent>> _streams = {};
@@ -70,6 +84,7 @@ class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
   _FakeVideoPlayerPlatform({
     this.forceInitError = false,
     this.neverInitialize = false,
+    this.forceCreateError = false,
   });
 
   @override
@@ -77,6 +92,12 @@ class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
 
   @override
   Future<int?> createWithOptions(VideoCreationOptions options) async {
+    if (forceCreateError) {
+      throw PlatformException(
+        code: 'VideoError',
+        message: 'Fake native create failure',
+      );
+    }
     return create(options.dataSource);
   }
 
@@ -115,11 +136,16 @@ class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
   @override
   Future<void> dispose(int playerId) async {
     disposeCallCount++;
-    // Close the stream with an error so any pending initialize() call
-    // (waiting for the initialized event) gets unblocked rather than hanging.
-    // Without this, a neverInitialize fake causes the initializingCompleter
-    // to wait forever, which leaves the initializeVideo() future pending after
-    // the test ends — triggering "pending timers" framework warnings.
+    // Inject a terminal error into the event stream so any pending
+    // initialize() call (waiting for the initialized or error event)
+    // unblocks rather than hanging.  The event subscription cancels
+    // BEFORE platform disposal in video_player 2.11.1 (dispose() awaits
+    // _creatingCompleter, then cancels _eventSubscription, then calls
+    // _videoPlayerPlatform.dispose() — see video_player.dart:677-693).
+    // An error injected here therefore reaches the initialize() listener
+    // if the subscription is still live, causing initializingCompleter to
+    // reject.  Without this, the neverInitialize fake leaves initialize()
+    // pending after the test ends, triggering "pending timers" warnings.
     final stream = _streams[playerId];
     if (stream != null) {
       if (!stream.isClosed) {
@@ -331,9 +357,19 @@ void main() {
     // Body stream that NEVER closes — simulates a slow/stalled server.
     // drain() would block here indefinitely; _cancelVideoResponse completes
     // immediately by subscribing and cancelling.
+    //
+    // The Completer fires as soon as the stream's onCancel callback runs,
+    // giving the test a bounded completion signal instead of a fixed sleep.
+    // It is the cancellation of the body (not settling) that proves the fix:
+    // the assertions below check that (a) the cancel fires while the body is
+    // still open, and (b) the error UI is visible at that moment.
+    final cancelledCompleter = Completer<void>();
     var bodyStreamCancelled = false;
     final stalledBody = StreamController<List<int>>(
-      onCancel: () => bodyStreamCancelled = true,
+      onCancel: () {
+        bodyStreamCancelled = true;
+        if (!cancelledCompleter.isCompleted) cancelledCompleter.complete();
+      },
     );
     addTearDown(stalledBody.close);
 
@@ -355,12 +391,11 @@ void main() {
       ),
     );
 
-    // Allow real async I/O to complete.  disableAnimations: true stops
-    // BuzzLoadingIndicator from repeating, so pumpAndSettle converges.
-    // drain() blocks here (body never closes); _cancelVideoResponse does not.
-    await tester.runAsync(
-      () => Future<void>.delayed(const Duration(milliseconds: 50)),
-    );
+    // Wait for the body-cancellation signal rather than a fixed sleep.
+    // disableAnimations: true stops BuzzLoadingIndicator from repeating so
+    // pumpAndSettle converges once the error state is set.
+    // With drain(), cancelledCompleter never completes and this times out.
+    await tester.runAsync(() => cancelledCompleter.future);
     await tester.pumpAndSettle();
 
     // (1) The body stream's onCancel must have fired — confirming listen+cancel
@@ -481,6 +516,70 @@ void main() {
         greaterThanOrEqualTo(1),
         reason:
             'pendingController must be disposed on unmount even if init never completes',
+      );
+    },
+  );
+
+  // F2r(d): createWithOptions() failure must show the error UI, not leave
+  // the viewer in an infinite loading state.
+  //
+  // Scenario: the platform plugin's createWithOptions() itself throws a
+  // PlatformException before returning a player ID.  video_player 2.11.1
+  // creates _creatingCompleter at initialize():546 and completes it only on
+  // the line AFTER await createWithOptions() (:587-590).  If creation throws,
+  // _creatingCompleter is never completed, and dispose() awaits it at :682-683.
+  // The old code `await localController.dispose()` in the catch block therefore
+  // deadlocks: the outer catch never runs, error.value is never set, and the
+  // viewer remains on the loading screen.
+  //
+  // Fix: `unawaited(localController.dispose())` in the catch releases the
+  // native player concurrently and immediately rethrows so the outer catch sets
+  // error.value and the error UI appears.
+  //
+  // Red-with-old-code: the old `await localController.dispose()` hangs
+  // indefinitely; this test times out waiting for the error text.
+  testWidgets(
+    'F2r(d): createWithOptions() failure shows error UI (not infinite spinner)',
+    (tester) async {
+      final fakePlayer = _FakeVideoPlayerPlatform(forceCreateError: true);
+      VideoPlayerPlatform.instance = fakePlayer;
+
+      // Bounded completion signal: the error UI becomes visible when
+      // error.value is set by the outer catch.  The test pumps until this
+      // fires rather than sleeping.
+      final fakeClient = _FinalizingFakeClient(
+        responseBuilder: () =>
+            http.StreamedResponse(Stream.value(<int>[0, 1, 2, 3]), 200),
+      );
+      addTearDown(fakeClient.close);
+
+      await tester.runAsync(() async {
+        await tester.pumpWidget(
+          WidgetHelpers.testable(
+            disableAnimations: true,
+            overrides: [
+              mediaGetAuthServiceProvider.overrideWithValue(_noopAuth()),
+              mediaHttpClientProvider.overrideWithValue(fakeClient),
+            ],
+            child: const MediaVideoViewerPage(
+              videoUrl: 'https://relay.test/media/abc.mp4',
+            ),
+          ),
+        );
+        // Allow the download to complete and createWithOptions() to throw.
+        // No initialize() event loop runs because create itself fails.
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+      });
+      await tester.pumpAndSettle();
+
+      // The error UI must be visible: unawaited dispose + rethrow lets the
+      // outer catch set error.value and show _MediaLoadFailure.
+      // With the old `await dispose()` the viewer hangs and this fails.
+      expect(
+        find.text('Failed to load video'),
+        findsOneWidget,
+        reason:
+            'createWithOptions() failure must show error UI, not infinite spinner',
       );
     },
   );

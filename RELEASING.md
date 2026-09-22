@@ -89,6 +89,30 @@ prior release's recorded squash commit; tag ancestry is deliberately irrelevant.
 Every push to `main` continues to publish the rolling relay `:main` and
 `:sha-<7>` tags, plus matching `:debug-main` and `:debug-sha-<7>` variants.
 
+#### NIP-FI upload proof freshness (relay floor)
+
+Desktop, CLI, and mobile clients mint Blossom upload authorization proofs with
+a **60-second expiry** (`expiration = now + 60`). The relay in Strict mode
+verifies the proof **after** receiving the full upload body, so the clock ticks
+during transfer. An upload that takes longer than 60 seconds to reach an older
+relay will fail with an expiry rejection.
+
+Clients cannot lengthen proofs beyond 60 seconds (NIP-FI §Strict limits the
+max proof window to 60 s). This is a relay-side concern:
+
+- **Relay `relay-v0.5.0` and newer** verify the proof hash only
+  (post-body check), eliminating the transfer-time window entirely. All
+  supported Buzz-hosted relays run this version or newer.
+- **Older self-hosted relays** (pre-`relay-v0.5.0`) may reject large uploads
+  over slow connections. Upgrading the relay is the fix; no client workaround
+  exists within Strict constraints.
+
+When releasing a new **relay** version, confirm it carries the post-body
+hash-only check (`NIP-FI §Strict freshness`). When releasing **desktop, CLI,
+or mobile** in an environment where self-hosted, older relays are in use,
+document this floor in your release notes and advise operators to upgrade to
+`relay-v0.5.0` or later before distributing these clients.
+
 ### Mobile
 
 1. **Publish a candidate.** From a clean checkout whose `origin` is the

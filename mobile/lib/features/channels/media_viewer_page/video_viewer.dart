@@ -182,10 +182,25 @@ class MediaVideoViewerPage extends HookConsumerWidget {
             pendingController.value = null;
             controller.value = localController;
           } catch (_) {
-            // dispose() before re-throwing so the native player is released
-            // even if the outer catch is the only error handler.
+            // Release the native player without awaiting dispose().
+            //
+            // video_player 2.11.1 initialize() creates _creatingCompleter at
+            // the top of the method, then awaits createWithOptions() before
+            // completing it (video_player.dart:546,587-590).  If
+            // createWithOptions() itself throws, _creatingCompleter is never
+            // completed, and dispose() waits on it unconditionally at :682-683.
+            // Awaiting dispose() here would therefore deadlock: the outer catch
+            // never sets error.value, the error UI is never shown, and the
+            // viewer is left in an infinite loading state.
+            //
+            // After a successful create, initialize() completes _creatingCompleter
+            // at :590, so awaiting dispose() after a post-create failure (e.g.
+            // the initialized event carries an error) is safe — but using
+            // unawaited() uniformly in the error path avoids the distinction.
+            // The native player is still released: unawaited disposal runs
+            // concurrently with the rethrow/outer-catch path [F2r(d)].
             pendingController.value = null;
-            await localController.dispose();
+            unawaited(localController.dispose());
             rethrow;
           }
         } catch (loadError) {
