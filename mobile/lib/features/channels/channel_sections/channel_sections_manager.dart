@@ -387,10 +387,13 @@ class ChannelSectionsManager {
       final incoming = ChannelSectionStore.fromJson(parsed);
 
       // Last-write-wins: newer createdAt wins; tie-break by event ID.
+      // Relay retains `ORDER BY created_at DESC, id ASC`, so the lower ID wins
+      // at equal second — accept incoming only if its ID is lexicographically
+      // lower than the one we already hold.
       final isNewer =
           event.createdAt > _lastRemoteCreatedAt ||
           (event.createdAt == _lastRemoteCreatedAt &&
-              event.id.compareTo(_lastRemoteEventId ?? '') > 0);
+              event.id.compareTo(_lastRemoteEventId ?? '') < 0);
 
       if (isNewer) {
         _lastRemoteCreatedAt = event.createdAt;

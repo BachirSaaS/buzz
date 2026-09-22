@@ -45,6 +45,13 @@ class ChannelStarsManager {
   void Function()? _unsubscribe;
   bool _disposed = false;
 
+  /// Base delay for the startup-sync retry backoff. Overridable in tests.
+  final Duration _startupRetryBaseDelay;
+  Timer? _startupRetryTimer;
+  int _startupRetryAttempt = 0;
+  bool _startupFetchSucceeded = false;
+  int _subscriptionGeneration = 0;
+
   ChannelStarsManager({
     required this.pubkey,
     required SharedPreferences prefs,
@@ -53,12 +60,15 @@ class ChannelStarsManager {
     required SignedEventRelay? signedEventRelay,
     required bool remoteEnabled,
     required VoidCallback onChanged,
+    @visibleForTesting
+    Duration startupRetryBaseDelay = const Duration(seconds: 2),
   }) : _storage = ChannelStarsStorage(prefs),
        _crypto = crypto,
        _relaySession = relaySession,
        _signedEventRelay = signedEventRelay,
        _remoteEnabled = remoteEnabled,
        _onChanged = onChanged,
+       _startupRetryBaseDelay = startupRetryBaseDelay,
        _store = ChannelStarsStorage(prefs).read(pubkey);
 
   ChannelStarStore get store => _store;
@@ -71,14 +81,61 @@ class ChannelStarsManager {
       return;
     }
 
-    await _fetchAndMerge();
-    await _startLiveSubscription();
+    await _syncWithRelay();
     _onChanged();
+  }
+
+  /// One startup-sync attempt: fetch the remote blob, then start the live
+  /// subscription. Either step can fail transiently — retry with bounded
+  /// backoff (2s base, 30s ceiling) until both succeed.
+  Future<void> _syncWithRelay() async {
+    if (_disposed) return;
+
+    if (!_startupFetchSucceeded) {
+      final fetched = await _fetchAndMerge();
+      if (_disposed) return;
+      _startupFetchSucceeded = fetched;
+    }
+
+    final subscribed = _unsubscribe != null || await _startLiveSubscription();
+    if (_disposed) return;
+
+    if (!_startupFetchSucceeded || !subscribed) {
+      _scheduleStartupRetry();
+    } else {
+      _startupRetryAttempt = 0;
+    }
+  }
+
+  void _scheduleStartupRetry() {
+    if (_disposed) return;
+    _startupRetryTimer?.cancel();
+    final delayMs = min(
+      _startupRetryBaseDelay.inMilliseconds << min(_startupRetryAttempt, 5),
+      30000,
+    );
+    _startupRetryAttempt++;
+    debugPrint(
+      '[ChannelStarsManager] startup sync incomplete; '
+      'retrying in ${delayMs}ms (attempt $_startupRetryAttempt)',
+    );
+    _startupRetryTimer = Timer(Duration(milliseconds: delayMs), () {
+      _startupRetryTimer = null;
+      unawaited(
+        _syncWithRelay().then((_) {
+          if (!_disposed) _onChanged();
+        }),
+      );
+    });
   }
 
   void dispose({bool flushPending = true}) {
     if (_disposed) return;
     _disposed = true;
+    _subscriptionGeneration++;
+
+    _startupRetryTimer?.cancel();
+    _startupRetryTimer = null;
 
     final hadPending = _publishDebounce != null;
     _publishDebounce?.cancel();
@@ -125,8 +182,10 @@ class ChannelStarsManager {
     });
   }
 
-  Future<void> _fetchAndMerge() async {
-    if (_relaySession == null) return;
+  /// Returns true when the fetch reached the relay (regardless of whether a
+  /// remote blob exists).
+  Future<bool> _fetchAndMerge({bool allowDisposed = false}) async {
+    if (_relaySession == null) return false;
     try {
       final events = await _relaySession.fetchHistory(
         NostrFilter(
@@ -138,18 +197,24 @@ class ChannelStarsManager {
           limit: 1,
         ),
       );
+      if (_disposed && !allowDisposed) return false;
       _mergeEvents(events);
       _persist();
       if (!_disposed) _onChanged();
-    } catch (_) {
+      return true;
+    } catch (error) {
+      debugPrint('[ChannelStarsManager] fetch failed: $error');
       // Local state remains usable when relay is unavailable.
+      return false;
     }
   }
 
-  Future<void> _startLiveSubscription() async {
-    if (_relaySession == null) return;
+  /// Returns true when the live subscription was established.
+  Future<bool> _startLiveSubscription() async {
+    if (_relaySession == null || _disposed) return false;
+    final generation = ++_subscriptionGeneration;
     try {
-      _unsubscribe = await _relaySession.subscribe(
+      final unsubscribe = await _relaySession.subscribe(
         NostrFilter(
           kinds: const [EventKind.readState],
           authors: [pubkey],
@@ -159,10 +224,31 @@ class ChannelStarsManager {
           limit: 1,
         ),
         _handleIncomingEvent,
+        onClosed: (message) => _handleSubscriptionClosed(generation, message),
       );
-    } catch (_) {
-      // Non-fatal — local state and history still work.
+      if (_disposed || generation != _subscriptionGeneration) {
+        unsubscribe();
+        return false;
+      }
+      _unsubscribe = unsubscribe;
+      return true;
+    } catch (error) {
+      debugPrint('[ChannelStarsManager] live subscription failed: $error');
+      return false;
     }
+  }
+
+  /// A relay `CLOSED` can arrive after `subscribe()` already reported success.
+  /// Without this handler the manager would keep a dead subscription and never
+  /// retry — the exact load-correlated cold-start failure this retry exists for.
+  void _handleSubscriptionClosed(int generation, String message) {
+    if (_disposed || generation != _subscriptionGeneration) return;
+    debugPrint(
+      '[ChannelStarsManager] live subscription closed by relay: $message',
+    );
+    _unsubscribe = null;
+    _subscriptionGeneration++;
+    _scheduleStartupRetry();
   }
 
   void _mergeEvents(List<NostrEvent> events) {
@@ -184,11 +270,14 @@ class ChannelStarsManager {
 
       final incoming = ChannelStarStore.fromJson(parsed);
 
-      // Gate on createdAt: ignore events older than what we've already seen.
+      // Last-write-wins: newer createdAt wins; tie-break by event ID.
+      // Relay retains `ORDER BY created_at DESC, id ASC`, so the lower ID wins
+      // at equal second — accept incoming only if its ID is lexicographically
+      // lower than the one we already hold.
       final isNewer =
           event.createdAt > _lastRemoteCreatedAt ||
           (event.createdAt == _lastRemoteCreatedAt &&
-              event.id.compareTo(_lastRemoteEventId ?? '') > 0);
+              event.id.compareTo(_lastRemoteEventId ?? '') < 0);
 
       if (isNewer) {
         _lastRemoteCreatedAt = event.createdAt;
@@ -232,7 +321,7 @@ class ChannelStarsManager {
     }
 
     // Read-before-write: merge remote state before publishing
-    await _fetchAndMerge();
+    await _fetchAndMerge(allowDisposed: allowDisposed);
 
     // No-op suppression: skip if nothing changed
     if (_isIdenticalToLastPublished()) return;
