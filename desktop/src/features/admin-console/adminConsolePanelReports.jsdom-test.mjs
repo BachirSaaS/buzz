@@ -2515,9 +2515,9 @@ test("kick-already-gone-friendly-copy: enforcement block shows friendly message 
 
 // ── Item 7: report list row snippet and detail PubKey rendering ───────────
 
-test("report-list-snippet: list rows show truncated reporter and target identifiers", async () => {
-  // Each list row must include a hex snippet of reporter and target so rows
-  // are distinguishable without opening the detail.
+test("report-list-snippet: list rows show truncated pubkey fallback when profiles absent", async () => {
+  // Without a resolved profile the snippet falls back to the first 8 chars of
+  // the hex pubkey (truncatePubkey) so rows are still distinguishable.
 
   const origin = "https://admin.example.com";
   const pubkey = "fa".repeat(32);
@@ -2564,6 +2564,73 @@ test("report-list-snippet: list rows show truncated reporter and target identifi
     assert.ok(
       rowText.includes(targetHex.slice(0, 8)),
       `list row must include target hex snippet; got: ${rowText}`,
+    );
+  } finally {
+    await unmount();
+  }
+});
+
+test("report-list-snippet: list rows show display names when profiles resolve", async () => {
+  // When get_users_batch returns display names for reporter and target
+  // pubkeys, the list row snippet must render those names instead of
+  // truncated hex.
+
+  const origin = "https://admin-display-names.example.com";
+  const pubkey = "fa".repeat(32);
+
+  const reporterHex = "1234567890abcdef".repeat(4); // 64 hex
+  const targetHex = "fedcba0987654321".repeat(4); // 64 hex
+  const base = makeReportBase({
+    id: "00000000-0000-0000-0000-000000000ffb",
+    reporterPubkey: reporterHex,
+    target: targetHex,
+    targetKind: "pubkey",
+  });
+
+  setIpcHandler("admin_list_reports", () =>
+    Promise.resolve([{ ...base, status: "open" }]),
+  );
+  setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
+  setIpcHandler("get_users_batch", (args) => {
+    const profiles = {};
+    for (const pk of args?.pubkeys ?? []) {
+      if (pk === reporterHex) {
+        profiles[pk] = { display_name: "Alice Reporter", avatar_url: null };
+      } else if (pk === targetHex) {
+        profiles[pk] = { display_name: "Bob Target", avatar_url: null };
+      }
+    }
+    return Promise.resolve({ profiles, missing: [] });
+  });
+
+  const { container, doRender, unmount } = mountPanel({ origin, pubkey });
+  try {
+    await doRender();
+    await settle(50);
+    await settle(100);
+
+    // Activate Reports tab.
+    const tabs = Array.from(container.querySelectorAll("button"));
+    const reportsTab = tabs.find((b) =>
+      (b.getAttribute("data-testid") ?? "").includes("tab-reports"),
+    );
+    assert.ok(reportsTab, "reports tab button must exist");
+    await act(async () => {
+      fireEvent.click(reportsTab);
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    await settle(100);
+
+    const listItems = container.querySelectorAll("li button");
+    assert.ok(listItems.length > 0, "at least one report list row must render");
+    const rowText = listItems[0].textContent ?? "";
+    assert.ok(
+      rowText.includes("Alice Reporter"),
+      `list row must show reporter display name "Alice Reporter"; got: ${rowText}`,
+    );
+    assert.ok(
+      rowText.includes("Bob Target"),
+      `list row must show target display name "Bob Target"; got: ${rowText}`,
     );
   } finally {
     await unmount();

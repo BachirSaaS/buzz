@@ -13,6 +13,9 @@ import { Button } from "@/shared/ui/button";
 import { Badge } from "@/shared/ui/badge";
 import { cn } from "@/shared/lib/cn";
 import { PubKey } from "@/shared/ui/PubKey";
+import { truncatePubkey } from "@/shared/lib/pubkey";
+import { useUsersBatchQuery } from "@/features/profile/hooks";
+import type { UserProfileSummary } from "@/shared/api/types";
 import {
   getAdminReport,
   listAdminReports,
@@ -34,6 +37,19 @@ import {
   adminErrorMessage,
   preserveRequestIdOnError,
 } from "./AdminConsolePanelHelpers";
+
+// ── Display-name helper (mirrors AdminConsoleStaffingTab) ─────────────────
+
+function formatDisplayName(
+  pubkey: string,
+  profile?: UserProfileSummary | null,
+): string {
+  const trimmed = profile?.displayName?.trim();
+  if (trimmed && !trimmed.toLowerCase().startsWith("npub1")) {
+    return trimmed;
+  }
+  return truncatePubkey(pubkey);
+}
 
 // ── Status variant helper ─────────────────────────────────────────────────
 
@@ -615,6 +631,25 @@ export function ReportsTab({
     generation + listGen,
   );
 
+  // Batch-resolve display names for reporter and target pubkeys so list rows
+  // show human-readable names rather than truncated hex. Mirrors the pattern
+  // used in AdminConsoleStaffingTab.
+  const listedPubkeys =
+    listState.status === "ok"
+      ? [
+          ...new Set(
+            listState.data.flatMap((r) =>
+              [r.reporterPubkey, r.target].filter(
+                (k): k is string => typeof k === "string" && k.length === 64,
+              ),
+            ),
+          ),
+        ]
+      : [];
+  const profilesQuery = useUsersBatchQuery(listedPubkeys, {
+    enabled: listedPubkeys.length > 0,
+  });
+
   if (selectedId) {
     return (
       <ReportDetail
@@ -653,9 +688,11 @@ export function ReportsTab({
         // Show a brief reporter → target snippet so rows are distinguishable.
         const snippet = [
           report.reporterPubkey
-            ? `reporter: ${report.reporterPubkey.slice(0, 8)}…`
+            ? `reporter: ${formatDisplayName(report.reporterPubkey, profilesQuery.data?.profiles[report.reporterPubkey])}`
             : null,
-          report.target ? `target: ${report.target.slice(0, 8)}…` : null,
+          report.target
+            ? `target: ${formatDisplayName(report.target, profilesQuery.data?.profiles[report.target])}`
+            : null,
         ]
           .filter(Boolean)
           .join(" · ");
@@ -673,7 +710,7 @@ export function ReportsTab({
             >
               <span className="block font-medium">{summary}</span>
               {snippet && (
-                <span className="block text-xs text-muted-foreground font-mono truncate">
+                <span className="block text-xs text-muted-foreground truncate">
                   {snippet}
                 </span>
               )}

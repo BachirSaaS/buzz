@@ -133,31 +133,15 @@ export function makeQueryClient(pubkeyHex) {
   return qc;
 }
 
+// ReportsTab (the panel's default tab) and StaffingTab both resolve profile
+// names via useUsersBatchQuery, which needs CommunitiesProvider and a
+// get_users_batch handler.
 export function mountCard(qc) {
-  const container = document.createElement("div");
-  document.body.appendChild(container);
-  const root = createRoot(container);
-  const doRender = async () => {
-    await act(async () => {
-      root.render(
-        React.createElement(
-          QueryClientProvider,
-          { client: qc },
-          React.createElement(AdminConsoleSettingsCard),
-        ),
-      );
-    });
-  };
-  const unmount = async () => {
-    await act(async () => {
-      root.unmount();
-    });
-    document.body.removeChild(container);
-  };
-  return { container, doRender, unmount };
-}
-
-export function mountCardFull(qc) {
+  if (!ipcHandlers.get("get_users_batch")) {
+    setIpcHandler("get_users_batch", () =>
+      Promise.resolve({ profiles: {}, missing: [] }),
+    );
+  }
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);

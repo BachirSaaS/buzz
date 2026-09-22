@@ -401,6 +401,30 @@ function installDOMShim() {
       configurable: true,
     });
   }
+  // CommunitiesProvider reads localStorage on mount; provide a minimal no-op
+  // shim so tests that wrap components needing CommunitiesProvider don't throw.
+  if (typeof globalThis.localStorage === "undefined") {
+    const _store = Object.create(null);
+    Object.defineProperty(globalThis, "localStorage", {
+      value: {
+        getItem: (k) => _store[k] ?? null,
+        setItem: (k, v) => {
+          _store[k] = String(v);
+        },
+        removeItem: (k) => {
+          delete _store[k];
+        },
+        clear: () => {
+          for (const k of Object.keys(_store)) delete _store[k];
+        },
+        get length() {
+          return Object.keys(_store).length;
+        },
+        key: (i) => Object.keys(_store)[i] ?? null,
+      },
+      configurable: true,
+    });
+  }
 }
 
 installDOMShim();
@@ -434,6 +458,7 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { act } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { CommunitiesProvider } from "@/features/communities/useCommunities.tsx";
 
 import { AdminConsoleSettingsCard } from "./AdminConsoleSettingsCard.tsx";
 import {
@@ -474,12 +499,22 @@ function mountCard(qc) {
   document.body.appendChild(container);
   const root = createRoot(container);
   const doRender = async () => {
+    // ReportsTab calls useUsersBatchQuery which needs a get_users_batch handler.
+    if (!ipcHandlers.get("get_users_batch")) {
+      setIpcHandler("get_users_batch", () =>
+        Promise.resolve({ profiles: {}, missing: [] }),
+      );
+    }
     await act(async () => {
       root.render(
         React.createElement(
           QueryClientProvider,
           { client: qc },
-          React.createElement(AdminConsoleSettingsCard),
+          React.createElement(
+            CommunitiesProvider,
+            null,
+            React.createElement(AdminConsoleSettingsCard),
+          ),
         ),
       );
     });
@@ -488,6 +523,7 @@ function mountCard(qc) {
     await act(async () => {
       root.unmount();
     });
+    qc.clear();
     document.body.removeChild(container);
   };
   return { container, doRender, unmount };
@@ -505,16 +541,33 @@ function mountPanel({
 }) {
   const container = document.createElement("div");
   document.body.appendChild(container);
+  const qc = makeQueryClient(pubkey);
   const root = createRoot(container);
   const doRender = async ({ origin: o, pubkey: p } = { origin, pubkey }) => {
+    // ReportsTab calls useUsersBatchQuery which needs QueryClientProvider +
+    // CommunitiesProvider. Provide a default no-op handler so profile lookups
+    // resolve without error when individual tests don't override get_users_batch.
+    if (!ipcHandlers.get("get_users_batch")) {
+      setIpcHandler("get_users_batch", () =>
+        Promise.resolve({ profiles: {}, missing: [] }),
+      );
+    }
     await act(async () => {
       root.render(
-        React.createElement(AdminConsolePanel, {
-          canMutate,
-          origin: o,
-          pubkey: p,
-          ...(initialTab !== undefined ? { initialTab } : {}),
-        }),
+        React.createElement(
+          QueryClientProvider,
+          { client: qc },
+          React.createElement(
+            CommunitiesProvider,
+            null,
+            React.createElement(AdminConsolePanel, {
+              canMutate,
+              origin: o,
+              pubkey: p,
+              ...(initialTab !== undefined ? { initialTab } : {}),
+            }),
+          ),
+        ),
       );
     });
   };
@@ -522,6 +575,7 @@ function mountPanel({
     await act(async () => {
       root.unmount();
     });
+    qc.clear();
     document.body.removeChild(container);
   };
   return { container, doRender, unmount };

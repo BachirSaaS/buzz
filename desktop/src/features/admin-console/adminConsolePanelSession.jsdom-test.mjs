@@ -15,12 +15,12 @@ import {
   QueryClient,
   QueryClientProvider,
   AdminConsoleSettingsCard,
+  CommunitiesProvider,
   setIpcHandler,
   resetTestState,
   deferred,
   makeQueryClient,
   mountCard,
-  mountCardFull,
   mountPanel,
   settle,
 } from "./adminConsolePanelTestHelpers.jsdom.mjs";
@@ -655,6 +655,9 @@ test("strict-mode-save: probe fires after save under React.StrictMode double-mou
     return Promise.resolve({ state: "disabled" });
   });
   setIpcHandler("set_admin_origin", () => Promise.resolve(canonicalOrigin));
+  setIpcHandler("get_users_batch", () =>
+    Promise.resolve({ profiles: {}, missing: [] }),
+  );
 
   // gcTime: Infinity is critical: with gcTime: 0 StrictMode's simulated unmount
   // GCs the seeded identity query before the component's observer re-subscribes,
@@ -677,7 +680,11 @@ test("strict-mode-save: probe fires after save under React.StrictMode double-mou
         React.createElement(
           QueryClientProvider,
           { client: qc },
-          React.createElement(AdminConsoleSettingsCard),
+          React.createElement(
+            CommunitiesProvider,
+            null,
+            React.createElement(AdminConsoleSettingsCard),
+          ),
         ),
       ),
     );
@@ -1075,10 +1082,6 @@ test("discovery-skipped: a saved origin takes precedence and discovery is not at
 });
 
 // ── P2-1 Settings→panel wiring: onSelfMutation propagates from SettingsCard ──
-//
-// mountCard does not wrap with CommunitiesProvider (StaffingTab requires it).
-// mountCardFull adds CommunitiesProvider so SettingsCard-level wiring tests
-// can navigate to the Staffing tab. Both are imported from adminConsolePanelTestHelpers.
 
 test("settings-card-self-demotion-reruns-probe: self-demotion through SettingsCard triggers runProbe", async () => {
   // Verifies the Settings→panel wiring at AdminConsoleSettingsCard.tsx:462:
@@ -1139,7 +1142,7 @@ test("settings-card-self-demotion-reruns-probe: self-demotion through SettingsCa
   );
 
   const qc = makeQueryClient(pubkey);
-  const { container, doRender, unmount } = mountCardFull(qc);
+  const { container, doRender, unmount } = mountCard(qc);
   await doRender();
   await settle(60);
 
@@ -1246,7 +1249,7 @@ test("settings-card-other-demotion-does-not-reruns-probe: demoting a different o
   );
 
   const qc = makeQueryClient(pubkey);
-  const { container, doRender, unmount } = mountCardFull(qc);
+  const { container, doRender, unmount } = mountCard(qc);
   await doRender();
   await settle(60);
 
@@ -1362,7 +1365,7 @@ test("settings-card-stale-self-mutation-ignored-after-origin-switch: stale self-
   );
 
   const qc = makeQueryClient(pubkey);
-  const { container, doRender, unmount } = mountCardFull(qc);
+  const { container, doRender, unmount } = mountCard(qc);
   await doRender();
   await settle(120);
 
@@ -1550,7 +1553,7 @@ test("settings-card-stale-self-mutation-ignored-after-session-teardown: deferred
   );
 
   const qc = makeQueryClient(pubkey);
-  const { container, doRender, unmount } = mountCardFull(qc);
+  const { container, doRender, unmount } = mountCard(qc);
   await doRender();
   await settle(120);
 
