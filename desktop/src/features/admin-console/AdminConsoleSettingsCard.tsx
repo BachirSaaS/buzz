@@ -61,9 +61,8 @@ function DeniedBadge({ pubkeyHex }: { pubkeyHex: string }) {
         Access denied
       </span>
       <span className="text-muted-foreground">
-        Your pubkey is not in{" "}
-        <code className="font-mono">RELAY_OPERATOR_PUBKEYS</code>. Ask your
-        relay operator to add:
+        Your pubkey is not authorized as an operator on this relay. Ask a relay
+        operator to add:
       </span>
       <span className="flex min-w-0 items-center gap-1.5 rounded bg-muted px-1.5 py-0.5">
         <code
@@ -96,10 +95,7 @@ function DeniedBadge({ pubkeyHex }: { pubkeyHex: string }) {
         </Button>
       </span>
       <span className="text-muted-foreground">
-        Other possible causes: clock skew &gt; 60 s, relay config mismatch, or
-        the relay is running{" "}
-        <code className="font-mono">BUZZ_ADMIN_AUTH=token</code> instead of{" "}
-        <code className="font-mono">nip98</code>.
+        Other possible causes: clock skew &gt; 60 s or a relay config mismatch.
       </span>
     </span>
   );
