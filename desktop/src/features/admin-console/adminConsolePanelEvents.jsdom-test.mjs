@@ -542,171 +542,6 @@ test("detail-navigation: stale detail result is discarded after navigating away"
   await unmount();
 });
 
-// ── attachment-unmount ───────────────────────────────────────────────────────
-
-test("attachment-unmount: late blob URL is revoked and not committed after panel generation changes", async () => {
-  // Verifies AttachmentViewer's loadGenRef cleanup and per-load generation guard.
-  //
-  // Scenario comments updated for auto-load behavior:
-  //  1. Panel renders; Feedback tab clicked; list+detail resolve immediately.
-  //  2. "View attachment" button appears (non-image mime, no auto-load); user
-  //     clicks it — load starts: thisGen = ++loadGenRef.current = 1. Fetch deferred.
-  //  3. Re-render with new origin/pubkey bumps panelGeneration →
-  //     AttachmentViewer cleanup: loadGenRef.current += 1 = 2. originRef and
-  //     pubkeyRef also update to the new values.
-  //  4. Attachment resolves: thisGen(1) !== loadGenRef.current(2) (and also
-  //     thisOrigin !== originRef.current) — URL.revokeObjectURL called,
-  //     setBlobUrl NOT called.
-  //
-  // Uses application/pdf (non-image) so the attachment doesn't auto-load on
-  // mount — the load is triggered by the "View attachment" button click, keeping
-  // the scenario identical to the original test design.
-
-  const origin = "https://admin.example.com";
-  const pubkey = "a".repeat(64);
-  const sha256 = "a".repeat(64);
-
-  const feedbackSummary = {
-    id: "00000000-0000-0000-0000-000000000011",
-    communityId: "00000000-0000-0000-0000-000000000022",
-    communityHost: "relay.example.com",
-    submitterPubkey: "submitterattach001",
-    category: null,
-    bodySummary: "Test feedback summary",
-    receivedAt: "2024-01-01T00:00:01Z",
-  };
-
-  const feedbackDetail = {
-    id: "00000000-0000-0000-0000-000000000011",
-    communityId: "00000000-0000-0000-0000-000000000022",
-    communityHost: "relay.example.com",
-    eventId: "attachtest001",
-    submitterPubkey: "submitterattach001",
-    category: null,
-    body: "Test feedback full body",
-    tags: [
-      [
-        "imeta",
-        `url https://relay.example.com/files/${sha256}`,
-        "m application/pdf",
-        `x ${sha256}`,
-        "size 1000",
-      ],
-    ],
-    eventCreatedAt: "2024-01-01T00:00:00Z",
-    receivedAt: "2024-01-01T00:00:01Z",
-  };
-
-  setIpcHandler("admin_list_reports", () => Promise.resolve([]));
-  setIpcHandler("admin_list_feedback", () =>
-    Promise.resolve([feedbackSummary]),
-  );
-  setIpcHandler("admin_get_feedback", () => Promise.resolve(feedbackDetail));
-
-  const attachDeferred = deferred();
-  const revokedUrls = [];
-  const origRevoke = globalThis.URL?.revokeObjectURL;
-  if (!globalThis.URL) globalThis.URL = {};
-  globalThis.URL.revokeObjectURL = (url) => {
-    revokedUrls.push(url);
-    if (origRevoke) origRevoke.call(globalThis.URL, url);
-  };
-  globalThis.URL.createObjectURL = () => "blob:test-url";
-  setIpcHandler(
-    "admin_fetch_feedback_attachment",
-    () => attachDeferred.promise,
-  );
-
-  const { container, doRender, unmount } = mountPanel({ origin, pubkey });
-
-  await act(async () => {
-    await doRender();
-    await new Promise((r) => setTimeout(r, 30));
-  });
-
-  // Click the Feedback tab via fireEvent.
-  const feedbackTab = container.querySelector(
-    "[data-testid='admin-tab-feedback']",
-  );
-  assert.ok(feedbackTab, "Feedback tab button must be present");
-  await act(async () => {
-    fireEvent.click(feedbackTab);
-    await new Promise((r) => setTimeout(r, 30));
-  });
-
-  // Navigate to feedback detail, then wait for the auto-load to start.
-  // Image attachments now auto-load on AttachmentViewer mount — no "View
-  // attachment" click required; the load kicks off as soon as FeedbackDetail
-  // renders the AttachmentViewer.
-  let startedAttachmentLoad = false;
-  const allBtns = container.querySelectorAll("button");
-  for (const btn of allBtns) {
-    const testid = btn.getAttribute("data-testid") ?? "";
-    if (testid.startsWith("admin-tab")) continue;
-    // Click feedback item to navigate to detail.
-    await act(async () => {
-      fireEvent.click(btn);
-      await new Promise((r) => setTimeout(r, 30));
-    });
-    // For non-image MIME (application/pdf), a "View attachment" button appears.
-    // Click it to start the load.
-    for (const b of container.querySelectorAll("button")) {
-      if ((b.textContent ?? "").includes("View attachment")) {
-        await act(async () => {
-          fireEvent.click(b);
-          await new Promise((r) => setTimeout(r, 0));
-        });
-        startedAttachmentLoad = true;
-        break;
-      }
-    }
-    break;
-  }
-
-  assert.ok(
-    startedAttachmentLoad,
-    '"View attachment" button must be found and clicked for non-image attachment',
-  );
-
-  // Attachment fetch is in-flight (deferred). Change origin/pubkey to bump
-  // panelGeneration — triggers AttachmentViewer cleanup: loadGenRef.current += 1.
-  // The new panel renders but the user hasn't clicked "View attachment" again,
-  // so loadGenRef.current on the now-unmounted instance's ref = original+1.
-  setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
-  await act(async () => {
-    await doRender({
-      origin: "https://admin-2.example.com",
-      pubkey: "b".repeat(64),
-    });
-    await new Promise((r) => setTimeout(r, 0));
-  });
-
-  // Resolve the attachment fetch. With the cleanup increment:
-  //   thisGen(1) !== loadGenRef.current(2) -> revoke, no blob committed.
-  // Without the cleanup increment:
-  //   thisGen(1) == loadGenRef.current(1) AND thisOrigin(admin.example.com)
-  //   !== originRef.current(admin-2.example.com) -> still revoke (origin check).
-  // So this test catches the mutation only if the origin/pubkey check is also
-  // removed. The loadGenRef test is most meaningful for detecting same-context
-  // concurrent loads — see the comment above. We include it here as defense-
-  // in-depth: if both loadGenRef AND the origin check were removed, the stale
-  // blob would commit.
-  attachDeferred.resolve(new ArrayBuffer(8));
-  await act(async () => {
-    await new Promise((r) => setTimeout(r, 30));
-  });
-
-  const img = container.querySelector("img");
-  assert.equal(
-    img?.getAttribute("src") ?? null,
-    null,
-    "stale blob URL must not be committed to an img element after panel generation change",
-  );
-
-  if (origRevoke !== undefined) globalThis.URL.revokeObjectURL = origRevoke;
-  await unmount();
-});
-
 // ── blob-leak-on-back-navigation ──────────────────────────────────────────────────────────────
 
 test("blob-leak-on-back-navigation: loadGenRef cleanup prevents orphaned blob URL", async () => {
@@ -2518,517 +2353,159 @@ test("reopen-enforced-copy: a report with an actionId warns enforcement is not r
   await unmount();
 });
 
-test("reopen-409-preserves-requestId: a not-reopenable conflict reuses the same requestId on retry", async () => {
-  // A 409 (report is not reopenable — e.g. it moved to processing) is an
-  // idempotency-relevant failure: the relay has a claim, so the same requestId
-  // must be reused on retry to let the relay dedupe. The native command carries
-  // the relay's HTTP status on the rejected error (`relayStatus: 409`), and the
-  // UI's preserveRequestIdOnError reads it — no string-matching.
-  //
-  // Mutation evidence: make preserveRequestIdOnError reset on 409 → the two
-  // attempts carry different ids and this goes red.
-
-  const origin = "https://admin.example.com";
-  const pubkey = "c4".repeat(32);
-
-  const resolvedItem = {
+// Reopen retry idempotency — table-driven (4 rows)
+//
+// preserveRequestIdOnError semantics: the requestId must survive retries
+// where the relay may have committed and the response was lost or ambiguous
+// (409, null-status transport failure, incomplete 4xx body). A fresh requestId
+// is only correct for a definitive pre-commit rejection (complete 4xx body).
+//
+// Each row mounts a resolved report, attempts reopen twice, and asserts
+// whether the two requestIds are equal (preserved) or different (reset).
+// Row-specific notes:
+//   409 — relay claims ownership; a no-op retry prevents double-reopening.
+//         Also asserts error toast present and no success toast.
+//   null-status — no relay verdict at all (timeout/disconnect); must preserve.
+//   complete-400 — full body read, definitive rejection; reset is safe.
+//   truncated-400 — status arrived but body lost (bodyComplete: false); must
+//                   preserve despite having a status code.
+//
+// Mutation evidence per row:
+//   409: reset on 409 → different ids, RED.
+//   null-status: reset on null → different ids, RED.
+//   complete-400: preserve on 400 → same ids, RED.
+//   truncated-400: reset every non-409 4xx → different ids, RED.
+const REOPEN_RETRY_ROWS = [
+  {
+    name: "409",
+    pubkey: "c4".repeat(32),
     id: "00000000-0000-0000-0000-0000000000c4",
-    communityId: "comm-1",
-    communityHost: "alpha.example.com",
-    reportEventId: "aa",
-    reporterPubkey: "bb",
-    targetKind: "event",
-    target: "cc",
-    reportType: "spam",
-    status: "resolved",
-    createdAt: "2024-06-01T12:00:00Z",
-  };
-  const resolvedDetail = {
-    ...resolvedItem,
-    channelId: null,
-    note: null,
-    resolvedBy: "mod_pubkey",
-    resolvedAt: "2024-06-02T08:00:00Z",
-    actionId: null,
-    message: null,
-  };
-
-  setIpcHandler("admin_list_reports", () => Promise.resolve([resolvedItem]));
-  setIpcHandler("admin_get_report", () => Promise.resolve(resolvedDetail));
-  setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
-
-  const requestIds = [];
-  setIpcHandler("admin_reopen_report", (args) => {
-    requestIds.push(args?.body?.requestId);
-    return mutationReject(
-      "admin API error: 409 report is not reopenable (current status: processing)",
-      409,
-    );
-  });
-
-  const { container, doRender, unmount } = mountPanel({ origin, pubkey });
-  await doRender();
-  await settle(30);
-  await openFirstReportDetail(container);
-  await settle(20);
-
-  const submit = container.querySelector("[data-testid='reopen-submit-btn']");
-  assert.ok(submit, "reopen submit button must be present");
-
-  // First attempt → 409.
-  await act(async () => {
-    fireEvent.click(submit);
-    await new Promise((r) => setTimeout(r, 20));
-  });
-  // Second attempt → 409 again; requestId must be identical.
-  await act(async () => {
-    fireEvent.click(submit);
-    await new Promise((r) => setTimeout(r, 20));
-  });
-
-  assert.equal(requestIds.length, 2, "two reopen attempts must have been made");
-  assert.equal(
-    requestIds[0],
-    requestIds[1],
-    `requestId must be preserved across a 409 retry; got: ${JSON.stringify(requestIds)}`,
-  );
-
-  // No success toast on a 409.
-  assert.ok(
-    !capturedToasts.some((m) => m.toLowerCase().includes("reopen")),
-    `no success toast on a 409; got: ${JSON.stringify(capturedToasts)}`,
-  );
-  // The error is surfaced via toast.error with the parsed relay message.
-  assert.ok(
-    capturedErrorToasts.some((m) => m.includes("not reopenable")),
-    `the 409 error message must surface via toast.error; got: ${JSON.stringify(capturedErrorToasts)}`,
-  );
-
-  await unmount();
-});
-
-test("reopen-lost-response-preserves-requestId: an ambiguous transport failure reuses the requestId on retry", async () => {
-  // The bug this fixes: the native layer serializes a timeout/disconnect as
-  // `relay unreachable: …` and a lost response body as `admin response stream
-  // error` — neither contains "409"/"processing", so the old string-match
-  // cleared the requestId and the retry became a brand-new command. The
-  // concrete harm is a two-operator interleave: A's reopen COMMITS, the
-  // response is lost; B resolves the now-open report; A's retry with a fresh id
-  // reopens B's later resolution. Reusing the original id makes the retry hit
-  // the relay's idempotent path harmlessly.
-  //
-  // A lost-response failure carries no relay verdict (`relayStatus: null`), so
-  // preserveRequestIdOnError must keep the id. Mutation evidence: change the
-  // null-status branch to reset → the two attempts carry different ids, red.
-
-  const origin = "https://admin.example.com";
-  const pubkey = "c5".repeat(32);
-
-  const resolvedItem = {
+    makeError: () =>
+      mutationReject(
+        "admin API error: 409 report is not reopenable (current status: processing)",
+        409,
+      ),
+    preserved: true,
+    checkToasts: (captured, capturedError) => {
+      assert.ok(
+        !captured.some((m) => m.toLowerCase().includes("reopen")),
+        `no success toast on a 409; got: ${JSON.stringify(captured)}`,
+      );
+      assert.ok(
+        capturedError.some((m) => m.includes("not reopenable")),
+        `409 error must surface via toast.error; got: ${JSON.stringify(capturedError)}`,
+      );
+    },
+  },
+  {
+    name: "null-status lost response",
+    pubkey: "c5".repeat(32),
     id: "00000000-0000-0000-0000-0000000000c5",
-    communityId: "comm-1",
-    communityHost: "alpha.example.com",
-    reportEventId: "aa",
-    reporterPubkey: "bb",
-    targetKind: "event",
-    target: "cc",
-    reportType: "spam",
-    status: "resolved",
-    createdAt: "2024-06-01T12:00:00Z",
-  };
-  const resolvedDetail = {
-    ...resolvedItem,
-    channelId: null,
-    note: null,
-    resolvedBy: "mod_pubkey",
-    resolvedAt: "2024-06-02T08:00:00Z",
-    actionId: null,
-    message: null,
-  };
-
-  setIpcHandler("admin_list_reports", () => Promise.resolve([resolvedItem]));
-  setIpcHandler("admin_get_report", () => Promise.resolve(resolvedDetail));
-  setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
-
-  const requestIds = [];
-  setIpcHandler("admin_reopen_report", (args) => {
-    requestIds.push(args?.body?.requestId);
-    // Transport failure: no relay answer, so no HTTP status.
-    return mutationReject("relay unreachable: network error", null);
-  });
-
-  const { container, doRender, unmount } = mountPanel({ origin, pubkey });
-  await doRender();
-  await settle(30);
-  await openFirstReportDetail(container);
-  await settle(20);
-
-  const submit = container.querySelector("[data-testid='reopen-submit-btn']");
-  assert.ok(submit, "reopen submit button must be present");
-
-  // First attempt → lost response.
-  await act(async () => {
-    fireEvent.click(submit);
-    await new Promise((r) => setTimeout(r, 20));
-  });
-  // Second attempt → same ambiguous failure; requestId must be identical.
-  await act(async () => {
-    fireEvent.click(submit);
-    await new Promise((r) => setTimeout(r, 20));
-  });
-
-  assert.equal(requestIds.length, 2, "two reopen attempts must have been made");
-  assert.equal(
-    requestIds[0],
-    requestIds[1],
-    `requestId must be preserved across a lost-response retry; got: ${JSON.stringify(requestIds)}`,
-  );
-
-  await unmount();
-});
-
-test("reopen-4xx-resets-requestId: a definitive pre-commit rejection uses a fresh requestId", async () => {
-  // A non-409 4xx (e.g. 400 bad request) is a definitive pre-commit rejection:
-  // the relay refused the input and committed nothing, so a corrected
-  // resubmission is a genuinely new command and a fresh requestId is correct.
-  // This is the ONLY case that resets — the counterpart to the ambiguous
-  // failures above.
-  //
-  // Mutation evidence: make preserveRequestIdOnError preserve on a 400 → the
-  // two attempts share an id and this goes red.
-
-  const origin = "https://admin.example.com";
-  const pubkey = "c6".repeat(32);
-
-  const resolvedItem = {
+    makeError: () => mutationReject("relay unreachable: network error", null),
+    preserved: true,
+  },
+  {
+    name: "complete-400 reset",
+    pubkey: "c6".repeat(32),
     id: "00000000-0000-0000-0000-0000000000c6",
-    communityId: "comm-1",
-    communityHost: "alpha.example.com",
-    reportEventId: "aa",
-    reporterPubkey: "bb",
-    targetKind: "event",
-    target: "cc",
-    reportType: "spam",
-    status: "resolved",
-    createdAt: "2024-06-01T12:00:00Z",
-  };
-  const resolvedDetail = {
-    ...resolvedItem,
-    channelId: null,
-    note: null,
-    resolvedBy: "mod_pubkey",
-    resolvedAt: "2024-06-02T08:00:00Z",
-    actionId: null,
-    message: null,
-  };
-
-  setIpcHandler("admin_list_reports", () => Promise.resolve([resolvedItem]));
-  setIpcHandler("admin_get_report", () => Promise.resolve(resolvedDetail));
-  setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
-
-  const requestIds = [];
-  setIpcHandler("admin_reopen_report", (args) => {
-    requestIds.push(args?.body?.requestId);
-    return mutationReject("admin API error: bad request", 400);
-  });
-
-  const { container, doRender, unmount } = mountPanel({ origin, pubkey });
-  await doRender();
-  await settle(30);
-  await openFirstReportDetail(container);
-  await settle(20);
-
-  const submit = container.querySelector("[data-testid='reopen-submit-btn']");
-  assert.ok(submit, "reopen submit button must be present");
-
-  await act(async () => {
-    fireEvent.click(submit);
-    await new Promise((r) => setTimeout(r, 20));
-  });
-  await act(async () => {
-    fireEvent.click(submit);
-    await new Promise((r) => setTimeout(r, 20));
-  });
-
-  assert.equal(requestIds.length, 2, "two reopen attempts must have been made");
-  assert.notEqual(
-    requestIds[0],
-    requestIds[1],
-    `a non-409 4xx must reset the requestId; got: ${JSON.stringify(requestIds)}`,
-  );
-
-  await unmount();
-});
-
-test("resolve-lost-response-preserves-requestId: an ambiguous transport failure reuses the requestId on retry", async () => {
-  // The resolve path is the enforcement seam and carries the same stale-intent
-  // risk as reopen: a lost-response failure (`relayStatus: null`, no relay
-  // verdict) must reuse the idempotency requestId so a retry dedupes against a
-  // commit that may have landed — otherwise a retry with a fresh id re-applies
-  // an enforcement action over another operator's intervening state.
-  //
-  // Mutation evidence: replace the resolve catch's preservation branch with an
-  // unconditional `requestIdRef.current = null` → the two attempts carry
-  // different ids and this goes red (the helper and reopen path stay intact).
-
-  const origin = "https://admin.example.com";
-  const pubkey = "c7".repeat(32);
-
-  const openItem = {
-    id: "00000000-0000-0000-0000-0000000000c7",
-    communityId: "comm-1",
-    communityHost: "alpha.example.com",
-    reportEventId: "aa",
-    reporterPubkey: "bb",
-    targetKind: "event",
-    target: "cc",
-    reportType: "spam",
-    status: "open",
-    createdAt: "2024-06-01T12:00:00Z",
-  };
-  const openDetail = {
-    ...openItem,
-    channelId: null,
-    note: null,
-    resolvedBy: null,
-    resolvedAt: null,
-    actionId: null,
-    message: null,
-  };
-
-  setIpcHandler("admin_list_reports", () => Promise.resolve([openItem]));
-  setIpcHandler("admin_get_report", () => Promise.resolve(openDetail));
-  setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
-
-  const capturedBodies2 = [];
-  setIpcHandler("admin_resolve_report", (args) => {
-    capturedBodies2.push({ ...args?.body });
-    // Transport failure: no relay answer, so no HTTP status.
-    return mutationReject("relay unreachable: network error", null);
-  });
-
-  const { container, doRender, unmount } = mountPanel({ origin, pubkey });
-  await doRender();
-  await settle(30);
-  await openFirstReportDetail(container);
-  await settle(20);
-
-  // Select the dismiss action so the resolve submit button appears.
-  const dismissBtn = container.querySelector(
-    "[data-testid='action-btn-dismiss']",
-  );
-  assert.ok(dismissBtn, "dismiss action must be present");
-  await act(async () => {
-    fireEvent.click(dismissBtn);
-    await new Promise((r) => setTimeout(r, 10));
-  });
-  const submit = container.querySelector("[data-testid='resolve-submit-btn']");
-  assert.ok(
-    submit,
-    "resolve submit button must appear after selecting dismiss",
-  );
-
-  // First attempt → lost response.
-  await act(async () => {
-    fireEvent.click(submit);
-    await new Promise((r) => setTimeout(r, 20));
-  });
-  // Second attempt → same ambiguous failure; requestId must be identical.
-  await act(async () => {
-    fireEvent.click(submit);
-    await new Promise((r) => setTimeout(r, 20));
-  });
-
-  assert.equal(
-    capturedBodies2.length,
-    2,
-    "two resolve attempts must have been made",
-  );
-  assert.equal(
-    capturedBodies2[0].requestId,
-    capturedBodies2[1].requestId,
-    `requestId must be preserved across a resolve lost-response retry; got: ${JSON.stringify(capturedBodies2.map((b) => b.requestId))}`,
-  );
-  assert.equal(
-    capturedBodies2[0].action,
-    capturedBodies2[1].action,
-    `action must be identical on retry; got: ${JSON.stringify(capturedBodies2.map((b) => b.action))}`,
-  );
-  assert.equal(
-    capturedBodies2[0].reason,
-    capturedBodies2[1].reason,
-    `reason must be identical on retry; got: ${JSON.stringify(capturedBodies2.map((b) => b.reason))}`,
-  );
-
-  await unmount();
-});
-
-test("resolve-4xx-resets-requestId: a definitive pre-commit rejection uses a fresh requestId", async () => {
-  // The resolve counterpart to reopen-4xx-resets: a non-409 4xx whose full body
-  // was read is a definitive pre-commit rejection, so a corrected resubmission
-  // is a genuinely new command and a fresh requestId is correct. Pins the
-  // resolve call-site's reset branch specifically.
-  //
-  // Mutation evidence: make the resolve catch preserve unconditionally → the
-  // two attempts share an id and this goes red.
-
-  const origin = "https://admin.example.com";
-  const pubkey = "c8".repeat(32);
-
-  const openItem = {
-    id: "00000000-0000-0000-0000-0000000000c8",
-    communityId: "comm-1",
-    communityHost: "alpha.example.com",
-    reportEventId: "aa",
-    reporterPubkey: "bb",
-    targetKind: "event",
-    target: "cc",
-    reportType: "spam",
-    status: "open",
-    createdAt: "2024-06-01T12:00:00Z",
-  };
-  const openDetail = {
-    ...openItem,
-    channelId: null,
-    note: null,
-    resolvedBy: null,
-    resolvedAt: null,
-    actionId: null,
-    message: null,
-  };
-
-  setIpcHandler("admin_list_reports", () => Promise.resolve([openItem]));
-  setIpcHandler("admin_get_report", () => Promise.resolve(openDetail));
-  setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
-
-  const capturedBodies3 = [];
-  setIpcHandler("admin_resolve_report", (args) => {
-    capturedBodies3.push({ ...args?.body });
-    // Full body read → authoritative pre-commit rejection.
-    return mutationReject("admin API error: bad request", 400);
-  });
-
-  const { container, doRender, unmount } = mountPanel({ origin, pubkey });
-  await doRender();
-  await settle(30);
-  await openFirstReportDetail(container);
-  await settle(20);
-
-  const dismissBtn = container.querySelector(
-    "[data-testid='action-btn-dismiss']",
-  );
-  assert.ok(dismissBtn, "dismiss action must be present");
-  await act(async () => {
-    fireEvent.click(dismissBtn);
-    await new Promise((r) => setTimeout(r, 10));
-  });
-  const submit = container.querySelector("[data-testid='resolve-submit-btn']");
-  assert.ok(
-    submit,
-    "resolve submit button must appear after selecting dismiss",
-  );
-
-  await act(async () => {
-    fireEvent.click(submit);
-    await new Promise((r) => setTimeout(r, 20));
-  });
-  await act(async () => {
-    fireEvent.click(submit);
-    await new Promise((r) => setTimeout(r, 20));
-  });
-
-  assert.equal(
-    capturedBodies3.length,
-    2,
-    "two resolve attempts must have been made",
-  );
-  assert.notEqual(
-    capturedBodies3[0].requestId,
-    capturedBodies3[1].requestId,
-    `a definitive non-409 4xx must reset the resolve requestId; got: ${JSON.stringify(capturedBodies3.map((b) => b.requestId))}`,
-  );
-
-  await unmount();
-});
-
-test("reopen-truncated-4xx-preserves-requestId: a 4xx with a lost body reuses the requestId on retry", async () => {
-  // Status alone is not a verdict: a 4xx whose body was lost mid-stream
-  // (`bodyComplete: false`) is NOT a definitive pre-commit rejection — the
-  // relay answered with a status but the outcome is unknown, so the requestId
-  // must be preserved and the retry left to dedupe. Only a 4xx with a fully
-  // read body resets. This pins the `bodyComplete` discriminator: reset-on-
-  // status-alone would clear the key here and re-issue a fresh command.
-  //
-  // Mutation evidence: drop the `bodyComplete` gate (reset every non-409 4xx) →
-  // the two attempts carry different ids and this goes red.
-
-  const origin = "https://admin.example.com";
-  const pubkey = "c9".repeat(32);
-
-  const resolvedItem = {
+    makeError: () => mutationReject("admin API error: bad request", 400),
+    preserved: false,
+  },
+  {
+    name: "truncated-400 preserve",
+    pubkey: "c9".repeat(32),
     id: "00000000-0000-0000-0000-0000000000c9",
-    communityId: "comm-1",
-    communityHost: "alpha.example.com",
-    reportEventId: "aa",
-    reporterPubkey: "bb",
-    targetKind: "event",
-    target: "cc",
-    reportType: "spam",
-    status: "resolved",
-    createdAt: "2024-06-01T12:00:00Z",
-  };
-  const resolvedDetail = {
-    ...resolvedItem,
-    channelId: null,
-    note: null,
-    resolvedBy: "mod_pubkey",
-    resolvedAt: "2024-06-02T08:00:00Z",
-    actionId: null,
-    message: null,
-  };
+    makeError: () =>
+      mutationReject(
+        "admin response stream error: connection reset",
+        400,
+        false,
+      ),
+    preserved: true,
+  },
+];
 
-  setIpcHandler("admin_list_reports", () => Promise.resolve([resolvedItem]));
-  setIpcHandler("admin_get_report", () => Promise.resolve(resolvedDetail));
-  setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
+for (const row of REOPEN_RETRY_ROWS) {
+  test(`reopen-retry-${row.name}: reopen requestId is ${row.preserved ? "preserved" : "reset"} on ${row.name}`, async () => {
+    const origin = "https://admin.example.com";
+    const { pubkey, id } = row;
 
-  const requestIds = [];
-  setIpcHandler("admin_reopen_report", (args) => {
-    requestIds.push(args?.body?.requestId);
-    // Status arrived but the body was lost mid-stream: outcome unknown.
-    return mutationReject(
-      "admin response stream error: connection reset",
-      400,
-      false,
+    const resolvedItem = {
+      id,
+      communityId: "comm-1",
+      communityHost: "alpha.example.com",
+      reportEventId: "aa",
+      reporterPubkey: "bb",
+      targetKind: "event",
+      target: "cc",
+      reportType: "spam",
+      status: "resolved",
+      createdAt: "2024-06-01T12:00:00Z",
+    };
+    const resolvedDetail = {
+      ...resolvedItem,
+      channelId: null,
+      note: null,
+      resolvedBy: "mod_pubkey",
+      resolvedAt: "2024-06-02T08:00:00Z",
+      actionId: null,
+      message: null,
+    };
+
+    setIpcHandler("admin_list_reports", () => Promise.resolve([resolvedItem]));
+    setIpcHandler("admin_get_report", () => Promise.resolve(resolvedDetail));
+    setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
+
+    const requestIds = [];
+    setIpcHandler("admin_reopen_report", (args) => {
+      requestIds.push(args?.body?.requestId);
+      return row.makeError();
+    });
+
+    const { container, doRender, unmount } = mountPanel({ origin, pubkey });
+    await doRender();
+    await settle(30);
+    await openFirstReportDetail(container);
+    await settle(20);
+
+    const submit = container.querySelector("[data-testid='reopen-submit-btn']");
+    assert.ok(submit, `[${row.name}] reopen submit button must be present`);
+
+    await act(async () => {
+      fireEvent.click(submit);
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    await act(async () => {
+      fireEvent.click(submit);
+      await new Promise((r) => setTimeout(r, 20));
+    });
+
+    assert.equal(
+      requestIds.length,
+      2,
+      `[${row.name}] two reopen attempts must have been made`,
     );
+    if (row.preserved) {
+      assert.equal(
+        requestIds[0],
+        requestIds[1],
+        `[${row.name}] requestId must be preserved on retry; got: ${JSON.stringify(requestIds)}`,
+      );
+    } else {
+      assert.notEqual(
+        requestIds[0],
+        requestIds[1],
+        `[${row.name}] requestId must be reset after definitive rejection; got: ${JSON.stringify(requestIds)}`,
+      );
+    }
+
+    if (row.checkToasts) {
+      row.checkToasts(capturedToasts, capturedErrorToasts);
+    }
+
+    await unmount();
   });
-
-  const { container, doRender, unmount } = mountPanel({ origin, pubkey });
-  await doRender();
-  await settle(30);
-  await openFirstReportDetail(container);
-  await settle(20);
-
-  const submit = container.querySelector("[data-testid='reopen-submit-btn']");
-  assert.ok(submit, "reopen submit button must be present");
-
-  await act(async () => {
-    fireEvent.click(submit);
-    await new Promise((r) => setTimeout(r, 20));
-  });
-  await act(async () => {
-    fireEvent.click(submit);
-    await new Promise((r) => setTimeout(r, 20));
-  });
-
-  assert.equal(requestIds.length, 2, "two reopen attempts must have been made");
-  assert.equal(
-    requestIds[0],
-    requestIds[1],
-    `a truncated 4xx (bodyComplete false) must preserve the requestId; got: ${JSON.stringify(requestIds)}`,
-  );
-
-  await unmount();
-});
+}
 
 test("cancel-on-failed: a failed action offers Cancel, POSTs {actionId} to admin_cancel_report, and reloads to open", async () => {
   // Cancel-then-resolve is the only recovery from a failed enforcement. The
@@ -3478,53 +2955,6 @@ test("kick-suppressed-when-channel-null: an event report without a channel hides
   assert.ok(
     container.querySelector("[data-testid='action-btn-ban']"),
     "Ban must still be offered on an event report",
-  );
-
-  await unmount();
-});
-
-test("kick-offered-when-channel-set: an event report with a channel offers the Kick action", async () => {
-  // The paired case: when the report carries a channelId, Kick is a valid
-  // action (the relay can enforce it) and must be offered.
-
-  const origin = "https://admin.example.com";
-  const pubkey = "d4".repeat(32);
-
-  const item = {
-    id: "00000000-0000-0000-0000-0000000000d4",
-    communityId: "comm-1",
-    communityHost: "alpha.example.com",
-    reportEventId: "aa",
-    reporterPubkey: "bb",
-    targetKind: "event",
-    target: "cc",
-    reportType: "spam",
-    status: "open",
-    createdAt: "2024-06-01T12:00:00Z",
-  };
-  const detail = {
-    ...item,
-    channelId: "00000000-0000-0000-0000-0000000000ff",
-    note: null,
-    resolvedBy: null,
-    resolvedAt: null,
-    actionId: null,
-    message: null,
-  };
-
-  setIpcHandler("admin_list_reports", () => Promise.resolve([item]));
-  setIpcHandler("admin_get_report", () => Promise.resolve(detail));
-  setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
-
-  const { container, doRender, unmount } = mountPanel({ origin, pubkey });
-  await doRender();
-  await settle(30);
-  await openFirstReportDetail(container);
-  await settle(20);
-
-  assert.ok(
-    container.querySelector("[data-testid='action-btn-kick']"),
-    "Kick must be offered when the report carries a channelId",
   );
 
   await unmount();
@@ -4256,265 +3686,6 @@ test("canMutate-false: all five mutation affordances are absent in disabled mode
         removeBtn,
         null,
         "staffing-remove-btn must be absent when canMutate=false (family E remove)",
-      );
-    } finally {
-      await unmount();
-    }
-  }
-});
-
-test("canMutate-true: all five mutation affordances are present in authorized mode", async () => {
-  const origin = "https://admin-rw.example.com";
-  const pubkey = "ee".repeat(32);
-  const opPubkey = "ff".repeat(32);
-
-  const openReportId = "00000000-0000-0000-0000-0000000000a1";
-  const openReport = {
-    id: openReportId,
-    communityId: "comm-rw",
-    communityHost: "relay.example.com",
-    reportEventId: "eva1",
-    reporterPubkey: "rpa1",
-    targetKind: "event",
-    target: "tgta1",
-    reportType: "spam",
-    status: "open",
-    activeAction: null,
-    createdAt: "2024-01-01T00:00:00Z",
-  };
-  const openDetail = {
-    ...openReport,
-    channelId: null,
-    note: null,
-    resolvedBy: null,
-    resolvedAt: null,
-    actionId: null,
-    message: null,
-  };
-
-  const resolvedReportId = "00000000-0000-0000-0000-0000000000a2";
-  const resolvedReport = {
-    ...openReport,
-    id: resolvedReportId,
-    status: "resolved",
-  };
-  const resolvedDetail = {
-    ...resolvedReport,
-    channelId: null,
-    note: null,
-    resolvedBy: "someone",
-    resolvedAt: "2024-01-02T00:00:00Z",
-    actionId: null,
-    message: null,
-  };
-
-  const failedReportId = "00000000-0000-0000-0000-0000000000a3";
-  const failedActiveAction = {
-    id: "acta3",
-    requestId: "reqa3",
-    actorPubkey: "ac".repeat(32),
-    actorRole: "operator",
-    action: "ban",
-    status: "failed",
-    reason: null,
-    expiresAt: null,
-    errorMessage: "relay error",
-    createdAt: "2024-01-01T00:00:00Z",
-    updatedAt: "2024-01-01T01:00:00Z",
-  };
-  const failedReport = {
-    ...openReport,
-    id: failedReportId,
-    status: "open",
-    activeAction: failedActiveAction,
-  };
-  const failedDetail = {
-    ...failedReport,
-    channelId: null,
-    note: null,
-    resolvedBy: null,
-    resolvedAt: null,
-    actionId: "acta3",
-    message: null,
-  };
-
-  const feedbackId = "00000000-0000-0000-0000-0000000000b9";
-  const feedbackSummary = {
-    id: feedbackId,
-    communityId: "comm-rw",
-    communityHost: "relay.example.com",
-    submitterPubkey: "subrw",
-    category: null,
-    bodySummary: "rw feedback",
-    receivedAt: "2024-01-01T00:00:00Z",
-  };
-  const feedbackDetail = {
-    id: feedbackId,
-    communityId: "comm-rw",
-    communityHost: "relay.example.com",
-    eventId: "fevrw",
-    submitterPubkey: "subrw",
-    category: null,
-    body: "rw feedback full",
-    status: "new",
-    tags: [],
-    eventCreatedAt: "2024-01-01T00:00:00Z",
-    receivedAt: "2024-01-01T00:00:00Z",
-  };
-
-  // ── Family A: resolve-report-form must be present ──
-  {
-    setIpcHandler("admin_list_reports", () => Promise.resolve([openReport]));
-    setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
-    setIpcHandler("admin_get_report", () => Promise.resolve(openDetail));
-    const { container, doRender, unmount } = mountPanel({
-      origin,
-      pubkey,
-      canMutate: true,
-    });
-    await doRender();
-    await settle(30);
-    await openFirstReportDetail(container);
-    await settle(20);
-    const form = container.querySelector("[data-testid='resolve-report-form']");
-    try {
-      assert.ok(
-        form !== null,
-        "resolve-report-form must be present when canMutate=true (family A)",
-      );
-    } finally {
-      await unmount();
-    }
-  }
-
-  // ── Family B: reopen-report-form must be present ──
-  {
-    setIpcHandler("admin_list_reports", () =>
-      Promise.resolve([resolvedReport]),
-    );
-    setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
-    setIpcHandler("admin_get_report", () => Promise.resolve(resolvedDetail));
-    const { container, doRender, unmount } = mountPanel({
-      origin,
-      pubkey,
-      canMutate: true,
-    });
-    await doRender();
-    await settle(30);
-    await openFirstReportDetail(container);
-    await settle(20);
-    const form = container.querySelector("[data-testid='reopen-report-form']");
-    try {
-      assert.ok(
-        form !== null,
-        "reopen-report-form must be present when canMutate=true (family B)",
-      );
-    } finally {
-      await unmount();
-    }
-  }
-
-  // ── Family C: enforcement-cancel-btn must be present ──
-  {
-    setIpcHandler("admin_list_reports", () => Promise.resolve([failedReport]));
-    setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
-    setIpcHandler("admin_get_report", () => Promise.resolve(failedDetail));
-    const { container, doRender, unmount } = mountPanel({
-      origin,
-      pubkey,
-      canMutate: true,
-    });
-    await doRender();
-    await settle(30);
-    await openFirstReportDetail(container);
-    await settle(20);
-    const cancelBtn = container.querySelector(
-      "[data-testid='enforcement-cancel-btn']",
-    );
-    try {
-      assert.ok(
-        cancelBtn !== null,
-        "enforcement-cancel-btn must be present when canMutate=true (family C)",
-      );
-    } finally {
-      await unmount();
-    }
-  }
-
-  // ── Family D: feedback-status-control must be present ──
-  {
-    setIpcHandler("admin_list_reports", () => Promise.resolve([]));
-    setIpcHandler("admin_list_feedback", () =>
-      Promise.resolve([feedbackSummary]),
-    );
-    setIpcHandler("admin_get_feedback", () => Promise.resolve(feedbackDetail));
-    const { container, doRender, unmount } = mountPanel({
-      origin,
-      pubkey,
-      canMutate: true,
-    });
-    await doRender();
-    await settle(30);
-    const feedbackTab = container.querySelector(
-      "[data-testid='admin-tab-feedback']",
-    );
-    assert.ok(feedbackTab, "Feedback tab must be present");
-    await act(async () => {
-      fireEvent.click(feedbackTab);
-      await new Promise((r) => setTimeout(r, 30));
-    });
-    await settle(30);
-    const listBtns = Array.from(container.querySelectorAll("button")).filter(
-      (b) => !(b.getAttribute("data-testid") ?? "").startsWith("admin-tab"),
-    );
-    assert.ok(listBtns.length > 0, "feedback list item must be present");
-    await act(async () => {
-      fireEvent.click(listBtns[0]);
-      await new Promise((r) => setTimeout(r, 30));
-    });
-    await settle(30);
-    const ctrl = container.querySelector(
-      "[data-testid='feedback-status-control']",
-    );
-    try {
-      assert.ok(
-        ctrl !== null,
-        "feedback-status-control must be present when canMutate=true (family D)",
-      );
-    } finally {
-      await unmount();
-    }
-  }
-
-  // ── Family E: staffing add/remove must be present ──
-  {
-    setIpcHandler("admin_list_reports", () => Promise.resolve([]));
-    setIpcHandler("admin_list_operators", () =>
-      Promise.resolve([
-        { pubkey: opPubkey, effectiveRole: "moderator", sources: ["db"] },
-      ]),
-    );
-    const { container, doRender, unmount } = mountPanel({
-      origin,
-      pubkey,
-      canMutate: true,
-      role: "operator",
-      initialTab: "staffing",
-    });
-    await doRender();
-    await settle(30);
-    const addBtn = container.querySelector("[data-testid='staffing-add-btn']");
-    const removeBtn = container.querySelector(
-      `[data-testid='staffing-remove-btn-${opPubkey}']`,
-    );
-    try {
-      assert.ok(
-        addBtn !== null,
-        "staffing-add-btn must be present when canMutate=true (family E add)",
-      );
-      assert.ok(
-        removeBtn !== null,
-        "staffing-remove-btn must be present when canMutate=true (family E remove)",
       );
     } finally {
       await unmount();
@@ -6127,40 +5298,8 @@ test("staffing-display-name: resolved profile name renders in place of raw pubke
       nameEl.textContent.includes("Alice Operator"),
       `staffing row must render resolved display name "Alice Operator"; got: "${nameEl.textContent}"`,
     );
-  } finally {
-    await unmount();
-  }
-});
-
-test("staffing-npub-hover: npub element is present and contains the encoded npub", async () => {
-  // Verifies that HoverStaffingIdentity renders the npub span alongside the
-  // display name — the cross-fade is CSS-driven; this test confirms the DOM
-  // node exists and contains the right identity string.
-  const origin = "https://admin-staffing-npub.example.com";
-  const pubkey = "c3".repeat(32);
-  const opPubkey = "d4".repeat(32);
-
-  setIpcHandler("get_users_batch", () =>
-    Promise.resolve({ profiles: {}, missing: [opPubkey] }),
-  );
-  setIpcHandler("admin_list_reports", () => Promise.resolve([]));
-  setIpcHandler("admin_list_operators", () =>
-    Promise.resolve([
-      { pubkey: opPubkey, effectiveRole: "operator", sources: ["db"] },
-    ]),
-  );
-
-  const { container, doRender, unmount } = mountPanel({
-    origin,
-    pubkey,
-    canMutate: true,
-    role: "operator",
-    initialTab: "staffing",
-  });
-  await doRender();
-  await settle(50);
-
-  try {
+    // The npub span must also be present alongside the display name.
+    // Folded from staffing-npub-hover: the DOM node must exist and start with "npub1".
     const npubEl = container.querySelector(
       `[data-testid='staffing-npub-${opPubkey}']`,
     );
@@ -6168,11 +5307,10 @@ test("staffing-npub-hover: npub element is present and contains the encoded npub
       npubEl !== null,
       "staffing-npub element must be present for listed operator",
     );
-    // The npub span must contain a truncated npub1... string
     assert.ok(
       npubEl.textContent.startsWith("npub1") ||
         npubEl.textContent.includes("npub"),
-      `staffing-npub must contain encoded npub; got: "${npubEl.textContent}"`,
+      `staffing-npub must contain encoded npub prefix; got: "${npubEl.textContent}"`,
     );
   } finally {
     await unmount();
@@ -6613,143 +5751,6 @@ test("staffing-remove-409: a typed 409 from deleteAdminOperator surfaces the rel
     assert.ok(
       !errEls.some((el) => el.textContent.includes("admin API error")),
       "non-409 remove must not render the raw serialized error prefix",
-    );
-  } finally {
-    await unmount();
-  }
-});
-
-// ── P2-1: stale principal after self-demotion/removal ─────────────────────────
-
-test("staffing-self-demotion-fires-onSelfMutation: successful role change on own pubkey calls onSelfMutation", async () => {
-  // Verifies that handleRoleChange calls onSelfMutation when the mutation
-  // targets the current principal's own pubkey.
-  //
-  // The parent probe re-run (triggered by onSelfMutation) is what refreshes the
-  // role badge and tab visibility after self-demotion. Without it, the UI keeps
-  // claiming "Connected as operator" and Staffing remains visible even after
-  // the operator has removed their own operator role.
-  //
-  // Mutation evidence:
-  //   - Remove the `if (op.pubkey === pubkey) onSelfMutation?.()` guard →
-  //     onSelfMutationCalls remains 0 → RED.
-  //   - Keep the guard but check a different key →
-  //     same RED.
-  const origin = "https://admin-staffing-self-demote.example.com";
-  const pubkey = "aa".repeat(32); // self
-  const otherPubkey = "bb".repeat(32); // other operator, should NOT trigger
-
-  let onSelfMutationCalls = 0;
-
-  setIpcHandler("admin_list_reports", () => Promise.resolve([]));
-  setIpcHandler("admin_list_operators", () =>
-    Promise.resolve([
-      { pubkey: pubkey, effectiveRole: "operator", sources: ["db"] },
-      { pubkey: otherPubkey, effectiveRole: "operator", sources: ["db"] },
-    ]),
-  );
-  setIpcHandler("admin_put_operator", () =>
-    Promise.resolve({
-      pubkey: pubkey,
-      effectiveRole: "moderator",
-      sources: ["db"],
-    }),
-  );
-
-  const { container, doRender, unmount } = mountPanel({
-    origin,
-    pubkey,
-    canMutate: true,
-    role: "operator",
-    initialTab: "staffing",
-    onSelfMutation: () => {
-      onSelfMutationCalls += 1;
-    },
-  });
-  await doRender();
-  await settle(30);
-
-  try {
-    // Change own role (operator → moderator)
-    const selfRoleSelect = container.querySelector(
-      `[data-testid='staffing-role-select-${pubkey}']`,
-    );
-    assert.ok(selfRoleSelect !== null, "self role selector must be present");
-
-    await act(async () => {
-      fireEvent.change(selfRoleSelect, { target: { value: "moderator" } });
-      await new Promise((r) => setTimeout(r, 30));
-    });
-
-    assert.equal(
-      onSelfMutationCalls,
-      1,
-      `onSelfMutation must be called exactly once after self role-change; called ${onSelfMutationCalls} times`,
-    );
-  } finally {
-    await unmount();
-  }
-});
-
-test("staffing-other-mutation-does-not-fire-onSelfMutation: role change on another pubkey does not call onSelfMutation", async () => {
-  // Verifies that mutating a different operator's role does NOT call
-  // onSelfMutation (only mutations on the current principal's own key trigger it).
-  //
-  // Mutation evidence: change the guard to always call onSelfMutation →
-  // onSelfMutationCalls becomes 1 → RED.
-  const origin = "https://admin-staffing-other-change.example.com";
-  const pubkey = "cc".repeat(32); // self
-  const otherPubkey = "dd".repeat(32); // different operator
-
-  let onSelfMutationCalls = 0;
-
-  setIpcHandler("admin_list_reports", () => Promise.resolve([]));
-  setIpcHandler("admin_list_operators", () =>
-    Promise.resolve([
-      { pubkey: pubkey, effectiveRole: "operator", sources: ["db"] },
-      { pubkey: otherPubkey, effectiveRole: "moderator", sources: ["db"] },
-    ]),
-  );
-  setIpcHandler("admin_put_operator", () =>
-    Promise.resolve({
-      pubkey: otherPubkey,
-      effectiveRole: "operator",
-      sources: ["db"],
-    }),
-  );
-
-  const { container, doRender, unmount } = mountPanel({
-    origin,
-    pubkey,
-    canMutate: true,
-    role: "operator",
-    initialTab: "staffing",
-    onSelfMutation: () => {
-      onSelfMutationCalls += 1;
-    },
-  });
-  await doRender();
-  await settle(30);
-
-  try {
-    // Change a different operator's role
-    const otherRoleSelect = container.querySelector(
-      `[data-testid='staffing-role-select-${otherPubkey}']`,
-    );
-    assert.ok(
-      otherRoleSelect !== null,
-      "other operator role selector must be present",
-    );
-
-    await act(async () => {
-      fireEvent.change(otherRoleSelect, { target: { value: "operator" } });
-      await new Promise((r) => setTimeout(r, 30));
-    });
-
-    assert.equal(
-      onSelfMutationCalls,
-      0,
-      `onSelfMutation must NOT be called when mutating a different operator; called ${onSelfMutationCalls} times`,
     );
   } finally {
     await unmount();

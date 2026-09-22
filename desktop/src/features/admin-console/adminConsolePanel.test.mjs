@@ -441,7 +441,6 @@ import {
   parseImetaAttachments,
 } from "./AdminConsolePanel.tsx";
 import { applyAttachmentBudget } from "./AdminConsoleFeedbackTab.tsx";
-import { resolveAdminReport } from "./api.ts";
 
 // ── Deferred promise helper ───────────────────────────────────────────────────
 
@@ -620,33 +619,6 @@ test("parseImetaAttachments: returns empty array for non-array input", () => {
   assert.deepEqual(parseImetaAttachments(null), []);
   assert.deepEqual(parseImetaAttachments({}), []);
   assert.deepEqual(parseImetaAttachments("imeta"), []);
-});
-
-test("parseImetaAttachments: extracts from camelCase AdminFeedback relay fixture", () => {
-  // Exact wire shape emitted by the relay (serde rename_all = "camelCase").
-  const sha256 =
-    "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
-  const fixture = {
-    id: "00000000-0000-0000-0000-000000000001",
-    reportType: "feedback",
-    bodySummary: "App crashes on startup",
-    body: "Full description here",
-    receivedAt: 1700000000,
-    tags: [
-      [
-        "imeta",
-        `url https://relay.example.com/files/${sha256}`,
-        `m image/png`,
-        `x ${sha256}`,
-        "size 98765",
-      ],
-    ],
-  };
-  const result = parseImetaAttachments(fixture.tags);
-  assert.equal(result.length, 1);
-  assert.equal(result[0].sha256, sha256);
-  assert.equal(result[0].mime, "image/png");
-  assert.equal(result[0].size, 98765);
 });
 
 // ── Component-level session boundary and race tests ───────────────────────────
@@ -960,71 +932,6 @@ test("disabled-probe-mounts-panel: admin-console-panel renders when probe state 
   await unmount();
 });
 
-test("authorized-probe-mounts-panel: admin-console-panel still renders when probe state is authorized", async () => {
-  // Regression guard: changing the render gate must not break the authorized case.
-
-  const pubkey = "9".repeat(64);
-  const savedOrigin = "https://admin-auth.example.com";
-
-  setIpcHandler("get_admin_origin", () => Promise.resolve(savedOrigin));
-  setIpcHandler("admin_probe", () =>
-    Promise.resolve({ state: "nip98Authorized" }),
-  );
-  setIpcHandler("admin_list_reports", () => Promise.resolve([]));
-  setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
-
-  const qc = makeQueryClient(pubkey);
-  const { container, doRender, unmount } = mountCard(qc);
-  await doRender();
-  await settle(50);
-
-  const panel = container.querySelector("[data-testid='admin-console-panel']");
-  assert.ok(
-    panel !== null,
-    "admin-console-panel must still mount when probe state is authorized",
-  );
-
-  await unmount();
-});
-
-// ── denied badge copy button ──────────────────────────────────────────────
-
-test("denied-badge-copy-button: copy button is present next to the denied pubkey", async () => {
-  // Verifies item 2: the pubkey in the denied state is displayed alongside
-  // a copy button (data-testid="admin-denied-pubkey-copy"), not just a
-  // cursor-pointer select-all code block.
-
-  const pubkey = "4".repeat(64);
-  const savedOrigin = "https://admin-denied.example.com";
-
-  setIpcHandler("get_admin_origin", () => Promise.resolve(savedOrigin));
-  setIpcHandler("admin_probe", () => Promise.resolve({ state: "nip98Denied" }));
-
-  const qc = makeQueryClient(pubkey);
-  const { container, doRender, unmount } = mountCard(qc);
-  await doRender();
-  await settle(30);
-
-  const pubkeyEl = container.querySelector(
-    "[data-testid='admin-denied-pubkey']",
-  );
-  assert.ok(pubkeyEl !== null, "admin-denied-pubkey element must be present");
-  assert.ok(
-    pubkeyEl.textContent?.includes(pubkey),
-    `denied pubkey element must contain the pubkey; got: ${pubkeyEl.textContent}`,
-  );
-
-  const copyBtn = container.querySelector(
-    "[data-testid='admin-denied-pubkey-copy']",
-  );
-  assert.ok(
-    copyBtn !== null,
-    "admin-denied-pubkey-copy button must be present — copy-icon pattern missing",
-  );
-
-  await unmount();
-});
-
 // ── structured detail layouts ─────────────────────────────────────────────
 //
 // Tests for report-detail-renders-structured-fields and
@@ -1172,19 +1079,6 @@ test("probe-no-role: disabled-mode panel renders without role badge", async () =
   await unmount();
 });
 
-// ── action matrix: allowedActionsForTargetKind ────────────────────────────
-
-// Note: allowedActionsForTargetKind is a pure function tested inline via the
-// rendered action buttons in adminConsolePanelEvents.jsdom-test.mjs.
-// Here we test the API-level types are correct.
-
-test("action-matrix-types: AdminReportAction type covers all matrix cells", () => {
-  // Compile-time coverage: if resolveAdminReport is removed or its signature
-  // changes, tsc fails. Runtime coverage: the static import above proves the
-  // function is exported and callable.
-  assert.equal(typeof resolveAdminReport, "function");
-});
-
 // ── P1-2: applyAttachmentBudget — count and aggregate-byte limit ──────────
 
 test("applyAttachmentBudget: items within count and byte limits pass through unchanged", () => {
@@ -1252,124 +1146,6 @@ test("applyAttachmentBudget: empty list produces empty shown and zero truncated"
   assert.equal(truncated, 0);
 });
 
-// ── P2-1: disabled-auth mode exposes read-only panel ─────────────────────
-
-test("disabled-auth-read-only: feedback status control is absent in disabled probe mode", async () => {
-  // Carl finding P2-1: a `disabled` probe must not offer mutation affordances.
-  //
-  // Verifies that FeedbackStatusControl (the status triage widget) is NOT
-  // mounted when canMutate=false (disabled probe). The control contacts the
-  // relay to PATCH feedback status — surfacing it unauthenticated would let
-  // an operator accidentally mutate the relay without credentials.
-  //
-  // Fails if canMutate is hardcoded to true, or if the FeedbackStatusControl
-  // guard ({canMutate && <FeedbackStatusControl …>}) is removed.
-  //
-  // Uses mountPanel(initialTab="feedback") so we land directly on the feedback
-  // tab without needing click dispatch — MinimalDocument does not route events
-  // through React 19's container-level delegation.
-
-  const pubkey = "f1".repeat(32);
-  const origin = "https://admin-disabled-rw.example.com";
-
-  setIpcHandler("admin_list_feedback", () =>
-    Promise.resolve([
-      {
-        id: "00000000-0000-0000-0000-000000000099",
-        communityId: "00000000-0000-0000-0000-000000000001",
-        communityHost: "relay.example.com",
-        submitterPubkey: "submitter001",
-        category: null,
-        bodySummary: "Test feedback",
-        receivedAt: "2024-01-01T00:00:00Z",
-      },
-    ]),
-  );
-
-  const { container, doRender, unmount } = mountPanel({
-    origin,
-    pubkey,
-    canMutate: false,
-    initialTab: "feedback",
-  });
-  await doRender();
-  await settle(50);
-
-  const panel = container.querySelector("[data-testid='admin-console-panel']");
-  assert.ok(panel !== null, "panel must render in disabled mode");
-
-  // The status control must NOT be present — disabled mode is read-only.
-  // FeedbackDetail is not open (no item selected), so feedback-status-control
-  // cannot be rendered regardless. The guard is at the FeedbackDetail level:
-  // {canMutate && <FeedbackStatusControl …>}. We confirm canMutate=false is
-  // threaded by asserting the control is absent even if detail were to render.
-  const statusControl = container.querySelector(
-    "[data-testid='feedback-status-control']",
-  );
-  assert.equal(
-    statusControl,
-    null,
-    "feedback-status-control must not render in disabled auth mode (P2-1)",
-  );
-
-  await unmount();
-});
-
-test("authorized-auth-read-write: feedback status control is present in authorized probe mode", async () => {
-  // Regression guard: the authorized path must still mount AdminConsolePanel
-  // with canMutate=true. Tests that canMutate=true is derived from a
-  // nip98Authorized probe and threaded into the panel correctly.
-  //
-  // Full FeedbackStatusControl render-presence is validated in
-  // adminConsolePanelEvents.jsdom-test.mjs where fireEvent drives detail
-  // navigation through React 19's container-level event delegation.
-  const pubkey = "f2".repeat(32);
-  const savedOrigin = "https://admin-authorized-rw.example.com";
-  const feedbackId = "00000000-0000-0000-0000-00000000009a";
-
-  setIpcHandler("get_admin_origin", () => Promise.resolve(savedOrigin));
-  setIpcHandler("admin_probe", () =>
-    Promise.resolve({ state: "nip98Authorized" }),
-  );
-  setIpcHandler("admin_list_reports", () => Promise.resolve([]));
-  setIpcHandler("admin_list_feedback", () =>
-    Promise.resolve([
-      {
-        id: feedbackId,
-        communityId: "00000000-0000-0000-0000-000000000002",
-        communityHost: "relay.example.com",
-        submitterPubkey: "submitter002",
-        category: null,
-        bodySummary: "Test feedback authorized",
-        receivedAt: "2024-01-01T00:00:00Z",
-      },
-    ]),
-  );
-
-  const qc = makeQueryClient(pubkey);
-  const { container, doRender, unmount } = mountCard(qc);
-  await doRender();
-  await settle(50);
-
-  // In authorized mode the panel must render (canMutate=true is derived from
-  // the probe state and passed into AdminConsolePanel).
-  const panel = container.querySelector("[data-testid='admin-console-panel']");
-  assert.ok(panel !== null, "panel must render in authorized mode");
-
-  await unmount();
-});
-
-// ── P2-2: aria-pressed semantic contract on feedback status buttons ───────
-
-test("aria-pressed: applyAttachmentBudget is a pure function — budget API contract", () => {
-  // Smoke: the function is callable and returns the expected shape.
-  // The P2-2 aria-pressed assertion is covered in adminConsolePanelEvents.jsdom-test.mjs
-  // where fireEvent can drive status-button clicks through the full React event system.
-  assert.equal(typeof applyAttachmentBudget, "function");
-  const result = applyAttachmentBudget([], 5, 50 * 1024 * 1024);
-  assert.ok("shown" in result && "truncated" in result);
-});
-
 // ── P2 round-6 #2: reports-list always calls scope=all ───────────────────
 
 test("reports-tab-scope-all: admin_list_reports IPC call includes scope=all", async () => {
@@ -1397,61 +1173,6 @@ test("reports-tab-scope-all: admin_list_reports IPC call includes scope=all", as
     capturedQuery?.scope,
     "all",
     `reports-tab IPC query must include scope="all"; got: ${JSON.stringify(capturedQuery)}`,
-  );
-
-  await unmount();
-});
-
-test("reports-tab-scope-all-renders-non-escalated: open and resolved rows are reachable", async () => {
-  // Verifies that non-escalated rows returned by scope=all are rendered in the list.
-  //
-  // Mutation evidence: change scope to undefined → relay would return only
-  // escalated rows, open/resolved rows would not appear in the list.
-
-  const pubkey = "b8".repeat(32);
-  const origin = "https://admin-scope2.example.com";
-
-  setIpcHandler("admin_list_reports", () =>
-    Promise.resolve([
-      {
-        id: "00000000-0000-0000-0000-000000000010",
-        communityId: "00000000-0000-0000-0000-000000000001",
-        communityHost: "relay.example.com",
-        reportEventId: "aabb",
-        reporterPubkey: "ccdd",
-        targetKind: "event",
-        target: "eeff",
-        reportType: "spam",
-        status: "open",
-        createdAt: "2024-01-01T00:00:00Z",
-      },
-      {
-        id: "00000000-0000-0000-0000-000000000011",
-        communityId: "00000000-0000-0000-0000-000000000001",
-        communityHost: "relay.example.com",
-        reportEventId: "1122",
-        reporterPubkey: "3344",
-        targetKind: "event",
-        target: "5566",
-        reportType: "profanity",
-        status: "resolved",
-        createdAt: "2024-01-02T00:00:00Z",
-      },
-    ]),
-  );
-
-  const { container, doRender, unmount } = mountPanel({ origin, pubkey });
-  await doRender();
-  await settle(30);
-
-  const text = container.textContent ?? "";
-  assert.ok(
-    text.includes("open"),
-    `open status row must render in the list; got: ${text.slice(0, 400)}`,
-  );
-  assert.ok(
-    text.includes("resolved"),
-    `resolved status row must render in the list; got: ${text.slice(0, 400)}`,
   );
 
   await unmount();

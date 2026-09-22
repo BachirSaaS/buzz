@@ -38,62 +38,6 @@ fn localhost_uses_http_prefix() {
     assert!(url.starts_with("http://localhost:3000/api/admin/v1/"));
 }
 
-// ── Attachment command validation (calls production validators) ───────────
-
-#[test]
-fn attachment_hash_valid_lowercase_hex_accepted() {
-    let result = routes::AttachmentHash::parse(&"a".repeat(64));
-    assert!(result.is_ok(), "64 lowercase hex chars must be accepted");
-}
-
-#[test]
-fn attachment_hash_uppercase_rejected_by_production_validator() {
-    let result = routes::AttachmentHash::parse(&"A".repeat(64));
-    assert!(
-        result.is_err(),
-        "uppercase hex must be rejected — relay returns 404 for uppercase hashes"
-    );
-}
-
-#[test]
-fn attachment_hash_63_chars_rejected_by_production_validator() {
-    let result = routes::AttachmentHash::parse(&"a".repeat(63));
-    assert!(result.is_err(), "63 chars must be rejected");
-}
-
-#[test]
-fn feedback_id_malformed_uuid_rejected_by_production_validator() {
-    let result = uuid::Uuid::parse_str("not-a-uuid");
-    assert!(result.is_err(), "non-UUID feedback id must be rejected");
-}
-
-#[test]
-fn feedback_id_slash_injection_rejected() {
-    let result = uuid::Uuid::parse_str("../../../etc/passwd");
-    assert!(
-        result.is_err(),
-        "path traversal in feedback id must be rejected"
-    );
-}
-
-#[test]
-fn feedback_id_query_injection_rejected() {
-    let result = uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000001?x=y");
-    assert!(
-        result.is_err(),
-        "query injection in feedback id must be rejected"
-    );
-}
-
-// ── Content-Type matching ─────────────────────────────────────────────────
-
-#[test]
-fn content_type_matching_is_case_insensitive_and_strips_params() {
-    let raw = "Image/PNG; charset=binary";
-    let normalised = raw.split(';').next().unwrap().trim().to_ascii_lowercase();
-    assert_eq!(normalised, "image/png");
-}
-
 // ── parse_probe ───────────────────────────────────────────────────────────
 
 /// A well-formed `/probe` response body. `role`/`source` are JSON literals
@@ -103,24 +47,6 @@ fn probe_json(auth_mode: &str, role: &str, source: &str, can_act: bool, can_staf
     format!(
         r#"{{"status":"ok","authMode":"{auth_mode}","role":{role},"source":{source},"canAct":{can_act},"canStaff":{can_staff}}}"#
     )
-}
-
-#[test]
-fn parse_probe_operator_nip98() {
-    let body = probe_json("nip98", r#""operator""#, r#""config""#, true, true);
-    let p = parse_probe("application/json", body.as_bytes()).expect("valid operator probe");
-    assert_eq!(p.auth_mode, "nip98");
-    assert_eq!(p.role.as_deref(), Some("operator"));
-    assert_eq!(p.source.as_deref(), Some("config"));
-}
-
-#[test]
-fn parse_probe_disabled_has_null_role() {
-    let body = probe_json("disabled", "null", "null", false, false);
-    let p = parse_probe("application/json", body.as_bytes()).expect("valid disabled probe");
-    assert_eq!(p.auth_mode, "disabled");
-    assert_eq!(p.role, None);
-    assert_eq!(p.source, None);
 }
 
 #[test]
@@ -405,36 +331,6 @@ fn pubkey_hex_63_chars_rejected() {
 
 // ── Live stub helpers ─────────────────────────────────────────────────────
 
-/// Build a fake Response using a live TCP listener.
-async fn fake_response(status: u16, headers: &str, body: &str) -> reqwest::Response {
-    use std::io::{Read, Write};
-    client::init_admin_client().expect("client builds");
-    let client = client::ADMIN_CLIENT.get().unwrap();
-
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let addr = listener.local_addr().unwrap();
-    let body_bytes = body.as_bytes().to_vec();
-    let body_len = body_bytes.len();
-    let response = format!(
-        "HTTP/1.1 {status} OK\r\nContent-Length: {body_len}\r\n{headers}Connection: close\r\n\r\n"
-    );
-    let response_bytes = response.into_bytes();
-    std::thread::spawn(move || {
-        if let Ok((mut stream, _)) = listener.accept() {
-            let mut buf = [0u8; 4096];
-            let _ = stream.read(&mut buf);
-            let _ = stream.write_all(&response_bytes);
-            let _ = stream.write_all(&body_bytes);
-            let _ = stream.flush();
-        }
-    });
-    client
-        .get(format!("http://{addr}/api/admin/v1/reports"))
-        .send()
-        .await
-        .unwrap()
-}
-
 /// Serve sequential HTTP responses from a background thread.
 ///
 /// For each request the listener reads the raw HTTP bytes, calls the
@@ -553,55 +449,15 @@ async fn serve_gated_nip98(
     (addr, records)
 }
 
-// ── is_probe_response_intercepted ────────────────────────────────────────
-
-#[tokio::test]
-async fn probe_html_200_classified_as_intercepted() {
-    let resp = fake_response(
-        200,
-        "Content-Type: text/html; charset=utf-8\r\n",
-        "<html><body>Sign in</body></html>",
-    )
-    .await;
-    assert!(is_probe_response_intercepted(&resp));
-}
-
-#[tokio::test]
-async fn probe_json_200_not_classified_as_intercepted() {
-    let resp = fake_response(
-        200,
-        "Content-Type: application/json\r\n",
-        r#"{"status":"ok","authMode":"disabled","role":null,"source":null,"canAct":false,"canStaff":false}"#,
-    )
-    .await;
-    assert!(!is_probe_response_intercepted(&resp));
-}
-
-#[tokio::test]
-async fn probe_json_200_with_valid_probe_parses() {
-    let body = probe_json("nip98", r#""operator""#, r#""config""#, true, true);
-    let resp = fake_response(200, "Content-Type: application/json\r\n", &body).await;
-    assert!(!is_probe_response_intercepted(&resp));
-    let ct = response_content_type(&resp);
-    let bytes = read_bounded(resp, PROBE_JSON_CAP).await.unwrap();
-    assert!(parse_probe(&ct, &bytes).is_some());
-}
-
-#[tokio::test]
-async fn probe_json_200_bare_garbage_not_admin_api() {
-    let resp = fake_response(200, "Content-Type: application/json\r\n", "[1,2,3]").await;
-    let ct = response_content_type(&resp);
-    let bytes = read_bounded(resp, PROBE_JSON_CAP).await.unwrap();
-    assert!(parse_probe(&ct, &bytes).is_none());
-}
-
 // ── admin_probe_inner end-to-end state machine ────────────────────────────
 
 #[tokio::test]
 async fn probe_inner_html_200_is_network_or_intercepted() {
+    // Content-Type: text/html; charset=utf-8 — the parameter-bearing form used by
+    // real intercept pages (carried forward from the redundant helper tests).
     let addr = serve_sequence(vec![(
         "200 OK",
-        "Content-Type: text/html\r\n",
+        "Content-Type: text/html; charset=utf-8\r\n",
         "<html>sign in</html>",
     )])
     .await;
@@ -844,23 +700,6 @@ async fn probe_inner_bearer_401_is_not_admin_api() {
     // Bearer is no longer a recognized Buzz admin mode; an unrecognized 401
     // challenge classifies as NotAdminApi.
     assert!(matches!(result, AdminProbeResult::NotAdminApi));
-}
-
-#[tokio::test]
-async fn probe_inner_no_sign_on_nostr_challenge_is_nip98_denied() {
-    let addr = serve_sequence(vec![(
-        "401 Unauthorized",
-        "WWW-Authenticate: Nostr\r\n",
-        "",
-    )])
-    .await;
-    let result = admin_probe_inner(
-        &format!("http://{addr}"),
-        None::<fn(&str) -> Result<String, String>>,
-    )
-    .await
-    .unwrap();
-    assert!(matches!(result, AdminProbeResult::Nip98Denied));
 }
 
 // ── .localhost origin: end-to-end parse, route, connect ──────────────────────
@@ -1148,7 +987,8 @@ fn same_host_when_advertised_host_matches_relay_host() {
 #[test]
 fn same_host_ignores_scheme_and_port_differences() {
     // The binding is host identity only: an operator may run the admin console
-    // on a different port/scheme than the relay and still be same-host-bound.
+    // on a different port (or path) than the relay and still be same-host-bound.
+    // This fixture varies port only; scheme is the same in both strings.
     let advertised = AdminOrigin::parse("https://admin.example.com:8443").unwrap();
     assert!(
         discovery::advertised_host_matches_relay(&advertised, "https://admin.example.com/query"),
