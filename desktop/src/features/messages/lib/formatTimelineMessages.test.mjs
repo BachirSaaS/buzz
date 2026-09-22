@@ -773,3 +773,143 @@ test("verified agent owner may publish a suppression edit", () => {
     true,
   );
 });
+
+// ---------------------------------------------------------------------------
+// Tombstone in-place: message_deleted system messages use the target's
+// created_at rather than the tombstone's own timestamp.
+// ---------------------------------------------------------------------------
+
+const RELAY_SECRET_INPLACE = new Uint8Array(32).fill(9);
+const RELAY_PUBKEY_INPLACE = getPublicKey(RELAY_SECRET_INPLACE);
+const HEX64_ORIGINAL = "cc".repeat(32);
+const HEX64_TOMBSTONE = "dd".repeat(32);
+const ORIGINAL_TS = 1_700_000_000;
+const TOMBSTONE_TS = 1_700_100_000; // 27h later — would appear far after original
+
+function originalMessage(overrides = {}) {
+  return {
+    id: HEX64_ORIGINAL,
+    pubkey: PUBKEY_A,
+    kind: 9,
+    created_at: ORIGINAL_TS,
+    content: "the message that gets deleted",
+    tags: [["h", CHANNEL_ID]],
+    sig: "sig",
+    ...overrides,
+  };
+}
+
+function deletionMarker(targetId, overrides = {}) {
+  return {
+    id: `${HEX64_TOMBSTONE.slice(0, 62)}ee`,
+    pubkey: RELAY_PUBKEY_INPLACE,
+    kind: 9005,
+    created_at: TOMBSTONE_TS,
+    content: "",
+    tags: [
+      ["h", CHANNEL_ID],
+      ["e", targetId],
+    ],
+    sig: "sig",
+    ...overrides,
+  };
+}
+
+function tombstoneSystemMessage(targetId, publicReason, overrides = {}) {
+  return {
+    id: HEX64_TOMBSTONE,
+    pubkey: RELAY_PUBKEY_INPLACE,
+    kind: 40099,
+    created_at: TOMBSTONE_TS,
+    content: JSON.stringify({
+      type: "message_deleted",
+      actor: RELAY_PUBKEY_INPLACE,
+      target_event_id: targetId,
+      public_reason: publicReason,
+    }),
+    tags: [["h", CHANNEL_ID]],
+    sig: "sig",
+    ...overrides,
+  };
+}
+
+test("message_deleted tombstone adopts target's created_at (in-place position)", () => {
+  // Mutation evidence:
+  //   - Remove the effectiveCreatedAt override → tombstone.createdAt equals
+  //     TOMBSTONE_TS instead of ORIGINAL_TS → RED.
+  const events = [
+    originalMessage(),
+    deletionMarker(HEX64_ORIGINAL),
+    tombstoneSystemMessage(HEX64_ORIGINAL, "spam"),
+  ];
+  const messages = formatTimelineMessages(events, null, undefined, null);
+
+  // The original message is filtered out by the kind:9005 deletion marker.
+  assert.equal(
+    messages.find((m) => m.id === HEX64_ORIGINAL),
+    undefined,
+    "original message must be filtered out",
+  );
+
+  // The tombstone system message is present and positioned at the original's
+  // timestamp, not at the time the tombstone was emitted.
+  const tombstone = messages.find((m) => m.id === HEX64_TOMBSTONE);
+  assert.ok(
+    tombstone !== undefined,
+    "tombstone system message must be present",
+  );
+  assert.equal(
+    tombstone.createdAt,
+    ORIGINAL_TS,
+    "tombstone must use the original message's created_at for in-place positioning",
+  );
+  assert.notEqual(
+    tombstone.createdAt,
+    TOMBSTONE_TS,
+    "tombstone must NOT use its own creation timestamp",
+  );
+});
+
+test("message_deleted tombstone falls back to its own created_at when target is absent", () => {
+  // When the original message is not in the event window (e.g. it was deleted
+  // long ago and is no longer paginated in), the tombstone uses its own
+  // created_at. This verifies the graceful fallback branch.
+  const events = [
+    // Only the deletion marker and tombstone — no original message event.
+    deletionMarker(HEX64_ORIGINAL),
+    tombstoneSystemMessage(HEX64_ORIGINAL, "spam"),
+  ];
+  const messages = formatTimelineMessages(events, null, undefined, null);
+
+  const tombstone = messages.find((m) => m.id === HEX64_TOMBSTONE);
+  assert.ok(tombstone !== undefined, "tombstone must still render");
+  assert.equal(
+    tombstone.createdAt,
+    TOMBSTONE_TS,
+    "tombstone must use its own created_at when target is absent",
+  );
+});
+
+test("non-message_deleted system message is not repositioned", () => {
+  // Other system message types (join, leave, etc.) must keep their own
+  // created_at — the in-place logic is strictly scoped to message_deleted.
+  const joinSystemMsg = {
+    id: HEX64_TOMBSTONE,
+    pubkey: RELAY_PUBKEY_INPLACE,
+    kind: 40099,
+    created_at: TOMBSTONE_TS,
+    content: JSON.stringify({
+      type: "member_joined",
+      actor: PUBKEY_A,
+    }),
+    tags: [["h", CHANNEL_ID]],
+    sig: "sig",
+  };
+  const events = [joinSystemMsg];
+  const [msg] = formatTimelineMessages(events, null, undefined, null);
+  assert.equal(
+    msg.createdAt,
+    TOMBSTONE_TS,
+    "non-tombstone system messages must not be repositioned",
+  );
+});
