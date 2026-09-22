@@ -121,6 +121,7 @@
    * progressive enhancement.
    */
   .avatar-sdr-clamp {
+    /* biome-ignore lint/correctness/noUnknownProperty: dynamic-range-limit is a valid CSS property (Chromium 133+, WebKit/Safari 26+); biome does not yet recognise it */
     dynamic-range-limit: standard;
   }
 }

@@ -88,7 +88,7 @@ export function useChannelSortPreference(
         if (remote.createdAt < lastAppliedRemoteTs.current) return prev;
         if (
           remote.createdAt === lastAppliedRemoteTs.current &&
-          remote.eventId <= lastAppliedEventId.current
+          remote.eventId >= lastAppliedEventId.current
         )
           return prev;
         lastAppliedRemoteTs.current = remote.createdAt;
@@ -159,6 +159,63 @@ export function useChannelSortPreference(
       unsub();
     };
   }, [pubkey, applyRemote]);
+
+  // Retry effect: polls the relay at a bounded-backoff cadence (5 → 10 → 30 →
+  // 60 s, then steady at 60 s) so a stale view recovers without an edit-kick
+  // or reconnect.  Fires immediately on visibility-change to "visible".
+  // Single-flight; skips apply when a local publish is pending.
+  React.useEffect(() => {
+    if (!pubkey || !relayUrl) return;
+    let cancelled = false;
+    let inFlight = false;
+    const BACKOFF_STEPS = [5_000, 10_000, 30_000, 60_000];
+    let stepIndex = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const tick = async () => {
+      if (cancelled || inFlight) return;
+      inFlight = true;
+      try {
+        const result = await managerRef.current?.fetchRemoteSortPrefs();
+        if (!cancelled && result?.status === "found") {
+          const pending = managerRef.current?.getPendingStore();
+          if (!pending) {
+            setStore(applyRemote(result.data));
+          }
+        }
+      } finally {
+        inFlight = false;
+      }
+      if (!cancelled) {
+        const delay = BACKOFF_STEPS[
+          Math.min(stepIndex, BACKOFF_STEPS.length - 1)
+        ] as number;
+        stepIndex = Math.min(stepIndex + 1, BACKOFF_STEPS.length - 1);
+        timer = setTimeout(() => {
+          void tick();
+        }, delay);
+      }
+    };
+
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      stepIndex = 0;
+      void tick();
+    };
+
+    document.addEventListener("visibilitychange", onVisible);
+    void tick();
+
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVisible);
+      if (timer !== null) clearTimeout(timer);
+    };
+  }, [pubkey, relayUrl, applyRemote]);
 
   const sortModeFor = React.useCallback(
     (group: ChannelSortGroupKey) => sortModeForGroup(store, group),
