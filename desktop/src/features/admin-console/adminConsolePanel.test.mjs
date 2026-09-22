@@ -1048,8 +1048,9 @@ test("probe-operator-role: staffing tab renders for operator role", async () => 
   await unmount();
 });
 
-test("probe-no-role: disabled-mode panel renders without role badge", async () => {
-  // disabled probe has no role/source — panel renders but no badge.
+test("probe-no-role: disabled-mode panel renders without staffing tab", async () => {
+  // disabled probe has no role/source — panel renders but Staffing tab is absent.
+  // Badge absence is not asserted here.
   const pubkey = "e4".repeat(32);
   const savedOrigin = "https://admin-disabled.example.com";
 

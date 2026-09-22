@@ -985,10 +985,10 @@ fn same_host_when_advertised_host_matches_relay_host() {
 }
 
 #[test]
-fn same_host_ignores_scheme_and_port_differences() {
+fn same_host_ignores_port_differences() {
     // The binding is host identity only: an operator may run the admin console
     // on a different port (or path) than the relay and still be same-host-bound.
-    // This fixture varies port only; scheme is the same in both strings.
+    // This fixture varies port only; scheme variation is not tested here.
     let advertised = AdminOrigin::parse("https://admin.example.com:8443").unwrap();
     assert!(
         discovery::advertised_host_matches_relay(&advertised, "https://admin.example.com/query"),
