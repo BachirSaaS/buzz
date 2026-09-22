@@ -177,6 +177,8 @@ export function useChannelMutes(
     getRevision: retryGetRevision,
     makeUpdater: retryMakeUpdater,
     setStore,
+    pubkey,
+    relayUrl,
   });
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: store.channels is the relevant dep — the outer store identity can change without channels changing (e.g., on reconnect writes)

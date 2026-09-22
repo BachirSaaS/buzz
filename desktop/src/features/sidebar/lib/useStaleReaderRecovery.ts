@@ -45,6 +45,16 @@ import type { FetchResult } from "./sidebarSyncWatermark.ts";
  *                        store.  Called only when both guards pass.
  * @param setStore        The hook's React state setter; called with the fenced
  *                        updater produced by `makeUpdater`.
+ * @param pubkey          Identity key — forces the recovery effect to restart
+ *                        when the active pubkey changes.  Pass whenever the
+ *                        `makeUpdater` closure does not directly capture pubkey
+ *                        (e.g. if `applyRemote` only depends on pubkey but the
+ *                        outer `makeUpdater` wraps a stable ref).
+ * @param relayUrl        Relay key — forces the recovery effect to restart when
+ *                        the relay changes.  Required for stars/mutes whose
+ *                        `applyRemote` does not capture relayUrl; without it a
+ *                        still-mounted hook switching relay A→B would keep
+ *                        applying A's stale fetch after the switch.
  */
 export function useStaleReaderRecovery<T, S>({
   enabled,
@@ -53,6 +63,8 @@ export function useStaleReaderRecovery<T, S>({
   getRevision,
   makeUpdater,
   setStore,
+  pubkey,
+  relayUrl,
 }: {
   enabled: boolean;
   fetch: () => Promise<FetchResult<T> | undefined> | undefined;
@@ -60,7 +72,12 @@ export function useStaleReaderRecovery<T, S>({
   getRevision: () => number;
   makeUpdater: (data: T) => (prev: S) => S;
   setStore: React.Dispatch<React.SetStateAction<S>>;
+  /** Passed to bind the effect lifetime to identity; see `@param pubkey`. */
+  pubkey?: string | undefined;
+  /** Passed to bind the effect lifetime to relay; see `@param relayUrl`. */
+  relayUrl?: string | undefined;
 }): void {
+  // biome-ignore lint/correctness/useExhaustiveDependencies: pubkey and relayUrl are intentional — they bind the recovery effect lifetime to identity and relay so a still-mounted hook switching relay A→B cancels the old effect (stars/mutes applyRemote does not capture relayUrl in its deps)
   React.useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
@@ -126,5 +143,14 @@ export function useStaleReaderRecovery<T, S>({
       if (timer !== null) clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, fetch, hasPending, getRevision, makeUpdater, setStore]);
+  }, [
+    enabled,
+    fetch,
+    hasPending,
+    getRevision,
+    makeUpdater,
+    setStore,
+    pubkey,
+    relayUrl,
+  ]);
 }

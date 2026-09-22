@@ -189,6 +189,8 @@ export function useChannelSections(
     getRevision: retryGetRevision,
     makeUpdater: retryMakeUpdater,
     setStore,
+    pubkey,
+    relayUrl,
   });
 
   const sections = React.useMemo<ChannelSection[]>(

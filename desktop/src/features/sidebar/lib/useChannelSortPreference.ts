@@ -187,6 +187,8 @@ export function useChannelSortPreference(
     getRevision: retryGetRevision,
     makeUpdater: retryMakeUpdater,
     setStore,
+    pubkey,
+    relayUrl,
   });
 
   const sortModeFor = React.useCallback(
