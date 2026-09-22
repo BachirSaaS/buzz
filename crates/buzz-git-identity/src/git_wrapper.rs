@@ -307,14 +307,13 @@ fn run_inner(argv: Vec<String>, authority: Option<Authority>) -> i32 {
     }
 
     // Push verification (L3) runs before exec so a wrongly-authored commit
-    // cannot leave the machine. The effective command is resolved through git
-    // aliases (config-defined and inline `-c alias.*`), because `git pub` with
-    // `alias.pub = push` reaches the real push after we hand off — keying on the
-    // literal token alone would let an alias slip a wrong-authored commit past.
-    // The alias-expanded argv (when an alias was involved) is used for the
-    // receive-pack guard so a bare-word alias like `alias.p = push --exec evil`
-    // does not bypass the flag scan. When no alias was involved, `effective_argv`
-    // is just the original argv.
+    // cannot leave the machine. The effective command is the already-resolved
+    // expansion from `verify_alias_safety` (when an alias was involved) or the
+    // original argv — keyed on the *expanded* subcommand so a bare-word alias
+    // like `alias.pub = push` is caught. The alias-expanded argv is also used
+    // for the receive-pack guard so a bare-word alias like
+    // `alias.p = push --exec evil` does not bypass the flag scan.
+    // When no alias was involved, `effective_argv` is just the original argv.
     if let Some(auth) = &authority {
         let effective_argv = alias_expanded.as_deref().unwrap_or(&argv);
         // Classify using the already-validated expansion, not the original argv.
@@ -399,26 +398,17 @@ enum PushKind {
     Push,
 }
 
-/// Classify the invocation's *effective* command, resolving ordinary git
-/// aliases so `git pub` (with `alias.pub = push`) and `git -c alias.pub=push
-/// pub` are both recognized. Aliases are read under `ctx` — the caller's
-/// complete global set ([`caller_globals`]) — so the probe consults the exact
-/// same aliases git will, including those introduced by a `-c include.path`/
-/// `--config-env`, case-varied `-c ALIAS.x`, or a repo view selected by
-/// `--bare`/`--git-dir`.
-///
-/// This runs only in a managed session, *after* [`verify_alias_safety`] has
-/// already refused every shell (`!`) alias and every non-shell alias that is
-/// not a trivially-safe bare-word chain — so a shell alias never reaches here.
+/// Classify the already-resolved effective command as push or not.
 ///
 /// The caller always passes `effective_argv`: the fully-resolved, safety-checked
 /// expansion from [`verify_alias_safety`] when an alias was involved, or the
-/// original argv otherwise.  Because the alias walk has already been performed
-/// and the resolved subcommand is the real git subcommand, this function simply
-/// classifies that subcommand directly — no second alias walk is needed or
-/// correct.  A second walk would re-consult alias config on the already-resolved
-/// token and could misclassify it (e.g. following a builtin-shadowing alias like
-/// `alias.status=push` that git itself ignores for dispatch).
+/// original argv otherwise.  The alias walk has already been performed and the
+/// resolved subcommand is the real git subcommand, so this function classifies
+/// that subcommand directly — no alias lookup is performed here.
+///
+/// A second alias walk would re-consult alias config on the already-resolved
+/// token and could misclassify it (e.g. following a builtin-shadowing alias
+/// like `alias.status=push` that git itself ignores for dispatch).
 fn is_push_command(argv: &[String]) -> PushKind {
     // Classify the already-resolved subcommand directly; no alias lookup.
     match subcommand(argv) {
@@ -541,19 +531,12 @@ enum SubsectionSupport {
 /// own state — never silently mapped to either capability verdict.
 fn git_supports_subsection_alias(real_git: &Path) -> SubsectionSupport {
     // Scratch environment: isolated working directory + config env.
-    let scratch_dir = {
-        let base = std::env::temp_dir();
-        base.join(format!("buzz-git-probe-{}-{}", std::process::id(), {
-            use std::hash::{Hash, Hasher};
-            let mut h = std::collections::hash_map::DefaultHasher::new();
-            real_git.hash(&mut h);
-            h.finish()
-        }))
+    // Use a truly unique temp dir so parallel test invocations do not race.
+    let scratch_dir_holder = match tempfile::tempdir() {
+        Ok(d) => d,
+        Err(_) => return SubsectionSupport::ProbeFailure,
     };
-    // scratch_dir is both HOME and the working directory.
-    if std::fs::create_dir_all(&scratch_dir).is_err() {
-        return SubsectionSupport::ProbeFailure;
-    }
+    let scratch_dir = scratch_dir_holder.path();
 
     // Minimal PATH: only the directory containing the real git binary, plus
     // scratch_dir itself (empty, so no helper can land there).  This prevents
@@ -584,17 +567,18 @@ fn git_supports_subsection_alias(real_git: &Path) -> SubsectionSupport {
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or(std::path::Path::new("/usr/bin"));
-    let minimal_path = std::env::join_paths([git_dir, scratch_dir.as_path()])
+    let minimal_path = std::env::join_paths([git_dir, scratch_dir])
         .unwrap_or_else(|_| git_dir.as_os_str().to_owned());
 
-    // Use capture_raw_bounded for timeout + output cap.
+    // Use run_bounded for timeout + output cap — a hanging helper on PATH must
+    // not block every managed git invocation indefinitely.
     // The sentinel alias is injected via -c; no config file is written.
     let result = {
         let mut cmd = std::process::Command::new(real_git);
         cmd.args(["-c", "alias._probe_.command=version", "_probe_"]);
         // Scrub all ambient config channels.
         cmd.env("GIT_CONFIG_NOSYSTEM", "1");
-        cmd.env("HOME", &scratch_dir);
+        cmd.env("HOME", scratch_dir);
         cmd.env_remove("XDG_CONFIG_HOME");
         cmd.env_remove("GIT_CONFIG_GLOBAL");
         cmd.env_remove("GIT_CONFIG_SYSTEM");
@@ -605,15 +589,15 @@ fn git_supports_subsection_alias(real_git: &Path) -> SubsectionSupport {
         cmd.env("PATH", &minimal_path);
         cmd.env_remove("GIT_EXEC_PATH");
         // Run from the scratch directory (not inside any git repo).
-        cmd.current_dir(&scratch_dir);
-        cmd.output()
+        cmd.current_dir(scratch_dir);
+        run_bounded(&mut cmd, PROBE_TIMEOUT)
     };
-    let _ = std::fs::remove_dir_all(&scratch_dir);
+    // scratch_dir_holder is dropped here, cleaning up the temp dir.
 
     match result {
-        Ok(out) if out.stdout.starts_with(b"git version") => SubsectionSupport::Supported,
-        Ok(_) => SubsectionSupport::Unsupported,
-        Err(_) => SubsectionSupport::ProbeFailure,
+        Some(out) if out.stdout.starts_with(b"git version") => SubsectionSupport::Supported,
+        Some(_) => SubsectionSupport::Unsupported,
+        None => SubsectionSupport::ProbeFailure,
     }
 }
 
@@ -719,11 +703,11 @@ fn resolve_alias(
                 // it matches `name`.  Order matters: check empty-subsection
                 // (rest starts with '.') before the general dot check, because
                 // ".pub".find('.') = Some(0) and would be misclassified.
-                let matches_name = if rest.starts_with('.') {
+                let matches_name = if let Some(after_dot) = rest.strip_prefix('.') {
                     // alias..<name> form: empty-subsection, plain semantics.
                     // Git prints the key as "alias..<name>" (two dots).
                     // Case-insensitive compare, like plain aliases.
-                    rest[1..].eq_ignore_ascii_case(name)
+                    after_dot.eq_ignore_ascii_case(name)
                 } else if let Some(dot_pos) = rest.rfind('.') {
                     // Has at least one dot that is not at position 0.
                     let var = &rest[dot_pos + 1..];
@@ -2615,6 +2599,168 @@ fn capture_raw_with_stdin(
 /// bounds it and the caller treats a timeout as fail-closed.
 const DRY_RUN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
+/// Hard ceiling on the capability probe. The sentinel dispatches a builtin
+/// (`version`) which needs no network or repo access — 10 s is generous for
+/// any sane system.  The probe is part of every managed git invocation, so a
+/// hanging helper must not block the agent indefinitely.
+const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Execute a pre-configured `Command` with a timeout + output cap, in an
+/// isolated process group (Unix) or Job Object (Windows) so the full child tree
+/// is killed on timeout or overflow.
+///
+/// The caller is responsible for all env setup and I/O redirection that is
+/// specific to their context.  This function sets `stdin(null)`,
+/// `stdout(piped)`, and `stderr(piped)`, then spawns.  [`capture_raw_bounded`]
+/// is the typical caller for normal git probes (it also calls `scrub_env`);
+/// `git_supports_subsection_alias` calls this directly with its custom-isolated
+/// command.
+fn run_bounded(
+    cmd: &mut std::process::Command,
+    timeout: std::time::Duration,
+) -> Option<std::process::Output> {
+    use std::io::ErrorKind;
+    use std::process::Stdio;
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use std::sync::Arc;
+    use std::time::Instant;
+
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    // Spawn in an isolated process group so kill-on-timeout reaches the full
+    // tree (SSH, remote helpers, etc.), not just the direct child.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // Freeze the root until a kill-on-close Job Object owns it, closing the
+        // spawn-to-assign race in which a fast root could create an unowned
+        // descendant before the parent assigns the job.
+        cmd.creation_flags(CREATE_SUSPENDED);
+    }
+
+    let mut child = cmd.spawn().ok()?;
+    let child_pid = child.id();
+    #[cfg(windows)]
+    let mut job = match create_bounded_job(child_pid) {
+        Some(job) if resume_bounded_process(child_pid) => Some(job),
+        Some(job) => {
+            drop(job);
+            let _ = child.wait();
+            return None;
+        }
+        None => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        }
+    };
+
+    let stdout_pipe = child.stdout.take()?;
+    let stderr_pipe = child.stderr.take()?;
+
+    // Unix: make pipe reads non-blocking so drain threads can stop on a
+    // WouldBlock after teardown, even if a group-escaped writer holds the pipe.
+    #[cfg(unix)]
+    {
+        if !set_nonblocking_fd(&stdout_pipe) || !set_nonblocking_fd(&stderr_pipe) {
+            kill_bounded_tree(
+                &mut child,
+                child_pid,
+                #[cfg(windows)]
+                &mut job,
+            );
+            let _ = child.wait();
+            return None;
+        }
+    }
+    let total = Arc::new(AtomicU64::new(0));
+    let overflow = Arc::new(AtomicBool::new(false));
+    let stop = Arc::new(AtomicBool::new(false));
+
+    let stdout_drain = Some(spawn_bounded_drain(
+        stdout_pipe,
+        total.clone(),
+        overflow.clone(),
+        stop.clone(),
+    ));
+    let stderr_drain = Some(spawn_bounded_drain(
+        stderr_pipe,
+        total.clone(),
+        overflow.clone(),
+        stop.clone(),
+    ));
+
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    kill_bounded_tree(
+                        &mut child,
+                        child_pid,
+                        #[cfg(windows)]
+                        &mut job,
+                    );
+                    break None;
+                }
+                if overflow.load(Ordering::Relaxed) {
+                    kill_bounded_tree(
+                        &mut child,
+                        child_pid,
+                        #[cfg(windows)]
+                        &mut job,
+                    );
+                    break None;
+                }
+                std::thread::sleep(BOUNDED_POLL);
+            }
+            Err(e) if e.kind() == ErrorKind::Interrupted => continue,
+            Err(_) => {
+                kill_bounded_tree(
+                    &mut child,
+                    child_pid,
+                    #[cfg(windows)]
+                    &mut job,
+                );
+                break None;
+            }
+        }
+    };
+
+    // Kill on every path (idempotent) — a successful child may have
+    // backgrounded a grandchild that still holds the pipe.  Then raise `stop`
+    // so the nonblocking Unix drains end on the next WouldBlock instead of
+    // waiting on a group-escaped writer indefinitely.
+    kill_bounded_tree(
+        &mut child,
+        child_pid,
+        #[cfg(windows)]
+        &mut job,
+    );
+    let _ = child.wait();
+    stop.store(true, Ordering::Relaxed);
+
+    let stdout = join_bounded_drain(stdout_drain);
+    let stderr = join_bounded_drain(stderr_drain);
+
+    let (status, stdout, stderr) = (status?, stdout?, stderr?);
+    if overflow.load(Ordering::Relaxed) {
+        return None;
+    }
+    Some(std::process::Output {
+        status,
+        stdout,
+        stderr,
+    })
+}
+
 /// Like [`capture_raw`] but killed if it runs past `timeout`. Returns `None` on
 /// spawn failure OR timeout (caller fails closed). The entire process group is
 /// killed and reaped on timeout so no zombie, detached network client, or
@@ -2831,149 +2977,10 @@ fn capture_raw_bounded(
     args: &[&str],
     timeout: std::time::Duration,
 ) -> Option<std::process::Output> {
-    use std::io::ErrorKind;
-    use std::process::Stdio;
-    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-    use std::sync::Arc;
-    use std::time::Instant;
-
     let mut cmd = std::process::Command::new(real_git);
     cmd.args(args);
     scrub_env(&mut cmd);
-    cmd.stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    // Spawn in an isolated process group so kill-on-timeout reaches the full
-    // tree (SSH, remote helpers, etc.), not just the direct child.
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        cmd.process_group(0);
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        // Freeze the root until a kill-on-close Job Object owns it, closing the
-        // spawn-to-assign race in which a fast root could create an unowned
-        // descendant before the parent assigns the job.
-        cmd.creation_flags(CREATE_SUSPENDED);
-    }
-
-    let mut child = cmd.spawn().ok()?;
-    let child_pid = child.id();
-    #[cfg(windows)]
-    let mut job = match create_bounded_job(child_pid) {
-        Some(job) if resume_bounded_process(child_pid) => Some(job),
-        Some(job) => {
-            drop(job);
-            let _ = child.wait();
-            return None;
-        }
-        None => {
-            let _ = child.kill();
-            let _ = child.wait();
-            return None;
-        }
-    };
-
-    let stdout_pipe = child.stdout.take()?;
-    let stderr_pipe = child.stderr.take()?;
-
-    // Unix: make pipe reads non-blocking so drain threads can stop on a
-    // WouldBlock after teardown, even if a group-escaped writer holds the pipe.
-    #[cfg(unix)]
-    {
-        if !set_nonblocking_fd(&stdout_pipe) || !set_nonblocking_fd(&stderr_pipe) {
-            kill_bounded_tree(
-                &mut child,
-                child_pid,
-                #[cfg(windows)]
-                &mut job,
-            );
-            let _ = child.wait();
-            return None;
-        }
-    }
-    let total = Arc::new(AtomicU64::new(0));
-    let overflow = Arc::new(AtomicBool::new(false));
-    let stop = Arc::new(AtomicBool::new(false));
-
-    let stdout_drain = Some(spawn_bounded_drain(
-        stdout_pipe,
-        total.clone(),
-        overflow.clone(),
-        stop.clone(),
-    ));
-    let stderr_drain = Some(spawn_bounded_drain(
-        stderr_pipe,
-        total.clone(),
-        overflow.clone(),
-        stop.clone(),
-    ));
-
-    let deadline = Instant::now() + timeout;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break Some(status),
-            Ok(None) => {
-                if Instant::now() >= deadline {
-                    kill_bounded_tree(
-                        &mut child,
-                        child_pid,
-                        #[cfg(windows)]
-                        &mut job,
-                    );
-                    break None;
-                }
-                if overflow.load(Ordering::Relaxed) {
-                    kill_bounded_tree(
-                        &mut child,
-                        child_pid,
-                        #[cfg(windows)]
-                        &mut job,
-                    );
-                    break None;
-                }
-                std::thread::sleep(BOUNDED_POLL);
-            }
-            Err(e) if e.kind() == ErrorKind::Interrupted => continue,
-            Err(_) => {
-                kill_bounded_tree(
-                    &mut child,
-                    child_pid,
-                    #[cfg(windows)]
-                    &mut job,
-                );
-                break None;
-            }
-        }
-    };
-
-    // Kill on every path (idempotent) — a successful child may have
-    // backgrounded a grandchild that still holds the pipe.  Then raise `stop`
-    // so the nonblocking Unix drains end on the next WouldBlock instead of
-    // waiting on a group-escaped writer indefinitely.
-    kill_bounded_tree(
-        &mut child,
-        child_pid,
-        #[cfg(windows)]
-        &mut job,
-    );
-    let _ = child.wait();
-    stop.store(true, Ordering::Relaxed);
-
-    let stdout = join_bounded_drain(stdout_drain);
-    let stderr = join_bounded_drain(stderr_drain);
-
-    let (status, stdout, stderr) = (status?, stdout?, stderr?);
-    if overflow.load(Ordering::Relaxed) {
-        return None;
-    }
-    Some(std::process::Output {
-        status,
-        stdout,
-        stderr,
-    })
+    run_bounded(&mut cmd, timeout)
 }
 
 /// Kill the entire process group spawned with `process_group(0)` on Unix, or
