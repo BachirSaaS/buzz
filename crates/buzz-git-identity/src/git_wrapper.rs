@@ -411,20 +411,38 @@ enum PushKind {
 /// already refused every shell (`!`) alias and every non-shell alias that is
 /// not a trivially-safe bare-word chain — so a shell alias never reaches here.
 /// Recursion is bounded to defeat cyclic alias definitions.
+///
+/// Builtin precedence mirrors git's dispatch: a non-deprecated builtin name is
+/// never an alias, regardless of what `alias.<name>` config is set to.  This
+/// prevents a builtin-shadowing alias (e.g. `alias.status=push`) from causing
+/// a non-push command to be misclassified as a push.
 fn is_push_command(real_git: &Path, argv: &[String], ctx: &[String]) -> PushKind {
     let mut name = match subcommand(argv) {
         Some(s) => s,
         None => return PushKind::NotPush,
     };
+    // Resolve builtin/deprecated sets once; check subsection-alias support.
+    // These are the same probes as verify_alias_safety — callers always pass
+    // effective_argv (already validated) so in most cases name == "push" and
+    // the loop exits immediately, but an alias chain that terminates at push
+    // still needs to be followed.
+    let builtins = git_builtin_commands(real_git);
+    let deprecated = git_deprecated_commands(real_git);
+    let supports_subsection = git_supports_subsection_alias(real_git);
     for _ in 0..10 {
         if name == "push" {
             return PushKind::Push;
         }
-        let def = capture(
-            real_git,
-            ctx,
-            &["config", "--get", &format!("alias.{name}")],
-        );
+        // A non-deprecated builtin is handled before alias config — stop here.
+        // Without this check, `alias.status=push` would be followed, causing
+        // `verify_push` to run a --dry-run probe on a `status` invocation.
+        let is_nondeprecated_builtin = !builtins.is_empty()
+            && builtins.contains(name.as_str())
+            && !deprecated.contains(name.as_str());
+        if is_nondeprecated_builtin {
+            return PushKind::NotPush;
+        }
+        let def = resolve_alias(real_git, ctx, &name, supports_subsection);
         let def = match def {
             Some(d) => d,
             None => return PushKind::NotPush, // not an alias — effective command
@@ -493,6 +511,69 @@ fn git_deprecated_commands(real_git: &Path) -> std::collections::HashSet<String>
         .collect()
 }
 
+/// Detect whether the installed git binary supports the `alias.<name>.command`
+/// subsection form introduced in Git 2.54.
+///
+/// Git 2.54 added `alias.<name>.command` as an alternative alias representation.
+/// When both `alias.<name>` and `alias.<name>.command` are defined, the
+/// `.command` form takes precedence regardless of configuration-file ordering.
+/// The wrapper must resolve both representations so it sees the same effective
+/// alias value as git.
+///
+/// Feature-probe: inject an inline sentinel via `-c alias._probe_.command=push`
+/// and query it back. A successful read confirms the binary routes the
+/// `.command` subsection form through `config --get`; a non-zero exit or empty
+/// result means the binary predates the feature and only the plain form applies.
+///
+/// Uses a name (`_probe_`) that contains underscores and no real alias would
+/// share, so the probe cannot collide with actual user configuration.
+fn git_supports_subsection_alias(real_git: &Path) -> bool {
+    let out = std::process::Command::new(real_git)
+        .args([
+            "-c",
+            "alias._probe_.command=push",
+            "config",
+            "--get",
+            "alias._probe_.command",
+        ])
+        .output();
+    matches!(out, Ok(o) if o.status.success() && o.stdout.starts_with(b"push"))
+}
+
+/// Resolve the effective alias value for `name` under the given context.
+///
+/// Git 2.54 introduced `alias.<name>.command` which takes precedence over the
+/// plain `alias.<name>` form when both are defined (see [`git_supports_subsection_alias`]).
+/// This function mirrors git's lookup order:
+///
+/// 1. If the binary supports subsection aliases, check `alias.<name>.command`
+///    first; if found, return that value.
+/// 2. Fall back to plain `alias.<name>`.
+/// 3. If neither is defined, return `None` (the name is a real command).
+///
+/// Using this function at every alias-resolution site in the wrapper ensures
+/// that a subsection-only alias (`alias.<name>.command` with no plain form)
+/// is not silently treated as a real command, and that conflicting
+/// plain/subsection definitions resolve in the same order as git itself.
+fn resolve_alias(
+    real_git: &Path,
+    ctx: &[String],
+    name: &str,
+    supports_subsection: bool,
+) -> Option<String> {
+    if supports_subsection {
+        let cmd_key = format!("alias.{name}.command");
+        if let Some(def) = capture(real_git, ctx, &["config", "--get", &cmd_key]) {
+            return Some(def);
+        }
+    }
+    capture(
+        real_git,
+        ctx,
+        &["config", "--get", &format!("alias.{name}")],
+    )
+}
+
 /// Refuse any alias the wrapper cannot *trivially* prove safe, and — on success
 /// — return the alias's fully-resolved expansion so the caller can hold it to
 /// the same policy as a directly-typed command. Git expands an alias in-process,
@@ -554,6 +635,10 @@ fn verify_alias_safety(
     // apply builtin-first for every builtin — correct for that binary.
     let builtins = git_builtin_commands(real_git);
     let deprecated = git_deprecated_commands(real_git);
+    // Git 2.54 added `alias.<name>.command` which takes precedence over the plain
+    // `alias.<name>` form.  Probe once per call; resolve_alias applies the correct
+    // lookup ordering on every hop.
+    let supports_subsection = git_supports_subsection_alias(real_git);
     for _ in 0..MAX_ALIAS_HOPS {
         // The command word within the current chain (git re-parses leading
         // options as globals after each expansion, so a body may begin with
@@ -572,11 +657,7 @@ fn verify_alias_safety(
         if is_nondeprecated_builtin {
             break;
         }
-        let def = capture(
-            real_git,
-            ctx,
-            &["config", "--get", &format!("alias.{name}")],
-        );
+        let def = resolve_alias(real_git, ctx, name, supports_subsection);
         let Some(def) = def else {
             break; // real subcommand — chain is fully expanded
         };
@@ -602,12 +683,7 @@ fn verify_alias_safety(
         && builtins.contains(name.as_str())
         && !deprecated.contains(name.as_str());
     if !is_nondeprecated_builtin
-        && capture(
-            real_git,
-            ctx,
-            &["config", "--get", &format!("alias.{name}")],
-        )
-        .is_some()
+        && resolve_alias(real_git, ctx, name, supports_subsection).is_some()
     {
         return Err(alias_limit_reject_message());
     }
@@ -6626,6 +6702,146 @@ mod tests {
             "destination must remain empty after deprecated-builtin alias refusal; \
              remote_refs={:?}",
             String::from_utf8_lossy(&ls.stdout)
+        );
+    }
+
+    // ── Carl R10 P1: Git 2.54 subsection alias (`alias.<name>.command`) ─────
+
+    /// (Carl R10 P1-a) `git pub` with only the subsection form
+    /// `alias.pub.command = push` must be expanded and refused — the subsection-
+    /// only alias must not be silently treated as a real command.
+    ///
+    /// **Bypass shape (without the fix):**
+    /// `verify_alias_safety` called `capture(git, ctx, &["config", "--get",
+    /// "alias.pub"])` which exits non-zero for a `.command`-only alias.
+    /// `is_push_command` repeated the same lookup.  Both functions returned
+    /// early with "real command" or `NotPush`, so verification was never
+    /// reached and git expanded the alias to `push` on its own.
+    ///
+    /// **Fix:** `git_supports_subsection_alias` probes whether the installed
+    /// git understands `alias.<name>.command`; `resolve_alias` then checks the
+    /// `.command` key before the plain key, exactly mirroring git's lookup
+    /// order (`.command` takes precedence when both are defined).
+    ///
+    /// **Self-gate:** skips cleanly on binaries where
+    /// `git_supports_subsection_alias` returns `false` — those binaries do not
+    /// expand `.command` aliases, so there is no bypass to test.
+    #[test]
+    fn verify_push_subsection_command_alias_is_refused() {
+        if !git_supports_subsection_alias(&real_git()) {
+            eprintln!("skip: installed git does not support alias.<name>.command form");
+            return;
+        }
+
+        // inline -c injection of the subsection form: alias.pub.command=push
+        // git config --get alias.pub exits non-zero (no plain form), but
+        // `git pub` still dispatches as push on 2.54+ — the wrapper must catch it.
+        let argv = v(&["-c", "alias.pub.command=push", "pub", "origin", "main"]);
+        let ctx = caller_globals(&argv);
+
+        // verify_alias_safety must expand pub→push (not return Ok(None)).
+        let expansion = verify_alias_safety(&real_git(), &argv, &ctx)
+            .expect("verify_alias_safety must not Err for subsection-alias.pub.command=push");
+        let expanded = expansion.expect(
+            "verify_alias_safety must expand subsection alias alias.pub.command=push to \
+             Some(argv); Ok(None) means the .command form was not resolved — bypass is live",
+        );
+        let sub = subcommand(&expanded).expect("expanded argv must have a subcommand");
+        assert_eq!(
+            sub, "push",
+            "expansion must resolve alias.pub.command=push → push; got `{sub}`"
+        );
+
+        // is_push_command must also classify it as Push.
+        assert!(
+            matches!(is_push_command(&real_git(), &argv, &ctx), PushKind::Push),
+            "is_push_command must return Push for alias.pub.command=push; \
+             returning NotPush means the subsection form is not resolved there"
+        );
+    }
+
+    /// (Carl R10 P1-b) When both plain `alias.pub = status` and subsection
+    /// `alias.pub.command = push` are defined, the `.command` form must win
+    /// (mirroring git's lookup order) and the push must be refused.
+    ///
+    /// **Bypass shape (without the fix):**
+    /// The wrapper only queried `alias.pub` (the plain form), saw `status`,
+    /// followed it to `NotPush`, and skipped verification.  Real git 2.54
+    /// resolved `.command` first → `push` → published the commit.
+    ///
+    /// **Fix:** `resolve_alias` checks `.command` before plain, so the wrapper
+    /// sees `push` (not `status`) and correctly invokes `verify_push`.
+    ///
+    /// **Self-gate:** skips on binaries that don't support subsection aliases.
+    #[test]
+    fn verify_push_subsection_command_takes_precedence_over_plain() {
+        if !git_supports_subsection_alias(&real_git()) {
+            eprintln!("skip: installed git does not support alias.<name>.command form");
+            return;
+        }
+
+        // plain = status (would be NotPush without fix), command = push (correct).
+        let argv = v(&[
+            "-c",
+            "alias.pub=status",
+            "-c",
+            "alias.pub.command=push",
+            "pub",
+            "origin",
+            "main",
+        ]);
+        let ctx = caller_globals(&argv);
+
+        // verify_alias_safety must expand pub → push (not status).
+        let expansion = verify_alias_safety(&real_git(), &argv, &ctx)
+            .expect("verify_alias_safety must not Err for conflicting alias forms");
+        let expanded = expansion.expect(
+            "verify_alias_safety must expand alias.pub (with .command override) to \
+             Some(push …); Ok(None) or Some(status …) means .command precedence is broken",
+        );
+        let sub = subcommand(&expanded).expect("expanded argv must have a subcommand");
+        assert_eq!(
+            sub, "push",
+            "alias.pub.command=push must override alias.pub=status; got `{sub}`"
+        );
+
+        // is_push_command must also follow .command form to Push.
+        assert!(
+            matches!(is_push_command(&real_git(), &argv, &ctx), PushKind::Push),
+            "is_push_command must return Push when .command=push overrides plain=status"
+        );
+    }
+
+    // ── Carl R10 P2: no re-expansion after builtin resolution ─────────────────
+
+    /// (Carl R10 P2) `git status` with `alias.status = push` set must not
+    /// trigger push verification — `is_push_command` must honor builtin
+    /// precedence and return `NotPush` for a builtin subcommand without
+    /// consulting its alias config.
+    ///
+    /// **Bypass shape (without the fix):**
+    /// `is_push_command` did an unconditional alias lookup on every name
+    /// including builtins.  With `alias.status=push` set, it followed the alias
+    /// and returned `Push` → `verify_push` was called → it probed the original
+    /// `status` invocation with `--dry-run --porcelain --no-verify` → git
+    /// rejected the push-only flags → legitimate non-push command was blocked.
+    ///
+    /// **Fix:** `is_push_command` now checks `git_builtin_commands` before
+    /// consulting aliases — a non-deprecated builtin name terminates the walk
+    /// immediately with `NotPush`.
+    ///
+    /// **Mutation evidence:** removing the `is_nondeprecated_builtin` early-
+    /// return from `is_push_command` recreates the bypass: `status` is
+    /// classified as `Push` and the test goes red.
+    #[test]
+    fn is_push_command_builtin_with_push_alias_returns_not_push() {
+        // The inline -c injection makes alias.status=push visible to the probe.
+        let argv = v(&["-c", "alias.status=push", "status"]);
+        let ctx = caller_globals(&argv);
+        assert!(
+            matches!(is_push_command(&real_git(), &argv, &ctx), PushKind::NotPush),
+            "is_push_command must return NotPush for builtin `status` even when \
+             alias.status=push is set; returning Push recreates the P2 bypass"
         );
     }
 

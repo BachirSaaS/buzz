@@ -1313,12 +1313,193 @@ fn wrapper_refuses_push_via_builtin_shadowing_alias() {
     );
 }
 
+/// R10/P1-a real-wrapper regression: `git pub` with `alias.pub.command = push`
+/// (the Git 2.54 subsection form, no plain `alias.pub`) must be expanded and
+/// refused — a human-authored commit must not reach the remote.
+///
+/// **Bypass shape (without the fix):**
+/// The wrapper probed only `config --get alias.pub`, which exits non-zero for a
+/// `.command`-only alias.  Both `verify_alias_safety` and `is_push_command`
+/// returned early as if `pub` were a real subcommand; `enforce` saw no alias to
+/// expand, skipped the push gate, and `exec_real_git` ran the original argv.
+/// Git then expanded `alias.pub.command=push` internally and published the
+/// human-authored commit.
+///
+/// **Fix:** `git_supports_subsection_alias` probes whether the installed git
+/// understands `alias.<name>.command`; `resolve_alias` queries the `.command`
+/// key before the plain key at every alias hop.
+///
+/// **Self-gate:** skips on binaries where `git_supports_subsection_alias`
+/// returns false — those binaries don't expand `.command` aliases.
+#[test]
+fn wrapper_refuses_push_via_subsection_command_alias() {
+    // Probe subsection-alias support before allocating heavy test fixtures.
+    let probe = std::process::Command::new("git")
+        .args([
+            "-c",
+            "alias._probe_.command=push",
+            "config",
+            "--get",
+            "alias._probe_.command",
+        ])
+        .output()
+        .unwrap();
+    if !probe.status.success() || !probe.stdout.starts_with(b"push") {
+        eprintln!("skip: installed git does not support alias.<name>.command form");
+        return;
+    }
+
+    let (_shim, path, _email, _keydir) = signed_shim_env();
+    let repo = human_repo();
+    let remote = tempfile::tempdir().unwrap();
+    assert!(Command::new("git")
+        .args(["init", "-q", "--bare", remote.path().to_str().unwrap()])
+        .status()
+        .unwrap()
+        .success());
+    wrapper(
+        &path,
+        repo.path(),
+        &["remote", "add", "origin", remote.path().to_str().unwrap()],
+    );
+    // Set ONLY the .command form (no plain alias.pub).
+    wrapper(&path, repo.path(), &["config", "alias.pub.command", "push"]);
+
+    let out = wrapper(&path, repo.path(), &["pub", "origin", "main"]);
+    assert!(
+        !out.status.success(),
+        "alias.pub.command=push must be expanded and refused (human-authored HEAD); \
+         stderr={}",
+        String::from_utf8_lossy(&out.stderr),
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("not authored by your agent identity"),
+        "expected the push-gate rejection; stderr={}",
+        String::from_utf8_lossy(&out.stderr),
+    );
+    // Destination must be empty.
+    let refs = Command::new("git")
+        .args(["-C", remote.path().to_str().unwrap(), "for-each-ref"])
+        .output()
+        .unwrap();
+    assert!(
+        refs.stdout.is_empty(),
+        "remote must be empty after refused push via .command alias; refs={}",
+        String::from_utf8_lossy(&refs.stdout),
+    );
+}
+
+/// R10/P1-b real-wrapper regression: when both plain `alias.pub = status` and
+/// subsection `alias.pub.command = push` are present, the `.command` form must
+/// win and the push must be refused.
+///
+/// **Bypass shape (without the fix):**
+/// The wrapper only queried `config --get alias.pub` (the plain form), saw
+/// `status`, followed it to `NotPush`, and skipped push verification.  Real git
+/// 2.54 resolved `.command` first → expanded to `push` → published the commit.
+///
+/// **Fix:** `resolve_alias` queries `.command` before plain, matching git's
+/// lookup order.
+///
+/// **Self-gate:** skips on binaries without subsection alias support.
+#[test]
+fn wrapper_refuses_push_subsection_command_overrides_plain_alias() {
+    let probe = std::process::Command::new("git")
+        .args([
+            "-c",
+            "alias._probe_.command=push",
+            "config",
+            "--get",
+            "alias._probe_.command",
+        ])
+        .output()
+        .unwrap();
+    if !probe.status.success() || !probe.stdout.starts_with(b"push") {
+        eprintln!("skip: installed git does not support alias.<name>.command form");
+        return;
+    }
+
+    let (_shim, path, _email, _keydir) = signed_shim_env();
+    let repo = human_repo();
+    let remote = tempfile::tempdir().unwrap();
+    assert!(Command::new("git")
+        .args(["init", "-q", "--bare", remote.path().to_str().unwrap()])
+        .status()
+        .unwrap()
+        .success());
+    wrapper(
+        &path,
+        repo.path(),
+        &["remote", "add", "origin", remote.path().to_str().unwrap()],
+    );
+    // Plain form would redirect to status (NotPush); command form correctly
+    // points to push.  git 2.54 resolves .command first — the wrapper must too.
+    wrapper(&path, repo.path(), &["config", "alias.pub", "status"]);
+    wrapper(&path, repo.path(), &["config", "alias.pub.command", "push"]);
+
+    let out = wrapper(&path, repo.path(), &["pub", "origin", "main"]);
+    assert!(
+        !out.status.success(),
+        "alias.pub.command=push must override alias.pub=status and be refused; \
+         stderr={}",
+        String::from_utf8_lossy(&out.stderr),
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("not authored by your agent identity"),
+        "expected the push-gate rejection (not a status execution); stderr={}",
+        String::from_utf8_lossy(&out.stderr),
+    );
+    let refs = Command::new("git")
+        .args(["-C", remote.path().to_str().unwrap(), "for-each-ref"])
+        .output()
+        .unwrap();
+    assert!(
+        refs.stdout.is_empty(),
+        "remote must be empty after refused push via .command-override alias; refs={}",
+        String::from_utf8_lossy(&refs.stdout),
+    );
+}
+
+/// R10/P2 real-wrapper positive control: a genuine `git status` with
+/// `alias.status = push` must NOT be blocked — the builtin-shadowing alias
+/// must not cause `verify_push` to run a push probe on a status invocation.
+///
+/// **Defect shape (without the fix):**
+/// `is_push_command` did an unconditional alias walk.  With `alias.status=push`
+/// set it returned `Push`, triggering `verify_push` which probed the original
+/// `status` argv with `--dry-run --porcelain --no-verify`.  Git status rejects
+/// push-only flags → exit non-zero → legitimate `status` was blocked.
+///
+/// **Fix:** `is_push_command` now short-circuits at non-deprecated builtins
+/// before consulting alias config.
+///
+/// **Mutation evidence:** removing the `is_nondeprecated_builtin` early-return
+/// from `is_push_command` makes this test FAIL (status is incorrectly blocked).
+#[test]
+fn wrapper_allows_status_with_builtin_shadowing_push_alias() {
+    let (_shim, path, _email, _keydir) = signed_shim_env();
+    let repo = human_repo();
+    // Set alias.status=push — a builtin-shadowing alias git silently ignores.
+    wrapper(&path, repo.path(), &["config", "alias.status", "push"]);
+
+    let out = wrapper(&path, repo.path(), &["status", "--short"]);
+    assert!(
+        out.status.success(),
+        "git status with a builtin-shadowing alias.status=push must succeed; \
+         stderr={}",
+        String::from_utf8_lossy(&out.stderr),
+    );
+    // Confirm it actually produced status output (not an error or push output).
+    assert!(
+        !String::from_utf8_lossy(&out.stderr).contains("not authored by your agent identity"),
+        "status must not have hit the push gate; stderr={}",
+        String::from_utf8_lossy(&out.stderr),
+    );
+}
+
 /// R9/P5 real-wrapper regression: `alias.whatchanged = -p push origin main`
 /// must be expanded and held to policy on binaries where `--list-cmds=deprecated`
 /// succeeds and lists `whatchanged` (i.e. deprecated builtins are alias-first).
-///
-/// **Bypass shape (without the fix):**
-/// When `!deprecated.contains(name)` is removed, `verify_alias_safety` breaks
 /// at `whatchanged` (it is in `--list-cmds=builtins`) and returns `Ok(None)`.
 /// The fallback `is_push_command` then reads `alias.whatchanged = -p push` and
 /// takes `-p` as the first command word (no `alias.-p` → `NotPush`).  Real git,
