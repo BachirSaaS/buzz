@@ -1325,27 +1325,22 @@ fn wrapper_refuses_push_via_builtin_shadowing_alias() {
 /// Git then expanded `alias.pub.command=push` internally and published the
 /// human-authored commit.
 ///
-/// **Fix:** `git_supports_subsection_alias` probes whether the installed git
-/// understands `alias.<name>.command`; `resolve_alias` queries the `.command`
-/// key before the plain key at every alias hop.
+/// **Fix:** `git_supports_subsection_alias` probes actual dispatch (not config
+/// storage); `resolve_alias` enumerates all matching entries in traversal order
+/// via `config --get-regexp`; the last definition wins.
 ///
-/// **Self-gate:** skips on binaries where `git_supports_subsection_alias`
-/// returns false — those binaries don't expand `.command` aliases.
+/// **Self-gate:** skips on binaries where the dispatch probe returns false —
+/// those binaries don't execute `.command` aliases.
 #[test]
 fn wrapper_refuses_push_via_subsection_command_alias() {
-    // Probe subsection-alias support before allocating heavy test fixtures.
+    // Dispatch probe: does this binary execute alias._probe_.command=version?
     let probe = std::process::Command::new("git")
-        .args([
-            "-c",
-            "alias._probe_.command=push",
-            "config",
-            "--get",
-            "alias._probe_.command",
-        ])
+        .args(["-c", "alias._probe_.command=version", "_probe_"])
+        .env("GIT_CONFIG_NOSYSTEM", "1")
         .output()
         .unwrap();
-    if !probe.status.success() || !probe.stdout.starts_with(b"push") {
-        eprintln!("skip: installed git does not support alias.<name>.command form");
+    if !probe.stdout.starts_with(b"git version") {
+        eprintln!("skip: installed git does not dispatch alias.<name>.command form");
         return;
     }
 
@@ -1390,32 +1385,28 @@ fn wrapper_refuses_push_via_subsection_command_alias() {
 }
 
 /// R10/P1-b real-wrapper regression: when both plain `alias.pub = status` and
-/// subsection `alias.pub.command = push` are present, the `.command` form must
-/// win and the push must be refused.
+/// subsection `alias.pub.command = push` are present (subsection last), the
+/// last definition wins and the push must be refused.
 ///
 /// **Bypass shape (without the fix):**
 /// The wrapper only queried `config --get alias.pub` (the plain form), saw
 /// `status`, followed it to `NotPush`, and skipped push verification.  Real git
-/// 2.54 resolved `.command` first → expanded to `push` → published the commit.
+/// 2.54 resolved in traversal order; with `.command` last, it dispatched `push`
+/// and published the commit.
 ///
-/// **Fix:** `resolve_alias` queries `.command` before plain, matching git's
-/// lookup order.
+/// **Fix:** `resolve_alias` enumerates all matching forms in traversal order
+/// via `config --get-regexp`; the last entry's value is the effective alias.
 ///
-/// **Self-gate:** skips on binaries without subsection alias support.
+/// **Self-gate:** skips on binaries without subsection alias dispatch support.
 #[test]
 fn wrapper_refuses_push_subsection_command_overrides_plain_alias() {
     let probe = std::process::Command::new("git")
-        .args([
-            "-c",
-            "alias._probe_.command=push",
-            "config",
-            "--get",
-            "alias._probe_.command",
-        ])
+        .args(["-c", "alias._probe_.command=version", "_probe_"])
+        .env("GIT_CONFIG_NOSYSTEM", "1")
         .output()
         .unwrap();
-    if !probe.status.success() || !probe.stdout.starts_with(b"push") {
-        eprintln!("skip: installed git does not support alias.<name>.command form");
+    if !probe.stdout.starts_with(b"git version") {
+        eprintln!("skip: installed git does not dispatch alias.<name>.command form");
         return;
     }
 
@@ -1596,6 +1587,203 @@ fn wrapper_refuses_push_via_deprecated_builtin_alias() {
     assert!(
         refs.stdout.is_empty(),
         "remote must be empty after refused push via whatchanged alias; refs={}",
+        String::from_utf8_lossy(&refs.stdout),
+    );
+}
+
+/// Thufir R11 reverse-order: when plain `alias.pub = push` is defined **after**
+/// `alias.pub.command = status` (so plain is the last definition), the last
+/// definition wins and the push must be refused.
+///
+/// This confirms the wrapper implements true last-wins ordering rather than
+/// hard-coding `.command`-first precedence.  An old `.command`-first fix would
+/// see `status` (the `.command` value) and classify the command as NotPush,
+/// letting a real push through unverified.
+///
+/// **Self-gate:** skips on binaries without subsection alias dispatch support.
+#[test]
+fn wrapper_refuses_push_plain_last_overrides_subsection_command() {
+    let probe = std::process::Command::new("git")
+        .args(["-c", "alias._probe_.command=version", "_probe_"])
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .output()
+        .unwrap();
+    if !probe.stdout.starts_with(b"git version") {
+        eprintln!("skip: installed git does not dispatch alias.<name>.command form");
+        return;
+    }
+
+    let (_shim, path, _email, _keydir) = signed_shim_env();
+    let repo = human_repo();
+    let remote = tempfile::tempdir().unwrap();
+    assert!(Command::new("git")
+        .args(["init", "-q", "--bare", remote.path().to_str().unwrap()])
+        .status()
+        .unwrap()
+        .success());
+    wrapper(
+        &path,
+        repo.path(),
+        &["remote", "add", "origin", remote.path().to_str().unwrap()],
+    );
+    // command=status first, plain=push last — last definition wins → push.
+    // A .command-first resolver would see status and wrongly classify as NotPush.
+    wrapper(
+        &path,
+        repo.path(),
+        &["config", "alias.pub.command", "status"],
+    );
+    wrapper(&path, repo.path(), &["config", "alias.pub", "push"]);
+
+    let out = wrapper(&path, repo.path(), &["pub", "origin", "main"]);
+    assert!(
+        !out.status.success(),
+        "alias.pub=push (last) must override alias.pub.command=status (first) and be refused; \
+         stderr={}",
+        String::from_utf8_lossy(&out.stderr),
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("not authored by your agent identity"),
+        "expected the push-gate rejection (not status output); stderr={}",
+        String::from_utf8_lossy(&out.stderr),
+    );
+    // Mutation evidence: deleting the last-wins branch from `resolve_alias`
+    // and reverting to `.command`-first makes this test PASS (push reaches the
+    // remote) instead of asserting the push was refused.
+    let refs = Command::new("git")
+        .args(["-C", remote.path().to_str().unwrap(), "for-each-ref"])
+        .output()
+        .unwrap();
+    assert!(
+        refs.stdout.is_empty(),
+        "remote must be empty after refused push via plain-last alias; refs={}",
+        String::from_utf8_lossy(&refs.stdout),
+    );
+}
+
+/// Thufir R11 empty-subsection: `alias..pub = push` (empty-subsection form)
+/// must be refused on binaries that dispatch it (Git 2.54).  Git treats
+/// `alias..<name>` as plain configuration and includes it in last-wins ordering.
+///
+/// **Self-gate:** skips on binaries that do not dispatch the empty-subsection
+/// form — those binaries treat it as an unknown alias name, so no bypass exists.
+#[test]
+fn wrapper_refuses_push_via_empty_subsection_alias() {
+    // Two-step gate: dispatch probe AND empty-subsection dispatch.
+    let probe = std::process::Command::new("git")
+        .args(["-c", "alias._probe_.command=version", "_probe_"])
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .output()
+        .unwrap();
+    if !probe.stdout.starts_with(b"git version") {
+        eprintln!("skip: installed git does not dispatch alias.<name>.command form");
+        return;
+    }
+    let empty_probe = std::process::Command::new("git")
+        .args(["-c", "alias..pub=version", "pub"])
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .output()
+        .unwrap();
+    if !empty_probe.stdout.starts_with(b"git version") {
+        eprintln!("skip: installed git does not dispatch alias..<name> form");
+        return;
+    }
+
+    let (_shim, path, _email, _keydir) = signed_shim_env();
+    let repo = human_repo();
+    let remote = tempfile::tempdir().unwrap();
+    assert!(Command::new("git")
+        .args(["init", "-q", "--bare", remote.path().to_str().unwrap()])
+        .status()
+        .unwrap()
+        .success());
+    wrapper(
+        &path,
+        repo.path(),
+        &["remote", "add", "origin", remote.path().to_str().unwrap()],
+    );
+    // Empty-subsection form alias..pub = push.
+    // `git config` cannot set an empty-subsection key via command-line arguments;
+    // write the config fragment directly.
+    let git_config = repo.path().join(".git").join("config");
+    let existing = std::fs::read_to_string(&git_config).unwrap_or_default();
+    std::fs::write(
+        &git_config,
+        format!("{existing}\n[alias \"\"]\n\tpub = push\n"),
+    )
+    .unwrap();
+
+    let out = wrapper(&path, repo.path(), &["pub", "origin", "main"]);
+    assert!(
+        !out.status.success(),
+        "alias..pub=push (empty-subsection) must be expanded and refused; stderr={}",
+        String::from_utf8_lossy(&out.stderr),
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("not authored by your agent identity"),
+        "expected the push-gate rejection; stderr={}",
+        String::from_utf8_lossy(&out.stderr),
+    );
+    // Mutation evidence: removing empty-subsection matching from `resolve_alias`
+    // leaves `pub` unresolved; the wrapper treats it as a real (non-push)
+    // command; git dispatches the push; the remote acquires the commit.
+    let refs = Command::new("git")
+        .args(["-C", remote.path().to_str().unwrap(), "for-each-ref"])
+        .output()
+        .unwrap();
+    assert!(
+        refs.stdout.is_empty(),
+        "remote must be empty after refused push via empty-subsection alias; refs={}",
+        String::from_utf8_lossy(&refs.stdout),
+    );
+}
+
+/// Thufir R11 positive control: a legitimate agent-authored push via a
+/// subsection alias (`alias.pub.command = push`) is allowed through — the
+/// wrapper must not block valid subsection-alias pushes.
+///
+/// **Self-gate:** skips on binaries without subsection alias dispatch support.
+#[test]
+fn wrapper_allows_agent_push_via_subsection_command_alias() {
+    let probe = std::process::Command::new("git")
+        .args(["-c", "alias._probe_.command=version", "_probe_"])
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .output()
+        .unwrap();
+    if !probe.stdout.starts_with(b"git version") {
+        eprintln!("skip: installed git does not dispatch alias.<name>.command form");
+        return;
+    }
+
+    let (_shim, path, email, _keydir) = signed_shim_env();
+    let (_work, repo, remote) = agent_repo_with_remote(&email);
+    // Make an agent-signed commit so there is something to push.
+    std::fs::write(repo.join("f"), "x").unwrap();
+    wrapper(&path, &repo, &["add", "f"]);
+    let commit_out = wrapper(&path, &repo, &["commit", "-m", "agent commit"]);
+    assert!(
+        commit_out.status.success(),
+        "agent commit must succeed; stderr={}",
+        String::from_utf8_lossy(&commit_out.stderr),
+    );
+    // Set ONLY the subsection form; no plain alias.pub.
+    wrapper(&path, &repo, &["config", "alias.pub.command", "push"]);
+
+    let out = wrapper(&path, &repo, &["pub", "origin", "main"]);
+    assert!(
+        out.status.success(),
+        "agent-authored commit via subsection alias.pub.command=push must succeed; \
+         stderr={}",
+        String::from_utf8_lossy(&out.stderr),
+    );
+    // Remote must have received the commit.
+    let refs = Command::new("git")
+        .args(["-C", remote.to_str().unwrap(), "for-each-ref"])
+        .output()
+        .unwrap();
+    assert!(
+        !refs.stdout.is_empty(),
+        "remote must have received the agent commit via subsection alias; refs={}",
         String::from_utf8_lossy(&refs.stdout),
     );
 }
