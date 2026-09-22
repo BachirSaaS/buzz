@@ -4569,6 +4569,112 @@ mod postgres_tests {
         Some(Arc::new(state))
     }
 
+    // EC P-256 test key constants shared by positive-control and cardinality tests.
+    // Private key (PKCS#8 PEM) + public key coordinates (JWK x/y/kid).
+    // Used by `nip_fi_enforce_test_state_with_verifier()` and
+    // `signed_assertion_for_pubkey()`.
+    const HANDLER_TEST_ISSUER: &str = "https://issuer.example";
+    const HANDLER_TEST_AUDIENCE: &str = "https://relay.example";
+    const HANDLER_TEST_KID: &str = "test-key-1";
+    const HANDLER_TEST_EC_PEM: &str = "-----BEGIN PRIVATE KEY-----\n\
+        MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgcnxDM4EiirH9dHUE\n\
+        WZc759TX4s5PAn8kO5ovXSnGxCWhRANCAARFb6ZnsfkqOOXyEhj3KBQphGKF4vTa\n\
+        zhebbavbZ1ZoklqkF1cGg+jTO7rONAVEzXvXUWtV6CdDV+rybiVmFP2w\n\
+        -----END PRIVATE KEY-----\n";
+
+    /// Build a NIP-FI Enforce AppState with a real injected P-256 verifier.
+    ///
+    /// Used by positive-control tests (same-key admission proves the handler
+    /// was reached, not just deny-all).  Same key material as used in the
+    /// cardinality test and the `signed_assertion_for_pubkey` helper below.
+    async fn nip_fi_enforce_test_state_with_verifier() -> Option<Arc<crate::state::AppState>> {
+        use buzz_auth::{
+            AssertionKeySet, FederatedAssertionVerifier, FreshnessClass, IssuerPolicy,
+            IssuerRegistry, StaticIssuerKeySource, TokenClass, VerifyAssertion,
+        };
+        use jsonwebtoken::{jwk::JwkSet, Algorithm};
+
+        let mut state = (*nip_fi_enforce_test_state().await?).clone();
+
+        let jwks: JwkSet = serde_json::from_value(serde_json::json!({
+            "keys": [{
+                "kty": "EC", "crv": "P-256", "use": "sig", "alg": "ES256",
+                "kid": HANDLER_TEST_KID,
+                "x": "RW-mZ7H5Kjjl8hIY9ygUKYRiheL02s4Xm22r22dWaJI",
+                "y": "WqQXVwaD6NM7us40BUTNe9dRa1XoJ0NX6vJuJWYU_bA"
+            }]
+        }))
+        .expect("valid test JWKS");
+        let hard_deadline = chrono::Utc::now() + chrono::Duration::seconds(3600);
+        let key_set =
+            AssertionKeySet::new_for_test(HANDLER_TEST_ISSUER.to_owned(), 1, jwks, hard_deadline)
+                .expect("valid test key set");
+        let jwks_contract = buzz_auth::JwksSourceContract::new(
+            format!("{HANDLER_TEST_ISSUER}/.well-known/jwks.json"),
+            300,
+            3600,
+        )
+        .expect("valid jwks contract");
+        let policy = IssuerPolicy::new(
+            HANDLER_TEST_ISSUER.to_owned(),
+            vec![HANDLER_TEST_AUDIENCE.to_owned()],
+            TokenClass::DedicatedNipFi,
+            FreshnessClass::OfflineJwt,
+            vec![Algorithm::ES256],
+            60,
+            3600,
+            None,
+            jwks_contract,
+        )
+        .expect("valid issuer policy");
+        let mut registry = IssuerRegistry::new();
+        registry.insert(policy);
+        let verifier: Arc<dyn VerifyAssertion> = Arc::new(FederatedAssertionVerifier::new(
+            registry,
+            StaticIssuerKeySource::new([key_set]),
+        ));
+        state.nip_fi_verifier = Some(verifier);
+        Some(Arc::new(state))
+    }
+
+    /// Mint a signed NIP-FI assertion whose `nostr_pubkey` = `pubkey_hex`,
+    /// using the shared HANDLER_TEST_* key material.
+    fn signed_assertion_for_pubkey(pubkey_hex: &str) -> String {
+        use jsonwebtoken::{Algorithm, EncodingKey, Header};
+        let now = chrono::Utc::now().timestamp();
+        let claims = serde_json::json!({
+            "iss": HANDLER_TEST_ISSUER,
+            "aud": HANDLER_TEST_AUDIENCE,
+            "iat": now,
+            "exp": now + 600,
+            "sub": "test-subject",
+            "nostr_pubkey": pubkey_hex,
+        });
+        let mut header = Header::new(Algorithm::ES256);
+        header.kid = Some(HANDLER_TEST_KID.to_owned());
+        header.typ = Some("nip-fi+jwt".to_owned());
+        let key =
+            EncodingKey::from_ec_pem(HANDLER_TEST_EC_PEM.as_bytes()).expect("valid test EC PEM");
+        jsonwebtoken::encode(&header, &claims, &key).expect("sign assertion")
+    }
+
+    /// Build a HeaderMap containing a valid NIP-98 Authorization header +
+    /// a valid NIP-FI assertion for the same key.
+    fn same_key_nip98_and_assertion_headers(
+        keys: &Keys,
+        url: &str,
+        method: &str,
+        body: &[u8],
+    ) -> axum::http::HeaderMap {
+        let mut headers = make_nip98_headers(keys, url, method, body);
+        let assertion = signed_assertion_for_pubkey(&keys.public_key().to_hex());
+        headers.insert(
+            buzz_auth::CLIENT_ATTACHED_HEADER,
+            format!("Bearer {assertion}").parse().expect("valid header"),
+        );
+        headers
+    }
+
     /// Build an AppState with NIP-FI in Off mode for production-seam regression tests.
     ///
     /// `require_auth_token = false` so requests without NIP-98 auth still reach
@@ -4776,12 +4882,12 @@ mod postgres_tests {
     // gate): build_router with no Nostr-Federated-Identity header → guard fires
     // before the handler runs → 401 `authentication required\n`.
     //
-    // Falsifying mutation: remove the outer `nip_fi_assertion_guard` layer
-    // from `build_router` → missing-assertion reaches the handler → different
-    // status/body → assertion fires.
-    //
-    // NOTE: deleting `admit_nip_fi_http_on_state` from submit_event does NOT
-    // change this test — the outer guard fires first.
+    // Falsifying mutation: removing the outer `nip_fi_assertion_guard` layer
+    // from `build_router` does NOT change this test — the per-handler
+    // `admit_nip_fi_http_on_state` call in `submit_event` also denies 401
+    // `authentication required\n` when no assertion is present. This test
+    // proves the outer guard fires (and its error path is exercised), not
+    // that it is the sole denial point for missing-assertion requests.
     #[test]
     #[ignore = "requires Postgres"]
     fn nip_fi_enforce_bridge_events_no_assertion_is_401() {
@@ -5156,6 +5262,187 @@ mod postgres_tests {
         assert_eq!(
             www_auth, "Nostr",
             "{path}: 401 must carry WWW-Authenticate: Nostr"
+        );
+    }
+
+    // ── GIF search — Enforce mode, same-key admission → reaches handler ───────
+    //
+    // Positive control for `nip_fi_enforce_gif_search_no_assertion_is_401`:
+    // a valid NIP-FI assertion + valid same-key NIP-98 MUST pass admission and
+    // reach the GIF handler.  The handler returns 404 (GIF search not configured)
+    // — which is NOT 401/403, proving the NIP-FI gate did not deny the request.
+    //
+    // Falsifying mutation: make the NIP-FI verifier always-deny → same-key
+    // request returns 403 AuthorizationDenied → 404 assertion fires.
+    #[test]
+    #[ignore = "requires Postgres"]
+    fn nip_fi_enforce_gif_search_same_key_admission_succeeds() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("current_thread runtime");
+
+        let Some(state) = rt.block_on(nip_fi_enforce_test_state_with_verifier()) else {
+            panic!("local Postgres not reachable");
+        };
+        let host = format!(
+            "nip-fi-gif-positive-{}.local",
+            uuid::Uuid::new_v4().simple()
+        );
+        rt.block_on(state.db.ensure_configured_community(&host))
+            .expect("ensure community");
+
+        let keys = Keys::generate();
+        let url = format!("https://{host}{}", crate::api::gifs::SEARCH_PATH);
+        let headers = same_key_nip98_and_assertion_headers(&keys, &url, "POST", b"{}");
+
+        let (status, _resp_headers, _body) = rt.block_on(oneshot_request_full(
+            state,
+            "POST",
+            crate::api::gifs::SEARCH_PATH,
+            &host,
+            headers,
+            b"{}",
+        ));
+
+        // Admission passes → handler fires → GIF config absent → 404 or 4xx.
+        // NIP-FI denial codes: 401 (MissingEvidence), 403 (EvidenceRejected/AuthDenied).
+        // Either would indicate NIP-FI denied the request, not an always-passing gate.
+        assert_ne!(
+            status,
+            axum::http::StatusCode::UNAUTHORIZED,
+            "GIF search same-key positive: NIP-FI MUST NOT deny 401. \
+             Falsifying mutation: make verifier always-deny → 403 instead."
+        );
+        assert_ne!(
+            status,
+            axum::http::StatusCode::FORBIDDEN,
+            "GIF search same-key positive: NIP-FI MUST NOT deny 403. \
+             Falsifying mutation: make verifier always-deny → 403."
+        );
+    }
+
+    // ── Moderation reports — Enforce mode, same-key admission → reaches handler ─
+    //
+    // Positive control: a valid NIP-FI assertion + same-key NIP-98 passes
+    // admission and reaches `moderation_reports`.  The handler returns a
+    // non-401/403 response (likely 403 from auth check since the caller is not
+    // an admin, or 200 with empty results).
+    //
+    // Falsifying mutation: make the NIP-FI verifier always-deny → 403
+    // AuthorizationDenied before the handler fires → the same 403 would mask
+    // an always-deny implementation; but the assertion body check distinguishes:
+    // NIP-FI AuthorizationDenied body = "authorization denied\n";
+    // moderation 403 body differs.
+    #[test]
+    #[ignore = "requires Postgres"]
+    fn nip_fi_enforce_moderation_reports_same_key_admission_succeeds() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("current_thread runtime");
+
+        let Some(state) = rt.block_on(nip_fi_enforce_test_state_with_verifier()) else {
+            panic!("local Postgres not reachable");
+        };
+        let host = format!(
+            "nip-fi-mod-positive-{}.local",
+            uuid::Uuid::new_v4().simple()
+        );
+        rt.block_on(state.db.ensure_configured_community(&host))
+            .expect("ensure community");
+
+        // Seed the caller as owner so moderation authz passes.
+        let keys = Keys::generate();
+        rt.block_on(async {
+            state
+                .db
+                .ensure_user(
+                    state
+                        .db
+                        .ensure_configured_community(&host)
+                        .await
+                        .expect("community")
+                        .id,
+                    keys.public_key().as_bytes(),
+                )
+                .await
+                .expect("ensure_user");
+        });
+
+        let path = format!("/communities/{host}/moderation/reports");
+        let url = format!("https://{host}{path}");
+        let headers = same_key_nip98_and_assertion_headers(&keys, &url, "GET", b"");
+
+        let (status, resp_headers, body) = rt.block_on(oneshot_request_full(
+            state, "GET", &path, &host, headers, b"",
+        ));
+
+        // Admission passes — the caller is NOT an admin so moderation returns
+        // 403, but NOT with NIP-FI body.  A NIP-FI denial would carry
+        // "authentication required\n" or "authorization denied\n".
+        assert_ne!(
+            status,
+            axum::http::StatusCode::UNAUTHORIZED,
+            "Moderation same-key positive: NIP-FI MUST NOT deny 401."
+        );
+        // Body must not be NIP-FI MissingEvidence or EvidenceRejected.
+        assert_ne!(
+            body.as_ref(),
+            b"authentication required\n",
+            "Moderation same-key positive: handler reached, not NIP-FI MissingEvidence."
+        );
+        assert_ne!(
+            body.as_ref(),
+            b"authorization denied\n",
+            "Moderation same-key positive: handler reached, not NIP-FI AuthDenied. \
+             Falsifying mutation: make verifier always-deny → 'authorization denied\\n'."
+        );
+        let _ = (resp_headers, body);
+    }
+
+    // ── Workflow runs — Enforce mode, same-key admission → reaches handler ────
+    //
+    // Positive control for `nip_fi_enforce_workflow_runs_no_assertion_is_401`:
+    // valid NIP-FI assertion + same-key NIP-98 passes admission and reaches the
+    // workflow handler.  The handler returns 404 (no workflow with this UUID).
+    //
+    // Falsifying mutation: make the NIP-FI verifier always-deny → 403 instead
+    // of 404 → assertion fires.
+    #[test]
+    #[ignore = "requires Postgres"]
+    fn nip_fi_enforce_workflow_runs_same_key_admission_succeeds() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("current_thread runtime");
+
+        let Some(state) = rt.block_on(nip_fi_enforce_test_state_with_verifier()) else {
+            panic!("local Postgres not reachable");
+        };
+        let host = format!("nip-fi-wf-positive-{}.local", uuid::Uuid::new_v4().simple());
+        rt.block_on(state.db.ensure_configured_community(&host))
+            .expect("ensure community");
+
+        let workflow_id = uuid::Uuid::new_v4();
+        let keys = Keys::generate();
+        let path = format!("/workflows/{workflow_id}/runs");
+        let url = format!("https://{host}{path}");
+        let headers = same_key_nip98_and_assertion_headers(&keys, &url, "GET", b"");
+
+        let (status, _resp_headers, _body) = rt.block_on(oneshot_request_full(
+            state, "GET", &path, &host, headers, b"",
+        ));
+
+        // Admission passes → workflow not found → 404.
+        // NIP-FI denial would return 401 or 403 — neither is expected here.
+        assert_eq!(
+            status,
+            axum::http::StatusCode::NOT_FOUND,
+            "Workflow runs same-key positive: admission MUST pass and handler MUST \
+             return 404 (workflow not found). \
+             401 = NIP-FI MissingEvidence; 403 = NIP-FI AuthDenied/Cardinality. \
+             Falsifying mutation: make verifier always-deny → 403 instead of 404."
         );
     }
 
@@ -5703,15 +5990,14 @@ mod postgres_tests {
     //
     // Off mode must NOT reject duplicate Authorization headers — `verify_bridge_auth`
     // used `.get()` (first-value) before NIP-FI.  FI-INV-15 requires that Off mode
-    // preserves this behavior.  In `nip_fi_off_test_state`, `require_auth_token = false`
-    // so a request without auth still reaches the handler and returns 401 from
-    // `api_error("missing Nostr auth")` — the legacy NIP-98 gate, not the cardinality
-    // gate.  Asserting 401 here confirms that: (a) the cardinality gate did NOT fire
-    // (which would return 403), and (b) the request reached the auth-required handler,
-    // proving Off mode's legacy first-value behavior is still in effect.
+    // preserves this behavior.  The state is built with `require_auth_token = true`
+    // so the NIP-98 layer is active; single valid NIP-98 succeeds (200 []); a
+    // valid-first / malformed-second duplicate also uses the first value and
+    // succeeds (same 200 []).  The cardinality gate is bypassed in Off mode:
+    // neither the single nor the duplicate case returns 403.
     //
-    // Falsifying mutation: add cardinality check in Off mode → 403 EvidenceRejected
-    // → assertion fires (expected 401).
+    // Falsifying mutation: add a cardinality check before legacy auth in Off
+    // mode → duplicate case returns 403 EvidenceRejected → assertion fires.
     //
     // ## Enforce-mode cardinality denial
     //
@@ -5723,16 +6009,16 @@ mod postgres_tests {
     // Negative control: without a valid assertion the middleware 401s first and
     // the cardinality gate is never reached — the old test exercised the wrong path.
     //
-    // Falsifying mutation: remove the cardinality gate in active modes → closure
-    // runs → NIP-98 check proceeds → NIP-98 verification fails (method/URL mismatch
-    // from the test fixture) → EvidenceRejected still, but body is different
-    // ("authentication failed" from MediaError vs "evidence rejected\n" from denial).
+    // Falsifying mutation: remove the cardinality gate in active modes → the
+    // two-header request passes cardinality, NIP-98 proceeds with keys2/url2
+    // matching → pairing succeeds → handler returns 200 [] (same as single-header
+    // positive control) → body "evidence rejected\n" assertion fires.
     //
     // ## Single-header same-key positive control
     //
     // A single Authorization header with the same valid assertion must NOT produce
     // a cardinality denial.  Without this, an always-denying implementation passes
-    // the two-header test.
+    // the two-header test.  Exact success: status 200, body [].
     #[test]
     #[ignore = "requires Postgres"]
     fn r3_cardinality_actual_caller_query_off_passes_enforce_denies() {
@@ -5747,24 +6033,64 @@ mod postgres_tests {
             .build()
             .expect("current_thread runtime");
 
-        // ── Off mode: duplicate header must NOT produce cardinality 403 ──────
-        // ── Off mode: duplicate header must NOT produce cardinality 403 ──────
+        // ── Off mode: require_auth_token=true, first-value semantics ─────────
         //
-        // In Off mode, `admit_nip_fi_http` is not invoked; the legacy bridge
-        // path uses `.get()` (first-value) semantics for Authorization headers.
-        // Two identical valid NIP-98 headers must NOT produce 403 EvidenceRejected.
+        // Build an Off state with `require_auth_token = true` so the NIP-98 gate
+        // is active and can actually validate the token.  This differs from the
+        // shared `nip_fi_off_test_state()` helper which uses `require_auth_token=false`.
         //
-        // We test two cases:
-        //   1. Single valid NIP-98 → reaches the query handler (not 403).
-        //   2. Duplicate valid NIP-98 → same result (not 403 from cardinality),
-        //      same status code as the single case (first-value semantics).
+        // With auth required:
+        //   Case 1: single valid NIP-98 → auth passes → handler → 200 [].
+        //   Case 2: valid-first + malformed-second ("Nostr AAAA") → Off mode uses
+        //           first-value semantics (.get() on Authorization) → same 200 [].
         //
-        // The exact downstream result (200/503) depends on Redis/DB state;
-        // we assert only that the cardinality gate was NOT the denial point.
-        //
-        // Falsifying mutation: add a cardinality check before legacy auth in Off
-        // mode → both single and duplicate cases return 403 → assertions fire.
-        let Some(off_state) = rt.block_on(nip_fi_off_test_state()) else {
+        // Identity of the two results proves first-value semantics preserved.
+        // Neither is 403: proves cardinality gate is not applied in Off mode.
+        let Some(off_state) = rt.block_on(async {
+            let mut config = crate::config::Config::from_env().ok()?;
+            config.database_url = crate::test_support::database_url();
+            config.redis_url =
+                std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
+            config.relay_url = "wss://nip-fi-test.local".to_string();
+            config.require_auth_token = true;
+            config.require_relay_membership = false;
+            config.nip_fi.mode = buzz_auth::NipFiMode::Off;
+
+            let pool = sqlx::PgPool::connect(&crate::test_support::database_url())
+                .await
+                .ok()?;
+            let db = buzz_db::Db::from_pool(pool.clone());
+            let redis_pool = deadpool_redis::Config::from_url(&config.redis_url)
+                .create_pool(Some(deadpool_redis::Runtime::Tokio1))
+                .ok()?;
+            let pubsub = Arc::new(
+                buzz_pubsub::PubSubManager::new(&config.redis_url, redis_pool.clone())
+                    .await
+                    .ok()?,
+            );
+            let audit = buzz_audit::AuditService::new(pool.clone());
+            let auth = buzz_auth::AuthService::new(config.auth.clone());
+            let search = buzz_search::SearchService::new(pool.clone());
+            let workflow_engine = Arc::new(buzz_workflow::WorkflowEngine::new(
+                db.clone(),
+                buzz_workflow::WorkflowConfig::default(),
+            ));
+            let media_storage = buzz_media::MediaStorage::new(&config.media).ok()?;
+            let (mut state, _) = crate::state::AppState::new(
+                config,
+                db,
+                redis_pool,
+                audit,
+                pubsub,
+                auth,
+                search,
+                workflow_engine,
+                Keys::generate(),
+                media_storage,
+            );
+            state.nip98_replay = Arc::new(AlwaysFreshReplayGuard);
+            Some(Arc::new(state))
+        }) else {
             panic!("local Postgres not reachable");
         };
         let host = format!("nip-fi-cardinality-{}.local", uuid::Uuid::new_v4().simple());
@@ -5779,53 +6105,79 @@ mod postgres_tests {
             h.remove(axum::http::header::AUTHORIZATION)
                 .expect("authorization header")
         };
+        // Malformed second header: valid Nostr scheme prefix, invalid payload.
+        // "Nostr AAAA" decodes as 3 zero bytes — not a valid JSON Nostr event.
+        let malformed_nostr_header: axum::http::HeaderValue =
+            "Nostr AAAA".parse().expect("valid header bytes");
 
-        // Case 1: single valid NIP-98 → not 403 (cardinality gate does not fire).
-        let mut single_off_headers = axum::http::HeaderMap::new();
-        single_off_headers.append(
-            axum::http::header::AUTHORIZATION,
-            nip98_header_value.clone(),
-        );
-        let single_off_status = rt.block_on(oneshot_request(
+        // Case 1: single valid NIP-98 → auth passes → 200 [].
+        let (single_off_status, _, single_off_body) = rt.block_on(oneshot_request_full(
             Arc::clone(&off_state),
             "POST",
             "/query",
             &host,
-            single_off_headers,
+            {
+                let mut h = axum::http::HeaderMap::new();
+                h.append(
+                    axum::http::header::AUTHORIZATION,
+                    nip98_header_value.clone(),
+                );
+                h
+            },
             b"[]",
         ));
-        assert_ne!(
+        assert_eq!(
             single_off_status,
-            axum::http::StatusCode::FORBIDDEN,
-            "Off mode: single Authorization header MUST NOT return 403 EvidenceRejected.              Positive control: proves Off mode does not apply cardinality gate. [FI-INV-15]"
+            axum::http::StatusCode::OK,
+            "Off mode: single valid NIP-98 MUST reach the handler and return 200. \
+             [FI-INV-15]"
+        );
+        assert_eq!(
+            single_off_body.as_ref(),
+            b"[]",
+            "Off mode: single valid NIP-98 MUST return empty events array for empty filter set."
         );
 
-        // Case 2: duplicate valid NIP-98 → Off mode uses first-value; same result.
-        let mut dup_off_headers = axum::http::HeaderMap::new();
-        dup_off_headers.append(
-            axum::http::header::AUTHORIZATION,
-            nip98_header_value.clone(),
-        );
-        dup_off_headers.append(
-            axum::http::header::AUTHORIZATION,
-            nip98_header_value.clone(),
-        );
-        let dup_off_status = rt.block_on(oneshot_request(
+        // Case 2: valid-first + malformed-second → Off uses first-value → same 200 [].
+        // Identical values cannot distinguish first-value from last-value selection —
+        // valid-first/invalid-second proves the first value is used, not the last.
+        let (dup_off_status, _, dup_off_body) = rt.block_on(oneshot_request_full(
             off_state,
             "POST",
             "/query",
             &host,
-            dup_off_headers,
+            {
+                let mut h = axum::http::HeaderMap::new();
+                h.append(
+                    axum::http::header::AUTHORIZATION,
+                    nip98_header_value.clone(),
+                );
+                h.append(
+                    axum::http::header::AUTHORIZATION,
+                    malformed_nostr_header.clone(),
+                );
+                h
+            },
             b"[]",
         ));
         assert_ne!(
             dup_off_status,
             axum::http::StatusCode::FORBIDDEN,
-            "Off mode: duplicate Authorization headers MUST NOT produce 403 EvidenceRejected              from the cardinality gate [FI-INV-15]. Off mode must preserve first-value legacy              behavior — cardinality denial is an active-mode-only contract.              Falsifying mutation: add cardinality check in Off mode → 403 → assertion fires."
+            "Off mode: duplicate Authorization headers MUST NOT produce 403 EvidenceRejected \
+             from the cardinality gate [FI-INV-15]. Off mode must preserve first-value legacy \
+             behavior — cardinality denial is an active-mode-only contract. \
+             Falsifying mutation: add cardinality check in Off mode → 403 → assertion fires."
         );
         assert_eq!(
             single_off_status, dup_off_status,
-            "Off mode: duplicate-header result must equal single-header result —              the second header is silently ignored via first-value semantics,              not treated as a cardinality violation."
+            "Off mode: duplicate-header result must equal single-header result — \
+             the first valid header is used (first-value semantics), \
+             not treated as a cardinality violation."
+        );
+        assert_eq!(
+            single_off_body, dup_off_body,
+            "Off mode: single and dup bodies must match — first-value semantics \
+             means the malformed second header is silently discarded."
         );
 
         // ── Enforce mode: build a state with a real injected verifier ─────────
@@ -6052,16 +6404,19 @@ mod postgres_tests {
         });
 
         // Single same-key: cardinality passes, pairing passes; handler reached.
-        // Body must NOT be "evidence rejected\n" (cardinality) or 401 (missing assertion).
-        assert_ne!(
-            single_resp.1.as_ref(),
-            b"evidence rejected\n",
-            "Single Authorization header + same-key assertion MUST NOT produce              'evidence rejected\n' body — that would mean the cardinality gate fired.              Falsifying mutation: lower the gate threshold to 1 → body matches 'evidence rejected'."
-        );
-        assert_ne!(
+        // Exact success: 200 [] (empty filter set on fresh community has no events).
+        // Falsifying mutation: always-denying cardinality → 403 EvidenceRejected.
+        assert_eq!(
             single_resp.0,
-            axum::http::StatusCode::UNAUTHORIZED,
-            "Single Authorization header + same-key assertion MUST NOT return 401 —              the assertion was present and valid."
+            axum::http::StatusCode::OK,
+            "Single Authorization header + same-key assertion MUST return 200. \
+             Falsifying mutation: lower the gate threshold to 1 → 403 EvidenceRejected."
+        );
+        assert_eq!(
+            single_resp.1.as_ref(),
+            b"[]",
+            "Single Authorization header + same-key assertion MUST return empty events array \
+             for empty filter set on a fresh community."
         );
 
         // ── Enforce mode: duplicate header + same-key assertion → cardinality 403 ─
@@ -6075,41 +6430,45 @@ mod postgres_tests {
                 .expect("valid header"),
         );
 
-        let enforce_resp = rt.block_on(async {
-            use axum::body::{to_bytes, Body};
-            use tower::ServiceExt;
-            let mut builder = axum::http::Request::builder()
-                .method("POST")
-                .uri("/query")
-                .header("host", &host2);
-            for (name, value) in &enforce_headers {
-                builder = builder.header(name, value);
-            }
-            let resp = crate::router::build_router(Arc::clone(&enforce_state))
-                .oneshot(
-                    builder
-                        .body(Body::from(b"[]".to_vec()))
-                        .expect("build request"),
-                )
-                .await
-                .expect("router oneshot");
-            let status = resp.status();
-            let body = to_bytes(resp.into_body(), 4096).await.unwrap_or_default();
-            (status, body)
-        });
+        let (enforce_status, enforce_resp_headers, enforce_body) =
+            rt.block_on(oneshot_request_full(
+                Arc::clone(&enforce_state),
+                "POST",
+                "/query",
+                &host2,
+                enforce_headers,
+                b"[]",
+            ));
 
         assert_eq!(
-            enforce_resp.0,
+            enforce_status,
             axum::http::StatusCode::FORBIDDEN,
             "Enforce mode: duplicate Authorization headers must yield 403 EvidenceRejected \
              from cardinality gate [FI-TRACE-DENIAL-ORACLE]. \
              Falsifying mutation: remove cardinality gate → NIP-98 closure runs → \
-             different status or body."
+             handler returns 200 [] (same as single-header positive control)."
         );
         assert_eq!(
-            enforce_resp.1.as_ref(),
+            enforce_body.as_ref(),
             b"evidence rejected\n",
             "Enforce mode: cardinality denial body must be exact contract bytes 'evidence rejected\\n'"
+        );
+        let enforce_ct = enforce_resp_headers
+            .get(axum::http::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        assert_eq!(
+            enforce_ct, "text/plain; charset=utf-8",
+            "Enforce mode: cardinality 403 Content-Type must be 'text/plain; charset=utf-8'. \
+             [FI-TRACE-DENIAL-ORACLE]"
+        );
+        assert!(
+            enforce_resp_headers
+                .get(axum::http::header::WWW_AUTHENTICATE)
+                .is_none(),
+            "Enforce mode: cardinality 403 MUST NOT emit WWW-Authenticate — \
+             the client has a token but it is malformed, not absent. \
+             [FI-TRACE-DENIAL-ORACLE]"
         );
     }
 }

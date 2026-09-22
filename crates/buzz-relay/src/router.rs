@@ -2039,13 +2039,15 @@ mod tests {
                 "DenyProtected: {path} on admin host 200 must serve the exact admin HTML body; \
                  distinct content distinguishes admin bundle from public bundle."
             );
-            assert!(
-                admin_ct.starts_with("text/html"),
-                "DenyProtected: {path} on admin host 200 Content-Type must be text/html; got '{admin_ct}'"
+            assert_eq!(
+                admin_ct, "text/html; charset=utf-8",
+                "DenyProtected: {path} on admin host 200 Content-Type must be \
+                 'text/html; charset=utf-8'; got '{admin_ct}'"
             );
 
             let tenant_resp = spa_response(deny_state.clone(), "tenant.matrix.example", path).await;
             let tenant_status = tenant_resp.status();
+            let tenant_resp_headers = tenant_resp.headers().clone();
             let tenant_body = axum::body::to_bytes(tenant_resp.into_body(), 8192)
                 .await
                 .unwrap_or_default();
@@ -2060,6 +2062,20 @@ mod tests {
                 b"authorization unavailable\n",
                 "DenyProtected: {path} on tenant host 503 must have exact body \
                  'authorization unavailable\\n' (AuthorizationUnavailable contract)."
+            );
+            let tenant_ct = tenant_resp_headers
+                .get(axum::http::header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("");
+            assert_eq!(
+                tenant_ct, "text/plain; charset=utf-8",
+                "DenyProtected: {path} on tenant host 503 Content-Type must be \
+                 'text/plain; charset=utf-8'; got '{tenant_ct}'"
+            );
+            assert!(
+                tenant_resp_headers.get("www-authenticate").is_none(),
+                "DenyProtected: {path} on tenant host 503 MUST NOT carry WWW-Authenticate \
+                 (DenyProtected unconditionally denies; challenge absent)"
             );
         }
 
@@ -2105,9 +2121,10 @@ mod tests {
                 b"<!doctype html><html data-bundle=\"admin\"></html>",
                 "Enforce: {path} on admin host 200 must serve the exact admin HTML body."
             );
-            assert!(
-                admin_ct.starts_with("text/html"),
-                "Enforce: {path} on admin host 200 Content-Type must be text/html; got '{admin_ct}'"
+            assert_eq!(
+                admin_ct, "text/html; charset=utf-8",
+                "Enforce: {path} on admin host 200 Content-Type must be \
+                 'text/html; charset=utf-8'; got '{admin_ct}'"
             );
 
             let tenant_resp =
@@ -2142,6 +2159,15 @@ mod tests {
                 "Nostr",
                 "Enforce: {path} on tenant host 401 must have WWW-Authenticate: Nostr header. \
                  Falsifying mutation: remove challenge from MissingEvidence denial → assertion fires."
+            );
+            let tenant_ct = tenant_headers
+                .get(axum::http::header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("");
+            assert_eq!(
+                tenant_ct, "text/plain; charset=utf-8",
+                "Enforce: {path} on tenant host 401 Content-Type must be \
+                 'text/plain; charset=utf-8'; got '{tenant_ct}'"
             );
         }
     }

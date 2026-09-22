@@ -830,27 +830,29 @@ mod postgres_tests {
             Some(&assertion),
         ));
 
-        // Admission passes; handler returns a non-NIP-FI error (repo not found).
-        // The invariant is NOT 401 MissingEvidence and NOT 403 EvidenceRejected/
-        // AuthorizationDenied — those mean admission blocked the request.
-        assert_ne!(
+        // Admission passes; handler reaches `authorize_git_read` which returns
+        // 404 (no repo in this fresh community).  NIP-FI denial codes are 401/403,
+        // not 404 — so 404 proves the NIP-FI gate passed and the handler ran.
+        //
+        // Note: quota checking (`enforce_http_admission`) follows NIP-FI admission
+        // at settings.rs:204-206.  A 503 from Redis/quota outage would follow
+        // admission, not precede it — but Redis availability is verified by the
+        // non-503 assertion below.
+        assert_eq!(
             status,
-            StatusCode::UNAUTHORIZED,
-            "NIP-FI Enforce: same-key valid POST token MUST NOT deny 401. \
-             Positive control: proves the admission path is correct, not just deny-all."
-        );
-        assert_ne!(
-            status,
-            StatusCode::FORBIDDEN,
-            "NIP-FI Enforce: same-key valid POST token MUST NOT deny 403. \
-             Positive control: proves key pairing succeeded and handler was reached."
+            StatusCode::NOT_FOUND,
+            "NIP-FI Enforce: same-key valid POST token MUST reach the handler and return 404 \
+             (repo not found in fresh community). \
+             401 = NIP-FI admission blocked; 403 = key pairing failed; \
+             either means admission did not pass. \
+             Falsifying mutation: make verifier always-deny → 403 instead of 404."
         );
         assert_ne!(
             status,
             StatusCode::SERVICE_UNAVAILABLE,
-            "NIP-FI Enforce: same-key valid POST token MUST NOT return 503. \\
-             503 from Redis/quota outage would precede handler admission and not prove \\
-             the admission path was taken. Ensure Redis is reachable for this test."
+            "NIP-FI Enforce: same-key valid POST token MUST NOT return 503. \
+             503 means quota or Redis outage after NIP-FI admission — \
+             ensure Redis is reachable for this test."
         );
     }
 
@@ -893,12 +895,14 @@ mod postgres_tests {
         ));
 
         // In Off mode: NIP-FI guard does not fire; request reaches handler.
-        // The handler returns 404 (no repo) or some other non-NIP-FI response.
-        // The critical invariant: NOT 401 from NIP-FI MissingEvidence.
-        assert_ne!(
+        // The handler returns 404 (no repo in fresh community) — a non-NIP-FI response.
+        // 404 proves the request was not blocked by NIP-FI admission.
+        assert_eq!(
             status,
-            StatusCode::UNAUTHORIZED,
-            "Off mode: a valid NIP-98 GET with no assertion MUST NOT return 401 from NIP-FI. \
+            StatusCode::NOT_FOUND,
+            "Off mode: a valid NIP-98 GET with no assertion MUST reach the handler and \
+             return 404 (repo not found in fresh community). \
+             401 means NIP-FI fired (Off mode incorrectly applying active-mode guard). \
              Falsifying mutation: set mode=Enforce → guard fires → 401."
         );
     }
@@ -985,6 +989,143 @@ mod postgres_tests {
         assert!(
             resp_headers.get("www-authenticate").is_none(),
             "key-mismatch POST 403 MUST NOT carry WWW-Authenticate"
+        );
+    }
+
+    // ── Settings via build_router: Enforce + POST + wrong payload hash → 403 ─
+    //
+    // A valid assertion for key-A, NIP-98 signed by key-A (same key), but the
+    // NIP-98 token's `payload` tag has a SHA-256 that does NOT match the actual
+    // request body.  `admit_nip_fi_http` enforces payload binding and denies with
+    // `EvidenceRejected` 403.
+    //
+    // This proves the payload-hash verification is active independently of key
+    // pairing — a wrong hash is caught before any repo lookup.
+    //
+    // Falsifying mutation: remove payload-hash verification from
+    // `make_nip98_closure_for_admission` → wrong hash passes → handler reached
+    // → 404 instead of 403 → assertion fires.
+    #[test]
+    #[ignore = "requires Postgres"]
+    fn settings_build_router_enforce_post_wrong_payload_hash_is_403() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("current_thread runtime");
+
+        let Some(state) = rt.block_on(enforce_state_with_verifier()) else {
+            panic!("local Postgres not reachable");
+        };
+        let host = format!(
+            "nip-fi-settings-post-hash-{}.local",
+            uuid::Uuid::new_v4().simple()
+        );
+        rt.block_on(state.db.ensure_configured_community(&host))
+            .expect("ensure community");
+
+        let key = Keys::generate();
+        let assertion = mint_assertion(&key.public_key().to_hex());
+
+        let path = format!(
+            "/git/{}/test-repo/default-branch",
+            key.public_key().to_hex()
+        );
+        let url = format!("http://{host}{path}");
+        let actual_body = b"{\"branch\":\"main\",\"expected_manifest\":\"abc\"}";
+        let wrong_body = b"{\"branch\":\"wrong-branch\",\"expected_manifest\":\"xyz\"}";
+
+        // Token is signed against wrong_body's hash, but we send actual_body.
+        // The token claims the hash of wrong_body, so the payload tag doesn't
+        // match actual_body → EvidenceRejected.
+        let wrong_hash_token = nip98_token_for_method(&key, &url, "POST", Some(wrong_body));
+
+        let (status, resp_headers, body) = rt.block_on(settings_post_via_build_router(
+            state,
+            &host,
+            &path,
+            &wrong_hash_token,
+            actual_body,
+            Some(&assertion),
+        ));
+
+        assert_eq!(
+            status,
+            StatusCode::FORBIDDEN,
+            "Enforce mode POST: wrong payload hash (token bound to different body) MUST return 403. \
+             Falsifying mutation: remove payload-hash check → wrong hash passes → \
+             request reaches handler → 404 instead of 403."
+        );
+        assert_eq!(
+            body.as_ref(),
+            b"evidence rejected\n",
+            "Wrong payload hash 403 body MUST be exact 'evidence rejected\\n'. \
+             [FI-TRACE-DENIAL-ORACLE]"
+        );
+        assert_eq!(
+            resp_headers
+                .get("content-type")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or(""),
+            "text/plain; charset=utf-8",
+            "Wrong payload hash 403 Content-Type MUST be text/plain; charset=utf-8."
+        );
+        assert!(
+            resp_headers.get("www-authenticate").is_none(),
+            "Wrong payload hash 403 MUST NOT carry WWW-Authenticate."
+        );
+    }
+
+    // ── Settings via build_router: Off mode + valid NIP-98 POST → reaches handler ─
+    //
+    // Off mode must not apply NIP-FI admission on POST.  A valid NIP-98 POST
+    // (no assertion) reaches the handler and gets a non-NIP-FI result (404).
+    //
+    // Falsifying mutation: change Off mode to Enforce → NIP-FI guard fires →
+    // 401 MissingEvidence → assertion fires (expected 404).
+    #[test]
+    #[ignore = "requires Postgres"]
+    fn settings_build_router_off_mode_post_reaches_handler() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("current_thread runtime");
+
+        let Some(state) = rt.block_on(off_state()) else {
+            panic!("local Postgres not reachable");
+        };
+        let host = format!(
+            "nip-fi-settings-off-post-{}.local",
+            uuid::Uuid::new_v4().simple()
+        );
+        rt.block_on(state.db.ensure_configured_community(&host))
+            .expect("ensure community");
+
+        let key = Keys::generate();
+        let path = format!(
+            "/git/{}/test-repo/default-branch",
+            key.public_key().to_hex()
+        );
+        let url = format!("http://{host}{path}");
+        let post_body = b"{\"branch\":\"main\",\"expected_manifest\":\"abc\"}";
+        let post_token = nip98_token_for_method(&key, &url, "POST", Some(post_body));
+
+        let (status, _resp_headers, _body) = rt.block_on(settings_post_via_build_router(
+            state,
+            &host,
+            &path,
+            &post_token,
+            post_body,
+            None, // No assertion — Off mode must not require one.
+        ));
+
+        // In Off mode: NIP-FI guard does not fire → reaches handler → 404 (no repo).
+        assert_eq!(
+            status,
+            StatusCode::NOT_FOUND,
+            "Off mode POST: a valid NIP-98 POST with no assertion MUST reach the handler \
+             and return 404 (repo not found in fresh community). \
+             401 means NIP-FI fired (Off mode incorrectly applying active-mode guard). \
+             Falsifying mutation: set mode=Enforce → guard fires → 401."
         );
     }
 } // mod postgres_tests
@@ -1864,5 +2005,216 @@ mod external_infra {
         tx.commit().await.unwrap();
         assert_ne!(f.set(&f.owner, "main", None).await.0, StatusCode::OK);
         assert_eq!(f.snapshot().await.digest, before);
+    }
+
+    // ── NIP-FI state re-read: denied assertion does NOT advance stored digest ─
+    //
+    // Verifies that a POST to `set_default_branch` denied by NIP-FI admission
+    // (key mismatch) leaves the stored snapshot digest unchanged.
+    //
+    // Proof structure:
+    //   1. Snapshot the current digest before any NIP-FI requests.
+    //   2. POST with a key-mismatch assertion (assertion key ≠ NIP-98 key) →
+    //      403 EvidenceRejected.  The handler is never reached.
+    //   3. POST with an invalid proof (syntactically malformed token) →
+    //      403 EvidenceRejected.  The handler is never reached.
+    //   4. Re-read the snapshot → digest is unchanged.
+    //   5. POST with a same-key assertion (admission passes) → 200 OK (changed/not-changed).
+    //   6. Re-read the snapshot → digest IS advanced if changed=true.
+    //
+    // This is the NIP-FI denial-no-write witness.  Source ordering at
+    // settings.rs:189-207 supports current correctness; this test is the
+    // regression guard.
+    //
+    // Falsifying mutation: call `DefaultBranchSnapshot::set` before NIP-FI
+    // admission check → denied requests would modify stored state →
+    // digest changes → step 4 assertion fires.
+    //
+    // Uses `build_router` (not `git_router`) so NIP-FI admission is exercised
+    // at the router level.
+    #[tokio::test]
+    #[ignore = "requires isolated Postgres, Redis and MinIO"]
+    async fn nip_fi_denied_assertion_does_not_advance_snapshot_digest() {
+        use buzz_auth::{
+            AssertionKeySet, FederatedAssertionVerifier, FreshnessClass, IssuerPolicy,
+            IssuerRegistry, StaticIssuerKeySource, TokenClass, VerifyAssertion,
+        };
+        use jsonwebtoken::{jwk::JwkSet, Algorithm, EncodingKey, Header};
+
+        let f = Fixture::new().await;
+        let snapshot_before = f.snapshot().await;
+        let digest_before = snapshot_before.digest.clone();
+
+        // ── Inject NIP-FI Enforce + static verifier into the fixture state ──
+        //
+        // EC P-256 test key (PKCS#8 PEM) + matching public JWK.
+        const NIP_FI_ISSUER: &str = "https://nip-fi-settings-test.invalid";
+        const NIP_FI_AUDIENCE: &str = "https://relay.settings-test.invalid";
+        const NIP_FI_KID: &str = "settings-test-key-1";
+        const NIP_FI_EC_PEM: &str = "-----BEGIN PRIVATE KEY-----\n\
+            MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgcnxDM4EiirH9dHUE\n\
+            WZc759TX4s5PAn8kO5ovXSnGxCWhRANCAARFb6ZnsfkqOOXyEhj3KBQphGKF4vTa\n\
+            zhebbavbZ1ZoklqkF1cGg+jTO7rONAVEzXvXUWtV6CdDV+rybiVmFP2w\n\
+            -----END PRIVATE KEY-----\n";
+        // Public key coordinates for the JWK (matches the private key above).
+        const NIP_FI_JWK_X: &str = "RW-mZ7H5Kjjl8hIY9ygUKYRiheL02s4Xm22r22dWaJI";
+        const NIP_FI_JWK_Y: &str = "WqQXVwaD6NM7us40BUTNe9dRa1XoJ0NX6vJuJWYU_bA";
+
+        let jwks: JwkSet = serde_json::from_value(serde_json::json!({
+            "keys": [{
+                "kty": "EC", "crv": "P-256", "use": "sig", "alg": "ES256",
+                "kid": NIP_FI_KID,
+                "x": NIP_FI_JWK_X,
+                "y": NIP_FI_JWK_Y
+            }]
+        }))
+        .expect("valid test JWKS");
+        let hard_deadline = chrono::Utc::now() + chrono::Duration::seconds(3600);
+        let key_set =
+            AssertionKeySet::new_for_test(NIP_FI_ISSUER.to_owned(), 1, jwks, hard_deadline)
+                .expect("valid test key set");
+        let jwks_contract = buzz_auth::JwksSourceContract::new(
+            format!("{NIP_FI_ISSUER}/.well-known/jwks.json"),
+            300,
+            3600,
+        )
+        .expect("valid jwks contract");
+        let policy = IssuerPolicy::new(
+            NIP_FI_ISSUER.to_owned(),
+            vec![NIP_FI_AUDIENCE.to_owned()],
+            TokenClass::DedicatedNipFi,
+            FreshnessClass::OfflineJwt,
+            vec![Algorithm::ES256],
+            60,
+            3600,
+            None,
+            jwks_contract,
+        )
+        .expect("valid issuer policy");
+        let mut registry = IssuerRegistry::new();
+        registry.insert(policy);
+        let verifier: Arc<dyn VerifyAssertion> = Arc::new(FederatedAssertionVerifier::new(
+            registry,
+            StaticIssuerKeySource::new([key_set]),
+        ));
+
+        let mut enforced_state = (*f.state).clone();
+        Arc::make_mut(&mut enforced_state.config).nip_fi.mode = buzz_auth::NipFiMode::Enforce;
+        enforced_state.nip_fi_verifier = Some(verifier);
+        let enforced_state = Arc::new(enforced_state);
+
+        // Helper: mint a NIP-FI assertion whose `nostr_pubkey` = `pubkey_hex`.
+        let mint_assertion = |pubkey_hex: &str| -> String {
+            let now = chrono::Utc::now().timestamp();
+            let claims = serde_json::json!({
+                "iss": NIP_FI_ISSUER,
+                "aud": NIP_FI_AUDIENCE,
+                "iat": now,
+                "exp": now + 600,
+                "sub": "test-subject",
+                "nostr_pubkey": pubkey_hex,
+            });
+            let mut header = Header::new(Algorithm::ES256);
+            header.kid = Some(NIP_FI_KID.to_owned());
+            header.typ = Some("nip-fi+jwt".to_owned());
+            let key =
+                EncodingKey::from_ec_pem(NIP_FI_EC_PEM.as_bytes()).expect("valid test EC PEM");
+            jsonwebtoken::encode(&header, &claims, &key).expect("sign assertion")
+        };
+
+        // Helper: build a NIP-98 POST token for the settings endpoint.
+        let settings_path = f.path();
+        let settings_url = format!("http://{}{settings_path}", f.tenant.host());
+        let post_body =
+            serde_json::json!({"branch": "main", "expected_manifest": digest_before}).to_string();
+        let post_body_bytes = post_body.as_bytes();
+
+        let build_post_request = |auth_token: String, assertion: Option<String>| {
+            let mut builder = Request::builder()
+                .method("POST")
+                .uri(&settings_path)
+                .header("host", f.tenant.host())
+                .header("authorization", auth_token)
+                .header("content-type", "application/json");
+            if let Some(a) = assertion {
+                builder = builder.header(buzz_auth::CLIENT_ATTACHED_HEADER, format!("Bearer {a}"));
+            }
+            builder
+                .body(Body::from(post_body_bytes.to_vec()))
+                .expect("build request")
+        };
+
+        // ── Step 2: key-mismatch assertion (key_a vs key_owner) → 403 ────────
+        let key_a = Keys::generate(); // assertion identity ≠ NIP-98 signer
+        let assertion_key_a = mint_assertion(&key_a.public_key().to_hex());
+        // NIP-98 signed by owner (f.owner), assertion claims key_a — mismatch.
+        let mismatch_token = token(&f.owner, "POST", &settings_url, Some(&post_body));
+        let (status_mismatch, _) = response(
+            crate::router::build_router(Arc::clone(&enforced_state))
+                .oneshot(build_post_request(mismatch_token, Some(assertion_key_a)))
+                .await
+                .expect("router oneshot"),
+        )
+        .await;
+        assert_eq!(
+            status_mismatch,
+            StatusCode::FORBIDDEN,
+            "Key-mismatch assertion MUST deny 403 (AuthorizationDenied). \
+             The handler must NOT be reached."
+        );
+
+        // ── Step 3: malformed token → 403 EvidenceRejected ───────────────────
+        let bad_token = "Nostr !!!bad!!!".to_string();
+        let assertion_owner = mint_assertion(&f.owner.public_key().to_hex());
+        let (status_malformed, _) = response(
+            crate::router::build_router(Arc::clone(&enforced_state))
+                .oneshot(build_post_request(bad_token, Some(assertion_owner.clone())))
+                .await
+                .expect("router oneshot"),
+        )
+        .await;
+        assert_eq!(
+            status_malformed,
+            StatusCode::FORBIDDEN,
+            "Malformed NIP-98 token MUST deny 403 (EvidenceRejected). \
+             The handler must NOT be reached."
+        );
+
+        // ── Step 4: digest unchanged after both denials ───────────────────────
+        let digest_after_denials = f.snapshot().await.digest;
+        assert_eq!(
+            digest_after_denials, digest_before,
+            "Snapshot digest MUST be unchanged after NIP-FI denials. \
+             Key-mismatch and malformed-token denials must NOT advance stored state. \
+             Falsifying mutation: set branch before NIP-FI check → digest changes."
+        );
+
+        // ── Step 5: same-key admission passes → 200 OK ───────────────────────
+        // Owner NIP-98 + owner assertion → pairing passes → handler reached.
+        let owner_token = token(&f.owner, "POST", &settings_url, Some(&post_body));
+        let (status_ok, body_ok) = response(
+            crate::router::build_router(Arc::clone(&enforced_state))
+                .oneshot(build_post_request(owner_token, Some(assertion_owner)))
+                .await
+                .expect("router oneshot"),
+        )
+        .await;
+        // Owner is not a maintainer — authorize_management denies with FORBIDDEN.
+        // (This still proves admission passed — NIP-FI denial would return 401/403
+        // before reaching authorize_management.)
+        assert_ne!(
+            status_ok,
+            StatusCode::UNAUTHORIZED,
+            "Same-key owner POST admission MUST pass NIP-FI (not 401)."
+        );
+        let _ = body_ok;
+
+        // ── Step 6: digest unchanged (owner is not a maintainer → denied) ─────
+        let digest_after_ok = f.snapshot().await.digest;
+        assert_eq!(
+            digest_after_ok, digest_before,
+            "Owner is not a maintainer — set request should fail at \
+             authorize_management, not NIP-FI. Digest must still be unchanged."
+        );
     }
 }

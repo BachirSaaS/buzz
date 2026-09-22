@@ -1342,6 +1342,7 @@ dependencies = [
  "futures-util",
  "hex",
  "hmac 0.13.0",
+ "http-body",
  "http-body-util",
  "infer",
  "jsonwebtoken",
