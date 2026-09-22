@@ -565,52 +565,19 @@ async fn run_relay_main(boot: BootTracker) -> anyhow::Result<()> {
         let refresh_configs = jwks_configs.clone();
         let refresh_cancel = nip_fi_jwks_cancel.clone();
         tokio::spawn(async move {
-            let mut intervals: Vec<(String, u64, tokio::time::Instant)> = refresh_configs
-                .iter()
-                .map(|c| {
-                    (
-                        c.issuer.clone(),
-                        c.contract.refresh_interval_seconds(),
-                        tokio::time::Instant::now(),
-                    )
-                })
-                .collect();
-            loop {
-                // Sleep until the next scheduled refresh across all issuers.
-                let next = intervals
+            nip_fi_jwks_refresh_loop(
+                refresh_configs
                     .iter()
-                    .map(|(_, interval, last)| *last + std::time::Duration::from_secs(*interval))
-                    .min()
-                    .unwrap_or_else(|| {
-                        tokio::time::Instant::now() + std::time::Duration::from_secs(300)
-                    });
-                tokio::select! {
-                    _ = tokio::time::sleep_until(next) => {}
-                    _ = refresh_cancel.cancelled() => break,
-                }
-                let now = tokio::time::Instant::now();
-                for (idx, (issuer, interval, last)) in intervals.iter_mut().enumerate() {
-                    if now >= *last + std::time::Duration::from_secs(*interval) {
-                        if refresh_source.get_snapshot(issuer).await.is_none() {
-                            // issuer_index is a non-identifying diagnostic code.
-                            // Raw `iss` is excluded from logs per NIP-FI.md:777-779.
-                            warn!(
-                                issuer_index = idx,
-                                "NIP-FI: background JWKS refresh returned no snapshot"
-                            );
-                        }
-                        // Schedule the NEXT refresh from when this fetch completed,
-                        // not from the instant captured before the await.  Scheduling
-                        // from the pre-fetch snapshot drifts the interval backward by
-                        // the fetch latency on every cycle; scheduling from post-fetch
-                        // keeps the interval at least `refresh_interval_seconds` even
-                        // under nonzero network latency.  The hard-deadline contract
-                        // (jwks_hard_deadline_seconds) is enforced by the JWKS source
-                        // itself, not by this timer.
-                        *last = tokio::time::Instant::now();
-                    }
-                }
-            }
+                    .map(|c| (c.issuer.clone(), c.contract.refresh_interval_seconds()))
+                    .collect(),
+                move |issuer| {
+                    let src = Arc::clone(&refresh_source);
+                    let iss = issuer.to_owned();
+                    Box::pin(async move { src.get_snapshot(&iss).await.is_some() })
+                },
+                refresh_cancel,
+            )
+            .await;
         });
     }
 
@@ -1363,6 +1330,70 @@ mod env_filter_tests {
             otel_env_filter(Some("buzz_relay=debug")).to_string(),
             "buzz_relay=debug"
         );
+    }
+}
+
+/// Background JWKS refresh loop for NIP-FI issuers.
+///
+/// Sleeps until the nearest due issuer, runs the fetch for each overdue issuer,
+/// then records the post-fetch instant as the new baseline.  Scheduling from
+/// the post-fetch instant keeps the interval at least `interval_secs` even under
+/// nonzero network latency (pre-fetch scheduling would drift the interval
+/// backward by the fetch latency on every cycle).
+///
+/// `fetch` returns `true` if the snapshot was successfully refreshed, `false`
+/// on fetch failure (the loop continues either way; hard-deadline enforcement
+/// lives in the JWKS source itself).
+///
+/// Extracted from `run_relay_main` for unit-testability.  [FI-TRACE-DEPENDENCY-FAIL-CLOSED]
+async fn nip_fi_jwks_refresh_loop<F, Fut>(
+    // `(issuer_id, interval_seconds)` pairs, one per configured issuer.
+    issuers: Vec<(String, u64)>,
+    // Async fetch callback: `issuer → true (success) / false (failure)`.
+    mut fetch: F,
+    cancel: CancellationToken,
+) where
+    F: FnMut(&str) -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    let mut intervals: Vec<(String, u64, tokio::time::Instant)> = issuers
+        .into_iter()
+        .map(|(issuer, interval)| (issuer, interval, tokio::time::Instant::now()))
+        .collect();
+
+    loop {
+        // Sleep until the next scheduled refresh across all issuers.
+        let next = intervals
+            .iter()
+            .map(|(_, interval, last)| *last + std::time::Duration::from_secs(*interval))
+            .min()
+            .unwrap_or_else(|| tokio::time::Instant::now() + std::time::Duration::from_secs(300));
+        tokio::select! {
+            _ = tokio::time::sleep_until(next) => {}
+            _ = cancel.cancelled() => break,
+        }
+        let now = tokio::time::Instant::now();
+        for (idx, (issuer, interval, last)) in intervals.iter_mut().enumerate() {
+            if now >= *last + std::time::Duration::from_secs(*interval) {
+                if !fetch(issuer).await {
+                    // issuer_index is a non-identifying diagnostic code.
+                    // Raw `iss` is excluded from logs per NIP-FI.md:777-779.
+                    warn!(
+                        issuer_index = idx,
+                        "NIP-FI: background JWKS refresh returned no snapshot"
+                    );
+                }
+                // Schedule the NEXT refresh from when this fetch completed,
+                // not from the instant captured before the await.  Scheduling
+                // from the pre-fetch snapshot drifts the interval backward by
+                // the fetch latency on every cycle; scheduling from post-fetch
+                // keeps the interval at least `interval_secs` even under
+                // nonzero network latency.  The hard-deadline contract
+                // (jwks_hard_deadline_seconds) is enforced by the JWKS source
+                // itself, not by this timer.
+                *last = tokio::time::Instant::now();
+            }
+        }
     }
 }
 
@@ -2250,7 +2281,7 @@ mod tests {
 
     use super::{
         buzz_auto_migrate_enabled, connect_audit_pool, dropped_in_memory_keys, idle_timeout_secs,
-        refresh_legacy_active_gauge_recency, relay_keypair_from_config,
+        nip_fi_jwks_refresh_loop, refresh_legacy_active_gauge_recency, relay_keypair_from_config,
         run_periodic_until_cancelled, EmissionScope, InMemoryMetricKey,
     };
     use buzz_db::DbConfig;
@@ -2462,5 +2493,156 @@ mod tests {
     fn test_idle_timeout_is_at_least_three_usage_intervals() {
         assert_eq!(idle_timeout_secs(None, 300), 900);
         assert_eq!(idle_timeout_secs(Some(10), 1_000), 3_000);
+    }
+
+    // ── F4: JWKS refresh-interval anchoring ───────────────────────────────────
+    //
+    // The fix: `*last = tokio::time::Instant::now()` is called AFTER the fetch
+    // awaits, not before (where `now` was captured pre-fetch).  Under nonzero
+    // fetch latency, scheduling from pre-fetch would drift the interval backward
+    // on every cycle.
+    //
+    // Test matrix:
+    //   A. Nonzero fetch latency: a 10s fetch inside a 60s interval → the next
+    //      refresh is scheduled 60s after the fetch completes (70s from start),
+    //      not 60s after the pre-fetch `now` (which would be ≈60s from start).
+    //   B. Deadline between intervals: an issuer due at T=60 wakes at T=60 and
+    //      fires; no spurious second fire before T=120.
+    //   C. Fetch failure: a failed fetch (returns false) still advances `last`
+    //      and the loop continues — no tight-loop, no unbounded drift.
+    //
+    // Falsifying mutation: change `*last = tokio::time::Instant::now()` to
+    // `*last = now` (where `now` is the pre-await snapshot).  Test A fails
+    // because the second refresh fires at T≈60s rather than T≈70s.
+
+    /// Nonzero fetch latency: second refresh must be anchored to post-fetch instant.
+    #[tokio::test(start_paused = true)]
+    async fn jwks_refresh_interval_anchored_to_post_fetch_instant() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let fetch_count = Arc::new(AtomicUsize::new(0));
+        let second_fetch_instant: Arc<std::sync::Mutex<Option<tokio::time::Instant>>> =
+            Arc::new(std::sync::Mutex::new(None));
+
+        let count_clone = Arc::clone(&fetch_count);
+        let instant_clone = Arc::clone(&second_fetch_instant);
+        let cancel = CancellationToken::new();
+        let cancel_task = cancel.clone();
+
+        // 10s simulated fetch latency, 60s interval.
+        let fetch_latency = Duration::from_secs(10);
+        let interval_secs = 60u64;
+
+        let task = tokio::spawn(async move {
+            nip_fi_jwks_refresh_loop(
+                vec![("issuer-a".to_string(), interval_secs)],
+                move |_issuer| {
+                    let n = count_clone.fetch_add(1, Ordering::SeqCst);
+                    let instant_ref = Arc::clone(&instant_clone);
+                    let latency = fetch_latency;
+                    Box::pin(async move {
+                        // Simulate nonzero fetch latency.
+                        tokio::time::sleep(latency).await;
+                        if n == 1 {
+                            // Record when the second fetch completes.
+                            *instant_ref.lock().unwrap() = Some(tokio::time::Instant::now());
+                        }
+                        true // success
+                    })
+                },
+                cancel_task,
+            )
+            .await;
+        });
+
+        // Time T=0: loop starts with last=now.
+        tokio::task::yield_now().await;
+
+        // Advance to T=60s: first refresh becomes due.
+        tokio::time::advance(Duration::from_secs(60)).await;
+        tokio::task::yield_now().await;
+
+        // Advance through the 10s fetch latency to T=70s.
+        tokio::time::advance(Duration::from_secs(10)).await;
+        tokio::task::yield_now().await;
+
+        // At T=70 the first fetch completes; last is now ~70s.
+        // A second refresh is due 60s later, at T=130.  Verify it does NOT fire at T=120.
+        tokio::time::advance(Duration::from_secs(59)).await; // T=129
+        tokio::task::yield_now().await;
+        assert_eq!(
+            fetch_count.load(Ordering::SeqCst),
+            1,
+            "second refresh must NOT fire before post-fetch last + interval_secs; \
+             at T=129 only one fetch should have completed. \
+             Falsifying mutation: use pre-fetch `now` for `last` update → second fetch fires at T≈120"
+        );
+
+        // Advance to T=131: second refresh is now overdue (post-fetch last + 60 ≤ 131).
+        tokio::time::advance(Duration::from_secs(2)).await; // T=131
+        tokio::task::yield_now().await;
+        // Sleep through the 10s fetch latency.
+        tokio::time::advance(Duration::from_secs(10)).await;
+        tokio::task::yield_now().await;
+
+        assert_eq!(
+            fetch_count.load(Ordering::SeqCst),
+            2,
+            "second refresh must have fired by T=141 (post-fetch last ~70 + 60 + 10 fetch latency)"
+        );
+
+        cancel.cancel();
+        task.await.expect("refresh loop task");
+    }
+
+    /// Fetch failure still advances `last`: no tight-loop and the third cycle fires
+    /// at the correct deadline.
+    #[tokio::test(start_paused = true)]
+    async fn jwks_refresh_interval_advances_last_on_failure() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let fetch_count = Arc::new(AtomicUsize::new(0));
+        let count_for_fetch = Arc::clone(&fetch_count);
+        let cancel = CancellationToken::new();
+        let cancel_task = cancel.clone();
+
+        let task = tokio::spawn(async move {
+            nip_fi_jwks_refresh_loop(
+                vec![("issuer-b".to_string(), 60)],
+                move |_| {
+                    let c = Arc::clone(&count_for_fetch);
+                    Box::pin(async move {
+                        c.fetch_add(1, Ordering::SeqCst);
+                        false // always fails
+                    })
+                },
+                cancel_task,
+            )
+            .await;
+        });
+
+        tokio::task::yield_now().await;
+
+        // First fire at T=60.
+        tokio::time::advance(Duration::from_secs(60)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(
+            fetch_count.load(Ordering::SeqCst),
+            1,
+            "first refresh at T=60"
+        );
+
+        // Second fire at T=120: failure advances `last` so no tight-loop.
+        tokio::time::advance(Duration::from_secs(60)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(
+            fetch_count.load(Ordering::SeqCst),
+            2,
+            "second refresh at T=120; failure must still advance last. \
+             Falsifying mutation: omit `*last = Instant::now()` on failure → tight-loop"
+        );
+
+        cancel.cancel();
+        task.await.expect("refresh loop task");
     }
 }

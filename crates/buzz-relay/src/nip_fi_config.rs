@@ -142,7 +142,15 @@ impl NipFiRelayConfig {
 
         let issuer_entries: Vec<IssuerEnvConfig> =
             serde_json::from_str(&issuers_json).map_err(|e| {
-                ConfigError::InvalidValue(format!("BUZZ_NIP_FI_ISSUERS is not valid JSON: {e}"))
+                // Do not embed raw `e` — serde_json type-error messages can
+                // include the unexpected field value verbatim (issuer URLs, etc).
+                // Use classify() and positional info only.  [NIP-FI.md:777-779]
+                ConfigError::InvalidValue(format!(
+                    "BUZZ_NIP_FI_ISSUERS is not valid JSON: {:?} at line {} column {}",
+                    e.classify(),
+                    e.line(),
+                    e.column(),
+                ))
             })?;
 
         if issuer_entries.is_empty() {
@@ -249,7 +257,11 @@ fn parse_algorithm(s: &str) -> Result<Algorithm, String> {
         "PS384" => Ok(Algorithm::PS384),
         "PS512" => Ok(Algorithm::PS512),
         "EdDSA" => Ok(Algorithm::EdDSA),
-        other => Err(format!("unknown or non-asymmetric algorithm {other:?}")),
+        other => Err(format!(
+            "unknown or non-asymmetric algorithm (got {} chars); \
+             supported: ES256 ES384 RS256 RS384 RS512 PS256 PS384 PS512 EdDSA",
+            other.len()
+        )),
     }
 }
 

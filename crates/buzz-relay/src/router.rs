@@ -1816,6 +1816,104 @@ mod tests {
         );
     }
 
+    // ── F6: build_router guard navigation — host-qualified admin exemption ───
+    //
+    // Proves that the `is_admin_spa_path(path) && is_admin_host(...)` check in
+    // `nip_fi_assertion_guard` (router.rs:215-217) does exactly what it says:
+    //
+    //   • `/reports` on the admin host → HTML (guard exempts it, SPA fallback serves it)
+    //   • `/reports` on a tenant host → 503 (guard NOT exempted; DenyProtected denies it)
+    //
+    // Falsifying mutation: remove the `is_admin_spa_path(path) && ...` branch at
+    // router.rs:215-217.  The admin-host request then reaches the DenyProtected
+    // branch and returns 503 — the assertion below panics instead of returning
+    // HTML.  The path-classification tests (`admin_spa_paths_are_not_broadly_exempt_*`)
+    // would still pass because they only test the helper functions, not the guard.
+    //
+    // DenyProtected is used here because it denies unconditionally without
+    // needing a verifier, making the test self-contained and infrastructure-free.
+    #[tokio::test]
+    async fn build_router_admin_spa_path_exempt_on_admin_host_denied_on_tenant_host() {
+        use buzz_auth::NipFiMode;
+
+        let admin_dir = tempfile::tempdir().expect("admin bundle dir");
+        let web_dir = tempfile::tempdir().expect("public bundle dir");
+        write_bundle(admin_dir.path());
+        write_bundle(web_dir.path());
+
+        // Build a DenyProtected-mode state using the same SPA helper, but with
+        // the NIP-FI mode overridden after config construction.
+        let mut config = crate::config::Config::from_env().expect("default config loads");
+        config.require_relay_membership = false;
+        config.redis_url = "redis://127.0.0.1:1".to_string();
+        config.web_dir = Some(web_dir.path().to_path_buf());
+        config.admin = Some(crate::config::AdminConfig {
+            host: "admin.example".to_string(),
+            auth: crate::config::AdminAuth::Disabled,
+            web_dir: Some(admin_dir.path().to_path_buf()),
+        });
+        config.nip_fi.mode = NipFiMode::DenyProtected;
+
+        let pool = sqlx::PgPool::connect_lazy(&config.database_url).expect("lazy pg pool");
+        let db = buzz_db::Db::from_pool(pool.clone());
+        let redis_pool = deadpool_redis::Config::from_url(&config.redis_url)
+            .create_pool(Some(deadpool_redis::Runtime::Tokio1))
+            .expect("redis pool");
+        let pubsub = Arc::new(
+            buzz_pubsub::PubSubManager::new(&config.redis_url, redis_pool.clone())
+                .await
+                .expect("pubsub manager"),
+        );
+        let audit = buzz_audit::AuditService::new(pool.clone());
+        let auth = buzz_auth::AuthService::new(config.auth.clone());
+        let search = buzz_search::SearchService::new(pool.clone());
+        let workflow_engine = Arc::new(buzz_workflow::WorkflowEngine::new(
+            db.clone(),
+            buzz_workflow::WorkflowConfig::default(),
+        ));
+        let media_storage = buzz_media::MediaStorage::new(&config.media).expect("media storage");
+        let (state, _audit_shutdown) = AppState::new(
+            config,
+            db,
+            redis_pool,
+            audit,
+            pubsub,
+            auth,
+            search,
+            workflow_engine,
+            nostr::Keys::generate(),
+            media_storage,
+        );
+        let state = Arc::new(state);
+
+        // Admin host: /reports must be exempted (guard lets it through → SPA serves HTML).
+        let admin_response = spa_response(state.clone(), "admin.example", "/reports").await;
+        assert_ne!(
+            admin_response.status(),
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            "/reports on the admin host must NOT be denied 503 in DenyProtected mode; \
+             the host-qualified admin SPA exemption in nip_fi_assertion_guard must fire. \
+             Falsifying mutation: remove `is_admin_spa_path(path) && is_admin_host(...)` at router.rs:215-217"
+        );
+        // The SPA fallback serves the index document.
+        assert_eq!(
+            admin_response.status(),
+            axum::http::StatusCode::OK,
+            "/reports on the admin host must be served as an SPA document"
+        );
+
+        // Tenant host: /reports is NOT exempt (guard denies it with 503 DenyProtected).
+        let tenant_response = spa_response(state.clone(), "tenant.example", "/reports").await;
+        assert_eq!(
+            tenant_response.status(),
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            "/reports on a tenant host must be denied 503 in DenyProtected mode; \
+             the guard exemption must NOT fire for non-admin hosts. \
+             Falsifying mutation: remove the is_admin_host check — tenant host would \
+             then match is_admin_spa_path and bypass the guard"
+        );
+    }
+
     // ── T1-IMP1: adversarial guard — junk/non-Bearer assertion is denied ──────
     //
     // Before this fix the guard called `headers.contains_key(CLIENT_ATTACHED_HEADER)`,

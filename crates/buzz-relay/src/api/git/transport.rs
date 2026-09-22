@@ -86,39 +86,6 @@ impl axum::extract::FromRequestParts<Arc<AppState>> for GitAuth {
     ) -> Result<Self, Self::Rejection> {
         let method = parts.method.as_str();
 
-        let auth_header = parts
-            .headers
-            .get(header::AUTHORIZATION)
-            .and_then(|v| v.to_str().ok())
-            .ok_or_else(|| {
-                Response::builder()
-                    .status(StatusCode::UNAUTHORIZED)
-                    .header(
-                        "WWW-Authenticate",
-                        format!("Nostr realm=\"buzz\", method=\"{method}\""),
-                    )
-                    .body(Body::from("missing Authorization header"))
-                    .unwrap()
-            })?;
-
-        let token = auth_header.strip_prefix("Nostr ").ok_or_else(|| {
-            Response::builder()
-                .status(StatusCode::UNAUTHORIZED)
-                .header(
-                    "WWW-Authenticate",
-                    format!("Nostr realm=\"buzz\", method=\"{method}\""),
-                )
-                .body(Body::from("expected Authorization: Nostr <base64>"))
-                .unwrap()
-        })?;
-
-        let event_bytes = base64::engine::general_purpose::STANDARD
-            .decode(token)
-            .or_else(|_| base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(token))
-            .map_err(|_| (StatusCode::UNAUTHORIZED, "invalid base64").into_response())?;
-        let event_json = String::from_utf8(event_bytes)
-            .map_err(|_| (StatusCode::UNAUTHORIZED, "invalid utf-8").into_response())?;
-
         // Row zero for Git HTTP: bind the request Host to a server-resolved
         // tenant before URL verification. We still do not trust forwarded
         // headers; the signed `u` tag is checked against the host that resolved
@@ -143,21 +110,13 @@ impl axum::extract::FromRequestParts<Arc<AppState>> for GitAuth {
         )
         .ok_or_else(|| (StatusCode::BAD_REQUEST, "unrecognized git endpoint").into_response())?;
 
-        // Repo-root URL verification.
+        // NIP-FI admission: the NIP-98 extraction closure runs inside
+        // `admit_nip_fi_http_on_state` so all proof failures (missing header,
+        // invalid base64, bad signature) are mapped to NIP-FI denial bytes in
+        // active modes, and cardinality is enforced uniformly.  Off mode
+        // preserves legacy Git 401 responses per [FI-INV-15].
+        // [FI-TRACE-AUTHORITY-UNIFORM, FI-TRACE-DENIAL-ORACLE]
         //
-        // The credential helper signs a NIP-98 token with:
-        //   u = <repo-root>   (e.g., http://host/git/{owner}/{repo})
-        //
-        // Git's credential protocol does NOT pass query strings to helpers, so
-        // service-scoping (`?service=...`) cannot be implemented at the NIP-98
-        // level without protocol changes. The token is repo-scoped, not service-scoped.
-        //
-        // Security is still provided by:
-        // - ±60s timestamp window (limits replay)
-        // - HTTPS in production (prevents token theft)
-        // - Pre-receive hook for push authorization (role + protection rules)
-        // - Endpoint routing (clone/push are different HTTP paths)
-
         // Skip HTTP method check for git routes.
         //
         // Git's credential helper signs with `method=GET` (the initial /info/refs request)
@@ -166,42 +125,95 @@ impl axum::extract::FromRequestParts<Arc<AppState>> for GitAuth {
         // Security is provided by: service-binding in the URL (clone vs push scoped),
         // ±60s timestamp, and the pre-receive hook for push authorization.
         // We pass the method from the event itself so verify_nip98_event always accepts.
-        let event_method = serde_json::from_str::<serde_json::Value>(&event_json)
-            .ok()
-            .and_then(|v| {
-                v["tags"]
-                    .as_array()?
-                    .iter()
-                    .find(|t| t[0].as_str() == Some("method"))?[1]
-                    .as_str()
-                    .map(str::to_owned)
-            })
-            .unwrap_or_else(|| method.to_owned());
-
-        // SECURITY: method intentionally not verified for git routes. The tautological
-        // check (event.method == event.method) is deliberate — see comment block above.
-        // Git's credential protocol signs once with GET and reuses for POST. The URL tag
-        // provides the real security boundary (±60s timestamp + URL lock + HTTPS).
-
+        //
         // body=None: can't buffer streaming pack data to verify payload hash.
         // Token is time-bounded (±60s) and URL-locked — acceptable trade-off.
-        let pubkey =
-            buzz_auth::nip98::verify_nip98_event(&event_json, &expected_url, &event_method, None)
+        let headers_clone = parts.headers.clone();
+        let method_str = method.to_owned();
+        let admission = crate::nip_fi_http::admit_nip_fi_http_on_state(
+            state,
+            &parts.headers,
+            move || -> Result<crate::nip_fi_http::Nip98Proof<(nostr::Event, u64)>, Response> {
+                let auth_header = headers_clone
+                    .get(header::AUTHORIZATION)
+                    .and_then(|v| v.to_str().ok())
+                    .ok_or_else(|| {
+                        Response::builder()
+                            .status(StatusCode::UNAUTHORIZED)
+                            .header(
+                                "WWW-Authenticate",
+                                format!("Nostr realm=\"buzz\", method=\"{method_str}\""),
+                            )
+                            .body(Body::from("missing Authorization header"))
+                            .unwrap()
+                    })?;
+
+                let token = auth_header.strip_prefix("Nostr ").ok_or_else(|| {
+                    Response::builder()
+                        .status(StatusCode::UNAUTHORIZED)
+                        .header(
+                            "WWW-Authenticate",
+                            format!("Nostr realm=\"buzz\", method=\"{method_str}\""),
+                        )
+                        .body(Body::from("expected Authorization: Nostr <base64>"))
+                        .unwrap()
+                })?;
+
+                let event_bytes = base64::engine::general_purpose::STANDARD
+                    .decode(token)
+                    .or_else(|_| base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(token))
+                    .map_err(|_| (StatusCode::UNAUTHORIZED, "invalid base64").into_response())?;
+                let event_json = String::from_utf8(event_bytes)
+                    .map_err(|_| (StatusCode::UNAUTHORIZED, "invalid utf-8").into_response())?;
+
+                // SECURITY: method intentionally not verified for git routes. The tautological
+                // check (event.method == event.method) is deliberate — see comment block above.
+                // Git's credential protocol signs once with GET and reuses for POST. The URL tag
+                // provides the real security boundary (±60s timestamp + URL lock + HTTPS).
+                let event_method = serde_json::from_str::<serde_json::Value>(&event_json)
+                    .ok()
+                    .and_then(|v| {
+                        v["tags"]
+                            .as_array()?
+                            .iter()
+                            .find(|t| t[0].as_str() == Some("method"))?[1]
+                            .as_str()
+                            .map(str::to_owned)
+                    })
+                    .unwrap_or(method_str);
+
+                let pubkey = buzz_auth::nip98::verify_nip98_event(
+                    &event_json,
+                    &expected_url,
+                    &event_method,
+                    None,
+                )
                 .map_err(|e| {
-                warn!(error = %e, "git NIP-98 auth failed");
-                (StatusCode::UNAUTHORIZED, "NIP-98 auth failed").into_response()
-            })?;
+                    warn!(error = %e, "git NIP-98 auth failed");
+                    (StatusCode::UNAUTHORIZED, "NIP-98 auth failed").into_response()
+                })?;
 
-        // NOTE: NIP-98 event-ID dedup intentionally NOT implemented here.
-        // Git's credential protocol reuses one signed token across multiple requests
-        // in a session (info_refs GET → upload-pack/receive-pack POST). Rejecting
-        // replayed event IDs would break normal clone/push operations.
-        // The ±60s timestamp window + URL scoping + HTTPS transport provide sufficient
-        // replay protection for v1. Per-request signing requires protocol changes.
+                // NOTE: NIP-98 event-ID dedup intentionally NOT implemented here.
+                // Git's credential protocol reuses one signed token across multiple requests
+                // in a session (info_refs GET -> upload-pack/receive-pack POST). Rejecting
+                // replayed event IDs would break normal clone/push operations.
+                // The +-60s timestamp window + URL scoping + HTTPS transport provide sufficient
+                // replay protection for v1. Per-request signing requires protocol changes.
 
-        let event: nostr::Event = serde_json::from_str(&event_json)
-            .map_err(|_| (StatusCode::UNAUTHORIZED, "invalid auth event").into_response())?;
-        let signed_auth_created_at = event.created_at.as_secs();
+                let event: nostr::Event = serde_json::from_str(&event_json).map_err(|_| {
+                    (StatusCode::UNAUTHORIZED, "invalid auth event").into_response()
+                })?;
+                let signed_auth_created_at = event.created_at.as_secs();
+
+                Ok(crate::nip_fi_http::Nip98Proof::new(
+                    pubkey,
+                    (event, signed_auth_created_at),
+                ))
+            },
+        )?;
+
+        let pubkey = *admission.proven_pubkey();
+        let (event, signed_auth_created_at) = admission.into_extra();
 
         // Relay membership gate (NIP-43). Git cannot carry a standalone
         // x-auth-tag header through the credential-helper protocol, so agents
@@ -232,14 +244,6 @@ impl axum::extract::FromRequestParts<Arc<AppState>> for GitAuth {
             Some(signed_auth_created_at),
         )
         .await?;
-
-        // NIP-FI admission: pubkey proven by NIP-98 above; closure supplies it.
-        // Assertion verify → pair → deny-map run in fixed order. The admission
-        // value is intentionally discarded — pubkey came from NIP-98 above.
-        // [FI-TRACE-AUTHORITY-UNIFORM]
-        let _ = crate::nip_fi_http::admit_nip_fi_http_on_state(state, &parts.headers, || {
-            Ok(crate::nip_fi_http::Nip98Proof::new(pubkey, ()))
-        })?;
 
         Ok(GitAuth { pubkey, tenant })
     }

@@ -100,24 +100,9 @@ pub(crate) fn verify_bridge_auth_with_options(
 ) -> BridgeAuthResult {
     // Try NIP-98 first (Authorization: Nostr <base64>)
     //
-    // Cardinality gate: NIP-FI.md:695-700 requires exactly one Authorization
-    // field when the protected path is in an active (non-Off) mode. Off-mode
-    // passes through legacy behavior unchanged ([FI-INV-15]).
-    //
-    // Axum / hyper de-duplicates most header fields during parsing, but RFC 7230
-    // allows comma-separated combining or multiple header lines; `HeaderMap::get`
-    // silently takes only the FIRST value.  Multiple Authorization fields would
-    // let a relay-aware attacker slip a second credential past the verifier.
-    // Reject any request that carries more than one Authorization field.
-    if require_auth_token {
-        let auth_count = headers.get_all("authorization").iter().count();
-        if auth_count > 1 {
-            return Err(api_error(
-                StatusCode::UNAUTHORIZED,
-                "NIP-98: duplicate Authorization header fields",
-            ));
-        }
-    }
+    // Cardinality is enforced at the NIP-FI admission boundary
+    // (`admit_nip_fi_http`) for active (non-Off) modes. Off-mode passes
+    // through legacy first-value behavior per [FI-INV-15].
 
     if let Some(auth_str) = headers
         .get("authorization")

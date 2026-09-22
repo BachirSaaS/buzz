@@ -152,11 +152,10 @@ pub fn verify_nip98_event(
     //
     // Digest format contract: the content value must be exactly 64 lowercase
     // hex characters (a valid sha256 digest). A one-element `["payload"]` tag
-    // with no content, or a malformed digest, skips the body-hash check silently
-    // in the old code — here we reject it. An absent/empty content is treated the
-    // same as no tag (no binding claimed), which is the pre-NIP-98 behavior and
-    // is safe, but a present-yet-malformed digest is a structurally invalid event
-    // and must be rejected to prevent the bypass.
+    // with no content, or a malformed digest, must be rejected — the tag
+    // *claims* body-hash binding but provides no valid digest.  An absent tag
+    // makes no claim; body-bearing routes that opt out of payload binding
+    // (e.g. `/events`, `/query`, `/count`) fall here legitimately.
     {
         let count = event
             .tags
@@ -186,14 +185,16 @@ pub fn verify_nip98_event(
             ));
         }
         // Must be exactly 64 lowercase hex chars (valid sha256 digest).
+        // Use a static diagnostic — attacker-controlled tag content must not
+        // appear in error messages (length, format code, or unicode boundary
+        // slicing could panic or leak attacker data).
         if hex_str.len() != 64
             || !hex_str.chars().all(|c| c.is_ascii_hexdigit())
             || hex_str.chars().any(|c| c.is_ascii_uppercase())
         {
-            return Err(AuthError::Nip98Invalid(format!(
-                "payload tag digest must be 64 lowercase hex chars, got {:?}",
-                &hex_str[..hex_str.len().min(80)]
-            )));
+            return Err(AuthError::Nip98Invalid(
+                "payload tag digest must be exactly 64 lowercase hex chars (sha256)".to_string(),
+            ));
         }
         Some(hex_str)
     } else {
@@ -584,6 +585,39 @@ mod tests {
         assert!(
             matches!(result3, Err(AuthError::Nip98Invalid(_))),
             "payload tag with non-hex content must be rejected: {result3:?}"
+        );
+    }
+
+    #[test]
+    fn payload_tag_multibyte_boundary_does_not_panic() {
+        // Regression for R2 (Thufir round-1): the old code did
+        //   `&hex_str[..hex_str.len().min(80)]`
+        // on attacker-controlled tag content.  79 ASCII 'a' chars followed by
+        // 'é' (U+00E9, 2 UTF-8 bytes) produces a 81-byte str; truncating at
+        // byte 80 splits the multibyte character and panics with a byte-index
+        // boundary panic.
+        //
+        // Mutation evidence: restoring the old byte-slice panic reproduces the
+        // panic here rather than returning an ordinary `AuthError`.
+        use nostr::Tag;
+        let keys = Keys::generate();
+        // 79 lowercase 'a' chars + 'é' (2 UTF-8 bytes) = 81 bytes, not 64 chars.
+        let malformed = format!("{}{}", "a".repeat(79), "é");
+        assert_eq!(malformed.len(), 81, "precondition: 81 UTF-8 bytes");
+        assert_eq!(malformed.chars().count(), 80, "precondition: 80 chars");
+        let json = make_nip98_event_raw_tags(
+            &keys,
+            vec![
+                Tag::parse(["u", TEST_URL]).unwrap(),
+                Tag::parse(["method", TEST_METHOD]).unwrap(),
+                Tag::parse(["payload", &malformed]).unwrap(),
+            ],
+        );
+        // Must return an ordinary AuthError, not panic.
+        let result = verify_nip98_event(&json, TEST_URL, TEST_METHOD, None);
+        assert!(
+            matches!(result, Err(AuthError::Nip98Invalid(_))),
+            "multibyte-boundary malformed payload tag must return AuthError, not panic: {result:?}"
         );
     }
 

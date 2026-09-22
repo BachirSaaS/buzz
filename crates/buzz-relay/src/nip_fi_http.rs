@@ -265,6 +265,22 @@ where
     D: HttpDenyMap,
     F: FnOnce() -> Result<Nip98Proof<X>, Response<Body>>,
 {
+    // Cardinality gate: active (non-Off) modes require exactly one Authorization
+    // field per NIP-FI.md:695-700.  Off mode preserves legacy first-value behavior
+    // (`.get()` silently takes the first) so no regression for Off deployments.
+    //
+    // Axum / hyper de-duplicates most header fields during HTTP/1.1 parsing, but
+    // RFC 7230 permits comma-separated combining or multiple header lines;
+    // `HeaderMap::get` silently takes only the FIRST value.  Rejecting duplicates
+    // closes the attack where a relay-aware adversary slips a second credential
+    // past the NIP-98 verifier.  [FI-INV-15]
+    if !matches!(mode, NipFiMode::Off) {
+        let auth_count = headers.get_all("authorization").iter().count();
+        if auth_count > 1 {
+            return Err(http_denial(DenialClass::EvidenceRejected));
+        }
+    }
+
     // Step 1: run NIP-98 extraction.  Always runs regardless of mode.
     let nip98_result = extract_nip98();
 
@@ -781,6 +797,51 @@ mod tests {
         );
     }
 
+    // ── R6(a) regression: Off-mode preserves exact legacy JSON bytes / content-type ──
+    //
+    // Thufir R6 / Carl F3: the Off test in the existing suite checks only status,
+    // so it cannot establish that Off mode preserves the JSON body bytes and
+    // content-type header that the pre-NIP-FI paths produce.  This test uses a
+    // synthetic "legacy JSON 401" response (matching what `api_error` in bridge.rs
+    // produces) and verifies the exact body bytes and content-type survive Off mode.
+    //
+    // Mutation evidence: if Off mode remapped the error to `http_denial()` format
+    // (`text/plain; charset=utf-8`), the content-type assertion fires.  If it
+    // remapped the body to NIP-FI denial bytes, the body assertion fires.
+    #[test]
+    fn off_mode_preserves_exact_legacy_json_body_and_content_type() {
+        use axum::http::header::CONTENT_TYPE;
+        // Build a synthetic legacy JSON error response, as `api_error` does.
+        let legacy_body = b"{\"error\":\"NIP-98: missing Authorization\"}";
+        let legacy_resp = axum::http::Response::builder()
+            .status(StatusCode::UNAUTHORIZED)
+            .header(CONTENT_TYPE, "application/json")
+            .body(axum::body::Body::from(legacy_body.as_ref()))
+            .unwrap();
+        let headers = HeaderMap::new();
+        let outcome = admit_nip_fi_http::<_, (), _>(
+            &headers,
+            || Err(legacy_resp),
+            None::<&dyn VerifyAssertion>,
+            NipFiMode::Off,
+            &AlwaysAdmitStubDenyMap,
+        );
+        let resp = outcome.unwrap_err();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            resp.headers()
+                .get(CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok()),
+            Some("application/json"),
+            "Off mode MUST preserve the legacy application/json content-type"
+        );
+        assert_eq!(
+            body_bytes(resp),
+            legacy_body,
+            "Off mode MUST preserve exact legacy JSON error body bytes"
+        );
+    }
+
     // ── admit_nip_fi_http — deny_protected ───────────────────────────────────
 
     // DenyProtected → Err(503 authorization_unavailable).
@@ -943,6 +1004,133 @@ mod tests {
         assert!(
             !AlwaysAdmitStubDenyMap.is_denied("https://idp.example.com", &pubkey, Utc::now()),
             "stub deny map MUST admit unconditionally until S4 provides the real map"
+        );
+    }
+
+    // ── R3 regression: Authorization cardinality ─────────────────────────────
+    //
+    // Thufir R3 / Carl F2: duplicate Authorization headers must be rejected in
+    // active (non-Off) modes, and must be ACCEPTED in Off mode (FI-INV-15:
+    // Off behavior must match pre-NIP-FI base, which used `.get()` first-value).
+    //
+    // The cardinality gate is now in `admit_nip_fi_http`, not in
+    // `verify_bridge_auth_with_options`, ensuring Off-mode callers are never
+    // affected regardless of their `require_auth_token` flag.
+    //
+    // Mutation evidence (enforce branch): removing the cardinality gate makes
+    // a duplicate-header request proceed to NIP-98 extraction, which either
+    // succeeds (if both tokens are valid — impossible in these tests with a
+    // None verifier) or fails with a different status code.  The test would
+    // still 403 in Enforce (extraction failure) but for the wrong reason; in
+    // DenyProtected it would 503; in Off it would either 401 (missing NIP-98)
+    // or pass.  The combination uniquely identifies the gate.
+    //
+    // Mutation evidence (Off branch): if Off-mode also checked cardinality, the
+    // Off duplicate test would receive 403 instead of the legacy NIP-98 closure
+    // result (401 from the always-failing closure below).  The assert fires.
+
+    #[test]
+    fn enforce_duplicate_authorization_header_denied_403() {
+        // Enforce mode + two Authorization fields → 403 EvidenceRejected before
+        // NIP-98 extraction runs.
+        //
+        // Mutation: removing the `auth_count > 1` gate means the closure runs,
+        // extraction fails (invalid token), and admission maps the failure to
+        // 403 EvidenceRejected (header is present).  Status is the same (403)
+        // but the body is different — the gate produces the standard
+        // `evidence rejected\n` bytes; NIP-98 failure in active mode also
+        // produces `evidence rejected\n`.  To distinguish, we verify the body
+        // comes from cardinality (gate fires before closure) rather than from
+        // the NIP-98 path: the closure must NEVER be called.
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let closure_ran = std::sync::Arc::new(AtomicBool::new(false));
+        let closure_ran_clone = closure_ran.clone();
+        let pubkey = any_pubkey();
+        let mut headers = HeaderMap::new();
+        headers.append(
+            axum::http::header::AUTHORIZATION,
+            HeaderValue::from_static("Nostr first.token"),
+        );
+        headers.append(
+            axum::http::header::AUTHORIZATION,
+            HeaderValue::from_static("Nostr second.token"),
+        );
+
+        let outcome = admit_nip_fi_http::<_, (), _>(
+            &headers,
+            || {
+                closure_ran_clone.store(true, Ordering::SeqCst);
+                Ok(Nip98Proof::new(pubkey, ()))
+            },
+            None::<&dyn VerifyAssertion>,
+            NipFiMode::Enforce,
+            &AlwaysAdmitStubDenyMap,
+        );
+        let resp = outcome.unwrap_err();
+        assert_eq!(
+            resp.status(),
+            StatusCode::FORBIDDEN,
+            "duplicate Authorization in Enforce MUST yield 403 EvidenceRejected"
+        );
+        assert_eq!(body_bytes(resp), b"evidence rejected\n");
+        assert!(
+            !closure_ran.load(Ordering::SeqCst),
+            "NIP-98 closure must NOT run when cardinality gate fires"
+        );
+    }
+
+    #[test]
+    fn off_mode_duplicate_authorization_header_passes_to_closure() {
+        // Off mode + two Authorization fields → closure runs, legacy behavior.
+        //
+        // FI-INV-15: Off mode must preserve pre-NIP-FI base behavior exactly.
+        // The base parser used `.get()` which silently accepted the first
+        // value from a multi-value header map.  Off mode must NOT reject on
+        // cardinality — that would be a behavioral regression.
+        //
+        // Mutation evidence: adding a cardinality check in Off mode makes the
+        // closure never run and returns 403.  The `closure_ran` assert fires.
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let closure_ran = std::sync::Arc::new(AtomicBool::new(false));
+        let closure_ran_clone = closure_ran.clone();
+        let pubkey = any_pubkey();
+        let mut headers = HeaderMap::new();
+        headers.append(
+            axum::http::header::AUTHORIZATION,
+            HeaderValue::from_static("Nostr first.token"),
+        );
+        headers.append(
+            axum::http::header::AUTHORIZATION,
+            HeaderValue::from_static("Nostr second.token"),
+        );
+
+        // Closure succeeds → Off mode should admit.
+        let outcome = admit_nip_fi_http::<_, (), _>(
+            &headers,
+            || {
+                closure_ran_clone.store(true, Ordering::SeqCst);
+                Ok(Nip98Proof::new(pubkey, ()))
+            },
+            None::<&dyn VerifyAssertion>,
+            NipFiMode::Off,
+            &AlwaysAdmitStubDenyMap,
+        );
+        let admission = match outcome {
+            Ok(a) => a,
+            Err(resp) => panic!(
+                "Off mode MUST admit when closure succeeds, even with duplicate auth header; \
+                 got {} response",
+                resp.status()
+            ),
+        };
+        assert!(
+            closure_ran.load(Ordering::SeqCst),
+            "NIP-98 closure MUST run in Off mode; cardinality gate must not fire"
+        );
+        assert_eq!(
+            *admission.proven_pubkey(),
+            pubkey,
+            "proven_pubkey must be the one returned by the closure"
         );
     }
 }
