@@ -21,7 +21,7 @@
  * suite handles async transitions cleanly without the jsdom global scheduler.
  *
  * Cross-identity delayed-save and all event-driven tests (origin-edit, detail-navigation,
- * attachment-unmount, same-session-save-race) live in adminConsolePanelSession.jsdom-test.mjs
+ * blob-leak-on-back-navigation, same-session-save-race) live in adminConsolePanelSession.jsdom-test.mjs
  * where fireEvent dispatches native events through React 19's container-level delegation.
  *
  * Also covers:
@@ -889,7 +889,7 @@ test("old-list-after-new-list: stale list result does not replace new list after
   await unmount();
 });
 
-// detail-navigation and attachment-unmount (useAsyncLoad active flag,
+// detail-navigation and blob-leak-on-back-navigation (useAsyncLoad active flag,
 // AttachmentViewer loadGenRef cleanup) are covered by
 // adminConsolePanelSession.jsdom-test.mjs where fireEvent dispatches native
 // events through React 19's container-level delegation.

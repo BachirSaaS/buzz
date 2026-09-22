@@ -310,7 +310,7 @@ fn storage_no_file_returns_none() {
 
 #[test]
 fn validate_pubkey_hex_cases() {
-    // Table-driven: valid input passes; uppercase, empty, and wrong-length inputs fail.
+    // Direct assertions: valid input passes; uppercase, empty, and wrong-length inputs fail.
     assert!(
         validate_pubkey_hex("a".repeat(64)).is_ok(),
         "64 lowercase hex chars must pass"
