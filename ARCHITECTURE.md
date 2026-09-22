@@ -443,9 +443,10 @@ shape is an explicit transition, not a flag day:
   application-owned transaction protocols, while keeping existing DB backstops
   in place until coverage and fleet gates are proven.
 - **Community fence (transition foundation):** runtime admission APIs now offer
-  shared community deletion locks, while deletion lifecycle transitions take the
-  matching exclusive lock. Multi-community batches lock in stable UUID order;
-  unmigrated paths still rely on trigger/function backstops.
+  one shared community deletion lock per transaction, while deletion lifecycle
+  transitions take the matching exclusive lock. A supported serving transaction
+  never spans communities; unmigrated paths still rely on trigger/function
+  backstops.
 - **Replica floor (transition foundation):** runtime now provides a shared
   replica-floor lock helper for compliant channel-event writers, and the writer
   probe handshake takes the exclusive counterpart before `S`/activity/token.

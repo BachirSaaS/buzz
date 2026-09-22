@@ -1143,39 +1143,16 @@ impl Db {
             .map_err(Into::into)
     }
 
-    /// Begin an event-write transaction and guard one community through the
-    /// stable multi-community admission path.
+    /// Begin an event-write transaction and guard its community against
+    /// concurrent deletion.
     pub async fn begin_community_write_transaction(
         &self,
         community: CommunityId,
     ) -> Result<sqlx::Transaction<'static, sqlx::Postgres>> {
-        self.begin_community_write_transaction_batch(&[community])
-            .await
-    }
-
-    /// Begin one event-write transaction and guard communities in deterministic
-    /// UUID order under shared deletion/admission locks.
-    ///
-    /// The batch must include every community the transaction may mutate. The
-    /// sorted lock order prevents opposite-order callers from deadlocking when
-    /// overlapping community sets are locked in one transaction.
-    pub async fn begin_community_write_transaction_batch(
-        &self,
-        communities: &[CommunityId],
-    ) -> Result<sqlx::Transaction<'static, sqlx::Postgres>> {
-        if communities.is_empty() {
-            return Err(DbError::InvalidData(
-                "community write transaction batch requires at least one community".to_string(),
-            ));
-        }
         let mut tx = self.begin_event_write_transaction().await?;
-        let mut ordered = communities.to_vec();
-        ordered.sort_unstable();
-        ordered.dedup();
-        let store = self.deletion_store();
-        for community in ordered {
-            store.guard_transaction(&mut tx, community).await?;
-        }
+        self.deletion_store()
+            .guard_transaction(&mut tx, community)
+            .await?;
         Ok(tx)
     }
 

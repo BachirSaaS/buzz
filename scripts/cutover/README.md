@@ -25,9 +25,8 @@ Outside this one-off cutover, direct owner SQL mutation is not a supported
 steady-state path unless explicitly reviewed.
 
 - Reviewed backfills and reconciliations should use relay-owned transaction and
-  lock protocols where they exist (community shared/exclusive fence ordering,
-  stable multi-community lock order, and replica-floor shared/exclusive lock
-  ordering).
+  lock protocols where they exist (one community fence per transaction and
+  replica-floor shared/exclusive lock ordering).
 - If a workflow cannot use those protocols yet, execute it under an explicitly
   reviewed procedure that keeps replica routing fences closed for the run.
 - Role separation is deliberate: schema reconciliation scripts carry schema
