@@ -229,25 +229,26 @@ class _FinalizingFakeClient extends http.BaseClient {
 
 /// A fake [http.Client] for viewer-path abort tests.
 ///
-/// `send()` drains the request body (proving the sink is closed), signals
-/// arrival, then suspends until the request's `abortTrigger` completes.
-/// When the viewer's effect cleanup fires `downloadRequestAbort.complete()`,
-/// that trigger arrives here and `send()` throws [RequestAbortedException] —
-/// proving that unmounting the widget closes the in-flight download through
-/// the actual viewer abort-wiring path.
+/// `send()` signals arrival immediately, then suspends until the request's
+/// `abortTrigger` completes.  When the viewer's effect cleanup fires
+/// `downloadRequestAbort.complete()`, that trigger arrives here and
+/// `send()` throws [RequestAbortedException] — proving that unmounting
+/// the widget closes the in-flight download through the actual viewer
+/// abort-wiring path.
 ///
 /// Deleting the viewer's `activeRequestAbort.complete()` call in the cleanup
 /// (or the `Completer` / `AbortableStreamedRequest` wiring) prevents
 /// `abortTrigger` from ever completing and the test times out.
 class _StallingAbortableClient extends http.BaseClient {
   final Completer<void> requestArrivedCompleter = Completer<void>();
-  bool requestBodyDrained = false;
   bool abortObserved = false;
 
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
-    await request.finalize().drain<void>();
-    requestBodyDrained = true;
+    // Signal arrival immediately (do not drain — the unawaited sink.close()
+    // may not have settled when drain() is called inside the test binding,
+    // and this fake's only job is to prove the abort-trigger chain, not the
+    // sink-close contract which is covered by _FinalizingFakeClient).
     if (!requestArrivedCompleter.isCompleted) {
       requestArrivedCompleter.complete();
     }
