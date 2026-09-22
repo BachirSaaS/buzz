@@ -976,43 +976,48 @@ async fn body_bearing_put_sets_content_type_and_signs_body() {
 // pre-fill and handing an attacker-advertised host an unconsented signature.
 
 #[test]
-fn same_host_when_advertised_host_matches_relay_host() {
-    let advertised = AdminOrigin::parse("https://admin.example.com").unwrap();
-    assert!(
-        discovery::advertised_host_matches_relay(&advertised, "https://admin.example.com"),
-        "identical host must bind for auto-probe"
-    );
-}
-
-#[test]
-fn same_host_ignores_port_differences() {
-    // The binding is host identity only: an operator may run the admin console
-    // on a different port (or path) than the relay and still be same-host-bound.
-    // This fixture varies port only; scheme variation is not tested here.
-    let advertised = AdminOrigin::parse("https://admin.example.com:8443").unwrap();
-    assert!(
-        discovery::advertised_host_matches_relay(&advertised, "https://admin.example.com/query"),
-        "host match must bind regardless of port"
-    );
-}
-
-#[test]
-fn not_same_host_when_advertised_host_differs_from_relay_host() {
-    let advertised = AdminOrigin::parse("https://attacker.example.com").unwrap();
-    assert!(
-        !discovery::advertised_host_matches_relay(&advertised, "https://admin.example.com"),
-        "a cross-host advertisement must not bind for auto-probe"
-    );
-}
-
-#[test]
-fn same_host_binding_is_case_insensitive() {
-    // `AdminOrigin::parse` lowercases the advertised host; the relay-URL side is
-    // compared case-insensitively rather than trusting the `url` crate to have
-    // lowercased it. Mixed-case forms of the same host must still bind.
-    let advertised = AdminOrigin::parse("https://Admin.Example.Com").unwrap();
-    assert!(
-        discovery::advertised_host_matches_relay(&advertised, "https://ADMIN.EXAMPLE.COM"),
-        "case-only differences must still bind the same host"
-    );
+fn advertised_host_trust_binding() {
+    let cases = [
+        // Positive: identical host → auto-probe permitted.
+        (
+            "https://admin.example.com",
+            "https://admin.example.com",
+            true,
+            "identical host must bind for auto-probe",
+        ),
+        // Positive: port/path differ but host matches — operator may run the
+        // admin console on a different port and still be same-host-bound.
+        // (Scheme variation is not tested here; this fixture varies port only.)
+        (
+            "https://admin.example.com:8443",
+            "https://admin.example.com/query",
+            true,
+            "host match must bind regardless of port or path",
+        ),
+        // Positive: case-only host variation — `AdminOrigin::parse` lowercases
+        // the advertised host; relay-URL side compared case-insensitively.
+        (
+            "https://Admin.Example.Com",
+            "https://ADMIN.EXAMPLE.COM",
+            true,
+            "case-only differences must still bind the same host",
+        ),
+        // Negative: cross-host advertisement must NOT bind for auto-probe —
+        // a mismatch here would allow an attacker-advertised host to obtain a
+        // NIP-98 signed request with the operator's key.
+        (
+            "https://attacker.example.com",
+            "https://admin.example.com",
+            false,
+            "a cross-host advertisement must not bind for auto-probe",
+        ),
+    ];
+    for (advertised_url, relay_url, expected, label) in cases {
+        let advertised = AdminOrigin::parse(advertised_url).unwrap();
+        assert_eq!(
+            discovery::advertised_host_matches_relay(&advertised, relay_url),
+            expected,
+            "{label}",
+        );
+    }
 }
