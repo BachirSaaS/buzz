@@ -3146,15 +3146,30 @@ mod composition_tests {
 
         // ── Advance to T=122 ────────────────────────────────────────────────
         // Timer fires at T=121 (last=T=61, next=T=61+60=T=121 ≤ T=122).
-        // Source: T=122 > hard_deadline=T=90 → snapshot cleared → fetch response[2]=fail
+        // Source: T=121 > hard_deadline=T=90 → snapshot cleared → fetch response[2]=fail
         // → None. Callback returns false. callback_returned_false=true. callback_count=1.
+        // (Timer fires at T=121 during the advance to T=122; source clock = T=121.)
         //
         // Falsifying mutation: extend deadline to T=61+90=T=151 on failure.
         // At T=121: T=121 < T=151 → snapshot NOT cleared; age_secs=121-61=60 >= 60
         // → stale → fetch response[2]=fail → snapshot not cleared (still live) → Some.
         // Callback returns true → callback_returned_false stays false → assertion fires.
         tokio::time::advance(Duration::from_secs(61)).await; // T=61 → T=122
-        while callback_count.load(Ordering::SeqCst) < 1 {
+                                                             // Bounded yield: let the spawned timer task run its T=121 callback.
+                                                             // At most 10_000 yields; if the callback never fires this diagnostic fails
+                                                             // rather than hanging forever.  A virtual tokio::time::timeout would also
+                                                             // create a fake timer that never fires while the clock is paused — hence
+                                                             // the explicit iteration bound.
+        for i in 0..10_000usize {
+            if callback_count.load(Ordering::SeqCst) >= 1 {
+                break;
+            }
+            if i == 9_999 {
+                panic!(
+                    "composition B: callback_count never reached 1 after 10_000 yields. \
+                     The spawned refresh loop task may have panicked or stalled."
+                );
+            }
             tokio::task::yield_now().await;
         }
 
@@ -3196,8 +3211,11 @@ mod composition_tests {
             snap_after_recovery.is_some(),
             "composition B: recovery fetch at T=123 MUST return a new snapshot \
              (response[4]=ok). \
-             Falsifying mutation: never clear snapshot even when past deadline → \
-             no fetch triggered → Some but generation unchanged → recovery assertion fires."
+             Falsifying mutation: make get_snapshot always return Some (never trigger a fetch) \
+             → response[4]=ok never consumed → generation unchanged → assert_ne!(generation) \
+             below fires.  Note: removing only the early-expiry clearing inside \
+             nip_fi_jwks_refresh_loop still leaves the hard-deadline age filter and does \
+             NOT prevent the recovery fetch."
         );
         assert_eq!(
             fetcher_count.load(Ordering::SeqCst),
@@ -3406,14 +3424,23 @@ mod composition_tests {
 
                 // Path 3: library fetch-fail warn!.
                 // Advance to T=61 (past refresh interval=60, before hard_deadline=90).
-                // During the advance, the timer fires at T=60:
-                //   source clock=T60, age=60 >= 60 → stale → fetch → NetworkError
+                // During the advance, the timer fires at T=60 but resolves at T=61:
+                //   source clock=T61, age=61 >= 60 → stale → fetch → NetworkError
                 //   → fetch-fail warn! [path 3 precursor] → live snapshot returned
-                //   → callback 1 returns true (no path-4 warn!); last=T60.
+                //   → callback 1 returns true (no path-4 warn!); last=T61.
                 // Then path 3 direct call at T=61 also produces fetch-fail warn! ✓.
                 tokio::time::advance(std::time::Duration::from_secs(61)).await;
-                // Allow the timer task to run its T=60 callback.
-                while callback_count.load(Ordering::SeqCst) < 1 {
+                // Bounded yield: allow the T=60 timer callback to run.
+                for i in 0..10_000usize {
+                    if callback_count.load(Ordering::SeqCst) >= 1 {
+                        break;
+                    }
+                    if i == 9_999 {
+                        panic!(
+                            "privacy C: callback_count never reached 1 after 10_000 yields at T=61. \
+                             The spawned privacy timer task may have panicked or stalled."
+                        );
+                    }
                     tokio::task::yield_now().await;
                 }
                 // Path 3: direct call; produces `warn!(error = %err, "nip-fi jwks fetch failed…")`.
@@ -3421,19 +3448,30 @@ mod composition_tests {
 
                 // Path 4: timer loop no-snapshot warn!.
                 // Advance from T=61 to T=121 (60 more seconds).
-                // Timer fires at T=120 (last=T60, next_due=T60+60=T120):
-                //   source clock=T120 >= hard_deadline=T90 → snapshot cleared
+                // Timer fires at T=120 (last=T60, next_due=T60+60=T120), but
+                // `tokio::time::advance` resolves the timer at T=121 (the post-
+                // advance clock).  Source clock via now_fn = T=121 >= hard_deadline=T=90:
+                //   → snapshot cleared
                 //   → fetch fails (NetworkError) → None
                 //   → callback 2 returns false
                 //   → `warn!(issuer_index=idx, "NIP-FI: background JWKS refresh
                 //       returned no snapshot")` ✓.
                 //
                 // Falsifying mutation: bridge now_fn to a fixed clock at T=61 →
-                // at T=120 source sees T=61 < T=90 → snapshot live → callback true
+                // at T=121 source sees T=61 < T=90 → snapshot live → callback true
                 // → no warn! → path-4 assertion fires.
                 tokio::time::advance(std::time::Duration::from_secs(60)).await;
-                // Wait for callback 2 (count >= 2) to confirm path-4 has run.
-                while callback_count.load(Ordering::SeqCst) < 2 {
+                // Bounded yield: wait for callback 2 (count >= 2) to confirm path-4 has run.
+                for i in 0..10_000usize {
+                    if callback_count.load(Ordering::SeqCst) >= 2 {
+                        break;
+                    }
+                    if i == 9_999 {
+                        panic!(
+                            "privacy C: callback_count never reached 2 after 10_000 yields at T=121. \
+                             The spawned privacy timer task may have panicked or stalled."
+                        );
+                    }
                     tokio::task::yield_now().await;
                 }
                 cancel.cancel();

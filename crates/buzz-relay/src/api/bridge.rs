@@ -5068,8 +5068,14 @@ mod postgres_tests {
     //
     // Shared witness for all three moderation routes: they share
     // `authorize_moderation_read` which calls `admit_nip_fi_http_on_state`.
-    // This test covers the shared call site; the other two routes are covered
-    // transitively.
+    //
+    // The 401 is produced by the OUTER `nip_fi_assertion_guard` layer in
+    // `build_router`: no `Nostr-Federated-Identity` header → MissingEvidence →
+    // 401 `authentication required\n`.  The per-handler gate is unreachable.
+    //
+    // Falsifying mutation: remove `nip_fi_assertion_guard` from `build_router`
+    // → request reaches `authorize_moderation_read` → application-level authz
+    // runs → non-401 result (403 or 200). 401 ≠ non-401.
     #[test]
     #[ignore = "requires Postgres"]
     fn nip_fi_enforce_moderation_reports_no_assertion_is_401() {
@@ -5102,8 +5108,8 @@ mod postgres_tests {
             status,
             axum::http::StatusCode::UNAUTHORIZED,
             "NIP-FI enforce mode: GET /moderation/reports with valid NIP-98 + no assertion MUST \
-             deny 401 [FI-TRACE-HTTP-INGRESS]; if this fails the admit_nip_fi_http_on_state gate \
-             was removed from authorize_moderation_read"
+             deny 401 [FI-TRACE-HTTP-INGRESS]; outer nip_fi_assertion_guard fires on missing \
+             Nostr-Federated-Identity header → MissingEvidence → 401."
         );
         assert_eq!(
             body.as_ref(),
@@ -5133,9 +5139,14 @@ mod postgres_tests {
     // Shared witness for both GIF routes (search + share both go through
     // `authenticate` which calls `admit_nip_fi_http_on_state`).
     //
-    // Falsifying mutation: delete the NIP-FI check from `gifs::authenticate`.
-    // Without the gate, the request proceeds to Klipy config check → 404
-    // (GIF search not configured in the test state). 404 ≠ 401.
+    // The 401 is produced by the OUTER `nip_fi_assertion_guard` layer in
+    // `build_router`: no `Nostr-Federated-Identity` header → MissingEvidence →
+    // 401 `authentication required\n`.  The per-handler gate in `gifs::authenticate`
+    // is unreachable on this request.
+    //
+    // Falsifying mutation: remove `nip_fi_assertion_guard` from `build_router`
+    // → request reaches `gifs::authenticate` → Klipy config absent → 404
+    // (GIF search not configured). 404 ≠ 401.
     #[test]
     #[ignore = "requires Postgres"]
     fn nip_fi_enforce_gif_search_no_assertion_is_401() {
@@ -5168,8 +5179,8 @@ mod postgres_tests {
             status,
             axum::http::StatusCode::UNAUTHORIZED,
             "NIP-FI enforce mode: POST {} with valid NIP-98 + no assertion MUST deny 401 \
-             [FI-TRACE-HTTP-INGRESS]; if this fails the admit_nip_fi_http_on_state gate was \
-             removed from gifs::authenticate",
+             [FI-TRACE-HTTP-INGRESS]; outer nip_fi_assertion_guard fires on missing \
+             Nostr-Federated-Identity header → MissingEvidence → 401.",
             crate::api::gifs::SEARCH_PATH
         );
         assert_eq!(
@@ -5202,9 +5213,13 @@ mod postgres_tests {
     // Shared witness for both workflow routes (`authorize_workflow_read`
     // calls `admit_nip_fi_http_on_state`).
     //
-    // Falsifying mutation: delete the NIP-FI check from
-    // `authorize_workflow_read`. The request proceeds to workflow lookup →
-    // 404 (no workflow with the test UUID). 404 ≠ 401.
+    // The 401 is produced by the OUTER `nip_fi_assertion_guard` layer in
+    // `build_router`: no `Nostr-Federated-Identity` header → MissingEvidence →
+    // 401 `authentication required\n`.  The per-handler gate is unreachable.
+    //
+    // Falsifying mutation: remove `nip_fi_assertion_guard` from `build_router`
+    // → request reaches `authorize_workflow_read` → workflow lookup → 404
+    // (no workflow with the test UUID). 404 ≠ 401.
     #[test]
     #[ignore = "requires Postgres"]
     fn nip_fi_enforce_workflow_runs_no_assertion_is_401() {
@@ -5239,8 +5254,8 @@ mod postgres_tests {
             status,
             axum::http::StatusCode::UNAUTHORIZED,
             "NIP-FI enforce mode: GET {path} with valid NIP-98 + no assertion MUST deny 401 \
-             [FI-TRACE-HTTP-INGRESS]; if this fails the admit_nip_fi_http_on_state gate was \
-             removed from authorize_workflow_read"
+             [FI-TRACE-HTTP-INGRESS]; outer nip_fi_assertion_guard fires on missing \
+             Nostr-Federated-Identity header → MissingEvidence → 401."
         );
         assert_eq!(
             body.as_ref(),
@@ -5292,11 +5307,12 @@ mod postgres_tests {
         rt.block_on(state.db.ensure_configured_community(&host))
             .expect("ensure community");
 
+        // klipy is None in the test state (no config.klipy set) — GIF provider absent.
         let keys = Keys::generate();
         let url = format!("https://{host}{}", crate::api::gifs::SEARCH_PATH);
         let headers = same_key_nip98_and_assertion_headers(&keys, &url, "POST", b"{}");
 
-        let (status, _resp_headers, _body) = rt.block_on(oneshot_request_full(
+        let (status, _resp_headers, body) = rt.block_on(oneshot_request_full(
             state,
             "POST",
             crate::api::gifs::SEARCH_PATH,
@@ -5305,20 +5321,26 @@ mod postgres_tests {
             b"{}",
         ));
 
-        // Admission passes → handler fires → GIF config absent → 404 or 4xx.
-        // NIP-FI denial codes: 401 (MissingEvidence), 403 (EvidenceRejected/AuthDenied).
-        // Either would indicate NIP-FI denied the request, not an always-passing gate.
-        assert_ne!(
+        // Admission passes → handler fires → GIF config absent → exact 404.
+        // Falsifying mutation: make verifier always-deny → 403 AuthorizationDenied.
+        assert_eq!(
             status,
-            axum::http::StatusCode::UNAUTHORIZED,
-            "GIF search same-key positive: NIP-FI MUST NOT deny 401. \
-             Falsifying mutation: make verifier always-deny → 403 instead."
+            axum::http::StatusCode::NOT_FOUND,
+            "GIF search same-key positive: NIP-FI MUST admit and handler MUST return 404 \
+             (GIF provider not configured). \
+             If 401: NIP-FI MissingEvidence — outer guard or assertion check denying. \
+             If 403: NIP-FI AuthorizationDenied — verifier or pairing denying. \
+             Body: {body:?}"
         );
-        assert_ne!(
-            status,
-            axum::http::StatusCode::FORBIDDEN,
-            "GIF search same-key positive: NIP-FI MUST NOT deny 403. \
-             Falsifying mutation: make verifier always-deny → 403."
+        // Verify exact body: api_error(NOT_FOUND, "GIF search is not configured") → JSON.
+        let body_json: serde_json::Value =
+            serde_json::from_slice(&body).expect("404 body must be valid JSON");
+        assert_eq!(
+            body_json.get("error").and_then(|v| v.as_str()),
+            Some("GIF search is not configured"),
+            "GIF search same-key positive: exact 404 body must be JSON \
+             {{\"error\":\"GIF search is not configured\"}}. \
+             Falsifying mutation: make handler always-deny → 403 body differs."
         );
     }
 
@@ -5378,27 +5400,32 @@ mod postgres_tests {
             state, "GET", &path, &host, headers, b"",
         ));
 
-        // Admission passes — the caller is NOT an admin so moderation returns
-        // 403, but NOT with NIP-FI body.  A NIP-FI denial would carry
-        // "authentication required\n" or "authorization denied\n".
-        assert_ne!(
+        // Admission passes — the caller is NOT a moderator so moderation returns
+        // 403 with exact application body "restricted: moderator access required".
+        // This is an application-level 403, not a NIP-FI denial.
+        //
+        // Distinguishing mutations:
+        // - NIP-FI always-deny → "authorization denied\n" (text/plain) ≠ JSON body.
+        // - Remove moderation authz check → 200 with empty results ≠ 403.
+        assert_eq!(
             status,
-            axum::http::StatusCode::UNAUTHORIZED,
-            "Moderation same-key positive: NIP-FI MUST NOT deny 401."
+            axum::http::StatusCode::FORBIDDEN,
+            "Moderation same-key positive: handler MUST reach moderation authz → \
+             403 (caller is not a moderator). \
+             If 401: NIP-FI MissingEvidence — assertion check denying. \
+             If 200: moderation authz check was removed."
         );
-        // Body must not be NIP-FI MissingEvidence or EvidenceRejected.
-        assert_ne!(
-            body.as_ref(),
-            b"authentication required\n",
-            "Moderation same-key positive: handler reached, not NIP-FI MissingEvidence."
+        let body_json: serde_json::Value =
+            serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+        assert_eq!(
+            body_json.get("error").and_then(|v| v.as_str()),
+            Some("restricted: moderator access required"),
+            "Moderation same-key positive: exact 403 body must be JSON \
+             {{\"error\":\"restricted: moderator access required\"}}. \
+             If 'authorization denied\\n': NIP-FI AuthDenied — verifier or pairing denying. \
+             Falsifying mutation: make verifier always-deny → text/plain body."
         );
-        assert_ne!(
-            body.as_ref(),
-            b"authorization denied\n",
-            "Moderation same-key positive: handler reached, not NIP-FI AuthDenied. \
-             Falsifying mutation: make verifier always-deny → 'authorization denied\\n'."
-        );
-        let _ = (resp_headers, body);
+        let _ = resp_headers;
     }
 
     // ── Workflow runs — Enforce mode, same-key admission → reaches handler ────
@@ -5443,6 +5470,176 @@ mod postgres_tests {
              return 404 (workflow not found). \
              401 = NIP-FI MissingEvidence; 403 = NIP-FI AuthDenied/Cardinality. \
              Falsifying mutation: make verifier always-deny → 403 instead of 404."
+        );
+    }
+
+    // ── Caller key-pairing witness: GIF mismatched key → 403 AuthorizationDenied ─
+    //
+    // Valid assertion signed for key_a, NIP-98 signed by key_b.  The key-pairing
+    // check in `admit_nip_fi_http_on_state` fires → 403 `authorization denied\n`.
+    //
+    // This is the handler-level denial witness: the same-key positive above proves
+    // admission passes when keys match; this proves the pairing check fires when
+    // they don't.  Together they bound removing the pairing check from both sides.
+    //
+    // Falsifying mutation: remove key-pairing check from `admit_nip_fi_http` →
+    // mismatched keys pass admission → 404 (GIF not configured) ≠ 403.
+    #[test]
+    #[ignore = "requires Postgres"]
+    fn nip_fi_enforce_gif_search_mismatched_key_is_403() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("current_thread runtime");
+
+        let Some(state) = rt.block_on(nip_fi_enforce_test_state_with_verifier()) else {
+            panic!("local Postgres not reachable");
+        };
+        let host = format!(
+            "nip-fi-gif-mismatch-{}.local",
+            uuid::Uuid::new_v4().simple()
+        );
+        rt.block_on(state.db.ensure_configured_community(&host))
+            .expect("ensure community");
+
+        // key_nip98: signs the NIP-98 Authorization header.
+        // key_assertion: signs the NIP-FI assertion (different pubkey → pairing mismatch).
+        let key_nip98 = Keys::generate();
+        let key_assertion = Keys::generate();
+        let url = format!("https://{host}{}", crate::api::gifs::SEARCH_PATH);
+        let assertion = signed_assertion_for_pubkey(&key_assertion.public_key().to_hex());
+
+        let mut headers = make_nip98_headers(&key_nip98, &url, "POST", b"{}");
+        headers.insert(
+            buzz_auth::CLIENT_ATTACHED_HEADER,
+            format!("Bearer {assertion}").parse().expect("valid header"),
+        );
+
+        let (status, _resp_headers, body) = rt.block_on(oneshot_request_full(
+            state,
+            "POST",
+            crate::api::gifs::SEARCH_PATH,
+            &host,
+            headers,
+            b"{}",
+        ));
+
+        assert_eq!(
+            status,
+            axum::http::StatusCode::FORBIDDEN,
+            "GIF mismatched key MUST return 403 AuthorizationDenied. \
+             Falsifying mutation: remove key-pairing check → admission passes \
+             → 404 (GIF not configured) returned instead."
+        );
+        assert_eq!(
+            body.as_ref(),
+            b"authorization denied\n",
+            "GIF mismatched key 403 MUST carry exact body 'authorization denied\\n'."
+        );
+    }
+
+    // ── Caller key-pairing witness: moderation mismatched key → 403 ─────────
+    //
+    // Mirror of the GIF case through the moderation route.
+    // Falsifying mutation: remove key-pairing check → admission passes → 403 from
+    // moderation authz (not NIP-FI) with different JSON body.
+    #[test]
+    #[ignore = "requires Postgres"]
+    fn nip_fi_enforce_moderation_mismatched_key_is_403() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("current_thread runtime");
+
+        let Some(state) = rt.block_on(nip_fi_enforce_test_state_with_verifier()) else {
+            panic!("local Postgres not reachable");
+        };
+        let host = format!(
+            "nip-fi-mod-mismatch-{}.local",
+            uuid::Uuid::new_v4().simple()
+        );
+        rt.block_on(state.db.ensure_configured_community(&host))
+            .expect("ensure community");
+
+        let key_nip98 = Keys::generate();
+        let key_assertion = Keys::generate();
+        let path = format!("/communities/{host}/moderation/reports");
+        let url = format!("https://{host}{path}");
+        let assertion = signed_assertion_for_pubkey(&key_assertion.public_key().to_hex());
+
+        let mut headers = make_nip98_headers(&key_nip98, &url, "GET", b"");
+        headers.insert(
+            buzz_auth::CLIENT_ATTACHED_HEADER,
+            format!("Bearer {assertion}").parse().expect("valid header"),
+        );
+
+        let (status, _resp_headers, body) = rt.block_on(oneshot_request_full(
+            state, "GET", &path, &host, headers, b"",
+        ));
+
+        assert_eq!(
+            status,
+            axum::http::StatusCode::FORBIDDEN,
+            "Moderation mismatched key MUST return 403 AuthorizationDenied. \
+             Falsifying mutation: remove key-pairing check → admission passes \
+             → 403 from moderation authz (different JSON body)."
+        );
+        assert_eq!(
+            body.as_ref(),
+            b"authorization denied\n",
+            "Moderation mismatched key 403 MUST carry exact body 'authorization denied\\n'. \
+             If JSON 403: key-pairing was skipped, moderation authz fired instead."
+        );
+    }
+
+    // ── Caller key-pairing witness: workflow mismatched key → 403 ───────────
+    //
+    // Mirror of the GIF/moderation cases through the workflow route.
+    // Falsifying mutation: remove key-pairing check → admission passes → 404 (no
+    // such workflow) rather than 403 AuthorizationDenied.
+    #[test]
+    #[ignore = "requires Postgres"]
+    fn nip_fi_enforce_workflow_mismatched_key_is_403() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("current_thread runtime");
+
+        let Some(state) = rt.block_on(nip_fi_enforce_test_state_with_verifier()) else {
+            panic!("local Postgres not reachable");
+        };
+        let host = format!("nip-fi-wf-mismatch-{}.local", uuid::Uuid::new_v4().simple());
+        rt.block_on(state.db.ensure_configured_community(&host))
+            .expect("ensure community");
+
+        let key_nip98 = Keys::generate();
+        let key_assertion = Keys::generate();
+        let workflow_id = uuid::Uuid::new_v4();
+        let path = format!("/workflows/{workflow_id}/runs");
+        let url = format!("https://{host}{path}");
+        let assertion = signed_assertion_for_pubkey(&key_assertion.public_key().to_hex());
+
+        let mut headers = make_nip98_headers(&key_nip98, &url, "GET", b"");
+        headers.insert(
+            buzz_auth::CLIENT_ATTACHED_HEADER,
+            format!("Bearer {assertion}").parse().expect("valid header"),
+        );
+
+        let (status, _resp_headers, body) = rt.block_on(oneshot_request_full(
+            state, "GET", &path, &host, headers, b"",
+        ));
+
+        assert_eq!(
+            status,
+            axum::http::StatusCode::FORBIDDEN,
+            "Workflow mismatched key MUST return 403 AuthorizationDenied. \
+             Falsifying mutation: remove key-pairing check → admission passes \
+             → 404 (workflow not found) returned instead."
+        );
+        assert_eq!(
+            body.as_ref(),
+            b"authorization denied\n",
+            "Workflow mismatched key 403 MUST carry exact body 'authorization denied\\n'."
         );
     }
 
@@ -6020,7 +6217,7 @@ mod postgres_tests {
     // a cardinality denial.  Without this, an always-denying implementation passes
     // the two-header test.  Exact success: status 200, body [].
     #[test]
-    #[ignore = "requires Postgres"]
+    #[ignore = "requires Postgres and Redis"]
     fn r3_cardinality_actual_caller_query_off_passes_enforce_denies() {
         use buzz_auth::{
             AssertionKeySet, FederatedAssertionVerifier, FreshnessClass, IssuerPolicy,

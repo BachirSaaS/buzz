@@ -607,7 +607,7 @@ mod postgres_tests {
         let url = format!("http://{host}{path}");
         let auth = nip98_get_token(&key, &url);
 
-        let (status, _resp_headers, _body) = rt.block_on(settings_get_via_build_router(
+        let (status, _resp_headers, body) = rt.block_on(settings_get_via_build_router(
             state,
             &host,
             &path,
@@ -615,12 +615,16 @@ mod postgres_tests {
             Some(&assertion),
         ));
 
-        assert_ne!(
+        // Admission passes → handler proceeds to repo lookup → repo does not
+        // exist in the test DB → 404.
+        assert_eq!(
             status,
-            StatusCode::FORBIDDEN,
-            "NIP-FI Enforce: same-key assertion + NIP-98 MUST NOT deny 403; \
-             key pairing should pass, handler proceeds to repo lookup. \
-             Positive control: without this, an always-denying implementation passes the mismatch test."
+            StatusCode::NOT_FOUND,
+            "NIP-FI Enforce: same-key assertion + NIP-98 MUST reach handler → 404 \
+             (repo does not exist). \
+             If 403: key pairing is wrongly denying, or authorize_management denied. \
+             If 401: NIP-FI outer guard is wrongly denying a valid assertion. \
+             Body: {body:?}"
         );
     }
 
@@ -2232,32 +2236,55 @@ mod external_infra {
              NIP-FI check → digest changes."
         );
 
-        // ── Step 5: same-key admission passes → 200 OK ───────────────────────
+        // ── Step 5: owner POST → 200 OK, changed=true, new digest ──────────────
         // Owner NIP-98 + owner assertion → pairing passes → handler reached.
+        // `authorize_management` at settings.rs:273-292 authorizes the repository
+        // author OR a named maintainer.  The fixture signs the announcement with
+        // `f.owner` (see fixture:1267-1342), so `named_manager(&auth.caller)` is
+        // true and the request is authorized.  The POST requests `branch: "main"`,
+        // which exists in the seeded git store, so `set_default_branch` runs and
+        // returns `changed: true` with a new HEAD digest.
+        //
+        // Falsifying mutation A: remove NIP-FI admission from the settings handler
+        //   → the mismatch and malformed tokens above would have reached the handler
+        //   → set_default_branch called multiple times → Step 4's assert_eq!(digest)
+        //   fires before we get here.
+        // Falsifying mutation B: always-deny pairing → 403 AuthorizationDenied →
+        //   status != 200 → Step-5 assert_eq!(status_ok, OK) fires.
         let owner_token = token(&f.owner, "POST", &settings_url, Some(&post_body));
+        let assertion_owner_step5 = mint_assertion(&f.owner.public_key().to_hex());
         let (status_ok, body_ok) = response(
             crate::router::build_router(Arc::clone(&enforced_state))
-                .oneshot(build_post_request(owner_token, Some(assertion_owner)))
+                .oneshot(build_post_request(owner_token, Some(assertion_owner_step5)))
                 .await
                 .expect("router oneshot"),
         )
         .await;
-        // Owner is not a maintainer — authorize_management denies with FORBIDDEN.
-        // (This still proves admission passed — NIP-FI denial would return 401/403
-        // before reaching authorize_management.)
-        assert_ne!(
-            status_ok,
-            StatusCode::UNAUTHORIZED,
-            "Same-key owner POST admission MUST pass NIP-FI (not 401)."
-        );
-        let _ = body_ok;
-
-        // ── Step 6: digest unchanged (owner is not a maintainer → denied) ─────
-        let digest_after_ok = f.snapshot().await.digest;
         assert_eq!(
+            status_ok,
+            StatusCode::OK,
+            "Owner POST with valid NIP-FI assertion MUST return 200. \
+             authorize_management authorizes the repo author; the seeded 'main' \
+             branch exists and expected_manifest matches digest_before. \
+             If 403: NIP-FI key-pairing or authorize_management is denying the owner. \
+             If 401: NIP-FI outer guard is wrongly denying a valid assertion."
+        );
+        let ok_json: serde_json::Value = body_ok.clone();
+        assert_eq!(
+            ok_json.get("changed").and_then(|v| v.as_bool()),
+            Some(true),
+            "Owner POST 200 body MUST contain changed=true (branch was updated to 'main'). \
+             Falsifying mutation: set_default_branch never called → changed=false."
+        );
+
+        // ── Step 6: digest changed after successful owner POST ────────────────
+        let digest_after_ok = f.snapshot().await.digest;
+        assert_ne!(
             digest_after_ok, digest_before,
-            "Owner is not a maintainer — set request should fail at \
-             authorize_management, not NIP-FI. Digest must still be unchanged."
+            "Digest MUST change after successful owner POST (branch updated to 'main'). \
+             The three denials above left digest_before unchanged; the owner POST \
+             updated the branch → new digest. \
+             Falsifying mutation: set_default_branch skipped → digest unchanged."
         );
     }
 }

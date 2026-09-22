@@ -360,6 +360,7 @@ fn parse_git_auth_header_full(
                     "WWW-Authenticate",
                     format!("Nostr realm=\"buzz\", method=\"{method}\""),
                 )
+                .header("content-type", "text/plain; charset=utf-8")
                 .body(Body::from("missing Authorization header"))
                 .unwrap()
         })?;
@@ -371,6 +372,7 @@ fn parse_git_auth_header_full(
                 "WWW-Authenticate",
                 format!("Nostr realm=\"buzz\", method=\"{method}\""),
             )
+            .header("content-type", "text/plain; charset=utf-8")
             .body(Body::from("expected Authorization: Nostr <base64>"))
             .unwrap()
     })?;
@@ -4157,17 +4159,19 @@ mod off_mode_precedence_tests {
                 .get("content-type")
                 .and_then(|v| v.to_str().ok())
                 .unwrap_or("");
-            assert!(
-                ct.starts_with("text/plain"),
-                "missing-auth 401 Content-Type must be text/plain; got {ct:?}"
+            assert_eq!(
+                ct,
+                "text/plain; charset=utf-8",
+                "missing-auth 401 Content-Type must be exactly 'text/plain; charset=utf-8'; got {ct:?}"
             );
             let challenge = headers
                 .get("www-authenticate")
                 .and_then(|v| v.to_str().ok())
                 .unwrap_or("");
-            assert!(
-                challenge.contains("Nostr"),
-                "missing-auth 401 must carry WWW-Authenticate: Nostr; got {challenge:?}"
+            assert_eq!(
+                challenge,
+                "Nostr realm=\"buzz\", method=\"GET\"",
+                "missing-auth 401 must carry exact WWW-Authenticate: Nostr realm=\"buzz\", method=\"GET\"; got {challenge:?}"
             );
         }
 
@@ -4196,9 +4200,23 @@ mod off_mode_precedence_tests {
                 b"expected Authorization: Nostr <base64>",
                 "wrong-scheme 401 body must be 'expected Authorization: Nostr <base64>'"
             );
-            assert!(
-                headers.get("www-authenticate").is_some(),
-                "wrong-scheme 401 must carry WWW-Authenticate"
+            let ct_ws = headers
+                .get("content-type")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("");
+            assert_eq!(
+                ct_ws, "text/plain; charset=utf-8",
+                "wrong-scheme 401 Content-Type must be exactly 'text/plain; charset=utf-8'; \
+                 got {ct_ws:?}"
+            );
+            let challenge_ws = headers
+                .get("www-authenticate")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("");
+            assert_eq!(
+                challenge_ws, "Nostr realm=\"buzz\", method=\"GET\"",
+                "wrong-scheme 401 must carry exact WWW-Authenticate: \
+                 Nostr realm=\"buzz\", method=\"GET\"; got {challenge_ws:?}"
             );
         }
 
@@ -4275,9 +4293,6 @@ mod off_mode_precedence_tests {
         // Compatibility control: the Off-mode early-exit (`transport.rs:101-104`)
         // and the active-mode NIP-FI closure both route through
         // `parse_git_auth_header_full()`, which produces the same 401 + challenge.
-        // This is a compatibility assertion, not a precedence witness — the same
-        // response would occur without the early-exit wrapper (the closure still
-        // calls `parse_git_auth_header_full`).
         //
         // Falsifying mutation: replace `parse_git_auth_header` with always-pass
         // → missing auth is not caught → request proceeds to URL verification
@@ -4323,9 +4338,11 @@ mod off_mode_precedence_tests {
         // ── Mapped host — invalid base64: compatibility control ───────────
         //
         // Proves the bad-base64 check holds for mapped hosts.
-        // Compatibility control: `parse_git_auth_header_full()` handles bad base64
-        // identically via both the Off-mode early-exit and the active-mode closure.
-        // Removing the early wrapper still yields the same 401 (no WWW-Authenticate).
+        // `parse_git_auth_header_full()` handles bad base64 and returns 401 (no
+        // WWW-Authenticate).  This is a compatibility assertion: both the Off-mode
+        // early-exit and the active-mode NIP-FI closure call the same function, so
+        // the same 401 body is produced in both modes.
+        //
         // Falsifying mutation: remove `parse_git_auth_header` error for bad base64
         // → bad-base64 request passes syntax check → URL verification fails differently.
         #[tokio::test]
@@ -4618,7 +4635,88 @@ mod off_mode_precedence_tests {
                 nostr::Keys::generate(),
                 media_storage,
             );
-            let state = Arc::new(state);
+            // Inject a static NIP-FI verifier into the Enforce state so that
+            // every case requiring cryptographic assertion validation (including
+            // the malformed-assertion Case 3) reaches the verifier rather than
+            // hitting the absent-verifier 503.  Without this, Case 3 sends
+            // `Bearer !!!not-valid-base64!!!` which passes `extract_bearer_token`
+            // (scheme/cardinality checks only) and then trips the absent-verifier
+            // check at nip_fi_http.rs:332-335 → 503, not 403.
+            // [FI-TRACE-DENIAL-ORACLE: verifier required for all crypto cases]
+            let state = {
+                use buzz_auth::{
+                    AssertionKeySet, FederatedAssertionVerifier, FreshnessClass, IssuerPolicy,
+                    IssuerRegistry, StaticIssuerKeySource, TokenClass, VerifyAssertion,
+                };
+                use jsonwebtoken::{jwk::JwkSet, Algorithm, EncodingKey};
+
+                const GIT_TEST_ISSUER: &str = "https://git-pack-test.issuer.invalid";
+                const GIT_TEST_AUDIENCE: &str = "https://git-pack-test.relay.invalid";
+                const GIT_TEST_KID: &str = "git-pack-test-key-1";
+                const GIT_TEST_EC_PEM: &str = "-----BEGIN PRIVATE KEY-----\n\
+                    MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgcnxDM4EiirH9dHUE\n\
+                    WZc759TX4s5PAn8kO5ovXSnGxCWhRANCAARFb6ZnsfkqOOXyEhj3KBQphGKF4vTa\n\
+                    zhebbavbZ1ZoklqkF1cGg+jTO7rONAVEzXvXUWtV6CdDV+rybiVmFP2w\n\
+                    -----END PRIVATE KEY-----\n";
+
+                let jwks: JwkSet = serde_json::from_value(serde_json::json!({
+                    "keys": [{
+                        "kty": "EC", "crv": "P-256", "use": "sig", "alg": "ES256",
+                        "kid": GIT_TEST_KID,
+                        "x": "RW-mZ7H5Kjjl8hIY9ygUKYRiheL02s4Xm22r22dWaJI",
+                        "y": "WqQXVwaD6NM7us40BUTNe9dRa1XoJ0NX6vJuJWYU_bA"
+                    }]
+                }))
+                .expect("valid test JWKS");
+                let hard_deadline = chrono::Utc::now() + chrono::Duration::seconds(3600);
+                let key_set = AssertionKeySet::new_for_test(
+                    GIT_TEST_ISSUER.to_owned(),
+                    1,
+                    jwks,
+                    hard_deadline,
+                )
+                .expect("valid test key set");
+                let jwks_contract = buzz_auth::JwksSourceContract::new(
+                    format!("{GIT_TEST_ISSUER}/.well-known/jwks.json"),
+                    300,
+                    3600,
+                )
+                .expect("valid jwks contract");
+                let policy = IssuerPolicy::new(
+                    GIT_TEST_ISSUER.to_owned(),
+                    vec![GIT_TEST_AUDIENCE.to_owned()],
+                    TokenClass::DedicatedNipFi,
+                    FreshnessClass::OfflineJwt,
+                    vec![Algorithm::ES256],
+                    60,
+                    3600,
+                    None,
+                    jwks_contract,
+                )
+                .expect("valid issuer policy");
+                let mut registry = IssuerRegistry::new();
+                registry.insert(policy);
+                let verifier: Arc<dyn VerifyAssertion> = Arc::new(FederatedAssertionVerifier::new(
+                    registry,
+                    StaticIssuerKeySource::new([key_set]),
+                ));
+
+                // Encode the test key for use in Case 4 assertions.
+                // Store in a Mutex so it can be read from the outer scope later.
+                let enc_key =
+                    EncodingKey::from_ec_pem(GIT_TEST_EC_PEM.as_bytes()).expect("valid EC PEM");
+
+                let mut s = state;
+                s.nip_fi_verifier = Some(verifier);
+                (
+                    Arc::new(s),
+                    GIT_TEST_ISSUER,
+                    GIT_TEST_AUDIENCE,
+                    GIT_TEST_KID,
+                    enc_key,
+                )
+            };
+            let (state, git_test_issuer, git_test_audience, git_test_kid, git_enc_key) = state;
 
             let host = format!(
                 "nip-fi-git-pack-{}.test.invalid",
@@ -4685,254 +4783,204 @@ mod off_mode_precedence_tests {
                     }
                 };
 
-            for route in &["git-upload-pack", "git-receive-pack"] {
-                let route: &'static str = route;
+            // ── Same-key material: built once, shared by Cases 5–7 and Case 4 ──
+            //
+            // Hoisted here so Cases 5–7 (inside the per-route loop below) can
+            // reference `same_key_assertion` without a forward-reference error.
+            // Case 4 reuses the same variables — no duplication.
+            {
+                use jsonwebtoken::{Algorithm, Header};
+                let test_keys_outer = nostr::Keys::generate();
+                let test_pubkey_hex_outer = test_keys_outer.public_key().to_hex();
+                let now_outer = chrono::Utc::now().timestamp();
+                let claims_outer = serde_json::json!({
+                    "iss": git_test_issuer,
+                    "aud": git_test_audience,
+                    "iat": now_outer,
+                    "exp": now_outer + 600,
+                    "sub": "test-subject",
+                    "nostr_pubkey": test_pubkey_hex_outer,
+                });
+                let mut hdr_outer = Header::new(Algorithm::ES256);
+                hdr_outer.kid = Some(git_test_kid.to_owned());
+                hdr_outer.typ = Some("nip-fi+jwt".to_owned());
+                let same_key_assertion =
+                    jsonwebtoken::encode(&hdr_outer, &claims_outer, &git_enc_key)
+                        .expect("sign assertion");
 
-                // ── Case 1: missing assertion → 401 MissingEvidence ─────────
-                let (status, headers, body) = send_pack_request(
-                    Arc::clone(&state),
-                    route,
-                    vec![("authorization", nip98_token.clone())],
-                )
-                .await;
-                assert_eq!(
-                    status,
-                    axum::http::StatusCode::UNAUTHORIZED,
-                    "{route}: missing assertion MUST deny 401 MissingEvidence. \
+                for route in &["git-upload-pack", "git-receive-pack"] {
+                    let route: &'static str = route;
+
+                    // ── Case 1: missing assertion → 401 MissingEvidence ─────────
+                    let (status, headers, body) = send_pack_request(
+                        Arc::clone(&state),
+                        route,
+                        vec![("authorization", nip98_token.clone())],
+                    )
+                    .await;
+                    assert_eq!(
+                        status,
+                        axum::http::StatusCode::UNAUTHORIZED,
+                        "{route}: missing assertion MUST deny 401 MissingEvidence. \
                      Falsifying mutation: remove admit_nip_fi_http_on_state from GitAuth \
                      → legacy NIP-98 accepts → reaches validate_repo_id (valid owner) \
                      → authorize_git_read denies → different status/body."
-                );
-                assert_eq!(
+                    );
+                    assert_eq!(
                     body.as_ref(),
                     b"authentication required\n",
                     "{route}: MissingEvidence body must be exact 'authentication required\\n'. \
                      [FI-TRACE-DENIAL-ORACLE]"
                 );
-                let ct = headers
-                    .get("content-type")
-                    .and_then(|v| v.to_str().ok())
-                    .unwrap_or("");
-                assert_eq!(
-                    ct, "text/plain; charset=utf-8",
-                    "{route}: 401 content-type must be 'text/plain; charset=utf-8'"
-                );
-                let www_auth = headers
-                    .get("www-authenticate")
-                    .and_then(|v| v.to_str().ok())
-                    .unwrap_or("");
-                assert_eq!(
-                    www_auth, "Nostr",
-                    "{route}: 401 must carry WWW-Authenticate: Nostr"
-                );
+                    let ct = headers
+                        .get("content-type")
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("");
+                    assert_eq!(
+                        ct, "text/plain; charset=utf-8",
+                        "{route}: 401 content-type must be 'text/plain; charset=utf-8'"
+                    );
+                    let www_auth = headers
+                        .get("www-authenticate")
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("");
+                    assert_eq!(
+                        www_auth, "Nostr",
+                        "{route}: 401 must carry WWW-Authenticate: Nostr"
+                    );
 
-                // ── Case 2: duplicate Authorization → 403 cardinality ───────
-                // Two NIP-98 tokens → cardinality gate fires before NIP-FI assertion check.
-                // No assertion header needed — cardinality fires first.
-                let (dup_status, dup_headers, dup_body) = send_pack_request(
-                    Arc::clone(&state),
-                    route,
-                    vec![
-                        ("authorization", nip98_token.clone()),
-                        ("authorization", nip98_token.clone()),
-                    ],
-                )
-                .await;
-                assert_eq!(
-                    dup_status,
-                    axum::http::StatusCode::FORBIDDEN,
-                    "{route}: duplicate Authorization headers MUST deny 403 EvidenceRejected \
+                    // ── Case 2: duplicate Authorization → 403 cardinality ───────
+                    // Two NIP-98 tokens → cardinality gate fires before NIP-FI assertion check.
+                    // No assertion header needed — cardinality fires first.
+                    let (dup_status, dup_headers, dup_body) = send_pack_request(
+                        Arc::clone(&state),
+                        route,
+                        vec![
+                            ("authorization", nip98_token.clone()),
+                            ("authorization", nip98_token.clone()),
+                        ],
+                    )
+                    .await;
+                    assert_eq!(
+                        dup_status,
+                        axum::http::StatusCode::FORBIDDEN,
+                        "{route}: duplicate Authorization headers MUST deny 403 EvidenceRejected \
                      (cardinality gate). \
                      Falsifying mutation: remove cardinality check from admit_nip_fi_http \
                      → request reaches NIP-FI assertion check → different denial."
-                );
-                assert_eq!(
-                    dup_body.as_ref(),
-                    b"evidence rejected\n",
-                    "{route}: cardinality 403 body must be exact 'evidence rejected\\n'. \
+                    );
+                    assert_eq!(
+                        dup_body.as_ref(),
+                        b"evidence rejected\n",
+                        "{route}: cardinality 403 body must be exact 'evidence rejected\\n'. \
                      [FI-TRACE-DENIAL-ORACLE]"
-                );
-                let dup_ct = dup_headers
-                    .get("content-type")
-                    .and_then(|v| v.to_str().ok())
-                    .unwrap_or("");
-                assert_eq!(
-                    dup_ct, "text/plain; charset=utf-8",
-                    "{route}: cardinality 403 content-type must be 'text/plain; charset=utf-8'"
-                );
-                assert!(
-                    dup_headers.get("www-authenticate").is_none(),
-                    "{route}: cardinality 403 MUST NOT carry WWW-Authenticate \
+                    );
+                    let dup_ct = dup_headers
+                        .get("content-type")
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("");
+                    assert_eq!(
+                        dup_ct, "text/plain; charset=utf-8",
+                        "{route}: cardinality 403 content-type must be 'text/plain; charset=utf-8'"
+                    );
+                    assert!(
+                        dup_headers.get("www-authenticate").is_none(),
+                        "{route}: cardinality 403 MUST NOT carry WWW-Authenticate \
                      (client has a token, it's malformed — not absent)"
-                );
+                    );
 
-                // ── Case 3: invalid base64 assertion → 403 EvidenceRejected ─
-                // A syntactically invalid Nostr-Federated-Identity value (non-base64
-                // after the "Nostr " prefix) → EvidenceRejected → 403.
-                // This is distinct from MissingEvidence (absent header → 401).
-                //
-                // Falsifying mutation: skip assertion validation for malformed tokens →
-                // request reaches handler → different status/body.
-                let (inv_status, inv_headers, inv_body) = send_pack_request(
-                    Arc::clone(&state),
-                    route,
-                    vec![
-                        ("authorization", nip98_token.clone()),
-                        (
-                            buzz_auth::CLIENT_ATTACHED_HEADER,
-                            "Bearer !!!not-valid-base64!!!".to_string(),
-                        ),
-                    ],
-                )
-                .await;
-                assert_eq!(
-                    inv_status,
-                    axum::http::StatusCode::FORBIDDEN,
-                    "{route}: invalid base64 assertion MUST deny 403 EvidenceRejected. \
+                    // ── Case 3: invalid base64 assertion → 403 EvidenceRejected ─
+                    // A syntactically invalid Nostr-Federated-Identity value (non-base64
+                    // after the "Nostr " prefix) → EvidenceRejected → 403.
+                    // This is distinct from MissingEvidence (absent header → 401).
+                    //
+                    // Falsifying mutation: skip assertion validation for malformed tokens →
+                    // request reaches handler → different status/body.
+                    let (inv_status, inv_headers, inv_body) = send_pack_request(
+                        Arc::clone(&state),
+                        route,
+                        vec![
+                            ("authorization", nip98_token.clone()),
+                            (
+                                buzz_auth::CLIENT_ATTACHED_HEADER,
+                                "Bearer !!!not-valid-base64!!!".to_string(),
+                            ),
+                        ],
+                    )
+                    .await;
+                    assert_eq!(
+                        inv_status,
+                        axum::http::StatusCode::FORBIDDEN,
+                        "{route}: invalid base64 assertion MUST deny 403 EvidenceRejected. \
                      Falsifying mutation: skip assertion parsing on bad input → \
                      handler reached → different status/body."
-                );
-                assert_eq!(
-                    inv_body.as_ref(),
-                    b"evidence rejected\n",
-                    "{route}: invalid assertion body must be exact 'evidence rejected\\n'. \
+                    );
+                    assert_eq!(
+                        inv_body.as_ref(),
+                        b"evidence rejected\n",
+                        "{route}: invalid assertion body must be exact 'evidence rejected\\n'. \
                      [FI-TRACE-DENIAL-ORACLE]"
-                );
-                let inv_ct = inv_headers
-                    .get("content-type")
-                    .and_then(|v| v.to_str().ok())
-                    .unwrap_or("");
-                assert_eq!(
+                    );
+                    let inv_ct = inv_headers
+                        .get("content-type")
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("");
+                    assert_eq!(
                     inv_ct, "text/plain; charset=utf-8",
                     "{route}: invalid assertion 403 content-type must be 'text/plain; charset=utf-8'"
                 );
-                assert!(
-                    inv_headers.get("www-authenticate").is_none(),
-                    "{route}: invalid assertion 403 MUST NOT carry WWW-Authenticate \
+                    assert!(
+                        inv_headers.get("www-authenticate").is_none(),
+                        "{route}: invalid assertion 403 MUST NOT carry WWW-Authenticate \
                      (client has a token, it's malformed — not absent)"
-                );
-            }
+                    );
 
-            // ── Case 4: same-key admission → passes NIP-FI, reaches handler ──
-            //
-            // Build an Enforce state with an injected verifier so the assertion
-            // signature is verified.  With a matching NIP-98 key and assertion
-            // nostr_pubkey, the pairing check passes and the request reaches
-            // `validate_repo_id` then `authorize_git_read`.  Neither the 401
-            // nor 403 NIP-FI denial codes are returned → proves admission is
-            // not deny-all.
-            //
-            // The repo does not exist in the test database, so `authorize_git_read`
-            // returns a downstream denial (404 or 403) — not a NIP-FI code.
-            //
-            // Falsifying mutation: replace the pairing check with always-deny →
-            // 403 EvidenceRejected → the assert_ne!(403) fires.
-            {
-                use buzz_auth::{
-                    AssertionKeySet, FederatedAssertionVerifier, FreshnessClass, IssuerPolicy,
-                    IssuerRegistry, StaticIssuerKeySource, TokenClass, VerifyAssertion,
-                };
-                use jsonwebtoken::{jwk::JwkSet, Algorithm, EncodingKey, Header};
-
-                const GIT_TEST_ISSUER: &str = "https://git-pack-test.issuer.invalid";
-                const GIT_TEST_AUDIENCE: &str = "https://git-pack-test.relay.invalid";
-                const GIT_TEST_KID: &str = "git-pack-test-key-1";
-                const GIT_TEST_EC_PEM: &str = "-----BEGIN PRIVATE KEY-----\n\
-                    MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgcnxDM4EiirH9dHUE\n\
-                    WZc759TX4s5PAn8kO5ovXSnGxCWhRANCAARFb6ZnsfkqOOXyEhj3KBQphGKF4vTa\n\
-                    zhebbavbZ1ZoklqkF1cGg+jTO7rONAVEzXvXUWtV6CdDV+rybiVmFP2w\n\
-                    -----END PRIVATE KEY-----\n";
-
-                let jwks: JwkSet = serde_json::from_value(serde_json::json!({
-                    "keys": [{
-                        "kty": "EC", "crv": "P-256", "use": "sig", "alg": "ES256",
-                        "kid": GIT_TEST_KID,
-                        "x": "RW-mZ7H5Kjjl8hIY9ygUKYRiheL02s4Xm22r22dWaJI",
-                        "y": "WqQXVwaD6NM7us40BUTNe9dRa1XoJ0NX6vJuJWYU_bA"
-                    }]
-                }))
-                .expect("valid test JWKS");
-                let hard_deadline = chrono::Utc::now() + chrono::Duration::seconds(3600);
-                let key_set = AssertionKeySet::new_for_test(
-                    GIT_TEST_ISSUER.to_owned(),
-                    1,
-                    jwks,
-                    hard_deadline,
-                )
-                .expect("valid test key set");
-                let jwks_contract = buzz_auth::JwksSourceContract::new(
-                    format!("{GIT_TEST_ISSUER}/.well-known/jwks.json"),
-                    300,
-                    3600,
-                )
-                .expect("valid jwks contract");
-                let policy = IssuerPolicy::new(
-                    GIT_TEST_ISSUER.to_owned(),
-                    vec![GIT_TEST_AUDIENCE.to_owned()],
-                    TokenClass::DedicatedNipFi,
-                    FreshnessClass::OfflineJwt,
-                    vec![Algorithm::ES256],
-                    60,
-                    3600,
-                    None,
-                    jwks_contract,
-                )
-                .expect("valid issuer policy");
-                let mut registry = IssuerRegistry::new();
-                registry.insert(policy);
-                let verifier: Arc<dyn VerifyAssertion> = Arc::new(FederatedAssertionVerifier::new(
-                    registry,
-                    StaticIssuerKeySource::new([key_set]),
-                ));
-
-                // Clone state and inject verifier.
-                let mut admitted_state = (*state).clone();
-                admitted_state.nip_fi_verifier = Some(verifier);
-                let admitted_state = Arc::new(admitted_state);
-
-                // Same-key: NIP-98 signed by test_keys; assertion nostr_pubkey =
-                // test_keys.public_key().  Pairing passes.
-                let test_keys = nostr::Keys::generate();
-                let test_pubkey_hex = test_keys.public_key().to_hex();
-                let now = chrono::Utc::now().timestamp();
-                let claims = serde_json::json!({
-                    "iss": GIT_TEST_ISSUER,
-                    "aud": GIT_TEST_AUDIENCE,
-                    "iat": now,
-                    "exp": now + 600,
-                    "sub": "test-subject",
-                    "nostr_pubkey": test_pubkey_hex,
-                });
-                let mut header = Header::new(Algorithm::ES256);
-                header.kid = Some(GIT_TEST_KID.to_owned());
-                header.typ = Some("nip-fi+jwt".to_owned());
-                let enc_key =
-                    EncodingKey::from_ec_pem(GIT_TEST_EC_PEM.as_bytes()).expect("valid EC PEM");
-                let same_key_assertion =
-                    jsonwebtoken::encode(&header, &claims, &enc_key).expect("sign assertion");
-
-                // Build same-key NIP-98 token for upload-pack repo root.
-                let admitted_nip98_tags = vec![
-                    nostr::Tag::parse(["u", &format!("http://{host}{repo_root}")]).unwrap(),
-                    nostr::Tag::parse(["method", "GET"]).unwrap(),
-                ];
-                let admitted_event = nostr::EventBuilder::new(nostr::Kind::Custom(27235), "")
-                    .tags(admitted_nip98_tags)
-                    .sign_with_keys(&test_keys)
-                    .unwrap();
-                let admitted_nip98_token = format!(
-                    "Nostr {}",
-                    base64::engine::general_purpose::STANDARD
-                        .encode(serde_json::to_vec(&admitted_event).unwrap())
+                    // ── Case 5: missing proof + valid assertion → 401 MissingEvidence ─
+                    //
+                    // Valid NFI assertion present, but NO Authorization (NIP-98) header.
+                    // NIP-98 extraction closure returns MissingEvidence (no Authorization) →
+                    // maps to 401 `authentication required\n`.
+                    // Proves proof validation is not bypassed by a valid assertion.
+                    //
+                    // Falsifying mutation: make the NIP-98 closure skip missing-auth →
+                    // NIP-98 proves something other than 401 → assertion fires.
+                    let (miss_proof_status, _miss_proof_headers, miss_proof_body) =
+                        send_pack_request(
+                            Arc::clone(&state),
+                            route,
+                            vec![(
+                                buzz_auth::CLIENT_ATTACHED_HEADER,
+                                format!("Bearer {same_key_assertion}"),
+                            )],
+                        )
+                        .await;
+                    assert_eq!(
+                        miss_proof_status,
+                        axum::http::StatusCode::UNAUTHORIZED,
+                        "{route}: missing proof + valid assertion MUST deny 401 MissingEvidence. \
+                     A valid assertion does NOT bypass NIP-98 proof requirement. \
+                     Falsifying mutation: skip NIP-98 when assertion present → handler reached."
+                    );
+                    assert_eq!(
+                    miss_proof_body.as_ref(),
+                    b"authentication required\n",
+                    "{route}: missing-proof 401 body must be exact 'authentication required\\n'. \
+                     [FI-TRACE-DENIAL-ORACLE]"
                 );
 
-                for route in &["git-upload-pack", "git-receive-pack"] {
-                    let route: &'static str = route;
-                    let (adm_status, _adm_headers, _adm_body) = send_pack_request(
-                        Arc::clone(&admitted_state),
+                    // ── Case 6: malformed proof + valid assertion → 403 EvidenceRejected ─
+                    //
+                    // Valid NFI assertion + syntactically malformed NIP-98 (`Nostr !!!bad!!!`).
+                    // NIP-98 closure fails (bad base64) → maps to 403 EvidenceRejected.
+                    // Proves malformed-proof detection is not bypassed by a valid assertion.
+                    //
+                    // Falsifying mutation: accept malformed NIP-98 when assertion present →
+                    // admission passes → handler returns 404 (not 403).
+                    let (mal_proof_status, _mal_proof_headers, mal_proof_body) = send_pack_request(
+                        Arc::clone(&state),
                         route,
                         vec![
-                            ("authorization", admitted_nip98_token.clone()),
+                            ("authorization", "Nostr !!!not-valid-base64!!!".to_string()),
                             (
                                 buzz_auth::CLIENT_ATTACHED_HEADER,
                                 format!("Bearer {same_key_assertion}"),
@@ -4940,23 +4988,249 @@ mod off_mode_precedence_tests {
                         ],
                     )
                     .await;
-                    // NIP-FI admission passes (same-key pairing verified).
-                    // The request reaches validate_repo_id → authorize_git_read.
-                    // Repo does not exist in test DB → downstream denial (not 401/403 NIP-FI).
-                    assert_ne!(
-                        adm_status,
-                        axum::http::StatusCode::UNAUTHORIZED,
-                        "{route}: same-key admission MUST pass NIP-FI (not 401). \
-                         Falsifying mutation: pairing check always-deny → 401."
+                    assert_eq!(
+                    mal_proof_status,
+                    axum::http::StatusCode::FORBIDDEN,
+                    "{route}: malformed proof + valid assertion MUST deny 403 EvidenceRejected. \
+                     Falsifying mutation: skip NIP-98 validation when assertion present → \
+                     handler reached → 404."
+                );
+                    assert_eq!(
+                        mal_proof_body.as_ref(),
+                        b"evidence rejected\n",
+                        "{route}: malformed-proof 403 body must be exact 'evidence rejected\\n'. \
+                     [FI-TRACE-DENIAL-ORACLE]"
                     );
-                    assert_ne!(
-                        adm_status,
+
+                    // ── Case 7: duplicate proof + valid assertion → 403 cardinality ─
+                    //
+                    // Two Authorization headers + valid NFI assertion.  The cardinality gate
+                    // fires before NIP-98 extraction (it runs on Authorization count).
+                    // 403 EvidenceRejected — same result as Case 2 (dup without assertion),
+                    // proving the assertion does not gate the cardinality check.
+                    //
+                    // Falsifying mutation: disable cardinality for requests with valid assertions
+                    // → dup proof passes → NIP-98 extracted from first value → key pairing →
+                    // handler reached → 404 (not 403).
+                    let (dup_proof_status, _dup_proof_headers, dup_proof_body) = send_pack_request(
+                        Arc::clone(&state),
+                        route,
+                        vec![
+                            ("authorization", nip98_token.clone()),
+                            ("authorization", nip98_token.clone()),
+                            (
+                                buzz_auth::CLIENT_ATTACHED_HEADER,
+                                format!("Bearer {same_key_assertion}"),
+                            ),
+                        ],
+                    )
+                    .await;
+                    assert_eq!(
+                        dup_proof_status,
                         axum::http::StatusCode::FORBIDDEN,
-                        "{route}: same-key admission MUST pass NIP-FI (not 403 EvidenceRejected). \
-                         Falsifying mutation: assertion verification always-deny → 403."
+                        "{route}: duplicate proof + valid assertion MUST deny 403 cardinality. \
+                     Falsifying mutation: disable cardinality for asserted requests → \
+                     dup proof passes → 404 (not 403)."
+                    );
+                    assert_eq!(
+                        dup_proof_body.as_ref(),
+                        b"evidence rejected\n",
+                        "{route}: dup-proof 403 body must be exact 'evidence rejected\\n'. \
+                     [FI-TRACE-DENIAL-ORACLE]"
                     );
                 }
-            }
+
+                // ── Case 4: same-key admission → passes NIP-FI, reaches handler ──
+                //
+                // The verifier was injected into `state` at the top of this test.
+                // Same-key: NIP-98 signed by test_keys; assertion nostr_pubkey =
+                // test_keys.public_key().  Key pairing passes → request reaches
+                // `validate_repo_id` → `authorize_git_read`.
+                //
+                // The repo does not exist in the test database, so `authorize_git_read`
+                // returns 404 "repository not found" — not a NIP-FI code.
+                //
+                // Falsifying mutation: replace the pairing check with always-deny →
+                // 403 EvidenceRejected → body check fires.
+                //
+                // Also covers `info/refs` (GET) with the same assertion; the route
+                // shares `GitAuth::from_request_parts` and `authorize_git_read`.
+                {
+                    use jsonwebtoken::{Algorithm, Header};
+
+                    // Same-key: NIP-98 signed by test_keys; assertion nostr_pubkey =
+                    // test_keys.public_key().  Pairing passes.
+                    let test_keys = nostr::Keys::generate();
+                    let test_pubkey_hex = test_keys.public_key().to_hex();
+                    let now = chrono::Utc::now().timestamp();
+                    let claims = serde_json::json!({
+                        "iss": git_test_issuer,
+                        "aud": git_test_audience,
+                        "iat": now,
+                        "exp": now + 600,
+                        "sub": "test-subject",
+                        "nostr_pubkey": test_pubkey_hex,
+                    });
+                    let mut header = Header::new(Algorithm::ES256);
+                    header.kid = Some(git_test_kid.to_owned());
+                    header.typ = Some("nip-fi+jwt".to_owned());
+                    let same_key_assertion = jsonwebtoken::encode(&header, &claims, &git_enc_key)
+                        .expect("sign assertion");
+
+                    // Build same-key NIP-98 token for upload-pack repo root.
+                    let admitted_nip98_tags = vec![
+                        nostr::Tag::parse(["u", &format!("http://{host}{repo_root}")]).unwrap(),
+                        nostr::Tag::parse(["method", "GET"]).unwrap(),
+                    ];
+                    let admitted_event = nostr::EventBuilder::new(nostr::Kind::Custom(27235), "")
+                        .tags(admitted_nip98_tags)
+                        .sign_with_keys(&test_keys)
+                        .unwrap();
+                    let admitted_nip98_token = format!(
+                        "Nostr {}",
+                        base64::engine::general_purpose::STANDARD
+                            .encode(serde_json::to_vec(&admitted_event).unwrap())
+                    );
+
+                    // ── Pack routes (POST): upload-pack and receive-pack ──────────
+                    for route in &["git-upload-pack", "git-receive-pack"] {
+                        let route: &'static str = route;
+                        let (adm_status, _adm_headers, adm_body) = send_pack_request(
+                            Arc::clone(&state),
+                            route,
+                            vec![
+                                ("authorization", admitted_nip98_token.clone()),
+                                (
+                                    buzz_auth::CLIENT_ATTACHED_HEADER,
+                                    format!("Bearer {same_key_assertion}"),
+                                ),
+                            ],
+                        )
+                        .await;
+                        // NIP-FI admission passes (same-key pairing verified).
+                        // Repo does not exist → authorize_git_read → 404 "repository not found".
+                        assert_eq!(
+                            adm_status,
+                            axum::http::StatusCode::NOT_FOUND,
+                            "{route}: same-key admission MUST reach handler → \
+                         404 (repo not found). \
+                         If 401/403: NIP-FI denial — check verifier injection and key pairing. \
+                         Body: {adm_body:?}"
+                        );
+                        assert_eq!(
+                            adm_body.as_ref(),
+                            b"repository not found",
+                            "{route}: same-key admitted 404 body must be exact \
+                         'repository not found'. \
+                         Falsifying mutation: key pairing always-deny → 403 \
+                         'authorization denied\\n'."
+                        );
+                    }
+
+                    // ── info/refs (GET): shares GitAuth + authorize_git_read ──────
+                    //
+                    // Same matrix as pack routes; info/refs uses a GET request with
+                    // ?service=git-upload-pack.  The route shares `GitAuth::from_request_parts`
+                    // and `authorize_git_read`, so the same denial contract holds.
+                    {
+                        let uri =
+                            format!("/git/{OWNER_HEX}/myrepo/info/refs?service=git-upload-pack");
+                        // ── info/refs Case 1: missing assertion → 401 ────────────
+                        let (s, _, b) = {
+                            let req = axum::http::Request::builder()
+                                .method("GET")
+                                .uri(&uri)
+                                .header("host", &host)
+                                .header("authorization", &nip98_token)
+                                .body(axum::body::Body::empty())
+                                .expect("build request");
+                            let resp = git_router(Arc::clone(&state))
+                                .oneshot(req)
+                                .await
+                                .expect("router oneshot");
+                            let st = resp.status();
+                            let hd = resp.headers().clone();
+                            let bd = to_bytes(resp.into_body(), 4096).await.unwrap_or_default();
+                            (st, hd, bd)
+                        };
+                        assert_eq!(
+                            s,
+                            axum::http::StatusCode::UNAUTHORIZED,
+                            "info/refs: missing assertion MUST deny 401. Body: {b:?}"
+                        );
+                        assert_eq!(
+                        b.as_ref(),
+                        b"authentication required\n",
+                        "info/refs: missing assertion 401 body must be 'authentication required\\n'."
+                    );
+
+                        // ── info/refs Case 5: missing proof + valid assertion → 401 ─
+                        let (s5, _, b5) = {
+                            let req = axum::http::Request::builder()
+                                .method("GET")
+                                .uri(&uri)
+                                .header("host", &host)
+                                .header(
+                                    buzz_auth::CLIENT_ATTACHED_HEADER,
+                                    format!("Bearer {same_key_assertion}"),
+                                )
+                                .body(axum::body::Body::empty())
+                                .expect("build request");
+                            let resp = git_router(Arc::clone(&state))
+                                .oneshot(req)
+                                .await
+                                .expect("router oneshot");
+                            let st = resp.status();
+                            let bd = to_bytes(resp.into_body(), 4096).await.unwrap_or_default();
+                            (st, (), bd)
+                        };
+                        assert_eq!(
+                        s5,
+                        axum::http::StatusCode::UNAUTHORIZED,
+                        "info/refs: missing proof + valid assertion MUST deny 401. Body: {b5:?}"
+                    );
+                        assert_eq!(
+                        b5.as_ref(),
+                        b"authentication required\n",
+                        "info/refs: missing-proof 401 body must be 'authentication required\\n'."
+                    );
+
+                        // ── info/refs Case 4 (same-key positive) → 404 ───────────
+                        let (s4, _, b4) = {
+                            let req = axum::http::Request::builder()
+                                .method("GET")
+                                .uri(&uri)
+                                .header("host", &host)
+                                .header("authorization", &admitted_nip98_token)
+                                .header(
+                                    buzz_auth::CLIENT_ATTACHED_HEADER,
+                                    format!("Bearer {same_key_assertion}"),
+                                )
+                                .body(axum::body::Body::empty())
+                                .expect("build request");
+                            let resp = git_router(Arc::clone(&state))
+                                .oneshot(req)
+                                .await
+                                .expect("router oneshot");
+                            let st = resp.status();
+                            let bd = to_bytes(resp.into_body(), 4096).await.unwrap_or_default();
+                            (st, (), bd)
+                        };
+                        assert_eq!(
+                            s4,
+                            axum::http::StatusCode::NOT_FOUND,
+                            "info/refs: same-key admission MUST reach handler → \
+                         404 (repo not found). Body: {b4:?}"
+                        );
+                        assert_eq!(
+                        b4.as_ref(),
+                        b"repository not found",
+                        "info/refs: same-key admitted 404 body must be 'repository not found'. \
+                         Falsifying mutation: key pairing always-deny → 403 body."
+                    );
+                    }
+                }
+            } // closes same-key outer block (test_keys_outer / same_key_assertion)
         }
     }
 }

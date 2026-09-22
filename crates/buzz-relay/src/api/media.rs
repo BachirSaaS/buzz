@@ -2442,16 +2442,23 @@ mod tests {
 
         // ── PUT /upload: Off mode, duplicate Authorization → passes first value ─
         //
-        // Off mode skips the NIP-FI cardinality gate — duplicate Authorization
-        // headers are not rejected with 403.  The first value is taken by
-        // `HeaderMap::get()` and processed as normal Blossom auth.  If both
-        // values are valid Blossom upload tokens the request is admitted; the
-        // result is NOT a 403 EvidenceRejected cardinality error.
+        // Off mode skips the NIP-FI cardinality gate.  With valid-first /
+        // invalid-second duplicate Authorization headers, the first value is
+        // taken by `HeaderMap::get()` and admitted; the second (invalid) value
+        // is silently ignored.  This distinguishes first-value from last-value
+        // selection, which identical values cannot.
         //
-        // This distinguishes Off from Enforce, which rejects duplicates with 403.
+        // Phase 1 (single-token control): one valid Blossom token → admission
+        // passes → post-admission handler runs → storage unavailable → non-401
+        // response.  This pins the admission path before the duplicate test.
         //
-        // Falsifying mutation: apply cardinality check in Off mode →
-        // 403 EvidenceRejected → body != legacy JSON → assertion fires.
+        // Phase 2 (first-valid / second-invalid): the first Authorization value
+        // is the valid Blossom token from Phase 1; the second is a malformed
+        // value that would fail if selected.  Off mode returns the same result
+        // as Phase 1, proving it took the first (valid) value.
+        //
+        // Falsifying mutation: apply cardinality check in Off mode → the two
+        // header values → 403 EvidenceRejected → body differs from control.
         #[test]
         #[ignore = "requires Postgres"]
         fn upload_off_duplicate_auth_is_not_403() {
@@ -2469,20 +2476,61 @@ mod tests {
 
             let keys = Keys::generate();
             let sha256 = "b".repeat(64);
-            let blossom_val = blossom_upload_auth_value(&keys, &host, &sha256);
+            let valid_blossom = blossom_upload_auth_value(&keys, &host, &sha256);
+            // A header value that would fail Blossom auth if selected.
+            let invalid_val = "Nostr !!!not-valid-base64!!!";
 
+            // ── Phase 1: single-token control ────────────────────────────────
+            // One valid token → admission passes → storage unavailable (no MinIO)
+            // → handler returns a non-401 result (storage error or 4xx post-admission).
+            let (single_status, _single_headers, _single_body) = {
+                let mut headers = axum::http::HeaderMap::new();
+                headers.insert("x-sha-256", sha256.parse().expect("valid header"));
+                headers.insert(
+                    axum::http::header::AUTHORIZATION,
+                    valid_blossom.parse().expect("valid header"),
+                );
+                rt.block_on(media_oneshot(
+                    Arc::clone(&state),
+                    "PUT",
+                    "/upload",
+                    &host,
+                    headers,
+                    b"",
+                ))
+            };
+            // Single valid token: admission passes → NOT 401 (auth failure).
+            // 403 would mean cardinality fired (impossible with one header).
+            assert_ne!(
+                single_status,
+                StatusCode::UNAUTHORIZED,
+                "Off mode PUT /upload + single valid Blossom token MUST pass admission (not 401). \
+                 If 401, the Blossom token itself is being rejected — fix the token before the \
+                 duplicate test is meaningful. [FI-OFF-CONTROL]"
+            );
+            assert_ne!(
+                single_status,
+                StatusCode::FORBIDDEN,
+                "Off mode PUT /upload + single valid token MUST NOT return 403. \
+                 403 implies cardinality fired for a single header — impossible. [FI-OFF-CONTROL]"
+            );
+
+            // ── Phase 2: valid-first / invalid-second duplicate ───────────────
+            // Two different Authorization values: valid first, malformed second.
+            // Off mode takes the first → same non-401 result as Phase 1.
+            // If cardinality were applied → 403 EvidenceRejected.
             let mut headers = axum::http::HeaderMap::new();
             headers.insert("x-sha-256", sha256.parse().expect("valid header"));
             headers.append(
                 axum::http::header::AUTHORIZATION,
-                blossom_val.parse().expect("valid header"),
+                valid_blossom.parse().expect("valid header"),
             );
             headers.append(
                 axum::http::header::AUTHORIZATION,
-                blossom_val.parse().expect("valid header"),
+                invalid_val.parse().expect("valid header bytes"),
             );
 
-            let (status, _resp_headers, _body) = rt.block_on(media_oneshot(
+            let (status, _resp_headers, body) = rt.block_on(media_oneshot(
                 Arc::clone(&state),
                 "PUT",
                 "/upload",
@@ -2491,22 +2539,29 @@ mod tests {
                 b"",
             ));
 
-            // Off mode passes the first valid value → admission succeeds.
-            // Without MinIO the upload fails with a storage error (not 401/403).
+            // Off mode passes the first valid value → same result as Phase 1.
             // 403 would indicate the cardinality gate fired in Off mode — wrong.
+            // 401 would mean the first valid token was NOT selected — wrong.
             assert_ne!(
                 status,
                 StatusCode::FORBIDDEN,
-                "Off mode PUT /upload + duplicate valid Authorization MUST NOT return 403. \
+                "Off mode PUT /upload + valid-first/invalid-second MUST NOT return 403. \
                  In Off mode the cardinality gate is skipped; the first value is processed. \
                  Falsifying mutation: apply cardinality in Off mode → 403 fires."
             );
             assert_ne!(
                 status,
                 StatusCode::UNAUTHORIZED,
-                "Off mode PUT /upload + two valid Blossom tokens: first token is valid \
+                "Off mode PUT /upload + valid-first/invalid-second: first token is valid \
                  → Blossom admission MUST pass → NOT 401. \
-                 401 would mean the first token was rejected."
+                 If 401, Off mode is taking the SECOND (invalid) value instead of the first."
+            );
+            // Result must match the single-token control — same admission path.
+            assert_eq!(
+                status, single_status,
+                "Off mode PUT /upload: duplicate-first result {status} must equal \
+                 single-token control {single_status}. \
+                 Body: {body:?}"
             );
         }
 
@@ -2578,9 +2633,13 @@ mod tests {
 
         // ── GET /media: Off mode, duplicate Authorization → not 403 ───────────
         //
-        // Off mode skips cardinality; duplicate valid Blossom tokens are not
-        // rejected with 403.  The first value is taken.  Admission passes and
-        // the handler returns 404 (blob not found) — not 403.
+        // Mirror of the upload Off+duplicate case for the GET path.
+        //
+        // Phase 1 (single-token control): one valid Blossom get token → admission
+        // passes → blob not found → 404.  This pins the admission path.
+        //
+        // Phase 2 (first-valid / second-invalid): valid first, malformed second.
+        // Off mode takes the first value → same 404 as Phase 1.
         //
         // Falsifying mutation: apply cardinality in Off mode on GET → 403 fires.
         #[test]
@@ -2601,19 +2660,45 @@ mod tests {
             let keys = Keys::generate();
             let sha256 = "d0".repeat(32); // 64 hex chars
             let path = format!("/media/{sha256}.jpg");
-            let blossom_val = blossom_get_auth_value(&keys, &host, &sha256);
+            let valid_blossom = blossom_get_auth_value(&keys, &host, &sha256);
+            let invalid_val = "Nostr !!!not-valid-base64!!!";
 
+            // ── Phase 1: single-token control ────────────────────────────────
+            let (single_status, _single_headers, _single_body) = {
+                let mut headers = axum::http::HeaderMap::new();
+                headers.insert(
+                    axum::http::header::AUTHORIZATION,
+                    valid_blossom.parse().expect("valid header"),
+                );
+                rt.block_on(media_oneshot(
+                    Arc::clone(&state),
+                    "GET",
+                    &path,
+                    &host,
+                    headers,
+                    b"",
+                ))
+            };
+            // Single valid token: admission passes → blob not found → 404.
+            assert_eq!(
+                single_status,
+                StatusCode::NOT_FOUND,
+                "Off mode GET /media + single valid Blossom token MUST reach handler → 404 \
+                 (blob not stored). If 401/403 the token itself is rejected. [FI-OFF-CONTROL]"
+            );
+
+            // ── Phase 2: valid-first / invalid-second duplicate ───────────────
             let mut headers = axum::http::HeaderMap::new();
             headers.append(
                 axum::http::header::AUTHORIZATION,
-                blossom_val.parse().expect("valid header"),
+                valid_blossom.parse().expect("valid header"),
             );
             headers.append(
                 axum::http::header::AUTHORIZATION,
-                blossom_val.parse().expect("valid header"),
+                invalid_val.parse().expect("valid header bytes"),
             );
 
-            let (status, _resp_headers, _body) = rt.block_on(media_oneshot(
+            let (status, _resp_headers, body) = rt.block_on(media_oneshot(
                 Arc::clone(&state),
                 "GET",
                 &path,
@@ -2623,19 +2708,26 @@ mod tests {
             ));
 
             // Off mode: first value is valid → admission passes → handler runs
-            // → blob not found → 404 (or non-403).
+            // → blob not found → 404. Same result as Phase 1.
             assert_ne!(
                 status,
                 StatusCode::FORBIDDEN,
-                "Off mode GET /media + duplicate valid Authorization MUST NOT return 403. \
+                "Off mode GET /media + valid-first/invalid-second MUST NOT return 403. \
                  In Off mode the cardinality gate is skipped. \
                  Falsifying mutation: apply cardinality in Off mode → 403 fires."
             );
             assert_ne!(
                 status,
                 StatusCode::UNAUTHORIZED,
-                "Off mode GET /media + two valid Blossom tokens: first token is valid \
-                 → admission MUST pass → NOT 401."
+                "Off mode GET /media + valid-first/invalid-second: first token is valid \
+                 → admission MUST pass → NOT 401. \
+                 If 401, Off mode is taking the SECOND (invalid) value instead of the first."
+            );
+            assert_eq!(
+                status, single_status,
+                "Off mode GET /media: duplicate-first result {status} must equal \
+                 single-token control {single_status}. \
+                 Body: {body:?}"
             );
         }
 
@@ -2870,15 +2962,98 @@ mod tests {
             let _ = upload_headers; // checked above via body/status equality
         }
 
-        // ── GET /media: Enforce mode, malformed proof → 403 EvidenceRejected ─
+        // ── /media/upload alias: handler-level key-pairing denial ────────────
         //
-        // A syntactically malformed Nostr token (bad base64 payload) in the
+        // Proves that `/media/upload` (the legacy alias) reaches the upload
+        // handler's NIP-FI admission gate — not just the outer guard.
+        //
+        // Strategy: pass the outer guard with a cryptographically valid assertion
+        // signed for `key_a`, but supply a Blossom upload token signed by the
+        // distinct key `key_b`.  The handler's `admit_nip_fi_http_on_state`
+        // sees the key mismatch and returns 403 `authorization denied\n`.
+        //
+        // This is the handler-wiring witness for the alias: the outer-guard test
+        // above proves the alias is gated; this proves the gate is at the handler.
+        //
+        // Falsifying mutation: route `/media/upload` to a handler that skips
+        // `admit_nip_fi_http_on_state` → mismatched-key request passes → 401
+        // JSON (Blossom extractor fails without MinIO) ≠ 403 text/plain.
+        #[test]
+        #[ignore = "requires Postgres"]
+        fn media_upload_alias_enforce_mismatched_key_is_handler_403() {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("runtime");
+
+            let Some(state) = rt.block_on(media_enforce_test_state()) else {
+                panic!("local Postgres not reachable");
+            };
+            let host = format!(
+                "nip-fi-media-alias-hnd-{}.local",
+                uuid::Uuid::new_v4().simple()
+            );
+            rt.block_on(state.db.ensure_configured_community(&host))
+                .expect("ensure community");
+
+            // key_a: assertion identity; key_b: Blossom token identity.
+            // Outer guard receives a valid assertion (key_a) and forwards.
+            // Handler's admit_nip_fi_http_on_state: nostr_pubkey(key_a) ≠ nip98_pubkey(key_b)
+            // → 403 AuthorizationDenied.
+            let key_a = Keys::generate();
+            let key_b = Keys::generate();
+            let sha256 = "9".repeat(64);
+            let assertion = signed_assertion(&key_a.public_key().to_hex());
+            let blossom_token = blossom_upload_auth_value(&key_b, &host, &sha256);
+
+            let mut headers = axum::http::HeaderMap::new();
+            headers.insert("x-sha-256", sha256.parse().expect("valid header"));
+            headers.insert(
+                axum::http::header::AUTHORIZATION,
+                blossom_token.parse().expect("valid header"),
+            );
+            headers.insert(
+                axum::http::HeaderName::from_static(buzz_auth::CLIENT_ATTACHED_HEADER),
+                format!("Bearer {assertion}").parse().expect("valid header"),
+            );
+
+            let (status, _resp_headers, body) = rt.block_on(media_oneshot(
+                Arc::clone(&state),
+                "PUT",
+                "/media/upload",
+                &host,
+                headers,
+                b"",
+            ));
+
+            assert_eq!(
+                status,
+                StatusCode::FORBIDDEN,
+                "/media/upload alias mismatched key MUST reach handler and return 403 \
+                 AuthorizationDenied. \
+                 If 401: outer guard denied (bad assertion) instead of handler. \
+                 If 401 JSON: handler Blossom extractor ran without NIP-FI gate (alias wiring missing). \
+                 Falsifying mutation: remove admit_nip_fi_http_on_state from alias handler → \
+                 Blossom extractor runs instead → 401 JSON body."
+            );
+            assert_eq!(
+                body.as_ref(),
+                b"authorization denied\n",
+                "/media/upload alias handler denial MUST be exact 'authorization denied\\n' \
+                 (key-pairing check, not legacy Blossom JSON). \
+                 [FI-TRACE-DENIAL-ORACLE]"
+            );
+        }
+
+        // ── GET /media: Enforce mode, malformed proof → 403 EvidenceRejected ─
         // Authorization header triggers EvidenceRejected before the NIP-FI
         // assertion check.  403 + exact body + CT + no challenge.
         //
-        // Falsifying mutation: remove the malformed-token check from
-        // `admit_nip_fi_http_on_state` → malformed token passes cardinality →
-        // NIP-FI assertion check fires (no assertion) → 401, not 403.
+        // The fixture supplies a valid assertion so NIP-FI malformed-proof
+        // detection is the denial source.  Falsifying mutation: remove the
+        // malformed-token check from `admit_nip_fi_http_on_state` → malformed
+        // token passes → assertion check fires → key-pairing passes →
+        // downstream 404 or storage result, not 403 EvidenceRejected.
         #[test]
         #[ignore = "requires Postgres"]
         fn get_blob_enforce_malformed_proof_is_403_nip_fi() {
@@ -2957,9 +3132,11 @@ mod tests {
         // the cardinality gate inside `admit_nip_fi_http_on_state`.
         // 403 + exact body + CT + no challenge.
         //
-        // Falsifying mutation: remove the cardinality gate from
-        // `admit_nip_fi_http_on_state` → duplicate headers pass cardinality →
-        // NIP-FI assertion check fires (no assertion) → 401, not 403.
+        // The fixture supplies a valid assertion so cardinality is the denial
+        // source, not a missing assertion.  Falsifying mutation: remove the
+        // cardinality gate from `admit_nip_fi_http_on_state` → duplicate headers
+        // pass cardinality → assertion check fires → key-pairing check → 200 or
+        // downstream error, not 403 EvidenceRejected.
         #[test]
         #[ignore = "requires Postgres"]
         fn get_blob_enforce_duplicate_proof_is_403_cardinality() {
@@ -3241,26 +3418,167 @@ mod tests {
             );
         }
 
+        // ── PUT /upload: Enforce mode, same-key admission → reaches handler ──
+        //
+        // Same-key NIP-98 (Blossom) + assertion → key-pairing passes → handler
+        // proceeds past NIP-FI admission to post-admission checks and storage.
+        // Without MinIO storage the upload fails after admission, returning a
+        // non-401 non-403 status (500/503).
+        //
+        // Falsifying mutation: always-deny key pairing → 403 AuthorizationDenied
+        // → status == FORBIDDEN → assertion fires.
+        #[test]
+        #[ignore = "requires Postgres"]
+        fn upload_enforce_same_key_admission_passes_not_401_403() {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("runtime");
+
+            let Some(state) = rt.block_on(media_enforce_test_state()) else {
+                panic!("local Postgres not reachable");
+            };
+            let host = format!(
+                "nip-fi-media-enf-uppos-{}.local",
+                uuid::Uuid::new_v4().simple()
+            );
+            rt.block_on(state.db.ensure_configured_community(&host))
+                .expect("ensure community");
+
+            let keys = Keys::generate();
+            let sha256 = "4".repeat(64);
+            let assertion = signed_assertion(&keys.public_key().to_hex());
+            let blossom_token = blossom_upload_auth_value(&keys, &host, &sha256);
+
+            let mut headers = axum::http::HeaderMap::new();
+            headers.insert("x-sha-256", sha256.parse().expect("valid header"));
+            headers.insert(
+                axum::http::header::AUTHORIZATION,
+                blossom_token.parse().expect("valid header"),
+            );
+            headers.insert(
+                axum::http::HeaderName::from_static(buzz_auth::CLIENT_ATTACHED_HEADER),
+                format!("Bearer {assertion}").parse().expect("valid header"),
+            );
+
+            let (status, _resp_headers, body) = rt.block_on(media_oneshot(
+                Arc::clone(&state),
+                "PUT",
+                "/upload",
+                &host,
+                headers,
+                b"",
+            ));
+
+            assert_ne!(
+                status,
+                StatusCode::UNAUTHORIZED,
+                "PUT /upload same-key admission MUST pass NIP-FI (not 401). \
+                 Falsifying mutation: always-deny key pairing → 401 MissingEvidence. \
+                 Body: {body:?}"
+            );
+            assert_ne!(
+                status,
+                StatusCode::FORBIDDEN,
+                "PUT /upload same-key admission MUST pass NIP-FI (not 403). \
+                 Falsifying mutation: always-deny key pairing → 403 AuthorizationDenied. \
+                 Body: {body:?}"
+            );
+        }
+
+        // ── HEAD /media: Enforce mode, same-key admission → reaches handler ─
+        //
+        // Same-key Blossom get-auth + assertion → admission passes → handler
+        // attempts sidecar lookup → blob not found (no MinIO) → 404.
+        //
+        // Falsifying mutation: always-deny key pairing → 403 → assertion fires.
+        #[test]
+        #[ignore = "requires Postgres"]
+        fn head_blob_enforce_same_key_admission_succeeds_returns_404() {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("runtime");
+
+            let Some(state) = rt.block_on(media_enforce_test_state()) else {
+                panic!("local Postgres not reachable");
+            };
+            let host = format!(
+                "nip-fi-media-enf-hdpos-{}.local",
+                uuid::Uuid::new_v4().simple()
+            );
+            rt.block_on(state.db.ensure_configured_community(&host))
+                .expect("ensure community");
+
+            let keys = Keys::generate();
+            let sha256 = "5".repeat(64);
+            let path = format!("/media/{sha256}.jpg");
+            let assertion = signed_assertion(&keys.public_key().to_hex());
+            let blossom_token = blossom_get_auth_value(&keys, &host, &sha256);
+
+            let mut headers = axum::http::HeaderMap::new();
+            headers.insert(
+                axum::http::header::AUTHORIZATION,
+                blossom_token.parse().expect("valid header"),
+            );
+            headers.insert(
+                axum::http::HeaderName::from_static(buzz_auth::CLIENT_ATTACHED_HEADER),
+                format!("Bearer {assertion}").parse().expect("valid header"),
+            );
+
+            let (status, resp_headers, _body_bytes) = rt.block_on(media_oneshot(
+                Arc::clone(&state),
+                "HEAD",
+                &path,
+                &host,
+                headers,
+                b"",
+            ));
+
+            // Admission passes → handler proceeds to sidecar lookup → blob absent → 404.
+            // 401/403 would indicate NIP-FI admission failure.
+            assert_eq!(
+                status,
+                StatusCode::NOT_FOUND,
+                "HEAD /media same-key admission MUST reach handler → 404 (blob not found). \
+                 If 401: NIP-FI MissingEvidence — outer guard or assertion check denying. \
+                 If 403: NIP-FI AuthorizationDenied — key pairing denying. \
+                 Resp headers: {resp_headers:?}. \
+                 Falsifying mutation: always-deny pairing → 403 instead of 404."
+            );
+        }
+
         // ── Upload resource witness: body not polled + permit not consumed on denial ─
         //
-        // Proves that NIP-FI admission fires BEFORE:
+        // Proves that NIP-FI admission inside `upload_blob` fires BEFORE:
         //   1. The request body is read (zero poll calls on a counting Body stream).
-        //   2. The upload concurrency permit is acquired (global semaphore, per-key counter).
+        //   2. The upload concurrency permit is acquired.
+        //
+        // The outer guard (router.rs:232-235) only forwards requests with a
+        // cryptographically valid assertion.  To witness the HANDLER-level
+        // admission ordering we must PASS the outer guard with a valid assertion
+        // and let the handler's own `admit_nip_fi_http_on_state` fire the denial.
+        // We do this with a mismatched-key scenario:
+        //   - NIP-FI assertion signed for `key_assertion`
+        //   - NIP-98 PUT token signed by `key_upload` (a different key)
+        //   → outer guard passes (assertion is cryptographically valid)
+        //   → handler's admit_nip_fi_http_on_state fires key-pairing check
+        //   → 403 AuthorizationDenied `authorization denied\n`
+        //   → body never read, permit never acquired.
+        //
+        // Admitted control: same-key NIP-98 + assertion → pairing passes → body
+        // IS polled → proves the instrument/resource boundary is reachable with
+        // valid credentials.
         //
         // Production order in `upload_blob` (media.rs:266-342):
-        //   admit_nip_fi_http_on_state() → deny early return (line ~280)
-        //   acquire_upload_permit() only reached after admission passes (line ~323)
-        //   body polling only inside upload_blob_inner (line ~379)
-        //
-        // Exact denial bytes would not catch an eager body poll followed by the same
-        // denial — this test proves zero polls.  Permit witness: even with all global
-        // semaphore permits consumed, NIP-FI identity denial still returns 401
-        // (not 503 concurrency), proving the NIP-FI gate fires before permit acquisition.
+        //   admit_nip_fi_http_on_state() → deny at key mismatch → early return
+        //   acquire_upload_permit() reached only after admission passes
+        //   body polling inside upload_blob_inner
         //
         // Falsifying mutation A: move admit_nip_fi_http_on_state after body-read →
-        //   poll_count > 0 → first assertion fires.
+        //   poll_count > 0 on the mismatched-key request → assertion fires.
         // Falsifying mutation B: move admit_nip_fi_http_on_state after permit acquire →
-        //   with all permits consumed, returns 503 instead of 401 → second assertion fires.
+        //   with all permits consumed, returns 503 instead of 403 → assertion fires.
         #[test]
         #[ignore = "requires Postgres"]
         fn upload_enforce_denial_does_not_poll_body_or_consume_permit() {
@@ -3287,14 +3605,42 @@ mod tests {
             let sha256 = "3".repeat(64);
             let poll_count = StdArc::new(AtomicUsize::new(0));
 
+            // Two keys: assertion is for key_a, NIP-98 is signed by key_b.
+            // Outer guard sees a valid assertion (key_a) and forwards the request.
+            // Handler's admit_nip_fi_http_on_state sees the NIP-98 pubkey (key_b)
+            // and fires the key-pairing check → 403 AuthorizationDenied.
+            let key_a = Keys::generate();
+            let key_b = Keys::generate();
+            let assertion_for_a = signed_assertion(&key_a.public_key().to_hex());
+            let upload_url = format!("http://{host}/upload");
+            let nip98_token_b = {
+                use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64;
+                use nostr::JsonUtil as _;
+                let now = nostr::Timestamp::now().as_secs();
+                let exp = now + 300;
+                // NIP-98 for PUT /upload signed by key_b (different from assertion key_a).
+                let event = nostr::EventBuilder::new(nostr::Kind::Custom(27235), "")
+                    .tags(vec![
+                        nostr::Tag::parse(["u", &upload_url]).unwrap(),
+                        nostr::Tag::parse(["method", "PUT"]).unwrap(),
+                        nostr::Tag::parse(["payload", &sha256]).unwrap(),
+                        nostr::Tag::parse(["expiration", &exp.to_string()]).unwrap(),
+                    ])
+                    .sign_with_keys(&key_b)
+                    .expect("sign nip98");
+                format!("Nostr {}", B64.encode(event.as_json().as_bytes()))
+            };
+
             // ── Part 1: body-poll witness ───────────────────────────────────
-            // Build a request body that increments poll_count on every data poll.
-            // The body has real content but NIP-FI denies before the body is read.
+            // Send a mismatched-key request with an instrumented body.
+            // Outer guard forwards (assertion is valid); handler denies at key-pairing
+            // before reading the body.
             {
                 let poll_count2 = StdArc::clone(&poll_count);
+                let assertion_for_a2 = assertion_for_a.clone();
+                let nip98_b2 = nip98_token_b.clone();
                 rt.block_on(async {
                     use tower::ServiceExt;
-                    // Instrumented body: counts poll_data calls via Arc<AtomicUsize>.
                     struct CountingBody {
                         inner: bytes::Bytes,
                         done: bool,
@@ -3322,44 +3668,53 @@ mod tests {
                         counter: StdArc::clone(&poll_count2),
                     };
                     let axum_body = Body::new(body);
-
-                    let mut headers = axum::http::HeaderMap::new();
-                    headers.insert("x-sha-256", sha256.parse().expect("valid header"));
-                    // No assertion header → NIP-FI denies before body is read.
-                    let mut builder = axum::http::Request::builder()
+                    let req = axum::http::Request::builder()
                         .method("PUT")
                         .uri("/upload")
                         .header("host", &host)
-                        .header("x-sha-256", &sha256);
-                    for (name, value) in &headers {
-                        builder = builder.header(name, value);
-                    }
-                    let req = builder.body(axum_body).expect("build request");
+                        .header("authorization", &nip98_b2)
+                        .header("x-sha-256", &sha256)
+                        .header(
+                            buzz_auth::CLIENT_ATTACHED_HEADER,
+                            format!("Bearer {assertion_for_a2}"),
+                        )
+                        .body(axum_body)
+                        .expect("build request");
                     let resp = crate::router::build_router(Arc::clone(&state))
                         .oneshot(req)
                         .await
                         .expect("router oneshot");
                     assert_eq!(
                         resp.status(),
-                        StatusCode::UNAUTHORIZED,
-                        "NIP-FI denial (no assertion) must still return 401 \
-                         with an instrumented body."
+                        StatusCode::FORBIDDEN,
+                        "Mismatched-key: outer guard forwards (valid assertion), handler \
+                         fires key-pairing check → 403 AuthorizationDenied. \
+                         Falsifying mutation A: move admission after body-read → \
+                         poll_count > 0 before this 403."
+                    );
+                    let resp_body = axum::body::to_bytes(resp.into_body(), 256)
+                        .await
+                        .unwrap_or_default();
+                    assert_eq!(
+                        resp_body.as_ref(),
+                        b"authorization denied\n",
+                        "Mismatched-key handler denial MUST be 'authorization denied\\n' \
+                         (key-pairing check, not outer guard or NIP-98 error)."
                     );
                 });
             }
             assert_eq!(
                 poll_count.load(Ordering::SeqCst),
                 0,
-                "Body MUST NOT be polled when NIP-FI denies before body-read. \
+                "Body MUST NOT be polled when handler denies at key-pairing (before body-read). \
                  Falsifying mutation A: move admission after body-read → poll_count > 0."
             );
 
             // ── Part 2: permit-order witness ────────────────────────────────
-            // Consume all global upload permits, then send a missing-assertion request.
-            // NIP-FI admission fires BEFORE permit acquisition, so the response is
-            // 401 (identity denied) — not 503 (concurrency limit).
+            // Consume all global upload permits, then send a mismatched-key request.
+            // Handler's NIP-FI key-pairing fires BEFORE permit acquisition, so the
+            // response is 403 (key mismatch) — not 503 (concurrency limit).
             {
-                // Hold all global permits so any admission-passing request would see 503.
                 let semaphore = Arc::clone(&state.media_upload_semaphore);
                 let available = semaphore.available_permits();
                 let mut held_permits = Vec::new();
@@ -3377,7 +3732,16 @@ mod tests {
                     {
                         let mut h = axum::http::HeaderMap::new();
                         h.insert("x-sha-256", sha256.parse().expect("valid header"));
-                        // No assertion → identity denial before permit acquisition.
+                        h.insert(
+                            axum::http::header::AUTHORIZATION,
+                            nip98_token_b.parse().expect("valid header"),
+                        );
+                        h.insert(
+                            axum::http::HeaderName::from_static(buzz_auth::CLIENT_ATTACHED_HEADER),
+                            format!("Bearer {assertion_for_a}")
+                                .parse()
+                                .expect("valid header"),
+                        );
                         h
                     },
                     b"",
@@ -3385,21 +3749,99 @@ mod tests {
 
                 assert_eq!(
                     status,
-                    StatusCode::UNAUTHORIZED,
-                    "NIP-FI identity denial MUST fire BEFORE permit acquisition. \
+                    StatusCode::FORBIDDEN,
+                    "Handler key-pairing MUST fire BEFORE permit acquisition. \
                      With all permits consumed, a post-admission request returns 503; \
-                     a pre-admission denial must still return 401. \
+                     a key-pairing denial must still return 403 AuthorizationDenied. \
                      Falsifying mutation B: move admission after permit acquire → \
-                     503 returned instead of 401."
+                     503 returned instead of 403."
                 );
                 assert_eq!(
                     body.as_ref(),
-                    b"authentication required\n",
-                    "Permit witness: NIP-FI 401 body must be exact 'authentication required\\n', \
+                    b"authorization denied\n",
+                    "Permit witness: handler 403 body must be 'authorization denied\\n', \
                      not 503 MediaError body."
                 );
 
-                drop(held_permits); // release all permits
+                drop(held_permits);
+            }
+
+            // ── Part 3: admitted control (instrument/resource boundary reachable) ─
+            // Same-key NIP-98 + assertion → pairing passes → body IS polled.
+            // This proves the body-poll witness above is not merely a stuck counter.
+            //
+            // Without MinIO the upload fails with a storage error (500/503) after
+            // the body is read — we only check that poll_count advances beyond zero.
+            {
+                let poll_count3 = StdArc::new(AtomicUsize::new(0));
+                let poll_count3_clone = StdArc::clone(&poll_count3);
+                let assertion_same_key = signed_assertion(&key_b.public_key().to_hex());
+                rt.block_on(async {
+                    use tower::ServiceExt;
+                    struct CountingBody {
+                        inner: bytes::Bytes,
+                        done: bool,
+                        counter: StdArc<AtomicUsize>,
+                    }
+                    impl http_body::Body for CountingBody {
+                        type Data = bytes::Bytes;
+                        type Error = std::convert::Infallible;
+                        fn poll_frame(
+                            mut self: std::pin::Pin<&mut Self>,
+                            _cx: &mut std::task::Context<'_>,
+                        ) -> std::task::Poll<Option<Result<Frame<Self::Data>, Self::Error>>>
+                        {
+                            if self.done {
+                                return std::task::Poll::Ready(None);
+                            }
+                            self.counter.fetch_add(1, Ordering::SeqCst);
+                            self.done = true;
+                            std::task::Poll::Ready(Some(Ok(Frame::data(self.inner.clone()))))
+                        }
+                    }
+                    let body = CountingBody {
+                        inner: bytes::Bytes::from(b"hello world".to_vec()),
+                        done: false,
+                        counter: StdArc::clone(&poll_count3_clone),
+                    };
+                    let axum_body = Body::new(body);
+                    let req = axum::http::Request::builder()
+                        .method("PUT")
+                        .uri("/upload")
+                        .header("host", &host)
+                        .header("authorization", &nip98_token_b)
+                        .header("x-sha-256", &sha256)
+                        .header(
+                            buzz_auth::CLIENT_ATTACHED_HEADER,
+                            format!("Bearer {assertion_same_key}"),
+                        )
+                        .body(axum_body)
+                        .expect("build request");
+                    let resp = crate::router::build_router(Arc::clone(&state))
+                        .oneshot(req)
+                        .await
+                        .expect("router oneshot");
+                    // Admission passes → post-admission checks → storage unavailable.
+                    // Any status other than 401/403 proves the handler boundary was reached.
+                    assert_ne!(
+                        resp.status(),
+                        StatusCode::UNAUTHORIZED,
+                        "Same-key admitted control MUST NOT return 401 (NIP-FI denied). \
+                         Falsifying mutation: always-deny pairing → 401 → body never read."
+                    );
+                    assert_ne!(
+                        resp.status(),
+                        StatusCode::FORBIDDEN,
+                        "Same-key admitted control MUST NOT return 403 (NIP-FI denied). \
+                         Falsifying mutation: always-deny pairing → 403 → body never read."
+                    );
+                });
+                assert!(
+                    poll_count3.load(Ordering::SeqCst) > 0,
+                    "Body MUST be polled after successful NIP-FI admission (same-key control). \
+                     Falsifying mutation: move body-read before admission → poll_count=0 even \
+                     when NIP-FI passes (would break the body-poll witness above)."
+                );
             }
         }
     }
