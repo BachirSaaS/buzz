@@ -4116,30 +4116,46 @@ mod off_mode_precedence_tests {
         // is removed, `bind_community()` returns 404 for this host.
         // The assertion fires because 404 ≠ 401.
         //
-        // Falsifying mutation: delete lines 100-102 in `from_request_parts`
-        // → unmapped host proceeds to `bind_community()` → 404 → assertion.
+        // Falsifying mutation: delete the `if matches!(mode, Off)` block
+        // (transport.rs:101-104) → unmapped host proceeds to `bind_community()` → 404.
+        //
+        // NOTE: missing-auth and wrong-scheme carry WWW-Authenticate; bad-base64
+        // and bad-UTF8 do NOT (those use `into_response()` without the header).
         #[tokio::test]
         #[ignore = "requires Postgres"]
         async fn off_mode_unmapped_host_missing_auth_returns_401_before_db() {
             let Some(state) = off_mode_state().await else {
                 panic!("local Postgres not reachable");
             };
-            let (status, headers, _body) = git_request(state, UNMAPPED_HOST, None).await;
+            let (status, headers, body) = git_request(state, UNMAPPED_HOST, None).await;
             assert_eq!(
                 status,
                 axum::http::StatusCode::UNAUTHORIZED,
                 "Off mode + unmapped host + missing auth must yield 401 BEFORE \
                  bind_community (not 404). \
-                 Falsifying mutation: delete Off-mode early-exit lines 100-102 \
+                 Falsifying mutation: delete Off-mode early-exit (transport.rs:101-104) \
                  → bind_community returns 404 for unmapped host → assertion fires."
             );
+            assert_eq!(
+                body.as_ref(),
+                b"missing Authorization header",
+                "missing-auth 401 body must be exact 'missing Authorization header'"
+            );
+            let ct = headers
+                .get("content-type")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("");
+            assert!(
+                ct.starts_with("text/plain"),
+                "missing-auth 401 Content-Type must be text/plain; got {ct:?}"
+            );
             let challenge = headers
-                .get("WWW-Authenticate")
+                .get("www-authenticate")
                 .and_then(|v| v.to_str().ok())
                 .unwrap_or("");
             assert!(
                 challenge.contains("Nostr"),
-                "Off mode: 401 must carry Nostr challenge; got {challenge:?}"
+                "missing-auth 401 must carry WWW-Authenticate: Nostr; got {challenge:?}"
             );
         }
 
@@ -4147,39 +4163,186 @@ mod off_mode_precedence_tests {
         //
         // Same falsifiability as the missing-auth case.
         //
-        // Falsifying mutation: same — delete lines 100-102.
+        // Falsifying mutation: delete transport.rs:101-104 → 404.
         #[tokio::test]
         #[ignore = "requires Postgres"]
         async fn off_mode_unmapped_host_wrong_scheme_returns_401_before_db() {
             let Some(state) = off_mode_state().await else {
                 panic!("local Postgres not reachable");
             };
-            let (status, _headers, _body) =
+            let (status, headers, body) =
                 git_request(state, UNMAPPED_HOST, Some("Bearer token")).await;
             assert_eq!(
                 status,
                 axum::http::StatusCode::UNAUTHORIZED,
                 "Off mode + unmapped host + wrong auth scheme must yield 401 before \
                  bind_community. \
-                 Falsifying mutation: delete lines 100-102 → 404."
+                 Falsifying mutation: delete transport.rs:101-104 → 404."
+            );
+            assert_eq!(
+                body.as_ref(),
+                b"expected Authorization: Nostr <base64>",
+                "wrong-scheme 401 body must be 'expected Authorization: Nostr <base64>'"
+            );
+            assert!(
+                headers.get("www-authenticate").is_some(),
+                "wrong-scheme 401 must carry WWW-Authenticate"
             );
         }
 
         // ── Unmapped host — invalid base64: must be 401 before DB lookup ──
+        //
+        // bad-base64 and bad-UTF8 use `into_response()` — NO WWW-Authenticate.
+        // Falsifying mutation: delete transport.rs:101-104 → 404.
         #[tokio::test]
         #[ignore = "requires Postgres"]
         async fn off_mode_unmapped_host_invalid_base64_returns_401_before_db() {
             let Some(state) = off_mode_state().await else {
                 panic!("local Postgres not reachable");
             };
-            let (status, _headers, _body) =
+            let (status, headers, body) =
                 git_request(state, UNMAPPED_HOST, Some("Nostr !!!not-base64!!!")).await;
             assert_eq!(
                 status,
                 axum::http::StatusCode::UNAUTHORIZED,
                 "Off mode + unmapped host + invalid base64 must yield 401 before \
                  bind_community. \
-                 Falsifying mutation: delete lines 100-102 → 404."
+                 Falsifying mutation: delete transport.rs:101-104 → 404."
+            );
+            assert_eq!(
+                body.as_ref(),
+                b"invalid base64",
+                "invalid-base64 401 body must be exact 'invalid base64'"
+            );
+            assert!(
+                headers.get("www-authenticate").is_none(),
+                "invalid-base64 401 MUST NOT carry WWW-Authenticate \
+                 (uses into_response(), not the WWW-Authenticate builder path)"
+            );
+        }
+
+        // ── Unmapped host — bad UTF-8 payload: must be 401 before DB lookup ─
+        //
+        // A Nostr token where base64 decodes to non-UTF8 bytes triggers the
+        // UTF-8 guard in `parse_git_auth_header_full` (transport.rs:379-380).
+        // Body: "invalid utf-8"; NO WWW-Authenticate (uses `into_response()`).
+        //
+        // Falsifying mutation: delete transport.rs:101-104 → 404.
+        #[tokio::test]
+        #[ignore = "requires Postgres"]
+        async fn off_mode_unmapped_host_bad_utf8_returns_401_before_db() {
+            let Some(state) = off_mode_state().await else {
+                panic!("local Postgres not reachable");
+            };
+            // base64-encode non-UTF8 bytes (0xff 0xfe is an invalid UTF-8 start)
+            let bad_utf8_b64 = base64::engine::general_purpose::STANDARD
+                .encode(b"\xff\xfe\x00");
+            let (status, headers, body) =
+                git_request(state, UNMAPPED_HOST, Some(&format!("Nostr {bad_utf8_b64}"))).await;
+            assert_eq!(
+                status,
+                axum::http::StatusCode::UNAUTHORIZED,
+                "Off mode + unmapped host + bad-UTF8 payload must yield 401 before \
+                 bind_community. \
+                 Falsifying mutation: delete transport.rs:101-104 → 404."
+            );
+            assert_eq!(
+                body.as_ref(),
+                b"invalid utf-8",
+                "bad-UTF8 401 body must be exact 'invalid utf-8'"
+            );
+            assert!(
+                headers.get("www-authenticate").is_none(),
+                "bad-UTF8 401 MUST NOT carry WWW-Authenticate \
+                 (uses into_response(), not the WWW-Authenticate builder path)"
+            );
+        }
+
+        // ── Mapped host — missing auth: must be 401 (NOT 404) ────────────
+        //
+        // A mapped host DOES have a community row, so if the Off-mode early-exit
+        // is removed, `bind_community()` would SUCCEED, and the next failure
+        // would be at URL verification (not 404).  This test proves the early-exit
+        // fires even when the host is mapped — it's a syntactic check, not a
+        // host-existence check.
+        //
+        // Falsifying mutation: delete transport.rs:101-104 → the request
+        // proceeds past the early-exit to URL verification, which rejects the
+        // missing proof differently (not as 401 from `parse_git_auth_header`).
+        #[tokio::test]
+        #[ignore = "requires Postgres"]
+        async fn off_mode_mapped_host_missing_auth_returns_401() {
+            let Some(state) = off_mode_state().await else {
+                panic!("local Postgres not reachable");
+            };
+            let host = format!(
+                "off-prec-mapped-{}.git.test.invalid",
+                uuid::Uuid::new_v4().simple()
+            );
+            state
+                .db
+                .ensure_configured_community(&host)
+                .await
+                .expect("ensure community");
+            let (status, headers, body) = git_request(state, &host, None).await;
+            assert_eq!(
+                status,
+                axum::http::StatusCode::UNAUTHORIZED,
+                "Off mode + mapped host + missing auth must yield 401 from Off-mode early-exit \
+                 (not a host-existence check). \
+                 Falsifying mutation: delete transport.rs:101-104 → request reaches URL \
+                 verification and returns differently."
+            );
+            assert_eq!(
+                body.as_ref(),
+                b"missing Authorization header",
+                "mapped-host missing-auth 401 body must be 'missing Authorization header'"
+            );
+            let challenge = headers
+                .get("www-authenticate")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("");
+            assert!(
+                challenge.contains("Nostr"),
+                "mapped-host missing-auth 401 must carry WWW-Authenticate: Nostr; got {challenge:?}"
+            );
+        }
+
+        // ── Mapped host — invalid base64: must be 401 before URL verification ─
+        //
+        // Proves the bad-base64 check fires for mapped hosts too.
+        // Falsifying mutation: delete transport.rs:101-104 → 404 or different error.
+        #[tokio::test]
+        #[ignore = "requires Postgres"]
+        async fn off_mode_mapped_host_invalid_base64_returns_401() {
+            let Some(state) = off_mode_state().await else {
+                panic!("local Postgres not reachable");
+            };
+            let host = format!(
+                "off-prec-mapped-b64-{}.git.test.invalid",
+                uuid::Uuid::new_v4().simple()
+            );
+            state
+                .db
+                .ensure_configured_community(&host)
+                .await
+                .expect("ensure community");
+            let (status, headers, body) =
+                git_request(state, &host, Some("Nostr !!!not-base64!!!")).await;
+            assert_eq!(
+                status,
+                axum::http::StatusCode::UNAUTHORIZED,
+                "Off mode + mapped host + invalid base64 must yield 401. \
+                 Falsifying mutation: delete transport.rs:101-104 → different error."
+            );
+            assert_eq!(
+                body.as_ref(),
+                b"invalid base64",
+                "mapped-host invalid-base64 401 body must be 'invalid base64'"
+            );
+            assert!(
+                headers.get("www-authenticate").is_none(),
+                "invalid-base64 401 MUST NOT carry WWW-Authenticate"
             );
         }
 
@@ -4189,10 +4352,9 @@ mod off_mode_precedence_tests {
         // and proceeds to `bind_community()`.  The unmapped host then yields
         // 404 — proving the early-exit was NOT the blocker.
         //
-        // Falsifying mutation: always 401 from `parse_git_auth_header`
-        // regardless of input → this control returns 401 instead of 404
-        // → assertion fires.  (The negative cases above prove the opposite
-        // direction: always-allow parser → they return non-401.)
+        // Falsifying mutation: always-deny `parse_git_auth_header` regardless
+        // of input → this control returns 401 instead of 404 → assertion fires.
+        // The negative cases above prove the opposite direction.
         #[tokio::test]
         #[ignore = "requires Postgres"]
         async fn off_mode_unmapped_host_valid_syntax_reaches_db_and_returns_404() {
@@ -4234,9 +4396,10 @@ mod off_mode_precedence_tests {
         // is sent, so `extract_bearer_token` returns MissingEvidence → 401.
         //
         // Falsifying mutation: remove the `admit_nip_fi_http_on_state` call
-        // from `GitAuth::from_request_parts` → git NIP-98 verification runs →
-        // fails (bad payload hash) → 401 from legacy mapping but DIFFERENT
-        // body ("NIP-98 auth failed") — body assertion fires.
+        // from `GitAuth::from_request_parts` → `GitAuth` falls back to the
+        // legacy NIP-98 verifier → valid proof is accepted → request reaches
+        // the repository-not-found layer (different status/body) →
+        // body assertion fires.
         //
         // Why no assertion header: in Enforce mode with no verifier configured
         // (startup race) an assertion present + no verifier would return 503.
@@ -4254,6 +4417,9 @@ mod off_mode_precedence_tests {
             config.nip_fi.mode = NipFiMode::Enforce;
             config.require_auth_token = false;
             config.require_relay_membership = false;
+            // Pin relay_url to a ws:// value so git_expected_url() deterministically
+            // derives the http:// scheme for the NIP-98 `u` tag.
+            config.relay_url = "ws://nip-fi-git-test.invalid".to_string();
             config.redis_url =
                 std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
             config.database_url = std::env::var("BUZZ_TEST_DATABASE_URL")
@@ -4308,11 +4474,16 @@ mod off_mode_precedence_tests {
                 .await
                 .expect("ensure community");
 
-            // Build a syntactically valid Nostr token for a GET to the path.
+            // Build a syntactically valid Nostr token signed for the repo-root URL.
+            // `git_expected_url()` strips `/info/refs?service=…` and keeps only
+            // the repository path prefix: `http://{host}/git/aabbcc/myrepo`.
             // No Nostr-Federated-Identity header → MissingEvidence in Enforce.
             let keys = nostr::Keys::generate();
+            // GIT_PATH = "/git/aabbcc/myrepo/info/refs?service=git-upload-pack"
+            // git_expected_url strips from "/info/refs" → repo root = "/git/aabbcc/myrepo"
+            const GIT_REPO_ROOT: &str = "/git/aabbcc/myrepo";
             let tags = vec![
-                nostr::Tag::parse(["u", &format!("http://{host}{GIT_PATH}")]).unwrap(),
+                nostr::Tag::parse(["u", &format!("http://{host}{GIT_REPO_ROOT}")]).unwrap(),
                 nostr::Tag::parse(["method", "GET"]).unwrap(),
             ];
             let event = nostr::EventBuilder::new(nostr::Kind::Custom(27235), "")
@@ -4332,7 +4503,8 @@ mod off_mode_precedence_tests {
                 axum::http::StatusCode::UNAUTHORIZED,
                 "Enforce mode + info/refs + missing assertion MUST deny 401 MissingEvidence. \
                  Falsifying mutation: remove admit_nip_fi_http_on_state from GitAuth → \
-                 NIP-98 auth fires → 401 but with different body → body assertion fires."
+                 legacy NIP-98 verifier accepts the valid proof → request proceeds past \
+                 the admission gate → different status or body → assertion fires."
             );
             assert_eq!(
                 body.as_ref(),

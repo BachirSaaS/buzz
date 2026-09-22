@@ -399,13 +399,16 @@ mod postgres_tests {
     }
 
     /// Drive a GET request through `build_router` for the settings path.
+    /// Returns `(status, response_headers, body)` — helpers that previously
+    /// discarded headers have been updated so callers can assert the full
+    /// contract (Content-Type, WWW-Authenticate, etc.).
     async fn settings_get_via_build_router(
         state: Arc<AppState>,
         host: &str,
         path: &str,
         auth_token: &str,
         assertion: Option<&str>,
-    ) -> (StatusCode, bytes::Bytes) {
+    ) -> (StatusCode, axum::http::HeaderMap, bytes::Bytes) {
         use axum::body::to_bytes;
         use axum::http::Request;
         use tower::ServiceExt;
@@ -426,13 +429,15 @@ mod postgres_tests {
             .await
             .expect("router oneshot");
         let status = response.status();
+        let resp_headers = response.headers().clone();
         let body = to_bytes(response.into_body(), 4096)
             .await
             .unwrap_or_default();
-        (status, body)
+        (status, resp_headers, body)
     }
 
     /// Drive a POST request through `build_router` for the settings path.
+    /// Returns `(status, response_headers, body)`.
     async fn settings_post_via_build_router(
         state: Arc<AppState>,
         host: &str,
@@ -440,7 +445,7 @@ mod postgres_tests {
         auth_token: &str,
         body_bytes: &[u8],
         assertion: Option<&str>,
-    ) -> (StatusCode, bytes::Bytes) {
+    ) -> (StatusCode, axum::http::HeaderMap, bytes::Bytes) {
         use axum::body::to_bytes;
         use axum::http::Request;
         use tower::ServiceExt;
@@ -462,10 +467,11 @@ mod postgres_tests {
             .await
             .expect("router oneshot");
         let status = response.status();
+        let resp_headers = response.headers().clone();
         let body = to_bytes(response.into_body(), 4096)
             .await
             .unwrap_or_default();
-        (status, body)
+        (status, resp_headers, body)
     }
 
     fn nip98_token_for_method(keys: &Keys, url: &str, method: &str, body: Option<&[u8]>) -> String {
@@ -530,7 +536,7 @@ mod postgres_tests {
         let url = format!("http://{host}{path}");
         let auth = nip98_get_token(&key_b, &url);
 
-        let (status, body) = rt.block_on(settings_get_via_build_router(
+        let (status, resp_headers, body) = rt.block_on(settings_get_via_build_router(
             state,
             &host,
             &path,
@@ -549,6 +555,18 @@ mod postgres_tests {
             body.as_ref(),
             b"authorization denied\n",
             "key mismatch denial MUST produce authorization_denied body bytes"
+        );
+        assert_eq!(
+            resp_headers
+                .get("content-type")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or(""),
+            "text/plain; charset=utf-8",
+            "key mismatch 403 Content-Type MUST be text/plain; charset=utf-8."
+        );
+        assert!(
+            resp_headers.get("www-authenticate").is_none(),
+            "key mismatch 403 MUST NOT carry WWW-Authenticate."
         );
     }
 
@@ -589,7 +607,7 @@ mod postgres_tests {
         let url = format!("http://{host}{path}");
         let auth = nip98_get_token(&key, &url);
 
-        let (status, _body) = rt.block_on(settings_get_via_build_router(
+        let (status, _resp_headers, _body) = rt.block_on(settings_get_via_build_router(
             state,
             &host,
             &path,
@@ -608,8 +626,9 @@ mod postgres_tests {
 
     // ── Settings via build_router: POST — wrong method (GET token) → 403 ───────
     //
-    // A GET NIP-98 token on a POST request carries a present but invalid
-    // Authorization header (method mismatch).  In NIP-FI Enforce mode,
+    // A GET NIP-98 token WITH a payload hash matching the POST body (method=GET,
+    // payload tag present) on a POST request: method mismatch fails NIP-98 verification.
+    // In NIP-FI Enforce mode,
     // `admit_nip_fi_http` maps a present-but-failing NIP-98 to
     // `EvidenceRejected` (403 "evidence rejected\n"), not 401.
     //
@@ -641,12 +660,16 @@ mod postgres_tests {
         );
         let url = format!("http://{host}{path}");
 
-        // GET token on a POST request: Authorization header IS present but
-        // carries method=GET → NIP-98 verification fails → EvidenceRejected (403).
-        let get_token = nip98_get_token(&key, &url);
+        // GET token WITH the correct POST body hash: Authorization header IS
+        // present, payload tag exists (passes bridge.rs require_payload check),
+        // but method=GET on a POST request fails NIP-98 method verification →
+        // EvidenceRejected (403). Using nip98_get_token (no payload tag) would
+        // have the token rejected earlier (missing-payload at bridge.rs:125-137)
+        // before method validation runs.
         let post_body = b"{\"branch\":\"main\",\"expected_manifest\":\"abc\"}";
+        let get_token = nip98_token_for_method(&key, &url, "GET", Some(post_body));
 
-        let (status, body) = rt.block_on(settings_post_via_build_router(
+        let (status, resp_headers, body) = rt.block_on(settings_post_via_build_router(
             state,
             &host,
             &path,
@@ -667,6 +690,18 @@ mod postgres_tests {
             body.as_ref(),
             b"evidence rejected\n",
             "EvidenceRejected body must be exact contract bytes"
+        );
+        assert_eq!(
+            resp_headers
+                .get("content-type")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or(""),
+            "text/plain; charset=utf-8",
+            "EvidenceRejected 403 Content-Type MUST be text/plain; charset=utf-8."
+        );
+        assert!(
+            resp_headers.get("www-authenticate").is_none(),
+            "EvidenceRejected 403 MUST NOT carry WWW-Authenticate."
         );
     }
 
@@ -709,7 +744,7 @@ mod postgres_tests {
         let post_token_no_payload = nip98_token_for_method(&key, &url, "POST", None);
         let post_body = b"{\"branch\":\"main\",\"expected_manifest\":\"abc\"}";
 
-        let (status, body) = rt.block_on(settings_post_via_build_router(
+        let (status, resp_headers, body) = rt.block_on(settings_post_via_build_router(
             state,
             &host,
             &path,
@@ -730,6 +765,14 @@ mod postgres_tests {
             body.as_ref(),
             b"evidence rejected\n",
             "EvidenceRejected body must be exact contract bytes"
+        );
+        assert_eq!(
+            resp_headers
+                .get("content-type")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or(""),
+            "text/plain; charset=utf-8",
+            "Missing-payload 403 Content-Type MUST be text/plain; charset=utf-8."
         );
     }
 
@@ -778,7 +821,7 @@ mod postgres_tests {
         // Correct POST token: method=POST + payload tag hash-bound to the body.
         let post_token = nip98_token_for_method(&key, &url, "POST", Some(post_body));
 
-        let (status, _body) = rt.block_on(settings_post_via_build_router(
+        let (status, _resp_headers, _body) = rt.block_on(settings_post_via_build_router(
             state,
             &host,
             &path,
@@ -801,6 +844,13 @@ mod postgres_tests {
             StatusCode::FORBIDDEN,
             "NIP-FI Enforce: same-key valid POST token MUST NOT deny 403. \
              Positive control: proves key pairing succeeded and handler was reached."
+        );
+        assert_ne!(
+            status,
+            StatusCode::SERVICE_UNAVAILABLE,
+            "NIP-FI Enforce: same-key valid POST token MUST NOT return 503. \\
+             503 from Redis/quota outage would precede handler admission and not prove \\
+             the admission path was taken. Ensure Redis is reachable for this test."
         );
     }
 
@@ -837,7 +887,7 @@ mod postgres_tests {
         let url = format!("http://{host}{path}");
         let auth = nip98_get_token(&key, &url);
 
-        let (status, _body) = rt.block_on(settings_get_via_build_router(
+        let (status, _resp_headers, _body) = rt.block_on(settings_get_via_build_router(
             state, &host, &path, &auth,
             None, // No assertion — Off mode must not require one.
         ));
@@ -850,6 +900,91 @@ mod postgres_tests {
             StatusCode::UNAUTHORIZED,
             "Off mode: a valid NIP-98 GET with no assertion MUST NOT return 401 from NIP-FI. \
              Falsifying mutation: set mode=Enforce → guard fires → 401."
+        );
+    }
+
+    // ── Settings via build_router: Enforce + POST + key-mismatch → 403 ────────
+    //
+    // A valid assertion for key-A, but the Authorization header is NIP-98-signed
+    // by key-B (different key), is a pairing mismatch.  In NIP-FI Enforce mode,
+    // `admit_nip_fi_http` maps `AuthorizationDenied` to 403 `authorization denied\n`.
+    //
+    // This proves the pairing gate fires BEFORE any repo lookup — the path
+    // `/git/{key-B-hex}/test-repo/default-branch` uses key-B as owner, so
+    // a mismatch is caught at admission.
+    //
+    // Falsifying mutation: remove the pairing check from `admit_nip_fi_http` →
+    // the request reaches the repo-not-found handler → 404 → assertion fires.
+    //
+    // Complement: the `settings_build_router_enforce_key_mismatch_denied_403`
+    // test above covers GET key-mismatch with the GET proof; this covers POST
+    // key-mismatch with a payload-bound proof.
+    #[test]
+    #[ignore = "requires Postgres"]
+    fn settings_build_router_enforce_post_key_mismatch_is_403() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("current_thread runtime");
+
+        let Some(state) = rt.block_on(enforce_state_with_verifier()) else {
+            panic!("local Postgres not reachable");
+        };
+        let host = format!(
+            "nip-fi-settings-post-mismatch-{}.local",
+            uuid::Uuid::new_v4().simple()
+        );
+        rt.block_on(state.db.ensure_configured_community(&host))
+            .expect("ensure community");
+
+        // key_a: the assertion's nostr_pubkey (the "identity" identity).
+        // key_b: the NIP-98 signer (different key — mismatch).
+        let key_a = Keys::generate();
+        let key_b = Keys::generate();
+        let assertion = mint_assertion(&key_a.public_key().to_hex());
+
+        // Path uses key_a as owner to make it a plausible repo path.
+        let path = format!(
+            "/git/{}/test-repo/default-branch",
+            key_a.public_key().to_hex()
+        );
+        let url = format!("http://{host}{path}");
+        let post_body = b"{\"branch\":\"main\",\"expected_manifest\":\"abc\"}";
+
+        // key_b signs the NIP-98 token; assertion claims key_a.  Mismatch.
+        let post_token = nip98_token_for_method(&key_b, &url, "POST", Some(post_body));
+
+        let (status, resp_headers, body) = rt.block_on(settings_post_via_build_router(
+            state,
+            &host,
+            &path,
+            &post_token,
+            post_body,
+            Some(&assertion),
+        ));
+
+        assert_eq!(
+            status,
+            StatusCode::FORBIDDEN,
+            "Enforce mode POST: key-mismatch (key_b NIP-98 vs key_a assertion) MUST return 403. \
+             Falsifying mutation: remove pairing check → request reaches handler → 404."
+        );
+        assert_eq!(
+            body.as_ref(),
+            b"authorization denied\n",
+            "key-mismatch POST 403 body must be exact 'authorization denied\\n'"
+        );
+        assert_eq!(
+            resp_headers
+                .get("content-type")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or(""),
+            "text/plain; charset=utf-8",
+            "key-mismatch POST 403 Content-Type must be text/plain; charset=utf-8"
+        );
+        assert!(
+            resp_headers.get("www-authenticate").is_none(),
+            "key-mismatch POST 403 MUST NOT carry WWW-Authenticate"
         );
     }
 } // mod postgres_tests

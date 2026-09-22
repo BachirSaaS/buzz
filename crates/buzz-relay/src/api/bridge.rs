@@ -4500,9 +4500,16 @@ mod postgres_tests {
     // `nip_fi_assertion_guard` middleware layer.  See the comment block at the
     // top of `router.rs` for the complete classification and the rationale.
     //
-    // The seam tests below remain the executable proof that each handler's own
-    // `admit_nip_fi_http_on_state` gate is wired correctly (full pairing and
-    // deny-map); the guard is the backstop that fires when a handler omits it.
+    // The tests below exercise the *outer* assertion guard in `router.rs`
+    // (router.rs:232-234): in Enforce mode, a missing or crypto-invalid
+    // `Nostr-Federated-Identity` token is rejected BEFORE the handler runs.
+    //
+    // These tests do NOT prove per-handler `admit_nip_fi_http_on_state` wiring
+    // — deleting a handler's admission call would not change these results.
+    // The cardinality test (`r3_cardinality_actual_caller_query_off_passes_enforce_denies`)
+    // exercises the handler-level gate with a valid assertion.  Per-handler
+    // key-pairing and deny-map are tested in `settings_tests.rs` and the
+    // crypto-seam test above.
 
     /// Build an AppState with NIP-FI in Enforce mode for production-seam tests.
     ///
@@ -4765,9 +4772,16 @@ mod postgres_tests {
 
     // ── F4: bridge POST /events — enforce mode, no assertion → 401 ──────────
     //
-    // Falsifying mutation: delete the `admit_nip_fi_http_on_state` call in
-    // `submit_event` (bridge.rs). The NIP-98 is valid; without the gate the
-    // request reaches ingest → returns 200 or a different non-401 status.
+    // Exercises the OUTER assertion guard in `router.rs` (not the per-handler
+    // gate): build_router with no Nostr-Federated-Identity header → guard fires
+    // before the handler runs → 401 `authentication required\n`.
+    //
+    // Falsifying mutation: remove the outer `nip_fi_assertion_guard` layer
+    // from `build_router` → missing-assertion reaches the handler → different
+    // status/body → assertion fires.
+    //
+    // NOTE: deleting `admit_nip_fi_http_on_state` from submit_event does NOT
+    // change this test — the outer guard fires first.
     #[test]
     #[ignore = "requires Postgres"]
     fn nip_fi_enforce_bridge_events_no_assertion_is_401() {
@@ -5734,6 +5748,22 @@ mod postgres_tests {
             .expect("current_thread runtime");
 
         // ── Off mode: duplicate header must NOT produce cardinality 403 ──────
+        // ── Off mode: duplicate header must NOT produce cardinality 403 ──────
+        //
+        // In Off mode, `admit_nip_fi_http` is not invoked; the legacy bridge
+        // path uses `.get()` (first-value) semantics for Authorization headers.
+        // Two identical valid NIP-98 headers must NOT produce 403 EvidenceRejected.
+        //
+        // We test two cases:
+        //   1. Single valid NIP-98 → reaches the query handler (not 403).
+        //   2. Duplicate valid NIP-98 → same result (not 403 from cardinality),
+        //      same status code as the single case (first-value semantics).
+        //
+        // The exact downstream result (200/503) depends on Redis/DB state;
+        // we assert only that the cardinality gate was NOT the denial point.
+        //
+        // Falsifying mutation: add a cardinality check before legacy auth in Off
+        // mode → both single and duplicate cases return 403 → assertions fire.
         let Some(off_state) = rt.block_on(nip_fi_off_test_state()) else {
             panic!("local Postgres not reachable");
         };
@@ -5743,46 +5773,59 @@ mod postgres_tests {
 
         let keys = Keys::generate();
         let url = format!("https://{host}/query");
-        // Build a valid single NIP-98 header.
+        // Build a valid single NIP-98 header value.
         let nip98_header_value = {
             let mut h = make_nip98_headers(&keys, &url, "POST", b"[]");
             h.remove(axum::http::header::AUTHORIZATION)
                 .expect("authorization header")
         };
 
-        // Put two Authorization headers (no x-pubkey — Off mode should fall
-        // through to legacy `verify_bridge_auth`, which uses `.get()` for the
-        // first value, then the NIP-98 check runs normally).
-        let mut off_headers = axum::http::HeaderMap::new();
-        off_headers.append(
+        // Case 1: single valid NIP-98 → not 403 (cardinality gate does not fire).
+        let mut single_off_headers = axum::http::HeaderMap::new();
+        single_off_headers.append(
             axum::http::header::AUTHORIZATION,
             nip98_header_value.clone(),
         );
-        off_headers.append(
-            axum::http::header::AUTHORIZATION,
-            nip98_header_value.clone(),
+        let single_off_status = rt.block_on(oneshot_request(
+            Arc::clone(&off_state),
+            "POST",
+            "/query",
+            &host,
+            single_off_headers,
+            b"[]",
+        ));
+        assert_ne!(
+            single_off_status,
+            axum::http::StatusCode::FORBIDDEN,
+            "Off mode: single Authorization header MUST NOT return 403 EvidenceRejected.              Positive control: proves Off mode does not apply cardinality gate. [FI-INV-15]"
         );
-        // No x-pubkey — we want the NIP-98 path, not the dev-mode bypass.
 
-        let off_status = rt.block_on(oneshot_request(
+        // Case 2: duplicate valid NIP-98 → Off mode uses first-value; same result.
+        let mut dup_off_headers = axum::http::HeaderMap::new();
+        dup_off_headers.append(
+            axum::http::header::AUTHORIZATION,
+            nip98_header_value.clone(),
+        );
+        dup_off_headers.append(
+            axum::http::header::AUTHORIZATION,
+            nip98_header_value.clone(),
+        );
+        let dup_off_status = rt.block_on(oneshot_request(
             off_state,
             "POST",
             "/query",
             &host,
-            off_headers,
+            dup_off_headers,
             b"[]",
         ));
-
-        // Off mode: cardinality gate MUST NOT fire → NOT 403 EvidenceRejected.
-        // With `require_auth_token = false`, the NIP-98 first-value path runs
-        // and returns 401 from the legacy auth check (auth-required, not
-        // cardinality 403) — confirming legacy behavior is preserved.
+        assert_ne!(
+            dup_off_status,
+            axum::http::StatusCode::FORBIDDEN,
+            "Off mode: duplicate Authorization headers MUST NOT produce 403 EvidenceRejected              from the cardinality gate [FI-INV-15]. Off mode must preserve first-value legacy              behavior — cardinality denial is an active-mode-only contract.              Falsifying mutation: add cardinality check in Off mode → 403 → assertion fires."
+        );
         assert_eq!(
-            off_status,
-            axum::http::StatusCode::UNAUTHORIZED,
-            "Off mode: duplicate Authorization headers MUST produce 401 from the legacy auth \
-             gate (first-value NIP-98 path), NOT 403 from the cardinality gate [FI-INV-15]. \
-             Falsifying mutation: add cardinality check in Off mode → 403 → assertion fires."
+            single_off_status, dup_off_status,
+            "Off mode: duplicate-header result must equal single-header result —              the second header is silently ignored via first-value semantics,              not treated as a cardinality violation."
         );
 
         // ── Enforce mode: build a state with a real injected verifier ─────────
@@ -5929,6 +5972,8 @@ mod postgres_tests {
             "pre-condition: valid assertion must be accepted by the verifier"
         );
 
+        // Use the same key for both NIP-98 and the assertion's nostr_pubkey so
+        // the pairing check succeeds and the request reaches the query handler.
         let keys2 = Keys::generate();
         let url2 = format!("https://{host2}/query");
         let nip98_val2 = {
@@ -5937,22 +5982,48 @@ mod postgres_tests {
                 .expect("authorization header")
         };
 
-        // ── Same-key positive control: 1 Authorization header + valid assertion ─
+        // Mint a same-key assertion: nostr_pubkey = keys2's public key.
+        let same_key_assertion = {
+            use jsonwebtoken::{Algorithm, EncodingKey, Header};
+            let now = chrono::Utc::now().timestamp();
+            let claims = serde_json::json!({
+                "iss": TEST_ISSUER,
+                "aud": TEST_AUDIENCE,
+                "iat": now,
+                "exp": now + 600,
+                "sub": "test-subject",
+                "nostr_pubkey": keys2.public_key().to_hex(),
+            });
+            let mut header = Header::new(Algorithm::ES256);
+            header.kid = Some(TEST_KID.to_owned());
+            header.typ = Some("nip-fi+jwt".to_owned());
+            let key =
+                EncodingKey::from_ec_pem(TEST_EC_PKCS8_PEM.as_bytes()).expect("valid test EC PEM");
+            jsonwebtoken::encode(&header, &claims, &key).expect("sign same-key assertion")
+        };
+        // Pre-condition: same-key assertion is accepted.
+        assert!(
+            enforce_state
+                .nip_fi_verifier
+                .as_deref()
+                .expect("verifier injected")
+                .verify_assertion(&same_key_assertion)
+                .is_ok(),
+            "pre-condition: same-key assertion must be accepted"
+        );
+
+        // ── Same-key positive control: 1 Authorization header + same-key assertion ─
         //
-        // One Authorization header passes the cardinality gate; the request
-        // proceeds to NIP-98 verification and then the assertion pairing check.
-        // The NIP-98 pubkey differs from the assertion's nostr_pubkey → 403
-        // AuthorizationDenied from the pairing check, proving the handler was
-        // reached past the cardinality gate.
+        // One Authorization header passes the cardinality gate; the NIP-98 key
+        // matches the assertion's nostr_pubkey → pairing succeeds → handler reached.
         //
         // Falsifying mutation: always return 403 from cardinality → this test
-        // also returns 403, but the body would differ (EvidenceRejected vs
-        // AuthorizationDenied).  Body assertions distinguish the two paths.
+        // returns 403 EvidenceRejected → assertion fires.
         let mut single_headers = axum::http::HeaderMap::new();
         single_headers.append(axum::http::header::AUTHORIZATION, nip98_val2.clone());
         single_headers.insert(
             buzz_auth::CLIENT_ATTACHED_HEADER,
-            format!("Bearer {valid_assertion}")
+            format!("Bearer {same_key_assertion}")
                 .parse()
                 .expect("valid header"),
         );
@@ -5980,26 +6051,26 @@ mod postgres_tests {
             (status, body)
         });
 
-        // Single header: cardinality gate passes; pairing check fires because
-        // the NIP-98 key (keys2) differs from assertion's nostr_pubkey.
-        // Body must NOT be "evidence rejected\n" (which would indicate the
-        // cardinality gate fired); the key-mismatch path produces a different body.
+        // Single same-key: cardinality passes, pairing passes; handler reached.
+        // Body must NOT be "evidence rejected\n" (cardinality) or 401 (missing assertion).
         assert_ne!(
             single_resp.1.as_ref(),
             b"evidence rejected\n",
-            "Single Authorization header MUST NOT produce 'evidence rejected\\n' body — \
-             that would mean the cardinality gate fired on a single header. \
-             Positive control: the cardinality gate must not fire for count == 1. \
-             Falsifying mutation: lower the gate threshold to 1 → body matches 'evidence rejected'."
+            "Single Authorization header + same-key assertion MUST NOT produce              'evidence rejected\n' body — that would mean the cardinality gate fired.              Falsifying mutation: lower the gate threshold to 1 → body matches 'evidence rejected'."
+        );
+        assert_ne!(
+            single_resp.0,
+            axum::http::StatusCode::UNAUTHORIZED,
+            "Single Authorization header + same-key assertion MUST NOT return 401 —              the assertion was present and valid."
         );
 
-        // ── Enforce mode: duplicate header + valid assertion → cardinality 403 ─
+        // ── Enforce mode: duplicate header + same-key assertion → cardinality 403 ─
         let mut enforce_headers = axum::http::HeaderMap::new();
         enforce_headers.append(axum::http::header::AUTHORIZATION, nip98_val2.clone());
         enforce_headers.append(axum::http::header::AUTHORIZATION, nip98_val2.clone());
         enforce_headers.insert(
             buzz_auth::CLIENT_ATTACHED_HEADER,
-            format!("Bearer {valid_assertion}")
+            format!("Bearer {same_key_assertion}")
                 .parse()
                 .expect("valid header"),
         );

@@ -740,8 +740,11 @@ mod tests;
 /// A scripted JWKS fetcher for integration tests outside this crate.
 ///
 /// Returns pre-queued responses in FIFO order.  When the queue is
-/// exhausted every subsequent call returns `NetworkError`.  Callers can
-/// simulate nonzero latency by inserting sleeps inside the queued futures.
+/// exhausted every subsequent call returns `NetworkError`.  The queued
+/// values are immediate `Result<String, JwksFetchError>` — latency cannot
+/// be added inside the fetcher itself.  To simulate nonzero fetch latency,
+/// add a `tokio::time::sleep` in the outer callback that wraps the fetcher
+/// call (see `composition_nonzero_latency_and_not_due_cache_hit`).
 ///
 /// Sealed for `JwksFetcher` so callers never need to name the sealed trait.
 #[cfg(any(test, feature = "test-utils"))]

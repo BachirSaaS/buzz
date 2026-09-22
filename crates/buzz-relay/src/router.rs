@@ -1386,6 +1386,19 @@ mod tests {
         std::fs::write(dir.join("favicon.svg"), "<svg/>").expect("favicon");
     }
 
+    /// Write a distinct admin bundle with a unique sentinel so tests can
+    /// assert the exact expected bytes and distinguish admin from public HTML.
+    fn write_admin_bundle(dir: &std::path::Path) {
+        std::fs::create_dir_all(dir.join("assets")).expect("assets dir");
+        std::fs::write(
+            dir.join("index.html"),
+            "<!doctype html><html data-bundle=\"admin\"></html>",
+        )
+        .expect("admin index.html");
+        std::fs::write(dir.join("assets/app.js"), "export {};").expect("bundle asset");
+        std::fs::write(dir.join("favicon.svg"), "<svg/>").expect("favicon");
+    }
+
     async fn spa_response(
         state: Arc<AppState>,
         host: &str,
@@ -1939,7 +1952,7 @@ mod tests {
             admin_dir: &std::path::Path,
             web_dir: &std::path::Path,
         ) -> Arc<AppState> {
-            write_bundle(admin_dir);
+            write_admin_bundle(admin_dir);
             write_bundle(web_dir);
 
             let mut config = crate::config::Config::from_env().expect("default config loads");
@@ -2005,6 +2018,12 @@ mod tests {
         for path in &admin_paths {
             let admin_resp = spa_response(deny_state.clone(), "admin.matrix.example", path).await;
             let admin_status = admin_resp.status();
+            let admin_ct = admin_resp
+                .headers()
+                .get(axum::http::header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("")
+                .to_owned();
             let admin_body = axum::body::to_bytes(admin_resp.into_body(), 8192)
                 .await
                 .unwrap_or_default();
@@ -2014,13 +2033,15 @@ mod tests {
                 "DenyProtected: {path} on admin host must be 200 (SPA exemption). \
                  Falsifying mutation: remove is_admin_spa_path || restrict to /reports only → 503"
             );
+            assert_eq!(
+                admin_body.as_ref(),
+                b"<!doctype html><html data-bundle=\"admin\"></html>",
+                "DenyProtected: {path} on admin host 200 must serve the exact admin HTML body; \
+                 distinct content distinguishes admin bundle from public bundle."
+            );
             assert!(
-                std::str::from_utf8(&admin_body)
-                    .unwrap_or("")
-                    .contains("<!doctype html>"),
-                "DenyProtected: {path} on admin host 200 must serve HTML body; \
-                 status-only assertion can pass if the handler accidentally returns 200 \
-                 for a different reason."
+                admin_ct.starts_with("text/html"),
+                "DenyProtected: {path} on admin host 200 Content-Type must be text/html; got '{admin_ct}'"
             );
 
             let tenant_resp = spa_response(deny_state.clone(), "tenant.matrix.example", path).await;
@@ -2064,6 +2085,12 @@ mod tests {
             let admin_resp =
                 spa_response(enforce_state.clone(), "admin.matrix.example", path).await;
             let admin_status = admin_resp.status();
+            let admin_ct = admin_resp
+                .headers()
+                .get(axum::http::header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("")
+                .to_owned();
             let admin_body = axum::body::to_bytes(admin_resp.into_body(), 8192)
                 .await
                 .unwrap_or_default();
@@ -2073,11 +2100,14 @@ mod tests {
                 "Enforce: {path} on admin host must be 200 (SPA exemption active in Enforce too). \
                  Falsifying mutation: remove is_admin_spa_path exemption from Enforce branch → non-200"
             );
+            assert_eq!(
+                admin_body.as_ref(),
+                b"<!doctype html><html data-bundle=\"admin\"></html>",
+                "Enforce: {path} on admin host 200 must serve the exact admin HTML body."
+            );
             assert!(
-                std::str::from_utf8(&admin_body)
-                    .unwrap_or("")
-                    .contains("<!doctype html>"),
-                "Enforce: {path} on admin host 200 must serve HTML body."
+                admin_ct.starts_with("text/html"),
+                "Enforce: {path} on admin host 200 Content-Type must be text/html; got '{admin_ct}'"
             );
 
             let tenant_resp =
