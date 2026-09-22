@@ -100,18 +100,20 @@ relay will fail with an expiry rejection.
 Clients cannot lengthen proofs beyond 60 seconds (NIP-FI §Strict limits the
 max proof window to 60 s). This is a relay-side concern:
 
-- **Relay `relay-v0.5.0` and newer** verify the proof hash only
-  (post-body check), eliminating the transfer-time window entirely. All
-  supported Buzz-hosted relays run this version or newer.
-- **Older self-hosted relays** (pre-`relay-v0.5.0`) may reject large uploads
-  over slow connections. Upgrading the relay is the fix; no client workaround
-  exists within Strict constraints.
+- **The relay release that includes this PR's changes** (the first relay
+  tag > `v0.2.1`) verifies the proof hash only after receiving the full body
+  (post-body check), eliminating the expiry window during transfer.
+  **Update this line with the concrete relay tag once it is cut.**
+- **Older self-hosted relays** (≤ `v0.2.1`) re-verify the full proof expiry
+  after transfer and may reject large uploads over slow connections.
+  Upgrading the relay is the fix; no client workaround exists within Strict
+  constraints.
 
-When releasing a new **relay** version, confirm it carries the post-body
-hash-only check (`NIP-FI §Strict freshness`). When releasing **desktop, CLI,
-or mobile** in an environment where self-hosted, older relays are in use,
-document this floor in your release notes and advise operators to upgrade to
-`relay-v0.5.0` or later before distributing these clients.
+When releasing a new **relay** version that carries the post-body hash-only
+check, record that tag here so release operators know the floor. When releasing
+**desktop, CLI, or mobile** for environments where self-hosted relays may be
+running pre-floor versions, document the floor in release notes and advise
+operators to upgrade the relay before distributing these clients.
 
 ### Mobile
 

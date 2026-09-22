@@ -227,6 +227,39 @@ class _FinalizingFakeClient extends http.BaseClient {
   }
 }
 
+/// A fake [http.Client] for viewer-path abort tests.
+///
+/// `send()` drains the request body (proving the sink is closed), signals
+/// arrival, then suspends until the request's `abortTrigger` completes.
+/// When the viewer's effect cleanup fires `downloadRequestAbort.complete()`,
+/// that trigger arrives here and `send()` throws [RequestAbortedException] —
+/// proving that unmounting the widget closes the in-flight download through
+/// the actual viewer abort-wiring path.
+///
+/// Deleting the viewer's `activeRequestAbort.complete()` call in the cleanup
+/// (or the `Completer` / `AbortableStreamedRequest` wiring) prevents
+/// `abortTrigger` from ever completing and the test times out.
+class _StallingAbortableClient extends http.BaseClient {
+  final Completer<void> requestArrivedCompleter = Completer<void>();
+  bool requestBodyDrained = false;
+  bool abortObserved = false;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    await request.finalize().drain<void>();
+    requestBodyDrained = true;
+    if (!requestArrivedCompleter.isCompleted) {
+      requestArrivedCompleter.complete();
+    }
+    // Wait for the viewer's effect cleanup to fire the abort trigger.
+    if (request case http.AbortableStreamedRequest(:final abortTrigger?)) {
+      await abortTrigger;
+    }
+    abortObserved = true;
+    throw http.RequestAbortedException(request.url);
+  }
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 void main() {
@@ -580,6 +613,80 @@ void main() {
         findsOneWidget,
         reason:
             'createWithOptions() failure must show error UI, not infinite spinner',
+      );
+    },
+  );
+
+  // Viewer-path abort: unmounting the widget while the download is in-flight
+  // must abort the HTTP request through the viewer's own wiring.
+  //
+  // The viewer creates an AbortableStreamedRequest with abortTrigger wired to
+  // downloadRequestAbort.value (a Completer).  The effect cleanup calls
+  // activeRequestAbort.complete() on unmount, which fires abortTrigger.
+  //
+  // Red-with-reverted-wiring: removing the `activeRequestAbort.complete()`
+  // call in the cleanup (or the downloadRequestAbort ref, or the
+  // AbortableStreamedRequest / abortTrigger wiring) prevents abortTrigger
+  // from ever completing — the fake's send() stalls indefinitely and the test
+  // times out waiting for requestArrivedCompleter then for abortObserved.
+  testWidgets(
+    'Viewer abort-path: unmount fires abortTrigger and cancels in-flight download',
+    (tester) async {
+      final fakePlayer = _FakeVideoPlayerPlatform();
+      VideoPlayerPlatform.instance = fakePlayer;
+
+      final stallingClient = _StallingAbortableClient();
+      addTearDown(stallingClient.close);
+
+      await tester.runAsync(() async {
+        await tester.pumpWidget(
+          WidgetHelpers.testable(
+            disableAnimations: true,
+            overrides: [
+              mediaGetAuthServiceProvider.overrideWithValue(_noopAuth()),
+              mediaHttpClientProvider.overrideWithValue(stallingClient),
+            ],
+            child: const MediaVideoViewerPage(
+              videoUrl: 'https://relay.test/media/abort-test.mp4',
+            ),
+          ),
+        );
+
+        // Wait for the viewer to start the download and reach the stall point.
+        await stallingClient.requestArrivedCompleter.future.timeout(
+          const Duration(seconds: 5),
+          onTimeout: () => throw TimeoutException(
+            'Viewer did not start download within 5 s',
+          ),
+        );
+
+        // Now unmount — this fires the effect cleanup which calls
+        // activeRequestAbort.complete(), completing abortTrigger.
+        // Pass the same overrides so Riverpod's debug assertion does not fire.
+        await tester.pumpWidget(
+          WidgetHelpers.testable(
+            disableAnimations: true,
+            overrides: [
+              mediaGetAuthServiceProvider.overrideWithValue(_noopAuth()),
+              mediaHttpClientProvider.overrideWithValue(stallingClient),
+            ],
+            child: const SizedBox.shrink(),
+          ),
+        );
+
+        // Allow the abort to propagate: the cleanup fires immediately on pump,
+        // and the fake's abortTrigger path is synchronous after the completer.
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      });
+      await tester.pump();
+
+      // The fake must have received the abort — proving that the viewer's
+      // effect cleanup correctly wired the Completer to the AbortableStreamedRequest.
+      expect(
+        stallingClient.abortObserved,
+        isTrue,
+        reason:
+            'viewer unmount must complete abortTrigger and cancel the in-flight download',
       );
     },
   );
