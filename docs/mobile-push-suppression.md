@@ -6,7 +6,7 @@ Terminology is defined in [CONTEXT.md](../CONTEXT.md#notifications).
 
 ## Purpose
 
-Avoid redundant [mobile push notifications](../CONTEXT.md#mobile-push-notification) while the user is active on a computer where Buzz can receive the relevant community's activity. The intended behavior follows Slack's desktop-first notification model; it does not require proof that each message was visible or read.
+Keep [mobile push notifications](../CONTEXT.md#mobile-push-notification) quiet while the user is active on a computer where Buzz can receive the relevant community's activity. The intended behavior follows Slack's desktop-first notification model; it does not require proof that each message was visible or read. Suppression does not guarantee an alert on another device. If desktop alerts are disabled or silenced, the user may receive no alert on either device, including for DMs and mentions. The message remains unread, and its suppressed mobile push notification is not replayed later.
 
 ## Agreed requirements
 
@@ -91,7 +91,7 @@ Avoid redundant [mobile push notifications](../CONTEXT.md#mobile-push-notificati
 | Situation | Agreed outcome |
 | --- | --- |
 | User works in an editor; Buzz runs in the background and receives community activity | Suppress otherwise eligible mobile push notifications for that community |
-| Desktop alerts are disabled, blocked by OS permissions, or silenced by Focus/Do Not Disturb | Do not change suppression eligibility |
+| User works in another app while Buzz qualifies for suppression, but desktop alerts are disabled, blocked by OS permissions, or silenced by Focus/Do Not Disturb | Suppress mobile push notifications even though neither device may alert; the message remains unread and the suppressed notification is not replayed |
 | One mobile installation disables push while another still needs suppression for the same identity and community | Continue desktop suppression activity signals |
 | No mobile installation needs suppression for an identity and community | Stop desktop suppression activity signals for that identity and community |
 | User views one channel; a DM arrives elsewhere in the same connected community | The DM need not be visible for its mobile push notification to be suppressed |
