@@ -1475,214 +1475,336 @@ mod tests {
     }
 
     // ── F5 production-path membership regressions ──────────────────────────
-    // These tests exercise the real `enforce_relay_membership` gate through the
-    // actual handlers — not constructed MediaDenial wrappers — so reverting the
-    // `media_denial(e, strictness)` wiring at the call sites causes them to fail.
-    //
-    // Test seam: `config.test_blossom_strictness = Some(Strict)` selects Strict
-    // mode without activating production enforcement (the TODO(#7264) stub is
-    // bypassed only in cfg(test) builds).
+    // These tests live in `mod postgres_tests` so the nextest postgres-ci
+    // profile discovers them via `test(/postgres_tests::/)` and attaches the
+    // setup and isolation scripts.  All tests call `ensure_configured_community`
+    // which performs a real DB upsert — they require a live PostgreSQL service
+    // and are not safe to run in the unit lane (`just test-unit`).
 
-    async fn test_state_with_membership(strictness: BlossomStrictness) -> Arc<AppState> {
-        let mut config = crate::config::Config::from_env().expect("default config loads");
-        config.require_relay_membership = true;
-        config.redis_url = "redis://127.0.0.1:1".to_string();
-        config.media_uploads_per_minute = 10;
-        config.media_max_concurrent_uploads = 4;
-        config.media_max_concurrent_uploads_per_pubkey = 2;
-        config.test_blossom_strictness = Some(strictness);
+    mod postgres_tests {
+        use super::*;
 
-        let pool = sqlx::PgPool::connect_lazy(&config.database_url).expect("lazy pg pool");
-        let db = buzz_db::Db::from_pool(pool.clone());
-        db.ensure_configured_community("relay.example")
-            .await
-            .expect("seed relay.example community for membership tests");
-        let redis_pool = deadpool_redis::Config::from_url(&config.redis_url)
-            .create_pool(Some(deadpool_redis::Runtime::Tokio1))
-            .expect("redis pool");
-        let pubsub = Arc::new(
-            buzz_pubsub::PubSubManager::new(&config.redis_url, redis_pool.clone())
+        /// Provision a membership-enabled AppState whose community host is
+        /// "relay.example".  Returns both the state and the seeded community
+        /// record so callers can add members via `state.db.add_relay_member`.
+        async fn state_and_community(
+            strictness: BlossomStrictness,
+        ) -> (Arc<AppState>, buzz_db::EnsuredCommunityRecord) {
+            let mut config = crate::config::Config::from_env().expect("default config loads");
+            config.require_relay_membership = true;
+            config.redis_url = "redis://127.0.0.1:1".to_string();
+            config.media_uploads_per_minute = 10;
+            config.media_max_concurrent_uploads = 4;
+            config.media_max_concurrent_uploads_per_pubkey = 2;
+            config.test_blossom_strictness = Some(strictness);
+
+            let pool = sqlx::PgPool::connect_lazy(&config.database_url).expect("lazy pg pool");
+            let db = buzz_db::Db::from_pool(pool.clone());
+            let community = db
+                .ensure_configured_community("relay.example")
                 .await
-                .expect("pubsub manager"),
-        );
-        let audit = buzz_audit::AuditService::new(pool.clone());
-        let auth = buzz_auth::AuthService::new(config.auth.clone());
-        let search = buzz_search::SearchService::new(pool.clone());
-        let workflow_engine = Arc::new(buzz_workflow::WorkflowEngine::new(
-            db.clone(),
-            buzz_workflow::WorkflowConfig::default(),
-        ));
-        let media_storage = buzz_media::MediaStorage::new(&config.media).expect("media storage");
-        let (state, _audit_shutdown) = AppState::new(
-            config,
-            db,
-            redis_pool,
-            audit,
-            pubsub,
-            auth,
-            search,
-            workflow_engine,
-            nostr::Keys::generate(),
-            media_storage,
-        );
-        Arc::new(state)
-    }
+                .expect("seed relay.example community for membership tests");
+            let redis_pool = deadpool_redis::Config::from_url(&config.redis_url)
+                .create_pool(Some(deadpool_redis::Runtime::Tokio1))
+                .expect("redis pool");
+            let pubsub = Arc::new(
+                buzz_pubsub::PubSubManager::new(&config.redis_url, redis_pool.clone())
+                    .await
+                    .expect("pubsub manager"),
+            );
+            let audit = buzz_audit::AuditService::new(pool.clone());
+            let auth = buzz_auth::AuthService::new(config.auth.clone());
+            let search = buzz_search::SearchService::new(pool.clone());
+            let workflow_engine = Arc::new(buzz_workflow::WorkflowEngine::new(
+                db.clone(),
+                buzz_workflow::WorkflowConfig::default(),
+            ));
+            let media_storage =
+                buzz_media::MediaStorage::new(&config.media).expect("media storage");
+            let (state, _audit_shutdown) = AppState::new(
+                config,
+                db,
+                redis_pool,
+                audit,
+                pubsub,
+                auth,
+                search,
+                workflow_engine,
+                nostr::Keys::generate(),
+                media_storage,
+            );
+            (Arc::new(state), community)
+        }
 
-    fn upload_auth_header(keys: &Keys, sha256: &str) -> String {
-        let now = Timestamp::now().as_secs();
-        let exp = (now + 55).to_string();
-        let tags = vec![
-            Tag::parse(["t", "upload"]).unwrap(),
-            Tag::parse(["x", sha256]).unwrap(),
-            Tag::parse(["expiration", &exp]).unwrap(),
-            Tag::parse(["server", "relay.example"]).unwrap(),
-        ];
-        let event = EventBuilder::new(Kind::from(24242), "Upload buzz-media")
-            .tags(tags)
-            .sign_with_keys(keys)
-            .expect("sign upload auth");
-        format!(
-            "Nostr {}",
-            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(event.as_json().as_bytes())
-        )
-    }
-
-    /// Read membership denial in Strict mode must produce NIP-FI fixed
-    /// `authorization denied\n` 403 text/plain.
-    ///
-    /// Red-with-reverted-wiring: reverting `media_denial(e, strictness)` at
-    /// the read membership call site (line 638) back to `MediaDenial::from`
-    /// would produce JSON `{"error":"relay membership required"}` 403 —
-    /// this test would fail on content-type and body assertions.
-    #[tokio::test]
-    async fn strict_read_membership_denial_produces_authorization_denied() {
-        let keys = Keys::generate();
-        let auth = media_get_auth_header(&keys, media_get_tags_for("relay.example", None));
-        let state = test_state_with_membership(BlossomStrictness::Strict).await;
-        let router = axum::Router::new()
-            .route(
-                "/media/{sha256_ext}",
-                axum::routing::get(get_blob).head(head_blob),
+        fn upload_auth_header_for(keys: &Keys, sha256: &str) -> String {
+            let now = Timestamp::now().as_secs();
+            let exp = (now + 55).to_string();
+            let tags = vec![
+                Tag::parse(["t", "upload"]).unwrap(),
+                Tag::parse(["x", sha256]).unwrap(),
+                Tag::parse(["expiration", &exp]).unwrap(),
+                Tag::parse(["server", "relay.example"]).unwrap(),
+            ];
+            let event = EventBuilder::new(Kind::from(24242), "Upload buzz-media")
+                .tags(tags)
+                .sign_with_keys(keys)
+                .expect("sign upload auth");
+            format!(
+                "Nostr {}",
+                base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(event.as_json().as_bytes())
             )
-            .with_state(state);
+        }
 
-        let response = router
-            .oneshot(media_request("GET", Some(auth)))
-            .await
-            .expect("response");
+        /// Read membership denial in Strict mode must produce NIP-FI fixed
+        /// `authorization denied\n` 403 text/plain, no WWW-Authenticate.
+        ///
+        /// Red-with-reverted-wiring: reverting `media_denial(e, strictness)` at
+        /// the read membership call site back to `MediaDenial::from` produces
+        /// JSON 403 — this test fails on content-type and body assertions.
+        #[tokio::test]
+        #[ignore = "requires Postgres"]
+        async fn strict_read_membership_denial_produces_authorization_denied() {
+            let keys = Keys::generate();
+            let auth = media_get_auth_header(&keys, media_get_tags_for("relay.example", None));
+            let (state, _) = state_and_community(BlossomStrictness::Strict).await;
+            let router = axum::Router::new()
+                .route(
+                    "/media/{sha256_ext}",
+                    axum::routing::get(get_blob).head(head_blob),
+                )
+                .with_state(state);
 
-        assert_eq!(
-            response.status(),
-            StatusCode::FORBIDDEN,
-            "read membership denial must be 403 in Strict mode"
-        );
-        let ct = response
-            .headers()
-            .get("content-type")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("");
-        assert!(
-            ct.contains("text/plain"),
-            "Strict membership denial must be text/plain, got: {ct}"
-        );
-        assert!(
-            response.headers().get("www-authenticate").is_none(),
-            "403 authorization denied must not carry WWW-Authenticate"
-        );
-        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        assert_eq!(
-            body.as_ref(),
-            b"authorization denied\n",
-            "Strict read membership body must be 'authorization denied\\n'"
-        );
-    }
+            let response = router
+                .oneshot(media_request("GET", Some(auth)))
+                .await
+                .expect("response");
 
-    /// Read membership denial in Permissive mode must preserve legacy JSON 403.
-    ///
-    /// This confirms the Permissive path is not affected by the Strict wiring.
-    #[tokio::test]
-    async fn permissive_read_membership_denial_keeps_legacy_json_403() {
-        let keys = Keys::generate();
-        let auth = media_get_auth_header(&keys, media_get_tags_for("relay.example", None));
-        let state = test_state_with_membership(BlossomStrictness::Permissive).await;
-        let router = axum::Router::new()
-            .route(
-                "/media/{sha256_ext}",
-                axum::routing::get(get_blob).head(head_blob),
-            )
-            .with_state(state);
+            assert_eq!(
+                response.status(),
+                StatusCode::FORBIDDEN,
+                "read membership denial must be 403 in Strict mode"
+            );
+            let ct = response
+                .headers()
+                .get("content-type")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("");
+            assert!(
+                ct.contains("text/plain"),
+                "Strict membership denial must be text/plain, got: {ct}"
+            );
+            assert!(
+                response.headers().get("www-authenticate").is_none(),
+                "403 authorization denied must not carry WWW-Authenticate"
+            );
+            let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+            assert_eq!(
+                body.as_ref(),
+                b"authorization denied\n",
+                "Strict read membership body must be 'authorization denied\\n'"
+            );
+        }
 
-        let response = router
-            .oneshot(media_request("GET", Some(auth)))
-            .await
-            .expect("response");
+        /// Read membership denial in Permissive mode must preserve the exact
+        /// legacy JSON body (`{"error":"relay membership required"}`) and
+        /// application/json content-type — no WWW-Authenticate challenge.
+        ///
+        /// Confirms: (a) Permissive is unaffected by the Strict fence wiring,
+        /// (b) the exact legacy body text is preserved (not just the status).
+        #[tokio::test]
+        #[ignore = "requires Postgres"]
+        async fn permissive_read_membership_denial_keeps_exact_legacy_json_403() {
+            let keys = Keys::generate();
+            let auth = media_get_auth_header(&keys, media_get_tags_for("relay.example", None));
+            let (state, _) = state_and_community(BlossomStrictness::Permissive).await;
+            let router = axum::Router::new()
+                .route(
+                    "/media/{sha256_ext}",
+                    axum::routing::get(get_blob).head(head_blob),
+                )
+                .with_state(state);
 
-        assert_eq!(
-            response.status(),
-            StatusCode::FORBIDDEN,
-            "read membership denial must be 403 in Permissive mode"
-        );
-        let ct = response
-            .headers()
-            .get("content-type")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("");
-        assert!(
-            ct.contains("application/json"),
-            "Permissive read membership denial must keep JSON CT, got: {ct}"
-        );
-    }
+            let response = router
+                .oneshot(media_request("GET", Some(auth)))
+                .await
+                .expect("response");
 
-    /// Upload membership denial in Strict mode must produce NIP-FI fixed
-    /// `authorization denied\n` 403 text/plain.
-    ///
-    /// Red-with-reverted-wiring: reverting `media_denial(e, strictness)` at
-    /// the upload membership call site (line 291) back to `MediaDenial::from`
-    /// would produce JSON `{"error":"relay membership required"}` 403 —
-    /// this test would fail on content-type and body assertions.
-    #[tokio::test]
-    async fn strict_upload_membership_denial_produces_authorization_denied() {
-        let keys = Keys::generate();
-        let sha256 = "a".repeat(64);
-        let auth_header = upload_auth_header(&keys, &sha256);
-        let state = test_state_with_membership(BlossomStrictness::Strict).await;
-        let router = axum::Router::new()
-            .route("/upload", axum::routing::put(upload_blob))
-            .with_state(state);
+            assert_eq!(
+                response.status(),
+                StatusCode::FORBIDDEN,
+                "read membership denial must be 403 in Permissive mode"
+            );
+            let ct = response
+                .headers()
+                .get("content-type")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("");
+            assert!(
+                ct.contains("application/json"),
+                "Permissive read membership denial must keep JSON CT, got: {ct}"
+            );
+            assert!(
+                response.headers().get("www-authenticate").is_none(),
+                "Permissive 403 must not carry WWW-Authenticate"
+            );
+            let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+            let json: serde_json::Value =
+                serde_json::from_slice(&body).expect("Permissive read body must be valid JSON");
+            assert_eq!(
+                json["error"], "relay membership required",
+                "Permissive read JSON body must preserve legacy error text"
+            );
+        }
 
-        let request = Request::builder()
-            .method("PUT")
-            .uri("/upload")
-            .header(header::HOST, "relay.example")
-            .header(header::AUTHORIZATION, auth_header)
-            .header("x-sha-256", &sha256)
-            .header(header::CONTENT_TYPE, "application/octet-stream")
-            .body(Body::from(b"fake body".to_vec()))
-            .expect("upload request");
+        /// Upload membership denial in Strict mode must produce NIP-FI fixed
+        /// `authorization denied\n` 403 text/plain.
+        ///
+        /// Red-with-reverted-wiring: reverting `media_denial(e, strictness)` at
+        /// the upload membership call site back to `MediaDenial::from` produces
+        /// JSON 403 — this test fails on content-type and body assertions.
+        #[tokio::test]
+        #[ignore = "requires Postgres"]
+        async fn strict_upload_membership_denial_produces_authorization_denied() {
+            let keys = Keys::generate();
+            let sha256 = "a".repeat(64);
+            let auth_header = upload_auth_header_for(&keys, &sha256);
+            let (state, _) = state_and_community(BlossomStrictness::Strict).await;
+            let router = axum::Router::new()
+                .route("/upload", axum::routing::put(upload_blob))
+                .with_state(state);
 
-        let response = router.oneshot(request).await.expect("response");
+            let request = Request::builder()
+                .method("PUT")
+                .uri("/upload")
+                .header(header::HOST, "relay.example")
+                .header(header::AUTHORIZATION, auth_header)
+                .header("x-sha-256", &sha256)
+                .header(header::CONTENT_TYPE, "application/octet-stream")
+                .body(Body::from(b"fake body".to_vec()))
+                .expect("upload request");
 
-        assert_eq!(
-            response.status(),
-            StatusCode::FORBIDDEN,
-            "upload membership denial must be 403 in Strict mode"
-        );
-        let ct = response
-            .headers()
-            .get("content-type")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("");
-        assert!(
-            ct.contains("text/plain"),
-            "Strict upload membership denial must be text/plain, got: {ct}"
-        );
-        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        assert_eq!(
-            body.as_ref(),
-            b"authorization denied\n",
-            "Strict upload membership body must be 'authorization denied\\n'"
-        );
-    }
+            let response = router.oneshot(request).await.expect("response");
+
+            assert_eq!(
+                response.status(),
+                StatusCode::FORBIDDEN,
+                "upload membership denial must be 403 in Strict mode"
+            );
+            let ct = response
+                .headers()
+                .get("content-type")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("");
+            assert!(
+                ct.contains("text/plain"),
+                "Strict upload membership denial must be text/plain, got: {ct}"
+            );
+            assert!(
+                response.headers().get("www-authenticate").is_none(),
+                "Strict upload 403 must not carry WWW-Authenticate"
+            );
+            let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+            assert_eq!(
+                body.as_ref(),
+                b"authorization denied\n",
+                "Strict upload membership body must be 'authorization denied\\n'"
+            );
+        }
+
+        /// Upload membership denial in Permissive mode must preserve the exact
+        /// legacy JSON body and application/json content-type.
+        #[tokio::test]
+        #[ignore = "requires Postgres"]
+        async fn permissive_upload_membership_denial_keeps_exact_legacy_json_403() {
+            let keys = Keys::generate();
+            let sha256 = "a".repeat(64);
+            let auth_header = upload_auth_header_for(&keys, &sha256);
+            let (state, _) = state_and_community(BlossomStrictness::Permissive).await;
+            let router = axum::Router::new()
+                .route("/upload", axum::routing::put(upload_blob))
+                .with_state(state);
+
+            let request = Request::builder()
+                .method("PUT")
+                .uri("/upload")
+                .header(header::HOST, "relay.example")
+                .header(header::AUTHORIZATION, auth_header)
+                .header("x-sha-256", &sha256)
+                .header(header::CONTENT_TYPE, "application/octet-stream")
+                .body(Body::from(b"fake body".to_vec()))
+                .expect("upload request");
+
+            let response = router.oneshot(request).await.expect("response");
+
+            assert_eq!(
+                response.status(),
+                StatusCode::FORBIDDEN,
+                "upload membership denial must be 403 in Permissive mode"
+            );
+            let ct = response
+                .headers()
+                .get("content-type")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("");
+            assert!(
+                ct.contains("application/json"),
+                "Permissive upload denial must keep JSON CT, got: {ct}"
+            );
+            assert!(
+                response.headers().get("www-authenticate").is_none(),
+                "Permissive upload 403 must not carry WWW-Authenticate"
+            );
+            let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+            let json: serde_json::Value =
+                serde_json::from_slice(&body).expect("Permissive upload body must be valid JSON");
+            assert_eq!(
+                json["error"], "relay membership required",
+                "Permissive upload JSON body must preserve legacy error text"
+            );
+        }
+
+        /// A confirmed relay member must NOT receive a membership denial on read.
+        ///
+        /// Positive control: separates "non-member denied correctly" from an
+        /// implementation that maps all requests (or all DB errors) into a
+        /// membership denial — which would pass the denial-only cases above.
+        /// A member passes the membership gate and reaches the sidecar check,
+        /// which returns 404 for an unknown blob rather than a membership 403.
+        #[tokio::test]
+        #[ignore = "requires Postgres"]
+        async fn relay_member_read_passes_membership_gate_and_reaches_sidecar() {
+            let keys = Keys::generate();
+            let auth = media_get_auth_header(&keys, media_get_tags_for("relay.example", None));
+            let (state, community) = state_and_community(BlossomStrictness::Strict).await;
+            state
+                .db
+                .add_relay_member(community.id, &keys.public_key().to_hex(), "member", None)
+                .await
+                .expect("add relay member");
+            let router = axum::Router::new()
+                .route(
+                    "/media/{sha256_ext}",
+                    axum::routing::get(get_blob).head(head_blob),
+                )
+                .with_state(state);
+
+            let response = router
+                .oneshot(media_request("GET", Some(auth)))
+                .await
+                .expect("response");
+
+            assert_ne!(
+                response.status(),
+                StatusCode::FORBIDDEN,
+                "relay member must not be denied by membership gate"
+            );
+            assert_eq!(
+                response.status(),
+                StatusCode::NOT_FOUND,
+                "relay member must reach the sidecar gate (404 = no such blob)"
+            );
+        }
+    } // mod postgres_tests
 
     #[test]
     fn feedback_inline_allows_only_sniffed_passive_raster_images() {

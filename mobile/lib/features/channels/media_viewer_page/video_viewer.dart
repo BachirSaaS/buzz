@@ -19,6 +19,13 @@ class MediaVideoViewerPage extends HookConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final controller = useState<VideoPlayerController?>(null);
+    // Tracks a VideoPlayerController that has been created (i.e. platform
+    // resources allocated via createWithOptions()) but whose initialize()+play()
+    // chain has not yet completed or failed.  The effect cleanup path disposes
+    // this directly so a close-during-init does not leak the native player,
+    // even when the async chain is suspended waiting for the initialized event
+    // or for play() to return.
+    final pendingController = useRef<VideoPlayerController?>(null);
     final videoFile = useRef<File?>(null);
     final downloadRequestAbort = useRef<Completer<void>?>(null);
     final downloadSubscription = useRef<StreamSubscription<List<int>>?>(null);
@@ -64,6 +71,14 @@ class MediaVideoViewerPage extends HookConsumerWidget {
             uri,
             abortTrigger: requestAbort.future,
           )..headers.addAll(auth.headersFor(videoUrl));
+          // A GET carries no request body.  StreamedRequest's sink MUST be
+          // closed to signal end-of-stream: IOClient.send() awaits
+          // stream.pipe(ioRequest) before returning a response, and pipe
+          // blocks until the source stream ends.  Without close(), every
+          // download hangs in loading until the request is aborted.
+          // close() is unawaited because it may not complete until after
+          // the pipe is in progress (streamed_request.dart:15-29).
+          unawaited(request.sink.close());
           late final http.StreamedResponse response;
           try {
             response = await client.send(request);
@@ -130,6 +145,13 @@ class MediaVideoViewerPage extends HookConsumerWidget {
           }
 
           final localController = VideoPlayerController.file(file);
+          // Register as pending BEFORE the first async suspension
+          // (initialize()) so the effect cleanup can always reach it.
+          // video_player 2.11.1 allocates the native player synchronously
+          // inside createWithOptions() before _creatingCompleter completes;
+          // a close arriving at any point after this line will find the
+          // controller in pendingController and dispose it correctly.
+          pendingController.value = localController;
           // Own the controller before any async suspension so a failed
           // initialize() or play() — or a disposal that races with init —
           // can always call dispose() unconditionally [F2r(a)].
@@ -143,20 +165,26 @@ class MediaVideoViewerPage extends HookConsumerWidget {
           try {
             await localController.initialize();
             if (disposed) {
+              // Effect cleanup will also see pendingController.value and
+              // dispose it; clear the ref here to avoid a double-dispose.
+              pendingController.value = null;
               await localController.dispose();
               await deleteVideoFile();
               return;
             }
             await localController.play();
             if (disposed) {
+              pendingController.value = null;
               await localController.dispose();
               await deleteVideoFile();
               return;
             }
+            pendingController.value = null;
             controller.value = localController;
           } catch (_) {
             // dispose() before re-throwing so the native player is released
             // even if the outer catch is the only error handler.
+            pendingController.value = null;
             await localController.dispose();
             rethrow;
           }
@@ -174,6 +202,15 @@ class MediaVideoViewerPage extends HookConsumerWidget {
         }
         unawaited(downloadSubscription.value?.cancel() ?? Future.value());
         unawaited(downloadSink.value?.close() ?? Future.value());
+        // Dispose whichever controller is reachable: a controller that has
+        // finished init+play and been published to controller.value, OR one
+        // that is still mid-init (registered in pendingController before the
+        // first await).  Exactly one of these is non-null at any moment;
+        // clearing both refs prevents a double-dispose if initializeVideo()
+        // races with the teardown.
+        final activePending = pendingController.value;
+        pendingController.value = null;
+        if (activePending != null) unawaited(activePending.dispose());
         final activeController = controller.value;
         if (activeController != null) unawaited(activeController.dispose());
         unawaited(deleteVideoFile());
