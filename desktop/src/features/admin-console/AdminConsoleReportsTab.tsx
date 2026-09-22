@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { Button } from "@/shared/ui/button";
 import { Badge } from "@/shared/ui/badge";
 import { cn } from "@/shared/lib/cn";
+import { PubKey } from "@/shared/ui/PubKey";
 import {
   getAdminReport,
   listAdminReports,
@@ -120,6 +121,22 @@ function actionVariant(
   }
 }
 
+// ── Kick-on-open-channel friendly error translation ───────────────────────
+
+/**
+ * Translate raw relay enforcement error messages into operator-friendly copy.
+ *
+ * The relay records enforcement errors verbatim (anyhow error strings); they
+ * are informative but use implementation vocabulary. Map the known kick
+ * AlreadyGone message to a clear operator-facing action recommendation.
+ */
+function friendlyEnforcementError(message: string): string {
+  if (message.includes("kick target was already absent")) {
+    return "No channel membership to remove — use Timeout or Ban for open channels.";
+  }
+  return message;
+}
+
 // ── Enforcement state block ───────────────────────────────────────────────
 
 /**
@@ -206,7 +223,7 @@ function EnforcementStateBlock({
       </div>
       {activeAction.errorMessage && (
         <p className="text-xs text-muted-foreground break-words">
-          {activeAction.errorMessage}
+          {friendlyEnforcementError(activeAction.errorMessage)}
         </p>
       )}
       {actionStatus === "failed" && canMutate && (
@@ -633,6 +650,15 @@ export function ReportsTab({
         const summary = report.reportType || "Report";
         const status = report.status;
         const isProcessing = status === "processing";
+        // Show a brief reporter → target snippet so rows are distinguishable.
+        const snippet = [
+          report.reporterPubkey
+            ? `reporter: ${report.reporterPubkey.slice(0, 8)}…`
+            : null,
+          report.target ? `target: ${report.target.slice(0, 8)}…` : null,
+        ]
+          .filter(Boolean)
+          .join(" · ");
         return (
           <li key={id}>
             {/* Processing rows stay navigable: the enforcement state (progress,
@@ -646,6 +672,11 @@ export function ReportsTab({
               type="button"
             >
               <span className="block font-medium">{summary}</span>
+              {snippet && (
+                <span className="block text-xs text-muted-foreground font-mono truncate">
+                  {snippet}
+                </span>
+              )}
               {status && (
                 <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   {status}
@@ -664,6 +695,12 @@ export function ReportsTab({
 
 function ReportFields({ data }: { data: AdminReportDetailDto }) {
   const status = data.status ?? "";
+  // Valid 64-char hex pubkeys get the PubKey widget (compact npub + hover
+  // popover). Shorter/invalid strings (test fixtures, placeholder values)
+  // fall back to the plain mono DetailRow so existing behaviour is preserved.
+  const isHex64 = (s: string | undefined | null): s is string =>
+    typeof s === "string" && /^[0-9a-f]{64}$/.test(s.toLowerCase());
+
   return (
     <div
       className="space-y-1.5 rounded-md border border-border/60 px-3 py-2.5"
@@ -677,9 +714,39 @@ function ReportFields({ data }: { data: AdminReportDetailDto }) {
       <DetailRow label="Community" value={data.communityId} mono />
       <DetailRow label="Host" value={data.communityHost} />
       <DetailRow label="Event ID" value={data.reportEventId} mono />
-      <DetailRow label="Reporter" value={data.reporterPubkey} mono />
+      {/* Reporter uses PubKey widget for valid keys; falls back to mono text. */}
+      {isHex64(data.reporterPubkey) ? (
+        <div className="flex gap-2 text-xs">
+          <span className="w-28 shrink-0 text-muted-foreground">Reporter</span>
+          <PubKey
+            className="min-w-0"
+            interactive
+            pubkey={data.reporterPubkey}
+            testId="report-reporter-pubkey"
+            variant="compact"
+          />
+        </div>
+      ) : (
+        <DetailRow label="Reporter" value={data.reporterPubkey} mono />
+      )}
       <DetailRow label="Target kind" value={data.targetKind} />
-      <DetailRow label="Target" value={data.target} mono />
+      {/* Target uses PubKey widget for pubkey/event reports with valid keys. */}
+      {isHex64(data.target) &&
+      (data.targetKind?.toLowerCase() === "pubkey" ||
+        data.targetKind?.toLowerCase() === "event") ? (
+        <div className="flex gap-2 text-xs">
+          <span className="w-28 shrink-0 text-muted-foreground">Target</span>
+          <PubKey
+            className="min-w-0"
+            interactive
+            pubkey={data.target}
+            testId="report-target-pubkey"
+            variant="compact"
+          />
+        </div>
+      ) : (
+        <DetailRow label="Target" value={data.target} mono />
+      )}
       <DetailRow label="Channel" value={data.channelId ?? null} mono />
       <DetailRow label="Note" value={data.note ?? null} />
       <DetailRow label="Resolved by" value={data.resolvedBy ?? null} mono />
@@ -694,7 +761,22 @@ function ReportFields({ data }: { data: AdminReportDetailDto }) {
               <span className="ml-1.5 text-destructive">(deleted)</span>
             )}
           </p>
-          <DetailRow label="Author" value={data.message.authorPubkey} mono />
+          {isHex64(data.message.authorPubkey) ? (
+            <div className="flex gap-2 text-xs">
+              <span className="w-28 shrink-0 text-muted-foreground">
+                Author
+              </span>
+              <PubKey
+                className="min-w-0"
+                interactive
+                pubkey={data.message.authorPubkey}
+                testId="report-message-author-pubkey"
+                variant="compact"
+              />
+            </div>
+          ) : (
+            <DetailRow label="Author" value={data.message.authorPubkey} mono />
+          )}
           <DetailRow label="Content" value={data.message.content} />
           <DetailRow
             label="Msg created"

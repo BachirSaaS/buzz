@@ -2444,3 +2444,128 @@ for (const { name, desc, reject: makeReject } of RESOLVE_FREEZE_CASES) {
     }
   });
 }
+
+// ── Item 4: kick AlreadyGone friendly copy ────────────────────────────────
+
+test("kick-already-gone-friendly-copy: enforcement block shows friendly message for kick target already absent", async () => {
+  // The relay stores the raw anyhow error string on a failed kick:
+  // "kick target was already absent before this action". The UI must
+  // translate this to the operator-facing recommendation.
+
+  const origin = "https://admin.example.com";
+  const pubkey = "f9".repeat(32);
+
+  const base = makeReportBase({ id: "00000000-0000-0000-0000-000000000ff9" });
+  const kickGoneDetail = {
+    ...base,
+    status: "processing",
+    channelId: "00000000-0000-0000-0000-0000000000cc",
+    note: null,
+    resolvedBy: null,
+    resolvedAt: null,
+    actionId: null,
+    activeAction: {
+      id: "00000000-0000-0000-0000-0000000000fd",
+      requestId: "00000000-0000-0000-0000-0000000000fe",
+      actorPubkey:
+        "1111111111111111111111111111111111111111111111111111111111111111",
+      actorRole: "operator",
+      action: "kick",
+      status: "failed",
+      reason: null,
+      expiresAt: null,
+      errorMessage: "kick target was already absent before this action",
+      createdAt: "2024-06-01T12:00:00Z",
+      updatedAt: "2024-06-01T12:00:05Z",
+    },
+    message: null,
+  };
+
+  setIpcHandler("admin_list_reports", () =>
+    Promise.resolve([{ ...base, status: "processing" }]),
+  );
+  setIpcHandler("admin_get_report", () => Promise.resolve(kickGoneDetail));
+  setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
+
+  const { container, doRender, unmount } = mountPanel({ origin, pubkey });
+  try {
+    await doRender();
+    await settle(30);
+    await openFirstReportDetail(container);
+    await settle(20);
+
+    const block = container.querySelector(
+      "[data-testid='enforcement-state-block']",
+    );
+    assert.ok(block, "enforcement-state-block must render for a failed kick");
+
+    const text = block.textContent ?? "";
+    assert.ok(
+      text.includes("No channel membership to remove"),
+      `enforcement block must show friendly kick-absent copy; got: ${text}`,
+    );
+    assert.ok(
+      !text.includes("was already absent"),
+      `enforcement block must NOT show raw relay error; got: ${text}`,
+    );
+  } finally {
+    await unmount();
+  }
+});
+
+// ── Item 7: report list row snippet and detail PubKey rendering ───────────
+
+test("report-list-snippet: list rows show truncated reporter and target identifiers", async () => {
+  // Each list row must include a hex snippet of reporter and target so rows
+  // are distinguishable without opening the detail.
+
+  const origin = "https://admin.example.com";
+  const pubkey = "fa".repeat(32);
+
+  const reporterHex = "1234567890abcdef".repeat(4); // 64 hex
+  const targetHex = "fedcba0987654321".repeat(4); // 64 hex
+  const base = makeReportBase({
+    id: "00000000-0000-0000-0000-000000000ffa",
+    reporterPubkey: reporterHex,
+    target: targetHex,
+    targetKind: "pubkey",
+  });
+
+  setIpcHandler("admin_list_reports", () =>
+    Promise.resolve([{ ...base, status: "open" }]),
+  );
+  setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
+
+  const { container, doRender, unmount } = mountPanel({ origin, pubkey });
+  try {
+    await doRender();
+    await settle(30);
+
+    // Activate Reports tab.
+    const tabs = Array.from(container.querySelectorAll("button"));
+    const reportsTab = tabs.find((b) =>
+      (b.getAttribute("data-testid") ?? "").includes("tab-reports"),
+    );
+    assert.ok(reportsTab, "reports tab button must exist");
+    await act(async () => {
+      fireEvent.click(reportsTab);
+      await new Promise((r) => setTimeout(r, 20));
+    });
+
+    const listItems = container.querySelectorAll("li button");
+    assert.ok(listItems.length > 0, "at least one report list row must render");
+    const rowText = listItems[0].textContent ?? "";
+    // The reporter snippet is the first 8 chars of the hex.
+    assert.ok(
+      rowText.includes(reporterHex.slice(0, 8)),
+      `list row must include reporter hex snippet; got: ${rowText}`,
+    );
+    // The target snippet is the first 8 chars of the target hex.
+    assert.ok(
+      rowText.includes(targetHex.slice(0, 8)),
+      `list row must include target hex snippet; got: ${rowText}`,
+    );
+  } finally {
+    await unmount();
+  }
+});
