@@ -14,7 +14,7 @@ import type { OwnerClient, OwnerRequest, OwnerSnapshot } from './owner-protocol.
 
 export type HostDependencies = { credential: typeof managerCredential; status: typeof serviceStatus; start: typeof startService; stop: typeof stopService; reset: typeof resetHost };
 const hostDependencies: HostDependencies = { credential: managerCredential, status: serviceStatus, start: startService, stop: stopService, reset: resetHost };
-const missing = 'Desktop identity unavailable. Open and unlock Buzz, then check again or provide an owner nsec.';
+const missing = 'Desktop identity unavailable. Open and unlock Buzz, or provide an owner nsec. Availability updates automatically.';
 /** Offline Node authority. Session keys have no persistence, snapshot, or relay path. */
 export class OwnerService implements OwnerClient {
   private current: OwnerSnapshot = { signedIn: false, desktop: 'unknown', desktopReason: 'Identity availability has not been checked.', phase: 'idle', message: 'Sign in to manage Host and Agents.', secretLength: 0 };
@@ -22,6 +22,7 @@ export class OwnerService implements OwnerClient {
   private input = '';
   private session?: string;
   private active?: AbortController;
+  private probing?: AbortController;
   private generation = 0;
   private hostOperation = false;
   private disposed = false;
@@ -49,62 +50,74 @@ export class OwnerService implements OwnerClient {
     else if (action === 'append') this.input = (this.input + value.replace(/[\x00-\x1f\x7f]/g, '')).slice(0, 256);
     this.current.secretLength = this.input.length; this.publish();
   }
+  /** Availability checks never own input or replace the last operation result. */
+  private async probe() {
+    if (this.probing || this.active || this.current.signedIn) return false;
+    const abort = new AbortController(); this.probing = abort;
+    try {
+      const result = await this.desktop(true, abort.signal);
+      if (abort.signal.aborted || this.disposed || this.probing !== abort) return false;
+      this.current.desktop = result.available ? 'available' : 'unavailable';
+      this.current.desktopReason = result.available ? 'Desktop entry detected. Sign-in checks identity and access.' : missing;
+      return true;
+    } catch {
+      if (!abort.signal.aborted && !this.disposed && this.probing === abort) {
+        this.current.desktop = 'unavailable'; this.current.desktopReason = missing;
+      }
+      return false;
+    } finally { if (this.probing === abort) this.probing = undefined; this.publish(); }
+  }
   async request(request: OwnerRequest) {
     if (this.disposed) return false;
+    if (request.action === 'probe') return this.probe();
     if (request.action.startsWith('host-')) return this.hostRequest(request);
     if (request.action === 'signout') {
       this.cancel(); this.session = undefined; this.current.signedIn = false; this.current.owner = undefined; this.current.host = undefined; this.current.hostMessage = undefined; this.current.hostPhase = 'idle';
       this.current.message = 'Signed out. Host and agents keep running.'; this.publish(); return true;
     }
     if (this.active || this.current.signedIn) return false;
+    this.probing?.abort(); this.probing = undefined;
     const abort = new AbortController(), generation = ++this.generation;
-    this.active = abort; this.current.phase = 'busy'; this.current.message = request.action === 'probe' ? 'Checking Desktop identity…' : 'Signing in… Esc cancels.'; this.publish();
+    this.active = abort; this.current.phase = 'busy'; this.current.message = 'Signing in… Esc cancels.'; this.publish();
     let error = 'Sign-in failed. No session was opened. Check the retained owner configuration and try again.';
     const check = () => { abort.signal.throwIfAborted(); if (generation !== this.generation || this.disposed) throw Error('Cancelled'); };
     try {
-      if (request.action === 'probe') {
-        const result = await this.desktop(true, abort.signal); check();
-        this.current.desktop = result.available ? 'available' : 'unavailable';
-        this.current.desktopReason = result.available ? 'Desktop entry detected. Sign-in checks identity and access.' : missing;
-        this.current.message = result.available ? 'Buzz Desktop identity is available.' : missing;
-      } else {
-        const before = this.binding();
-        const relay = before?.relay ?? request.relay?.trim();
-        error = 'Enter a relay URL using wss:// (or ws://localhost for local testing). Nothing was changed.';
-        if (!relay) throw Error();
-        const url = new URL(relay);
-        if (url.username || url.password || url.hash || !(url.protocol === 'wss:' || (url.protocol === 'ws:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)))) throw Error();
-        let secret: string;
-        if (request.action === 'signin-desktop') {
-          error = 'Desktop key access failed or was cancelled. Unlock Keychain or provide owner nsec. No session opened.';
-          const result = await this.desktop(false, abort.signal); check();
-          if (!result.secret) throw Error();
-          secret = result.secret;
-        } else if (request.action === 'signin-nsec') {
-          error = 'Enter a valid owner nsec. No session was opened and nothing was saved.';
-          secret = agentNsec(this.input);
-        } else throw Error('Unsupported action');
-        const owner = publicKey(secret); check();
-        error = 'Identity does not match this owner. Use the matching key. Owner and relay were not changed.';
-        const now = this.binding();
-        if (before && !now || now && (now.owner !== owner || now.relay !== relay)) throw Error();
-        error = 'Owner routing changed or was not saved. Reopen sign-in and check configuration. No session opened.';
-        if (!now) createControllerConfig(join(this.home, '.beehive', 'owner'), owner, relay);
-        // Read back the sole public authority after first-use activation.
-        const saved = this.binding();
-        if (saved?.owner !== owner || saved.relay !== relay) throw Error();
+      const before = this.binding();
+      const relay = before?.relay ?? request.relay?.trim();
+      error = 'Enter a relay URL using wss:// (or ws://localhost for local testing). Nothing was changed.';
+      if (!relay) throw Error();
+      const url = new URL(relay);
+      if (url.username || url.password || url.hash || !(url.protocol === 'wss:' || (url.protocol === 'ws:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)))) throw Error();
+      let secret: string;
+      if (request.action === 'signin-desktop') {
+        error = 'Desktop key access failed or was cancelled. Unlock Keychain or provide owner nsec. No session opened.';
+        const result = await this.desktop(false, abort.signal); check();
+        if (!result.secret) throw Error();
+        secret = result.secret;
+      } else if (request.action === 'signin-nsec') {
+        error = 'Enter a valid owner nsec. No session was opened and nothing was saved.';
+        secret = agentNsec(this.input);
+      } else throw Error('Unsupported action');
+      const owner = publicKey(secret); check();
+      error = 'Identity does not match this owner. Use the matching key. Owner and relay were not changed.';
+      const now = this.binding();
+      if (before && !now || now && (now.owner !== owner || now.relay !== relay)) throw Error();
+      error = 'Owner routing changed or was not saved. Reopen sign-in and check configuration. No session opened.';
+      if (!now) createControllerConfig(join(this.home, '.beehive', 'owner'), owner, relay);
+      // Read back the sole public authority after first-use activation.
+      const saved = this.binding();
+      if (saved?.owner !== owner || saved.relay !== relay) throw Error();
+      check();
+      const directory = join(this.home, '.beehive', 'host');
+      error = 'Host identity creation failed. Binding may be saved. Retry sign-in with the same owner and relay; no Host was started.';
+      if (!existsSync(join(directory, 'host-identity.json')) && !pendingHostReset(directory)) {
+        await this.hosts.credential({ action: 'configure', directory, ownerDirectory: join(this.home, '.beehive', 'owner'), label: hostname().slice(0, 128), owner, relay }, abort.signal);
         check();
-        const directory = join(this.home, '.beehive', 'host');
-        error = 'Host identity creation failed. Binding may be saved. Retry sign-in with the same owner and relay; no Host was started.';
-        if (!existsSync(join(directory, 'host-identity.json')) && !pendingHostReset(directory)) {
-          await this.hosts.credential({ action: 'configure', directory, ownerDirectory: join(this.home, '.beehive', 'owner'), label: hostname().slice(0, 128), owner, relay }, abort.signal);
-          check();
-        }
-        const finalBinding = this.binding();
-        if (finalBinding?.owner !== owner || finalBinding.relay !== relay) throw Error('Binding changed');
-        check(); this.session = secret; this.current.signedIn = true; this.current.owner = nip19.npubEncode(owner); this.projectBinding();
-        this.current.message = pendingHostReset(directory) ? 'Signed in. Reset incomplete; open Host to finish Reset Host.' : 'Signed in. Host is configured. No service or agent was started.';
       }
+      const finalBinding = this.binding();
+      if (finalBinding?.owner !== owner || finalBinding.relay !== relay) throw Error('Binding changed');
+      check(); this.session = secret; this.current.signedIn = true; this.current.owner = nip19.npubEncode(owner); this.projectBinding();
+      this.current.message = pendingHostReset(directory) ? 'Signed in. Reset incomplete; open Host to finish Reset Host.' : 'Signed in. Host is configured. No service or agent was started.';
       this.current.phase = 'idle'; return true;
     } catch {
       if (generation === this.generation && !this.disposed) { this.current.phase = 'error'; this.current.message = error; }
@@ -158,18 +171,18 @@ export class OwnerService implements OwnerClient {
       const final = await project();
       if (request.action === 'host-start' && final.state !== 'running' || request.action === 'host-stop' && final.state !== 'stopped') throw Error('Unconfirmed result');
       this.current.hostPhase = 'idle';
-      this.current.hostMessage = pendingHostReset(directory) ? 'Reset incomplete. Retry Reset Host to finish.' : final.state === 'unknown' ? 'Status unknown. Check the local service, then Refresh status. Start and Reset are blocked.' : request.action === 'host-start' ? 'Host started. No agent was started.' : request.action === 'host-stop' ? 'Host and its agents stopped.' : '';
+      this.current.hostMessage = pendingHostReset(directory) ? 'Reset incomplete. Retry Reset Host to finish.' : final.state === 'unknown' ? 'Status unknown. Check the local service, then Retry. Start and Reset are blocked.' : request.action === 'host-start' ? 'Host started. No agent was started.' : request.action === 'host-stop' ? 'Host and its agents stopped.' : '';
       return true;
     } catch {
       if (generation === this.generation && !this.disposed && this.current.signedIn) {
         try { await project(); } catch { if (generation === this.generation) this.current.host = undefined; }
         if (generation !== this.generation || this.disposed || !this.current.signedIn) return false;
         this.current.hostPhase = 'error';
-        this.current.hostMessage = pendingHostReset(directory) ? 'Reset incomplete. Keep local files. Retry Reset Host.' : 'Operation unconfirmed. Refresh status before retrying.';
+        this.current.hostMessage = pendingHostReset(directory) ? 'Reset incomplete. Keep local files. Retry Reset Host.' : 'Operation unconfirmed. Use Retry to check status before trying again.';
       }
       return false;
     } finally { if (this.active === abort) this.active = undefined; this.hostOperation = false; this.publish(); }
   }
-  cancel() { this.generation++; this.active?.abort(); if (!this.hostOperation) this.active = undefined; this.input = ''; this.current.secretLength = 0; this.current.phase = 'idle'; if (this.current.hostPhase === 'busy') { this.current.hostPhase = 'idle'; this.current.hostMessage = 'Stopped waiting. Changes may already be saved. Refresh status before retrying.'; } this.current.message = 'Stopped waiting. Configuration may already be saved; sign in again with the same owner and relay.'; this.publish(); }
+  cancel() { this.probing?.abort(); this.probing = undefined; this.generation++; this.active?.abort(); if (!this.hostOperation) this.active = undefined; this.input = ''; this.current.secretLength = 0; this.current.phase = 'idle'; if (this.current.hostPhase === 'busy') { this.current.hostPhase = 'idle'; this.current.hostMessage = 'Stopped waiting. Changes may already be saved. Status will update automatically.'; } this.current.message = 'Stopped waiting. Configuration may already be saved; sign in again with the same owner and relay.'; this.publish(); }
   dispose() { this.cancel(); this.session = undefined; this.current.owner = undefined; this.current.signedIn = false; this.current.host = undefined; this.disposed = true; this.listeners.clear(); }
 }

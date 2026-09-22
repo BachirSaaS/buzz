@@ -52,3 +52,31 @@ for (const [width, height] of [[120,40],[60,20]]) test(`real owner IPC: form fai
     assert.match(ui.captureCharFrame(),/Start Host/); assert.doesNotMatch(ui.captureCharFrame(),/Continue to|Stay here/);
   } finally {shell.close();rmSync(home,{recursive:true,force:true});}
 });
+
+for (const [width, height] of [[120,40],[60,20]]) test(`Desktop availability updates automatically in the open sign-in screen at ${width}x${height}`, { timeout: 15000 }, async () => {
+  const home=mkdtempSync('/tmp/owner-tui-fixture-detect-');
+  const mode=(value:string)=>writeFileSync(home+'/desktop-mode',value);
+  mode('missing');
+  const client=localOwner({helper:new URL('./owner-tui-fixture-child.ts',import.meta.url),environment:{HOME:home,BEEHIVE_HOME:home,PATH:process.env.PATH}});
+  const ui=await createTestRenderer({width,height,exitOnCtrlC:false});
+  const inventory=new HarnessInventoryController({read:()=>({version:1,revision:0,agents:[],providers:[],runtimes:[]}),save:c=>c},async()=>[]);
+  const shell=new OpenTuiShell(ui.renderer,inventory,undefined,undefined,client);
+  const wait=async(fn:()=>boolean)=>{for(let i=0;i<450;i++){if(fn()){await ui.renderOnce();return;}await new Promise(r=>setTimeout(r,10));}assert.fail(JSON.stringify(client.snapshot()));};
+  try {
+    await wait(()=>!client.snapshot().message.includes('Loading'));
+    for(let i=0;i<4;i++)ui.mockInput.pressArrow('right');
+    await wait(()=>client.snapshot().desktop==='unavailable');
+    assert.doesNotMatch(ui.captureCharFrame(),/Check Desktop identity/);
+    // Choose a relay, then Enter on unavailable Desktop must not sign in.
+    ui.mockInput.pressEnter();ui.mockInput.pressEnter();await ui.renderOnce();
+    ui.mockInput.typeText('fixture.example');ui.mockInput.pressTab();ui.mockInput.pressEnter();
+    await new Promise(r=>setTimeout(r,0));ui.mockInput.pressEnter();
+    assert.equal(client.snapshot().signedIn,false);
+    mode('available');await wait(()=>client.snapshot().desktop==='available');
+    mode('missing');await wait(()=>client.snapshot().desktop==='unavailable');
+    ui.mockInput.pressEnter();assert.equal(client.snapshot().signedIn,false);
+    mode('available');await wait(()=>client.snapshot().desktop==='available');
+    ui.mockInput.pressEnter();await wait(()=>client.snapshot().signedIn && client.snapshot().host?.state==='stopped');
+    assert.match(ui.captureCharFrame(),/Start Host/);assert.doesNotMatch(ui.captureCharFrame(),/Refresh status|Check Desktop identity/);
+  } finally {shell.close();rmSync(home,{recursive:true,force:true});}
+});

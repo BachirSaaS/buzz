@@ -114,3 +114,34 @@ test('cancelled read cannot block or overwrite a replacement session', async () 
     assert.equal(f.service.snapshot().signedIn, true);
   } finally { f.close(); }
 });
+
+test('passive Desktop checks preserve input and sign-in errors and fail closed', async () => {
+  let fail = false;
+  const f = fixture(async () => { if (fail) throw Error('private probe error'); return { available: true }; });
+  try {
+    assert.equal(await f.service.request({ action: 'signin-nsec', relay }), false);
+    const error = f.service.snapshot().message;
+    f.service.secret('append', nsec);
+    for (fail of [false, true]) {
+      assert.equal(await f.service.request({ action: 'probe' }), !fail);
+      assert.equal(f.service.snapshot().desktop, fail ? 'unavailable' : 'available');
+      assert.equal(f.service.snapshot().message, error);
+      assert.equal(f.service.snapshot().phase, 'error');
+      assert.equal(f.service.snapshot().secretLength, nsec.length);
+    }
+    assert.equal(await f.service.request({ action: 'signin-nsec', relay }), true);
+  } finally { f.close(); }
+});
+test('sign-in supersedes a pending passive probe without losing input or accepting its late result', async () => {
+  let finish!: (value: { available: boolean }) => void;
+  const f = fixture(async () => new Promise(resolve => { finish = resolve; }));
+  try {
+    const pending = f.service.request({ action: 'probe' });
+    assert.equal(await f.service.request({ action: 'probe' }), false);
+    f.service.secret('append', nsec);
+    assert.equal(await f.service.request({ action: 'signin-nsec', relay }), true);
+    finish({ available: true });assert.equal(await pending, false);
+    assert.equal(f.service.snapshot().signedIn, true);
+    assert.equal(f.service.snapshot().desktop, 'unknown');
+  } finally { f.close(); }
+});

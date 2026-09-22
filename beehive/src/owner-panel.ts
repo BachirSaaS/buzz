@@ -25,6 +25,7 @@ export class OwnerPanel {
   private shown = false;
   private generation = 0;
   private wasOwner = false;
+  private timer?: ReturnType<typeof setInterval>;
   constructor(private renderer: CliRenderer, pane: BoxRenderable, private state: ShellState, private client: OwnerClient, private repaint: () => void) {
     this.snapshot = client.snapshot();
     this.box = new BoxRenderable(renderer, { width: '100%', height: '100%', backgroundColor: palette.surface }); pane.add(this.box);
@@ -41,7 +42,7 @@ export class OwnerPanel {
     if (!this.state.ownerActive) return this.snapshot.signedIn ? [] : ['Sign in'];
     if (this.snapshot.signedIn) return ['Sign out'];
     if (!this.snapshot.relay && !this.relay) return ['Choose a relay', 'Use Buzz Desktop identity', 'Provide owner nsec'];
-    return ['Use Buzz Desktop identity', 'Provide owner nsec', ...(this.snapshot.relay ? [] : ['Change relay']), 'Check Desktop identity'];
+    return ['Use Buzz Desktop identity', 'Provide owner nsec', ...(this.snapshot.relay ? [] : ['Change relay'])];
   }
   private disabled(command: string) { return command === 'Use Buzz Desktop identity' && (this.snapshot.desktop !== 'available' || !(this.snapshot.relay || this.relay)) || command === 'Provide owner nsec' && !(this.snapshot.relay || this.relay); }
   private selectionNote(command: string) {
@@ -93,7 +94,6 @@ export class OwnerPanel {
     const generation = this.generation;
     if (command === 'Sign in') { this.openOwner(); return; }
     if (command === 'Sign out') { this.requestedSection = undefined; this.prior = undefined; this.index = 0; await this.client.request({ action: 'signout' }); this.repaint(); return; }
-    if (command === 'Check Desktop identity') { await this.client.request({ action: 'probe' }); return; }
     if (command.includes('relay')) {
       const dialog = new ProviderDialog(this.renderer, 'CHOOSE A RELAY', [{ label: 'Relay URL', value: this.relay || 'wss://' }], () => {}, 'Use relay');
       this.dialog = dialog; const result = await dialog.done; if (this.dialog === dialog) this.dialog = undefined;
@@ -114,19 +114,23 @@ export class OwnerPanel {
     }
     this.repaint();
   }
+  private probe() {
+    if (this.shown && this.state.ownerActive && !this.snapshot.signedIn && !this.dialog && !this.state.helpOpen && this.snapshot.phase !== 'busy') void this.client.request({ action: 'probe' });
+  }
   paint() {
     const owner = this.state.ownerActive;
     const shown = !this.state.belowMinimum && (owner || this.state.protectedSection && !(this.state.activeSection === 0 && this.snapshot.signedIn));
     const left = (this.wasOwner && !owner) || (this.shown && !shown);
-    const entered = owner && !this.wasOwner;
     this.wasOwner = owner; this.shown = shown; this.box.visible = shown;
     if (left) {
       this.generation++; this.dialog?.cancel(); this.dialog = undefined;
       if (this.snapshot.phase === 'busy') this.client.cancel();
       this.requestedSection = undefined; this.prior = undefined; this.index = 0;
     }
+    const detecting = shown && owner && !this.snapshot.signedIn;
+    if (!detecting && this.timer) { clearInterval(this.timer); this.timer = undefined; }
+    if (detecting && !this.timer) { this.timer = setInterval(() => this.probe(), 3000); this.probe(); }
     if (!shown) return;
-    if (entered && !this.snapshot.signedIn && this.snapshot.desktop === 'unknown') void this.client.request({ action: 'probe' });
     const width = this.renderer.width - 4, height = this.renderer.height - 5;
     const wrap = (value: string) => { const rows: string[] = []; for (const line of value.split('\n')) { let rest = line; while (rest.length > width) { const at = rest.lastIndexOf(' ', width); const end = at > 0 ? at : width; rows.push(rest.slice(0, end)); rest = rest.slice(end).trimStart(); } rows.push(rest); } return rows; };
     const truncate = (value: string) => { const limit = width - (owner && this.requestedSection !== undefined ? 19 : 8); return value.length > limit ? value.slice(0, Math.ceil((limit - 1) / 2)) + '…' + value.slice(-Math.floor((limit - 1) / 2)) : value; };
@@ -154,5 +158,5 @@ export class OwnerPanel {
     this.note.content = wrap(this.selectionNote(commands[this.index] ?? '')).join('\n');
     this.dialog?.paint();
   }
-  dispose() { this.generation++; this.dialog?.cancel(); this.unsubscribe(); this.client.dispose(); }
+  dispose() { if (this.timer) clearInterval(this.timer); this.generation++; this.dialog?.cancel(); this.unsubscribe(); this.client.dispose(); }
 }

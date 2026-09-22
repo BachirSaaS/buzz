@@ -15,7 +15,7 @@ function fixture() {
   const emit = () => { for (const fn of listeners) fn(structuredClone(snapshot)); };
   const client: OwnerClient = {
     snapshot: () => structuredClone(snapshot), subscribe(fn) { listeners.add(fn); fn(structuredClone(snapshot)); return () => { listeners.delete(fn); }; },
-    async request(r) { requests.push(r); if (r.action === 'host-status') { snapshot.host = { name: 'Fixture Host', host: 'a'.repeat(64), owner: 'b'.repeat(64), relay: snapshot.relay!, state: 'stopped', agents: 0, revision: 'fixture', resetPending: false }; } else if (r.action.startsWith('signin')) { snapshot.signedIn = true; snapshot.owner = 'npub1fixture'; snapshot.secretLength = 0; snapshot.message = 'Signed in. No operation was started.'; } else if (r.action === 'signout') { snapshot.signedIn = false; snapshot.owner = undefined; snapshot.message = 'Signed out. Host and agents keep running.'; } emit(); return true; },
+    async request(r) { if (r.action === 'probe') return true; requests.push(r); if (r.action === 'host-status') { snapshot.host = { name: 'Fixture Host', host: 'a'.repeat(64), owner: 'b'.repeat(64), relay: snapshot.relay!, state: 'stopped', agents: 0, revision: 'fixture', resetPending: false }; } else if (r.action.startsWith('signin')) { snapshot.signedIn = true; snapshot.owner = 'npub1fixture'; snapshot.secretLength = 0; snapshot.message = 'Signed in. No operation was started.'; } else if (r.action === 'signout') { snapshot.signedIn = false; snapshot.owner = undefined; snapshot.message = 'Signed out. Host and agents keep running.'; } emit(); return true; },
     secret(action, value) { snapshot.secretLength = action === 'clear' ? 0 : action === 'backspace' ? Math.max(0, snapshot.secretLength - 1) : snapshot.secretLength + (value?.length ?? 0); emit(); },
     cancel() {}, dispose() {},
   };
@@ -52,7 +52,7 @@ for (const [width,height] of [[120,40],[60,20]]) test(`owner unavailable identit
   try {
     for(let i=0;i<4;i++) ui.mockInput.pressArrow('right');
     ui.mockInput.pressEnter(); ui.mockInput.pressEnter(); await render(ui);
-    assert.equal(f.requests.length,0); assert.match(ui.captureCharFrame(),/No usable Buzz/);
+    assert.doesNotMatch(ui.captureCharFrame(),/Check Desktop identity/);assert.equal(f.requests.length,0); assert.match(ui.captureCharFrame(),/No usable Buzz/);
     const lines=ui.captureCharFrame().split('\n'),y=lines.findIndex(l=>l.includes('Provide owner nsec'));
     await ui.mockMouse.click(lines[y]!.indexOf('Provide owner nsec'),y);await render(ui);
     assert.match(ui.captureCharFrame(),/PROVIDE OWNER NSEC/); assert.match(ui.captureCharFrame(),/Enter owner nsec/);
@@ -85,7 +85,7 @@ for (const [width,height] of [[120,40],[60,20]]) for (const target of [0,1]) tes
 for (const cancel of ['escape', 'navigate']) test(`late successful sign-in does not redirect after ${cancel}`, async () => {
   const ui=await createTestRenderer({width:60,height:20,exitOnCtrlC:false}),f=fixture();
   let finish!: (ok:boolean)=>void;
-  f.client.request=async r=>{ f.requests.push(r); f.snapshot.phase='busy'; f.emit(); return new Promise<boolean>(resolve=>{finish=resolve;}); };
+  f.client.request=async r=>{ if(r.action==='probe') return true; f.requests.push(r); f.snapshot.phase='busy'; f.emit(); return new Promise<boolean>(resolve=>{finish=resolve;}); };
   const shell=new OpenTuiShell(ui.renderer,f.inventory,undefined,undefined,f.client);
   try {
     ui.mockInput.pressEnter();ui.mockInput.pressEnter();ui.mockInput.pressEnter();await render(ui);

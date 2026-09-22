@@ -31,7 +31,8 @@ export class HostPanel {
   get modal() { return !!this.confirmation; }
   private commands() {
     const host = this.snapshot.host;
-    return [...(host?.state === 'running' ? ['Stop Host'] : host?.state === 'stopped' ? [...(host.resetPending ? [] : ['Start Host']), 'Reset Host'] : []), 'Refresh status'];
+    if (!host || host.state === 'unknown') return this.snapshot.hostPhase === 'error' || host?.state === 'unknown' ? ['Retry'] : [];
+    return [...(host.state === 'running' ? ['Stop Host'] : [...(host.resetPending ? [] : ['Start Host']), 'Reset Host']), ...(this.snapshot.hostPhase === 'error' ? ['Retry'] : [])];
   }
   private refresh() { if (this.shown && !this.confirmation && this.snapshot.hostPhase !== 'busy' && this.snapshot.hostPhase !== 'error') void this.client.request({ action: 'host-status' }); }
   key(key: KeyEvent) {
@@ -50,8 +51,8 @@ export class HostPanel {
   private async run() {
     if (!this.shown || this.confirmation || this.snapshot.hostPhase === 'busy') return;
     const command = this.commands()[this.index], host = this.snapshot.host, generation = this.generation;
-    if (command === 'Refresh status') { await this.client.request({ action: 'host-status' }); return; }
-    if (!host) return;
+    if (command === 'Retry') { await this.client.request({ action: 'host-status' }); return; }
+    if (!host || !command) return;
     if (command === 'Stop Host' || command === 'Reset Host') {
       const dialog = new HostConfirm(this.renderer, command === 'Reset Host'); this.confirmation = dialog;
       const confirmed = await dialog.done; if (this.confirmation === dialog) this.confirmation = undefined;
@@ -74,7 +75,7 @@ export class HostPanel {
     this.facts.top = 1; this.facts.left = 2 + labelWidth; this.facts.width = width - labelWidth; this.facts.height = 5;
     this.facts.content = host ? [host.resetPending ? 'RESET INCOMPLETE' : host.state.toUpperCase(), host.name, host.owner, host.relay, host.agents === undefined ? 'Unknown' : String(host.agents)].map(truncate).join('\n') : `${this.snapshot.hostPhase === 'error' ? 'UNKNOWN' : 'Checking…'}\n—\n—\n—\nUnknown`;
     this.heading.top = 7; this.heading.height = 1; this.heading.width = width; this.heading.content = 'AVAILABLE ACTIONS ' + '─'.repeat(Math.max(1, width - 18));
-    const commands = this.commands(); this.index = Math.max(0, Math.min(this.index, commands.length - 1));
+    const commands = this.commands(); this.heading.visible = commands.length > 0; this.index = Math.max(0, Math.min(this.index, commands.length - 1));
     this.actions.forEach((action, i) => { action.top = this.actionTop + i; action.width = width; action.height = 1; action.visible = i < commands.length; action.content = t`${fg(palette.focus)(this.state.focus === 'detail' && this.index === i ? '›' : ' ')} ${commands[i] ?? ''}`; action.fg = commands[i] === 'Reset Host' ? palette.failure : this.state.focus === 'detail' && this.index === i ? palette.focus : palette.text; });
     this.message.top = this.actionTop + commands.length; this.message.width = width; this.message.height = Math.max(1, height - Number(this.message.top) - 1);
     this.message.content = this.snapshot.hostMessage || 'Host runs independently of the manager.'; this.message.fg = this.snapshot.hostPhase === 'error' ? palette.failure : palette.muted;

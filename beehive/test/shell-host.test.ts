@@ -7,7 +7,7 @@ import { HarnessInventoryController } from '../src/harness-inventory.ts';
 import { localOwner } from '../src/owner-client.ts';
 import { serviceStatus, stopService } from '../src/host-service.ts';
 
-for (const [width, height] of [[120,40],[60,20]]) test(`Host real IPC and detached lifecycle, confirmation, reset recovery at ${width}x${height}`, async () => {
+for (const [width, height] of [[120,40],[60,20]]) test(`Host real IPC and detached lifecycle, confirmation, reset recovery at ${width}x${height}`, { timeout: 15000 }, async () => {
   const home = mkdtempSync('/tmp/owner-tui-fixture-host-'), directory = home+'/.beehive/host';
   writeFileSync(home+'/desktop-mode','available'); writeFileSync(home+'/host-service-mode','real');
   const client=localOwner({helper:new URL('./owner-tui-fixture-child.ts',import.meta.url),environment:{HOME:home,BEEHIVE_HOME:home,PATH:process.env.PATH}});
@@ -21,16 +21,16 @@ for (const [width, height] of [[120,40],[60,20]]) test(`Host real IPC and detach
     await wait(()=>!client.snapshot().message.includes('Loading'));
     assert.equal(await client.request({action:'signin-desktop',relay:'wss://fixture.example'}),true);
     await wait(()=>client.snapshot().host?.state==='stopped' && client.snapshot().hostPhase==='idle');
-    assert.equal(shell.state.splitPane,false);assert.match(ui.captureCharFrame(),/Agents running\s+0/);
+    assert.doesNotMatch(ui.captureCharFrame(),/Refresh status|Retry/);assert.equal(shell.state.splitPane,false);assert.match(ui.captureCharFrame(),/Agents running\s+0/);
     await click('Reset Host');assert.match(ui.captureCharFrame(),/RESET HOST/);await esc();assert.ok(existsSync(directory+'/host-identity.json'));
     await click('Start Host');await wait(()=>client.snapshot().host?.state==='running' && client.snapshot().hostPhase==='idle');
-    assert.match(ui.captureCharFrame(),/Stop Host/);assert.doesNotMatch(ui.captureCharFrame(),/Reset Host/);assert.equal(client.snapshot().host!.agents,0);
+    assert.doesNotMatch(ui.captureCharFrame(),/Refresh status|Retry/);assert.match(ui.captureCharFrame(),/Stop Host/);assert.doesNotMatch(ui.captureCharFrame(),/Reset Host/);assert.equal(client.snapshot().host!.agents,0);
     await click('Stop Host');assert.match(ui.captureCharFrame(),/every agent/);await click('Keep running');await ui.renderOnce();assert.equal((await serviceStatus(directory)).state,'running');
     await client.request({action:'signout'});await ui.renderOnce();assert.equal((await serviceStatus(directory)).state,'running');assert.doesNotMatch(ui.captureCharFrame(),/Stop Host/);
     assert.equal(await client.request({action:'signin-desktop'}),true);await wait(()=>client.snapshot().host?.state==='running' && client.snapshot().hostPhase==='idle');
     await click('Stop Host');ui.mockInput.pressEnter();await wait(()=>client.snapshot().host?.state==='stopped' && client.snapshot().hostPhase==='idle');
-    mkdirSync(directory+'/host.lock');await client.request({action:'host-status'});await ui.renderOnce();assert.match(ui.captureCharFrame(),/UNKNOWN/);assert.doesNotMatch(ui.captureCharFrame(),/Start Host|Reset Host/);
-    rmSync(directory+'/host.lock',{recursive:true});await click('Refresh status');await wait(()=>client.snapshot().host?.state==='stopped' && client.snapshot().hostPhase==='idle');
+    mkdirSync(directory+'/host.lock');await wait(()=>client.snapshot().host?.state==='unknown' && client.snapshot().hostPhase==='idle');assert.match(ui.captureCharFrame(),/UNKNOWN/);assert.doesNotMatch(ui.captureCharFrame(),/Start Host|Reset Host/);
+    rmSync(directory+'/host.lock',{recursive:true});await click('Retry');await wait(()=>client.snapshot().host?.state==='stopped' && client.snapshot().hostPhase==='idle');
     writeFileSync(home+'/reset-denied','true');await click('Reset Host');await click('Reset Host');await wait(()=>client.snapshot().hostPhase==='error');assert.match(ui.captureCharFrame(),/Reset incomplete/);assert.doesNotMatch(ui.captureCharFrame(),/Start Host/);
     rmSync(home+'/reset-denied');await click('Reset Host');ui.mockInput.pressEnter();await wait(()=>!client.snapshot().signedIn);assert.match(ui.captureCharFrame(),/Sign in to view/);assert.equal(client.snapshot().relay,undefined);assert.equal(existsSync(directory+'/host-identity.json'),false);
   } finally {
