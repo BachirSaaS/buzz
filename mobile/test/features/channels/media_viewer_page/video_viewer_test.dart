@@ -203,8 +203,9 @@ class _FailingDisposeVideoPlayerPlatform extends VideoPlayerPlatform {
   int nextPlayerId = 0;
   final Map<int, StreamController<VideoEvent>> _streams = {};
 
-  /// Completed when dispose() is first entered — use as a bounded signal
-  /// instead of a fixed sleep to synchronize on the disposal path.
+  /// Completed when dispose() is first entered.  Awaited inside
+  /// [WidgetTester.runAsync] with a bounded real-zone timeout; timers created
+  /// in that zone fire normally, unlike FakeAsync timers outside runAsync.
   final Completer<void> disposedCompleter = Completer<void>();
 
   @override
@@ -746,16 +747,35 @@ void main() {
   testWidgets(
     'F2r(d)+: post-create disposal failure shows error UI and no uncaught error',
     (tester) async {
-      final fakePlayer = _FailingDisposeVideoPlayerPlatform();
-      VideoPlayerPlatform.instance = fakePlayer;
-
       final fakeClient = _FinalizingFakeClient(
         responseBuilder: () =>
             http.StreamedResponse(Stream.value(<int>[0, 1, 2, 3]), 200),
       );
       addTearDown(fakeClient.close);
 
+      // Construct the fake and its completer inside runAsync so that the
+      // bounded await below is registered in the real scheduler zone, not
+      // FakeAsync.  A Duration-based timeout or future created outside runAsync
+      // becomes a FakeAsync timer; the binding never auto-advances fake time in
+      // testWidgets, so it hangs to the 30 s outer runner timeout instead of
+      // failing promptly.  Inside runAsync, timers are dispatched to the real
+      // event loop and fire normally.
+      //
+      // Zone ownership of the completion: the viewer mounts here, so
+      // initializeVideo() starts in the real zone.  The inner catch calls
+      // unawaited(localController.dispose().catchError(...)) also in the real
+      // zone.  _FailingDisposeVideoPlayerPlatform.dispose() runs synchronously
+      // inside that detached future, completing disposedCompleter before any
+      // suspension.  The await below (also in the real zone) therefore resolves
+      // as soon as the microtask queue drains the detached disposal future.
+      //
+      // Removal check: removing only the unawaited disposal call leaves
+      // disposedCompleter never completed; the 5 s timeout fires, failing the
+      // test immediately and deterministically.
       await tester.runAsync(() async {
+        final fakePlayer = _FailingDisposeVideoPlayerPlatform();
+        VideoPlayerPlatform.instance = fakePlayer;
+
         await tester.pumpWidget(
           WidgetHelpers.testable(
             disableAnimations: true,
@@ -768,44 +788,40 @@ void main() {
             ),
           ),
         );
-        // Yield to let the download, create, and initialize-error path run.
-        // dispose() is detached (unawaited) — it completes asynchronously after
-        // the inner catch rethrows.  pumpAndSettle() flushes the timers
-        // and remaining microtasks; we signal here only to unblock.
-        await Future<void>.delayed(const Duration(milliseconds: 300));
-      });
-      await tester.pumpAndSettle();
-      // The detached disposal future is queued during the 300 ms yield and
-      // pumpAndSettle() drains all pending microtasks, so the completer must
-      // already be complete by the time we reach this line.  A synchronous
-      // isCompleted check is the correct oracle here: a Duration-based timeout
-      // created outside runAsync becomes a FakeAsync timer that the binding
-      // never advances automatically — it would hang to the 30 s outer runner
-      // timeout instead of failing promptly.  Removing the unawaited disposal
-      // call leaves the completer incomplete; this fails immediately.
-      expect(
-        fakePlayer.disposedCompleter.isCompleted,
-        isTrue,
-        reason:
-            'dispose() must have been entered before pumpAndSettle() returns '
-            '— the unawaited disposal path may have been removed',
-      );
 
-      // Error UI must appear — disposal failure must not block the outer catch.
-      expect(
-        find.text('Failed to load video'),
-        findsOneWidget,
-        reason: 'post-create disposal failure must still show error UI',
-      );
-      // dispose() must have been called — confirms the unawaited disposal path ran.
-      expect(
-        fakePlayer.disposeCallCount,
-        greaterThanOrEqualTo(1),
-        reason: 'dispose() must have been called on the failing player',
-      );
-      // The test passing without a framework error IS the assertion that
-      // the disposal PlatformException was absorbed by .catchError and did
-      // not reach the binding's uncaught-error handler.
+        // Wait for the disposal path to be entered, bounded by a real-zone
+        // timeout.  The viewer downloads the body, creates the player, emits a
+        // PlatformException from the event stream, enters the inner catch, and
+        // calls unawaited(dispose().catchError(...)).  dispose() completes
+        // disposedCompleter synchronously at its entry point before throwing.
+        await fakePlayer.disposedCompleter.future.timeout(
+          const Duration(seconds: 5),
+          onTimeout: () => throw TimeoutException(
+            'dispose() was not entered within 5 s '
+            '— the unawaited disposal path may have been removed',
+          ),
+        );
+
+        // Pump to flush the error state set in the outer catch after the
+        // detached disposal starts.
+        await tester.pumpAndSettle();
+
+        // Error UI must appear — disposal failure must not block the outer catch.
+        expect(
+          find.text('Failed to load video'),
+          findsOneWidget,
+          reason: 'post-create disposal failure must still show error UI',
+        );
+        // dispose() must have been called — confirms the unawaited disposal path ran.
+        expect(
+          fakePlayer.disposeCallCount,
+          greaterThanOrEqualTo(1),
+          reason: 'dispose() must have been called on the failing player',
+        );
+        // The test passing without a framework error IS the assertion that
+        // the disposal PlatformException was absorbed by .catchError and did
+        // not reach the binding's uncaught-error handler.
+      });
     },
   );
 
