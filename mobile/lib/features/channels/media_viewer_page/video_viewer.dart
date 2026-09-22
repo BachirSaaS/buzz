@@ -182,7 +182,7 @@ class MediaVideoViewerPage extends HookConsumerWidget {
             pendingController.value = null;
             controller.value = localController;
           } catch (_) {
-            // Release the native player without awaiting dispose().
+            // Start disposal without awaiting it, then rethrow immediately.
             //
             // video_player 2.11.1 initialize() creates _creatingCompleter at
             // the top of the method, then awaits createWithOptions() before
@@ -193,14 +193,22 @@ class MediaVideoViewerPage extends HookConsumerWidget {
             // never sets error.value, the error UI is never shown, and the
             // viewer is left in an infinite loading state.
             //
-            // After a successful create, initialize() completes _creatingCompleter
-            // at :590, so awaiting dispose() after a post-create failure (e.g.
-            // the initialized event carries an error) is safe — but using
-            // unawaited() uniformly in the error path avoids the distinction.
-            // The native player is still released: unawaited disposal runs
-            // concurrently with the rethrow/outer-catch path [F2r(d)].
+            // Note: if createWithOptions() throws, _creatingCompleter is never
+            // completed, so the unawaited disposal stalls at the same wait.
+            // This bypasses the deadlock for the outer catch but does not
+            // release the native player in the create-failure case.  After a
+            // successful create, _creatingCompleter is completed at :590, so
+            // the detached disposal runs normally; errors from that detached
+            // future are caught and logged below rather than becoming uncaught
+            // async errors [F2r(d)].
             pendingController.value = null;
-            unawaited(localController.dispose());
+            unawaited(
+              localController.dispose().catchError((Object disposeError) {
+                debugPrint(
+                  '[VideoViewer] dispose() failed after load error: $disposeError',
+                );
+              }),
+            );
             rethrow;
           }
         } catch (loadError) {

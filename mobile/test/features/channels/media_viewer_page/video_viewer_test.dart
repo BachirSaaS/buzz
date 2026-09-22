@@ -136,16 +136,20 @@ class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
   @override
   Future<void> dispose(int playerId) async {
     disposeCallCount++;
-    // Inject a terminal error into the event stream so any pending
-    // initialize() call (waiting for the initialized or error event)
-    // unblocks rather than hanging.  The event subscription cancels
-    // BEFORE platform disposal in video_player 2.11.1 (dispose() awaits
-    // _creatingCompleter, then cancels _eventSubscription, then calls
-    // _videoPlayerPlatform.dispose() — see video_player.dart:677-693).
-    // An error injected here therefore reaches the initialize() listener
-    // if the subscription is still live, causing initializingCompleter to
-    // reject.  Without this, the neverInitialize fake leaves initialize()
-    // pending after the test ends, triggering "pending timers" warnings.
+    // Record the dispose call and close the event stream.
+    //
+    // The stream close is needed to unblock the neverInitialize fake: without
+    // it, initialize() is left awaiting the initialized event after the test
+    // ends, triggering "pending timers" warnings.
+    //
+    // Note: an error injected here does NOT reach initialize()'s pending
+    // listener on the pinned video_player 2.11.1 path.  dispose() awaits
+    // _creatingCompleter first (video_player.dart:682), then cancels
+    // _eventSubscription (:687), then calls _videoPlayerPlatform.dispose()
+    // (:688).  The subscription is already cancelled before this method runs,
+    // so any stream error added here goes to a closed listener, not to the
+    // initialize() future.  This fake closes the stream to satisfy teardown;
+    // it does not simulate a successful initialization.
     final stream = _streams[playerId];
     if (stream != null) {
       if (!stream.isClosed) {
@@ -193,6 +197,87 @@ class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/// A [VideoPlayerPlatform] that creates successfully (returns a real player ID
+/// and emits a forceInitError event to trigger an init/play failure), but whose
+/// [dispose()] throws a [PlatformException].
+///
+/// Used to verify that the viewer's `unawaited(dispose().catchError(...))` path
+/// does NOT surface an uncaught async error when disposal fails after a
+/// post-create load failure.
+class _FailingDisposeVideoPlayerPlatform extends VideoPlayerPlatform {
+  int disposeCallCount = 0;
+  int nextPlayerId = 0;
+  final Map<int, StreamController<VideoEvent>> _streams = {};
+
+  @override
+  Future<void> init() async {}
+
+  @override
+  Future<int?> createWithOptions(VideoCreationOptions options) async {
+    return create(options.dataSource);
+  }
+
+  @override
+  Future<int?> create(DataSource dataSource) async {
+    final id = nextPlayerId++;
+    final controller = StreamController<VideoEvent>(
+      onListen: () {
+        // Emit a PlatformException so initialize() throws, reaching the inner catch.
+        _streams[id]!.addError(
+          PlatformException(
+            code: 'VideoError',
+            message: 'Fake post-create init failure',
+          ),
+        );
+      },
+    );
+    _streams[id] = controller;
+    return id;
+  }
+
+  @override
+  Future<void> dispose(int playerId) async {
+    disposeCallCount++;
+    // Throw to simulate a native disposal failure.
+    // The production catch(.catchError) must absorb this without propagating
+    // an uncaught async error while the viewer is showing its error UI.
+    throw PlatformException(
+      code: 'DisposalError',
+      message: 'Fake native disposal failure',
+    );
+  }
+
+  @override
+  Widget buildView(int playerId) => const SizedBox.shrink();
+
+  @override
+  Stream<VideoEvent> videoEventsFor(int playerId) => _streams[playerId]!.stream;
+
+  @override
+  Future<void> play(int playerId) async {}
+
+  @override
+  Future<void> pause(int playerId) async {}
+
+  @override
+  Future<void> setLooping(int playerId, bool looping) async {}
+
+  @override
+  Future<void> setVolume(int playerId, double volume) async {}
+
+  @override
+  Future<void> seekTo(int playerId, Duration position) async {}
+
+  @override
+  Future<void> setPlaybackSpeed(int playerId, double speed) async {}
+
+  @override
+  Future<Duration> getPosition(int playerId) async => Duration.zero;
+
+  @override
+  Future<void> setMixWithOthers(bool mixWithOthers) async {}
+}
+
 /// Returns a [http.StreamedResponse] with the given [statusCode] whose body
 /// stream is controlled by [bodyController].  The caller closes [bodyController]
 /// to release a drain; leaving it open proves that the fix (listen+cancel)
@@ -236,28 +321,40 @@ class _FinalizingFakeClient extends http.BaseClient {
 /// the widget closes the in-flight download through the actual viewer
 /// abort-wiring path.
 ///
-/// Deleting the viewer's `activeRequestAbort.complete()` call in the cleanup
-/// (or the `Completer` / `AbortableStreamedRequest` wiring) prevents
-/// `abortTrigger` from ever completing and the test times out.
+/// The fake FAILS fast if the request is not an [http.AbortableStreamedRequest]
+/// with a non-null trigger — a non-abortable request means the viewer's abort
+/// wiring is absent, which would otherwise silently pass the test.
+///
+/// No drain: this fake's only job is the abort-trigger chain.  Sink-close
+/// correctness is covered separately by [_FinalizingFakeClient].
 class _StallingAbortableClient extends http.BaseClient {
   final Completer<void> requestArrivedCompleter = Completer<void>();
+
+  /// Completed when `abortObserved` is set; use with a deadline instead of sleeping.
+  final Completer<void> abortObservedCompleter = Completer<void>();
   bool abortObserved = false;
 
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
-    // Signal arrival immediately (do not drain — the unawaited sink.close()
-    // may not have settled when drain() is called inside the test binding,
-    // and this fake's only job is to prove the abort-trigger chain, not the
-    // sink-close contract which is covered by _FinalizingFakeClient).
     if (!requestArrivedCompleter.isCompleted) {
       requestArrivedCompleter.complete();
     }
-    // Wait for the viewer's effect cleanup to fire the abort trigger.
+    // Require an abortable request with a non-null trigger.  If the viewer's
+    // AbortableStreamedRequest wiring or the abortTrigger: parameter is absent,
+    // fail immediately — do NOT treat missing wiring as a successful abort.
     if (request case http.AbortableStreamedRequest(:final abortTrigger?)) {
       await abortTrigger;
+      abortObserved = true;
+      if (!abortObservedCompleter.isCompleted) {
+        abortObservedCompleter.complete();
+      }
+      throw http.RequestAbortedException(request.url);
     }
-    abortObserved = true;
-    throw http.RequestAbortedException(request.url);
+    throw StateError(
+      '_StallingAbortableClient: expected AbortableStreamedRequest with '
+      'non-null abortTrigger; got ${request.runtimeType}. '
+      'The viewer abort wiring is absent.',
+    );
   }
 }
 
@@ -429,7 +526,14 @@ void main() {
     // disableAnimations: true stops BuzzLoadingIndicator from repeating so
     // pumpAndSettle converges once the error state is set.
     // With drain(), cancelledCompleter never completes and this times out.
-    await tester.runAsync(() => cancelledCompleter.future);
+    await tester.runAsync(
+      () => cancelledCompleter.future.timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => throw TimeoutException(
+          'body-cancellation signal not received within 5 s',
+        ),
+      ),
+    );
     await tester.pumpAndSettle();
 
     // (1) The body stream's onCancel must have fired — confirming listen+cancel
@@ -566,21 +670,25 @@ void main() {
   // deadlocks: the outer catch never runs, error.value is never set, and the
   // viewer remains on the loading screen.
   //
-  // Fix: `unawaited(localController.dispose())` in the catch releases the
-  // native player concurrently and immediately rethrows so the outer catch sets
-  // error.value and the error UI appears.
+  // Fix: `unawaited(localController.dispose().catchError(...))` in the catch
+  // rethrows immediately so the outer catch sets error.value and shows the UI.
   //
-  // Red-with-old-code: the old `await localController.dispose()` hangs
-  // indefinitely; this test times out waiting for the error text.
+  // Red-with-old-code: the old `await localController.dispose()` never returns
+  // (dispose() waits on the uncompleted _creatingCompleter); the 300 ms window
+  // ends with error.value still unset and the error UI absent — the assertion
+  // fails.  With `unawaited(dispose())` the outer catch runs immediately and
+  // sets error.value; the 300 ms window is enough for the fix to take effect.
+  //
+  // Note: create itself fails here, so _creatingCompleter is never completed
+  // and the unawaited dispose() stalls at the same wait — this fix bypasses
+  // the deadlock for the outer catch, but does not release the native player.
+  // No dispose count is claimed for this case.
   testWidgets(
     'F2r(d): createWithOptions() failure shows error UI (not infinite spinner)',
     (tester) async {
       final fakePlayer = _FakeVideoPlayerPlatform(forceCreateError: true);
       VideoPlayerPlatform.instance = fakePlayer;
 
-      // Bounded completion signal: the error UI becomes visible when
-      // error.value is set by the outer catch.  The test pumps until this
-      // fires rather than sleeping.
       final fakeClient = _FinalizingFakeClient(
         responseBuilder: () =>
             http.StreamedResponse(Stream.value(<int>[0, 1, 2, 3]), 200),
@@ -600,21 +708,79 @@ void main() {
             ),
           ),
         );
-        // Allow the download to complete and createWithOptions() to throw.
-        // No initialize() event loop runs because create itself fails.
+        // Allow the download to complete, createWithOptions() to throw, and
+        // the outer catch to set error.value.  With the old `await dispose()`
+        // the outer catch is blocked — `error.value` is never set and
+        // `find.text('Failed to load video')` fails.
         await Future<void>.delayed(const Duration(milliseconds: 300));
       });
       await tester.pumpAndSettle();
 
       // The error UI must be visible: unawaited dispose + rethrow lets the
       // outer catch set error.value and show _MediaLoadFailure.
-      // With the old `await dispose()` the viewer hangs and this fails.
+      // With the old `await dispose()` the viewer stalls and this fails.
       expect(
         find.text('Failed to load video'),
         findsOneWidget,
         reason:
             'createWithOptions() failure must show error UI, not infinite spinner',
       );
+    },
+  );
+
+  // Detached disposal error handling: a successfully-created controller whose
+  // init fails and whose dispose() ALSO throws must not surface an uncaught
+  // async error.  The unawaited(dispose().catchError(...)) path in the inner
+  // catch must absorb the disposal exception with logging.
+  //
+  // Red-with-old-code (before the .catchError addition): the detached future
+  // throws PlatformException unhandled; the Flutter test binding's own
+  // FlutterError.onError captures it and fails the test.  With .catchError
+  // the error is absorbed before reaching the binding's handler.
+  //
+  // Note: no FlutterError.onError override is needed here.  testWidgets
+  // automatically fails the test if any uncaught Flutter error reaches the
+  // binding's handler — the test passing IS the assertion that no uncaught
+  // error occurred.
+  testWidgets(
+    'F2r(d)+: post-create disposal failure shows error UI and no uncaught error',
+    (tester) async {
+      final fakePlayer = _FailingDisposeVideoPlayerPlatform();
+      VideoPlayerPlatform.instance = fakePlayer;
+
+      final fakeClient = _FinalizingFakeClient(
+        responseBuilder: () =>
+            http.StreamedResponse(Stream.value(<int>[0, 1, 2, 3]), 200),
+      );
+      addTearDown(fakeClient.close);
+
+      await tester.runAsync(() async {
+        await tester.pumpWidget(
+          WidgetHelpers.testable(
+            disableAnimations: true,
+            overrides: [
+              mediaGetAuthServiceProvider.overrideWithValue(_noopAuth()),
+              mediaHttpClientProvider.overrideWithValue(fakeClient),
+            ],
+            child: const MediaVideoViewerPage(
+              videoUrl: 'https://relay.test/media/abc.mp4',
+            ),
+          ),
+        );
+        // Allow the download, create, init-error, and catchError path to run.
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+      });
+      await tester.pumpAndSettle();
+
+      // Error UI must appear — disposal failure must not block the outer catch.
+      expect(
+        find.text('Failed to load video'),
+        findsOneWidget,
+        reason: 'post-create disposal failure must still show error UI',
+      );
+      // The test passing without a framework error IS the assertion that
+      // the disposal PlatformException was absorbed by .catchError and did
+      // not reach the binding's uncaught-error handler.
     },
   );
 
@@ -625,11 +791,11 @@ void main() {
   // downloadRequestAbort.value (a Completer).  The effect cleanup calls
   // activeRequestAbort.complete() on unmount, which fires abortTrigger.
   //
-  // Red-with-reverted-wiring: removing the `activeRequestAbort.complete()`
-  // call in the cleanup (or the downloadRequestAbort ref, or the
-  // AbortableStreamedRequest / abortTrigger wiring) prevents abortTrigger
-  // from ever completing — the fake's send() stalls indefinitely and the test
-  // times out waiting for requestArrivedCompleter then for abortObserved.
+  // Red-with-reverted-wiring: removing only `activeRequestAbort.complete()`
+  // from the cleanup leaves the trigger pending and abortObserved stays false
+  // at the deadline — the abortObservedCompleter times out.
+  // Deleting the whole AbortableStreamedRequest / abortTrigger wiring causes
+  // the fake's StateError path (non-abortable request), failing fast.
   testWidgets(
     'Viewer abort-path: unmount fires abortTrigger and cancels in-flight download',
     (tester) async {
@@ -661,6 +827,13 @@ void main() {
           ),
         );
 
+        // Verify abort has NOT fired yet (before unmount).
+        expect(
+          stallingClient.abortObserved,
+          isFalse,
+          reason: 'abort must not fire before unmount',
+        );
+
         // Now unmount — this fires the effect cleanup which calls
         // activeRequestAbort.complete(), completing abortTrigger.
         // Pass the same overrides so Riverpod's debug assertion does not fire.
@@ -674,10 +847,21 @@ void main() {
             child: const SizedBox.shrink(),
           ),
         );
+        // Pump once to flush the effect cleanup microtasks that fire during
+        // the widget-tree disposal (useEffect cleanup in Flutter hooks runs
+        // synchronously in the pumpWidget call above, but the Completer
+        // completion and the abortTrigger await chain resolve on subsequent
+        // microtask turns — yield here so they settle before the deadline).
+        await tester.pump();
 
-        // Allow the abort to propagate: the cleanup fires immediately on pump,
-        // and the fake's abortTrigger path is synchronous after the completer.
-        await Future<void>.delayed(const Duration(milliseconds: 100));
+        // Wait for the abort to be observed with a deadline — no sleep.
+        // Deleting activeRequestAbort.complete() in cleanup → times out here.
+        await stallingClient.abortObservedCompleter.future.timeout(
+          const Duration(seconds: 5),
+          onTimeout: () => throw TimeoutException(
+            'Abort was not observed within 5 s after unmount',
+          ),
+        );
       });
       await tester.pump();
 

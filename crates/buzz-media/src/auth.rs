@@ -142,7 +142,17 @@ pub fn verify_blossom_auth_event_for_verb(
                     return Err(MediaError::DuplicateTag("expiration"));
                 }
                 if let Some(v) = tag.content() {
-                    if exp_count == 1 {
+                    if strict {
+                        // Strict: first-wins (duplicate already rejected above).
+                        if exp_count == 1 {
+                            exp_value = v.parse().unwrap_or(0);
+                        }
+                    } else {
+                        // Permissive: last-wins, matching pre-NIP-FI base
+                        // behavior (base auth.rs processed each valued tag
+                        // unconditionally, so a later tag overwrote earlier
+                        // ones).  A valueless tag followed by a future-valued
+                        // tag must not be treated as expired [FI-INV-15].
                         exp_value = v.parse().unwrap_or(0);
                     }
                 }
@@ -434,6 +444,7 @@ pub fn verify_blossom_get_auth(
 mod tests {
     use super::*;
     use nostr::{EventBuilder, Keys, Kind, Tag, Timestamp};
+    use sha2::Digest as _;
 
     fn build_valid_auth(keys: &Keys, sha256: &str) -> nostr::Event {
         let now = Timestamp::now().as_secs();
@@ -1634,6 +1645,179 @@ mod tests {
             )
             .is_ok(),
             "Off must admit a proof whose only server tag is valueless (FI-INV-15)"
+        );
+    }
+
+    // ── Upload expiry-boundary regression (commit 75e9bef748d2149ce459b14da842e706a51a5f78) ──
+    //
+    // Demonstrates the split between pre-body admission (freshness + full auth)
+    // and post-body verification (hash only via verify_upload_hash_only).
+    //
+    // Scenario: a 60-second Strict upload proof is valid at admit time.  After a
+    // slow transfer, the proof's expiry has passed.  The OLD full-verifier
+    // (verify_blossom_upload_auth called post-body) would reject the expired
+    // token, failing a legitimate large upload.  The NEW post-body gate
+    // (verify_upload_hash_only) ignores freshness and accepts only the hash.
+    //
+    // Three cases exercise the production upload path contract:
+    //   A. Admitted when fresh  → pre-body gate (verify_blossom_auth_event_for_verb) accepts.
+    //   B. Old full-verifier post-body → rejects even a valid hash if the token expired.
+    //   C. New hash-only post-body → accepts the matching hash regardless of expiry.
+    //   D. Hash-mismatch control → verify_upload_hash_only rejects a wrong hash.
+
+    #[test]
+    fn test_upload_expiry_boundary_admission_before_expiry() {
+        // Case A: the pre-body gate must accept a fresh 60-second proof.
+        let keys = Keys::generate();
+        let body = b"hello world";
+        let sha256 = hex::encode(sha2::Sha256::digest(body));
+        let now = Timestamp::now().as_secs();
+        let exp_str = (now + 60).to_string(); // exactly at the Strict ceiling
+        let server = "relay.example";
+        let tags = vec![
+            Tag::parse(["t", "upload"]).unwrap(),
+            Tag::parse(["x", &sha256]).unwrap(),
+            Tag::parse(["expiration", &exp_str]).unwrap(),
+            Tag::parse(["server", server]).unwrap(),
+        ];
+        let event = EventBuilder::new(Kind::from(24242), "Upload buzz-media")
+            .tags(tags)
+            .sign_with_keys(&keys)
+            .unwrap();
+        assert!(
+            verify_blossom_auth_event_for_verb(
+                &event,
+                BlossomVerb::Upload,
+                Some(server),
+                BlossomStrictness::Strict,
+            )
+            .is_ok(),
+            "pre-body gate must admit a fresh 60-second Strict upload proof"
+        );
+    }
+
+    #[test]
+    fn test_upload_expiry_boundary_old_verifier_rejects_expired_post_body() {
+        // Case B: the OLD full-verifier rejects an expired token post-body, even
+        // when the hash matches.  This is the failure the hash-only split fixes.
+        let keys = Keys::generate();
+        let body = b"hello world";
+        let sha256 = hex::encode(sha2::Sha256::digest(body));
+        let server = "relay.example";
+        // Token expired in the past — simulates a proof that was valid at admit
+        // time but whose expiry passed during a slow body transfer.
+        let past = Timestamp::now().as_secs().saturating_sub(10);
+        let exp_str = past.to_string();
+        let tags = vec![
+            Tag::parse(["t", "upload"]).unwrap(),
+            Tag::parse(["x", &sha256]).unwrap(),
+            Tag::parse(["expiration", &exp_str]).unwrap(),
+            Tag::parse(["server", server]).unwrap(),
+        ];
+        let event = EventBuilder::new(Kind::from(24242), "Upload buzz-media")
+            .tags(tags)
+            .sign_with_keys(&keys)
+            .unwrap();
+        // Full verifier (old post-body path) rejects the expired token.
+        assert!(
+            matches!(
+                verify_blossom_upload_auth(
+                    &event,
+                    &sha256,
+                    Some(server),
+                    BlossomStrictness::Strict
+                ),
+                Err(MediaError::TokenExpired)
+            ),
+            "old full-verifier must reject an expired token even when the hash matches"
+        );
+    }
+
+    #[test]
+    fn test_upload_expiry_boundary_hash_only_accepts_expired_after_transfer() {
+        // Case C: the NEW hash-only post-body gate accepts the matching hash
+        // regardless of expiry.  A slow-transfer large upload survives.
+        let keys = Keys::generate();
+        let body = b"hello world";
+        let sha256 = hex::encode(sha2::Sha256::digest(body));
+        let server = "relay.example";
+        let past = Timestamp::now().as_secs().saturating_sub(10);
+        let exp_str = past.to_string();
+        let tags = vec![
+            Tag::parse(["t", "upload"]).unwrap(),
+            Tag::parse(["x", &sha256]).unwrap(),
+            Tag::parse(["expiration", &exp_str]).unwrap(),
+            Tag::parse(["server", server]).unwrap(),
+        ];
+        let event = EventBuilder::new(Kind::from(24242), "Upload buzz-media")
+            .tags(tags)
+            .sign_with_keys(&keys)
+            .unwrap();
+        // Hash-only post-body gate (new path): ignores freshness, accepts matching hash.
+        assert!(
+            verify_upload_hash_only(&event, &sha256).is_ok(),
+            "hash-only post-body gate must accept a matching hash regardless of expiry"
+        );
+    }
+
+    #[test]
+    fn test_upload_expiry_boundary_hash_mismatch_rejected() {
+        // Case D: verify_upload_hash_only rejects a wrong hash (security control).
+        let keys = Keys::generate();
+        let body = b"hello world";
+        let correct_sha256 = hex::encode(sha2::Sha256::digest(body));
+        let wrong_sha256 = "a".repeat(64);
+        let server = "relay.example";
+        let now = Timestamp::now().as_secs();
+        let exp_str = (now + 60).to_string();
+        let tags = vec![
+            Tag::parse(["t", "upload"]).unwrap(),
+            Tag::parse(["x", &correct_sha256]).unwrap(),
+            Tag::parse(["expiration", &exp_str]).unwrap(),
+            Tag::parse(["server", server]).unwrap(),
+        ];
+        let event = EventBuilder::new(Kind::from(24242), "Upload buzz-media")
+            .tags(tags)
+            .sign_with_keys(&keys)
+            .unwrap();
+        // Presenting the WRONG body hash — the proof is for a different blob.
+        assert!(
+            matches!(
+                verify_upload_hash_only(&event, &wrong_sha256),
+                Err(MediaError::HashMismatch)
+            ),
+            "hash-only gate must reject a body whose SHA-256 does not match the proof's x tag"
+        );
+    }
+
+    #[test]
+    fn test_permissive_valueless_expiration_then_valued_uses_last_wins() {
+        // FI-INV-15: Permissive mode must use last-wins expiration semantics
+        // (matching pre-NIP-FI base behavior).  A valueless expiration tag
+        // followed by a future-valued expiration tag must admit, not expire.
+        let keys = Keys::generate();
+        let sha256 = "c".repeat(64);
+        let now = Timestamp::now().as_secs();
+        let exp_str = (now + 300).to_string();
+        let tags = vec![
+            Tag::parse(["t", "upload"]).unwrap(),
+            Tag::parse(["x", &sha256]).unwrap(),
+            Tag::parse(["expiration"]).unwrap(), // valueless first
+            Tag::parse(["expiration", &exp_str]).unwrap(), // valued second
+        ];
+        let event = EventBuilder::new(Kind::from(24242), "Upload buzz-media")
+            .tags(tags)
+            .sign_with_keys(&keys)
+            .unwrap();
+        assert!(
+            verify_blossom_upload_auth(
+                &event,
+                &sha256,
+                None,
+                BlossomStrictness::Permissive,
+            )
+            .is_ok(),
+            "Permissive must use last-wins expiration: valueless-first must not cause expiry rejection"
         );
     }
 }

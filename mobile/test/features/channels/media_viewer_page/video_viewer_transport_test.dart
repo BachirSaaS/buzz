@@ -62,14 +62,25 @@ void main() {
       // THE FIX: close the sink before send so the pipe completes.
       unawaited(request.sink.close());
 
-      final response = await client.send(request);
+      final response = await client
+          .send(request)
+          .timeout(
+            const Duration(seconds: 5),
+            onTimeout: () =>
+                throw TimeoutException('send() did not complete within 5 s'),
+          );
 
       expect(
         response.statusCode,
         200,
         reason: 'sink closed → server receives full request → replies 200',
       );
-      await response.stream.drain<void>();
+      await response.stream.drain<void>().timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => throw TimeoutException(
+          'response drain did not complete within 5 s',
+        ),
+      );
     },
   );
 
@@ -83,16 +94,29 @@ void main() {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       addTearDown(() => server.close(force: true));
 
+      // Use a Completer to let the server handler exit cleanly when the client
+      // closes the connection (abort-induced socket close).  The server listen
+      // callback completes the Completer; addTearDown ensures the handler is
+      // released even if the test fails.
+      final serverDone = Completer<void>();
       server.listen((req) async {
         await req.drain<void>();
         // Signal that the server has received the request.
         if (!requestArrivedCompleter.isCompleted) {
           requestArrivedCompleter.complete();
         }
-        // Hold the response open until the client closes the connection.
-        // The abort closes the socket, which unblocks this 60-second delay.
-        await Future<void>.delayed(const Duration(seconds: 60));
-        await req.response.close();
+        // Hold the response open.  The abort closes the socket and causes
+        // dart:io to surface a SocketException here, which completes serverDone.
+        try {
+          await req.response.close();
+        } catch (_) {
+          // Socket closed by client abort — expected.
+        } finally {
+          if (!serverDone.isCompleted) serverDone.complete();
+        }
+      });
+      addTearDown(() async {
+        if (!serverDone.isCompleted) serverDone.complete();
       });
 
       final serverUrl =
