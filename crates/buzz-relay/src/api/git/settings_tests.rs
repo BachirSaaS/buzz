@@ -2180,13 +2180,56 @@ mod external_infra {
              The handler must NOT be reached."
         );
 
-        // ── Step 4: digest unchanged after both denials ───────────────────────
+        // ── Step 3b: wrong-payload-hash token → 403 EvidenceRejected ─────────
+        // Same key (owner) + valid owner assertion + NIP-98 token whose
+        // payload hash is computed from a DIFFERENT body ("wrong body"), but
+        // the request sends `post_body_bytes`.  `admit_nip_fi_http` verifies the
+        // payload tag before reaching the handler: hash mismatch → EvidenceRejected
+        // 403.
+        //
+        // This is the isolated wrong-payload-hash witness.  It proves the hash
+        // check fires independently of key pairing.
+        //
+        // Falsifying mutation: remove payload-hash verification from
+        // `make_nip98_closure_for_admission` → wrong-hash token passes →
+        // handler reached → non-403 result.
+        let wrong_hash_token = token(
+            &f.owner,
+            "POST",
+            &settings_url,
+            Some("wrong body for hash mismatch"),
+        );
+        let assertion_owner_3b = mint_assertion(&f.owner.public_key().to_hex());
+        let (status_wrong_hash, _) = response(
+            crate::router::build_router(Arc::clone(&enforced_state))
+                .oneshot(build_post_request(
+                    wrong_hash_token,
+                    Some(assertion_owner_3b),
+                ))
+                .await
+                .expect("router oneshot"),
+        )
+        .await;
+        assert_eq!(
+            status_wrong_hash,
+            StatusCode::FORBIDDEN,
+            "Wrong-hash NIP-98 POST MUST deny 403 (EvidenceRejected). \
+             Token payload hash is bound to 'wrong body for hash mismatch', \
+             but actual request body is post_body_bytes — hash mismatch. \
+             Falsifying mutation: remove payload-hash check → handler reached."
+        );
+
+        // ── Step 4: digest unchanged after all three denials ─────────────────
+        // Three NIP-FI denials (key-mismatch, malformed, wrong-hash) MUST NOT
+        // advance the stored snapshot digest.  All three are stopped before the
+        // handler runs.
         let digest_after_denials = f.snapshot().await.digest;
         assert_eq!(
             digest_after_denials, digest_before,
             "Snapshot digest MUST be unchanged after NIP-FI denials. \
-             Key-mismatch and malformed-token denials must NOT advance stored state. \
-             Falsifying mutation: set branch before NIP-FI check → digest changes."
+             Key-mismatch, malformed-token, and wrong-hash denials must NOT advance \
+             stored state.  Falsifying mutation: call set_default_branch before \
+             NIP-FI check → digest changes."
         );
 
         // ── Step 5: same-key admission passes → 200 OK ───────────────────────

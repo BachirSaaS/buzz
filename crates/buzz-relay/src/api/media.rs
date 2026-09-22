@@ -2366,6 +2366,279 @@ mod tests {
             );
         }
 
+        // ── PUT /upload: Off mode, malformed Authorization → legacy JSON 401 ─
+        //
+        // Off mode does NOT apply NIP-FI cardinality or assertion checks.  A
+        // malformed Nostr token still fails Blossom extraction and the legacy
+        // MediaError response (application/json 401) is returned unchanged.
+        //
+        // This proves Off mode propagates Blossom errors as legacy JSON — not
+        // the NIP-FI text/plain denial bytes that active modes would produce.
+        //
+        // Falsifying mutation A: map Blossom errors to NIP-FI denial bytes in
+        //   Off mode → body changes to "evidence rejected\n" → assertion fires.
+        // Falsifying mutation B: swap Off → Enforce → cardinality/assertion gates
+        //   fire → NIP-FI 403 body → assertion fires.
+        #[test]
+        #[ignore = "requires Postgres"]
+        fn upload_off_malformed_auth_is_legacy_json_401() {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("runtime");
+
+            let Some(state) = rt.block_on(media_off_test_state()) else {
+                panic!("local Postgres not reachable");
+            };
+            let host = format!("nip-fi-media-off-{}.local", uuid::Uuid::new_v4().simple());
+            rt.block_on(state.db.ensure_configured_community(&host))
+                .expect("ensure community");
+
+            let sha256 = "a".repeat(64);
+            let mut headers = axum::http::HeaderMap::new();
+            headers.insert("x-sha-256", sha256.parse().expect("valid header"));
+            headers.insert(
+                axum::http::header::AUTHORIZATION,
+                "Nostr !!!malformed!!!".parse().expect("valid header bytes"),
+            );
+
+            let (status, resp_headers, body) = rt.block_on(media_oneshot(
+                Arc::clone(&state),
+                "PUT",
+                "/upload",
+                &host,
+                headers,
+                b"",
+            ));
+
+            assert_eq!(
+                status,
+                StatusCode::UNAUTHORIZED,
+                "Off mode PUT /upload + malformed Authorization MUST return 401 \
+                 legacy MediaError (FI-INV-15). \
+                 Falsifying mutation: map Blossom errors to NIP-FI bytes in Off mode \
+                 → NIP-FI body/CT."
+            );
+            assert_eq!(
+                body.as_ref(),
+                br#"{"error":"authentication failed"}"#,
+                "Off mode malformed-auth 401 body MUST be exact legacy JSON bytes \
+                 (not NIP-FI text/plain). [FI-INV-15]"
+            );
+            assert_eq!(
+                resp_headers
+                    .get("content-type")
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or(""),
+                "application/json",
+                "Off mode malformed-auth 401 Content-Type MUST be application/json \
+                 (legacy MediaError). [FI-INV-15]"
+            );
+            assert!(
+                resp_headers.get("www-authenticate").is_none(),
+                "Off mode malformed-auth 401 MUST NOT carry WWW-Authenticate. [FI-INV-15]"
+            );
+        }
+
+        // ── PUT /upload: Off mode, duplicate Authorization → passes first value ─
+        //
+        // Off mode skips the NIP-FI cardinality gate — duplicate Authorization
+        // headers are not rejected with 403.  The first value is taken by
+        // `HeaderMap::get()` and processed as normal Blossom auth.  If both
+        // values are valid Blossom upload tokens the request is admitted; the
+        // result is NOT a 403 EvidenceRejected cardinality error.
+        //
+        // This distinguishes Off from Enforce, which rejects duplicates with 403.
+        //
+        // Falsifying mutation: apply cardinality check in Off mode →
+        // 403 EvidenceRejected → body != legacy JSON → assertion fires.
+        #[test]
+        #[ignore = "requires Postgres"]
+        fn upload_off_duplicate_auth_is_not_403() {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("runtime");
+
+            let Some(state) = rt.block_on(media_off_test_state()) else {
+                panic!("local Postgres not reachable");
+            };
+            let host = format!("nip-fi-media-off-{}.local", uuid::Uuid::new_v4().simple());
+            rt.block_on(state.db.ensure_configured_community(&host))
+                .expect("ensure community");
+
+            let keys = Keys::generate();
+            let sha256 = "b".repeat(64);
+            let blossom_val = blossom_upload_auth_value(&keys, &host, &sha256);
+
+            let mut headers = axum::http::HeaderMap::new();
+            headers.insert("x-sha-256", sha256.parse().expect("valid header"));
+            headers.append(
+                axum::http::header::AUTHORIZATION,
+                blossom_val.parse().expect("valid header"),
+            );
+            headers.append(
+                axum::http::header::AUTHORIZATION,
+                blossom_val.parse().expect("valid header"),
+            );
+
+            let (status, _resp_headers, _body) = rt.block_on(media_oneshot(
+                Arc::clone(&state),
+                "PUT",
+                "/upload",
+                &host,
+                headers,
+                b"",
+            ));
+
+            // Off mode passes the first valid value → admission succeeds.
+            // Without MinIO the upload fails with a storage error (not 401/403).
+            // 403 would indicate the cardinality gate fired in Off mode — wrong.
+            assert_ne!(
+                status,
+                StatusCode::FORBIDDEN,
+                "Off mode PUT /upload + duplicate valid Authorization MUST NOT return 403. \
+                 In Off mode the cardinality gate is skipped; the first value is processed. \
+                 Falsifying mutation: apply cardinality in Off mode → 403 fires."
+            );
+            assert_ne!(
+                status,
+                StatusCode::UNAUTHORIZED,
+                "Off mode PUT /upload + two valid Blossom tokens: first token is valid \
+                 → Blossom admission MUST pass → NOT 401. \
+                 401 would mean the first token was rejected."
+            );
+        }
+
+        // ── GET /media: Off mode, malformed Authorization → legacy JSON 401 ───
+        //
+        // Mirror of the upload Off+malformed case for the GET path.
+        //
+        // Falsifying mutation: map Blossom errors to NIP-FI bytes in Off mode
+        // on GET → NIP-FI body/CT → assertion fires.
+        #[test]
+        #[ignore = "requires Postgres"]
+        fn get_blob_off_malformed_auth_is_legacy_json_401() {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("runtime");
+
+            let Some(state) = rt.block_on(media_off_test_state()) else {
+                panic!("local Postgres not reachable");
+            };
+            let host = format!("nip-fi-media-off-{}.local", uuid::Uuid::new_v4().simple());
+            rt.block_on(state.db.ensure_configured_community(&host))
+                .expect("ensure community");
+
+            let sha256 = "c".repeat(64);
+            let path = format!("/media/{sha256}.jpg");
+
+            let mut headers = axum::http::HeaderMap::new();
+            headers.insert(
+                axum::http::header::AUTHORIZATION,
+                "Nostr !!!malformed!!!".parse().expect("valid header bytes"),
+            );
+
+            let (status, resp_headers, body) = rt.block_on(media_oneshot(
+                Arc::clone(&state),
+                "GET",
+                &path,
+                &host,
+                headers,
+                b"",
+            ));
+
+            assert_eq!(
+                status,
+                StatusCode::UNAUTHORIZED,
+                "Off mode GET /media + malformed Authorization MUST return 401 \
+                 legacy MediaError (FI-INV-15). \
+                 Falsifying mutation: remap Blossom error to NIP-FI bytes in Off mode."
+            );
+            assert_eq!(
+                body.as_ref(),
+                br#"{"error":"authentication failed"}"#,
+                "Off GET malformed-auth 401 body MUST be exact legacy JSON bytes \
+                 (not NIP-FI text/plain). [FI-INV-15]"
+            );
+            assert_eq!(
+                resp_headers
+                    .get("content-type")
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or(""),
+                "application/json",
+                "Off GET malformed-auth 401 Content-Type MUST be application/json. [FI-INV-15]"
+            );
+            assert!(
+                resp_headers.get("www-authenticate").is_none(),
+                "Off GET malformed-auth 401 MUST NOT carry WWW-Authenticate. [FI-INV-15]"
+            );
+        }
+
+        // ── GET /media: Off mode, duplicate Authorization → not 403 ───────────
+        //
+        // Off mode skips cardinality; duplicate valid Blossom tokens are not
+        // rejected with 403.  The first value is taken.  Admission passes and
+        // the handler returns 404 (blob not found) — not 403.
+        //
+        // Falsifying mutation: apply cardinality in Off mode on GET → 403 fires.
+        #[test]
+        #[ignore = "requires Postgres"]
+        fn get_blob_off_duplicate_auth_is_not_403() {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("runtime");
+
+            let Some(state) = rt.block_on(media_off_test_state()) else {
+                panic!("local Postgres not reachable");
+            };
+            let host = format!("nip-fi-media-off-{}.local", uuid::Uuid::new_v4().simple());
+            rt.block_on(state.db.ensure_configured_community(&host))
+                .expect("ensure community");
+
+            let keys = Keys::generate();
+            let sha256 = "d0".repeat(32); // 64 hex chars
+            let path = format!("/media/{sha256}.jpg");
+            let blossom_val = blossom_get_auth_value(&keys, &host, &sha256);
+
+            let mut headers = axum::http::HeaderMap::new();
+            headers.append(
+                axum::http::header::AUTHORIZATION,
+                blossom_val.parse().expect("valid header"),
+            );
+            headers.append(
+                axum::http::header::AUTHORIZATION,
+                blossom_val.parse().expect("valid header"),
+            );
+
+            let (status, _resp_headers, _body) = rt.block_on(media_oneshot(
+                Arc::clone(&state),
+                "GET",
+                &path,
+                &host,
+                headers,
+                b"",
+            ));
+
+            // Off mode: first value is valid → admission passes → handler runs
+            // → blob not found → 404 (or non-403).
+            assert_ne!(
+                status,
+                StatusCode::FORBIDDEN,
+                "Off mode GET /media + duplicate valid Authorization MUST NOT return 403. \
+                 In Off mode the cardinality gate is skipped. \
+                 Falsifying mutation: apply cardinality in Off mode → 403 fires."
+            );
+            assert_ne!(
+                status,
+                StatusCode::UNAUTHORIZED,
+                "Off mode GET /media + two valid Blossom tokens: first token is valid \
+                 → admission MUST pass → NOT 401."
+            );
+        }
+
         // ── HEAD /media: Enforce mode, missing Blossom auth → 401 NIP-FI ────
 
         /// Enforce mode + HEAD /media/{sha256} with no Authorization header must
