@@ -1028,6 +1028,44 @@ for (const row of PROBE_ROLE_ROWS) {
   });
 }
 
+// ── denied badge copy button ──────────────────────────────────────────────
+
+test("denied-badge-copy-button: copy button is present next to the denied pubkey", async () => {
+  // Verifies item 2: the pubkey in the denied state is displayed alongside
+  // a copy button (data-testid="admin-denied-pubkey-copy"), not just a
+  // cursor-pointer select-all code block.
+
+  const pubkey = "4".repeat(64);
+  const savedOrigin = "https://admin-denied.example.com";
+
+  setIpcHandler("get_admin_origin", () => Promise.resolve(savedOrigin));
+  setIpcHandler("admin_probe", () => Promise.resolve({ state: "nip98Denied" }));
+
+  const qc = makeQueryClient(pubkey);
+  const { container, doRender, unmount } = mountCard(qc);
+  await doRender();
+  await settle(30);
+
+  const pubkeyEl = container.querySelector(
+    "[data-testid='admin-denied-pubkey']",
+  );
+  assert.ok(pubkeyEl !== null, "admin-denied-pubkey element must be present");
+  assert.ok(
+    pubkeyEl.textContent?.includes(pubkey),
+    `denied pubkey element must contain the pubkey; got: ${pubkeyEl.textContent}`,
+  );
+
+  const copyBtn = container.querySelector(
+    "[data-testid='admin-denied-pubkey-copy']",
+  );
+  assert.ok(
+    copyBtn !== null,
+    "admin-denied-pubkey-copy button must be present — copy-icon pattern missing",
+  );
+
+  await unmount();
+});
+
 // ── P1-2: applyAttachmentBudget — count and aggregate-byte limit ──────────
 
 test("applyAttachmentBudget: items within count and byte limits pass through unchanged", () => {
