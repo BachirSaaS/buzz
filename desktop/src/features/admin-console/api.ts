@@ -480,7 +480,6 @@ export type AdminOperatorDto = {
   effectiveRole: "operator" | "moderator";
   sources: Array<"config" | "owner_fallback" | "db">;
 };
-
 /** List all effective principals — GET /api/admin/v1/operators. Operator-only. */
 export async function listAdminOperators(
   origin: string,
@@ -513,6 +512,96 @@ export async function deleteAdminOperator(
   pubkey: string,
 ): Promise<void> {
   return invokeTauri<void>("admin_delete_operator", { origin, pubkey });
+}
+
+// ── Member restrictions ───────────────────────────────────────────────────
+
+/**
+ * One active ban or timeout row returned by GET /api/admin/v1/members/restrictions.
+ *
+ * Field-for-field mirror of `MemberRestrictionRecord` in the relay's
+ * `api/admin/mod.rs`. DateTime<Utc> serialises to ISO-8601.
+ *
+ * A row may have `banned: true` AND a non-null `mutedUntil` simultaneously —
+ * both restrictions are active.
+ */
+export type AdminMemberRestrictionDto = {
+  /** Target member pubkey as lowercase hex. */
+  pubkey: string;
+  /** Whether a permanent or unexpired ban is active. */
+  banned: boolean;
+  /** Ban expiry; `null` when `banned` is true and the ban is permanent. */
+  banExpiresAt: string | null;
+  /** Moderator-supplied ban reason (private to the admin plane). */
+  banReason: string | null;
+  /** Write-block until this timestamp; `null` or past ⇒ not timed out. */
+  mutedUntil: string | null;
+  /** Moderator-supplied timeout reason (private to the admin plane). */
+  muteReason: string | null;
+  /** Last-acting moderator pubkey as lowercase hex. */
+  actorPubkey: string;
+  /** Last modification time. */
+  updatedAt: string;
+};
+
+/**
+ * Paginated response from GET /api/admin/v1/members/restrictions.
+ * The UI fetches the first page (default limit = 200) and does not paginate.
+ */
+export type AdminRestrictionsPage = {
+  items: AdminMemberRestrictionDto[];
+  nextCursor: string | null;
+};
+
+/**
+ * List active bans and timeouts for a community.
+ *
+ * GET /api/admin/v1/members/restrictions?communityId={id}
+ */
+export async function listAdminRestrictions(
+  origin: string,
+  communityId: string,
+): Promise<AdminRestrictionsPage> {
+  return invokeTauri<AdminRestrictionsPage>("admin_list_restrictions", {
+    origin,
+    communityId,
+  });
+}
+
+/**
+ * Lift an active ban for a community member.
+ *
+ * DELETE /api/admin/v1/members/{pubkey}/ban?communityId={id}
+ *
+ * Returns normally on 204. Throws an `AdminMutationError`-shaped rejection
+ * on 409 ("no active ban") or other errors.
+ */
+export async function liftAdminBan(
+  origin: string,
+  pubkey: string,
+  communityId: string,
+): Promise<void> {
+  return invokeTauri<void>("admin_lift_ban", { origin, pubkey, communityId });
+}
+
+/**
+ * Clear an active timeout for a community member.
+ *
+ * DELETE /api/admin/v1/members/{pubkey}/timeout?communityId={id}
+ *
+ * Returns normally on 204. Throws an `AdminMutationError`-shaped rejection
+ * on 409 ("no active timeout") or other errors.
+ */
+export async function liftAdminTimeout(
+  origin: string,
+  pubkey: string,
+  communityId: string,
+): Promise<void> {
+  return invokeTauri<void>("admin_lift_timeout", {
+    origin,
+    pubkey,
+    communityId,
+  });
 }
 
 // ── Attachment ────────────────────────────────────────────────────────────

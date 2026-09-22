@@ -77,6 +77,16 @@ pub enum AdminRoute {
     OperatorDelete {
         pubkey: HexPubkey,
     },
+    /// GET /members/restrictions — communityId in query.
+    MemberRestrictionsList,
+    /// DELETE /members/{pubkey}/ban — communityId in query.
+    MemberBanDelete {
+        pubkey: HexPubkey,
+    },
+    /// DELETE /members/{pubkey}/timeout — communityId in query.
+    MemberTimeoutDelete {
+        pubkey: HexPubkey,
+    },
 }
 
 /// A validated 64 lowercase-hex character pubkey for use as a URL path segment.
@@ -122,6 +132,13 @@ impl AdminRoute {
             AdminRoute::OperatorsList => "/operators".to_string(),
             AdminRoute::OperatorPut { pubkey } => format!("/operators/{}", pubkey.as_str()),
             AdminRoute::OperatorDelete { pubkey } => format!("/operators/{}", pubkey.as_str()),
+            AdminRoute::MemberRestrictionsList => "/members/restrictions".to_string(),
+            AdminRoute::MemberBanDelete { pubkey } => {
+                format!("/members/{}/ban", pubkey.as_str())
+            }
+            AdminRoute::MemberTimeoutDelete { pubkey } => {
+                format!("/members/{}/timeout", pubkey.as_str())
+            }
         }
     }
 }
@@ -379,5 +396,31 @@ mod tests {
         let qs = q.to_query_string();
         assert!(qs.contains("scope=all"), "scope=all must appear; got: {qs}");
         assert!(qs.contains("limit=50"), "limit=50 must appear; got: {qs}");
+    }
+
+    #[test]
+    fn member_restrictions_list_path() {
+        assert_eq!(
+            AdminRoute::MemberRestrictionsList.path(),
+            "/members/restrictions"
+        );
+    }
+
+    #[test]
+    fn member_ban_delete_path() {
+        let pubkey = HexPubkey::parse(&"ab".repeat(32)).unwrap();
+        assert_eq!(
+            AdminRoute::MemberBanDelete { pubkey }.path(),
+            format!("/members/{}/ban", "ab".repeat(32))
+        );
+    }
+
+    #[test]
+    fn member_timeout_delete_path() {
+        let pubkey = HexPubkey::parse(&"cd".repeat(32)).unwrap();
+        assert_eq!(
+            AdminRoute::MemberTimeoutDelete { pubkey }.path(),
+            format!("/members/{}/timeout", "cd".repeat(32))
+        );
     }
 }

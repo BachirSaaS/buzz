@@ -981,3 +981,503 @@ test("staffing-self-removal-fires-onSelfMutation: confirming removal of own pubk
     await unmount();
   }
 });
+
+// ── P1: Restrictions section ──────────────────────────────────────────────────
+//
+// The Restrictions section renders below the operator list when a communityId is
+// available. It lists active bans/timeouts and provides per-row Lift ban /
+// Clear timeout buttons with confirmation dialogs.
+//
+// Mutation evidence:
+//   - Remove the {effectiveCommunityId && ...} gate → section renders without a
+//     communityId, admin_list_restrictions fires with undefined → RED.
+//   - Remove confirm dialog → lift IPC fires on button click without confirm → RED.
+//   - Remove the list refresh after lift → row stays after lift → RED.
+
+const CM_COMMUNITY_ID = "00000000-0000-0000-0000-000000000042";
+
+function makeBanRecord(pubkeyHex, overrides = {}) {
+  return {
+    pubkey: pubkeyHex,
+    banned: true,
+    banExpiresAt: null,
+    banReason: "test ban",
+    mutedUntil: null,
+    muteReason: null,
+    actorPubkey: "aa".repeat(32),
+    updatedAt: new Date().toISOString(),
+    ...overrides,
+  };
+}
+
+function makeTimeoutRecord(pubkeyHex, overrides = {}) {
+  // mutedUntil 1 hour in the future
+  const future = new Date(Date.now() + 3_600_000).toISOString();
+  return {
+    pubkey: pubkeyHex,
+    banned: false,
+    banExpiresAt: null,
+    banReason: null,
+    mutedUntil: future,
+    muteReason: "test timeout",
+    actorPubkey: "aa".repeat(32),
+    updatedAt: new Date().toISOString(),
+    ...overrides,
+  };
+}
+
+test("restrictions-empty: restrictions section shows 'no active bans or timeouts' when list is empty", async () => {
+  const origin = "https://admin-restrictions.example.com";
+  const pubkey = "a1".repeat(32);
+
+  setIpcHandler("admin_list_restrictions", () =>
+    Promise.resolve({ items: [], nextCursor: null }),
+  );
+
+  const { container, doRender, unmount } = mountStaffingPanel(
+    origin,
+    pubkey,
+    [],
+    { communityId: CM_COMMUNITY_ID },
+  );
+  await doRender();
+  await settle(50);
+
+  try {
+    const section = container.querySelector(
+      "[data-testid='restrictions-section']",
+    );
+    assert.ok(
+      section !== null,
+      "restrictions-section must render with a communityId",
+    );
+    const emptyMsg = container.querySelector(
+      "[data-testid='restrictions-empty']",
+    );
+    assert.ok(
+      emptyMsg !== null,
+      "restrictions-empty must render when list is empty",
+    );
+    assert.ok(
+      emptyMsg.textContent.includes("No active bans"),
+      `empty message must mention "No active bans"; got: "${emptyMsg.textContent}"`,
+    );
+  } finally {
+    await unmount();
+  }
+});
+
+test("restrictions-absent-without-communityId: restrictions section is absent when no communityId", async () => {
+  // When no communityId is available (no active community in context), the
+  // restrictions section must not render — no IPC call, no DOM element.
+  //
+  // Mutation evidence:
+  //   - Remove the {effectiveCommunityId && ...} gate → section renders → RED.
+  const origin = "https://admin-restrictions-absent.example.com";
+  const pubkey = "b2".repeat(32);
+
+  const listCalls = [];
+  setIpcHandler("admin_list_restrictions", (args) => {
+    listCalls.push(args);
+    return Promise.resolve({ items: [], nextCursor: null });
+  });
+
+  // No communityId prop → falls back to useCommunities → no community → null
+  const { container, doRender, unmount } = mountStaffingPanel(origin, pubkey);
+  await doRender();
+  await settle(30);
+
+  try {
+    const section = container.querySelector(
+      "[data-testid='restrictions-section']",
+    );
+    assert.equal(
+      section,
+      null,
+      "restrictions-section must be absent when no communityId is available",
+    );
+    assert.equal(
+      listCalls.length,
+      0,
+      "admin_list_restrictions must not be called when no communityId",
+    );
+  } finally {
+    await unmount();
+  }
+});
+
+test("restrictions-rows: banned and timed-out members render with correct buttons", async () => {
+  const origin = "https://admin-restrictions-rows.example.com";
+  const pubkey = "c3".repeat(32);
+  const bannedPubkey = "d4".repeat(32);
+  const timedOutPubkey = "e5".repeat(32);
+
+  setIpcHandler("admin_list_restrictions", () =>
+    Promise.resolve({
+      items: [makeBanRecord(bannedPubkey), makeTimeoutRecord(timedOutPubkey)],
+      nextCursor: null,
+    }),
+  );
+
+  const { container, doRender, unmount } = mountStaffingPanel(
+    origin,
+    pubkey,
+    [],
+    { communityId: CM_COMMUNITY_ID },
+  );
+  await doRender();
+  await settle(50);
+
+  try {
+    // Banned row
+    const banRow = container.querySelector(
+      `[data-testid='restriction-row-${bannedPubkey}']`,
+    );
+    assert.ok(banRow !== null, "banned member row must render");
+    const liftBanBtn = container.querySelector(
+      `[data-testid='restrictions-lift-ban-btn-${bannedPubkey}']`,
+    );
+    assert.ok(
+      liftBanBtn !== null,
+      "Lift ban button must be present for a banned member",
+    );
+
+    // Timed-out row
+    const timeoutRow = container.querySelector(
+      `[data-testid='restriction-row-${timedOutPubkey}']`,
+    );
+    assert.ok(timeoutRow !== null, "timed-out member row must render");
+    const clearTimeoutBtn = container.querySelector(
+      `[data-testid='restrictions-lift-timeout-btn-${timedOutPubkey}']`,
+    );
+    assert.ok(
+      clearTimeoutBtn !== null,
+      "Clear timeout button must be present for a timed-out member",
+    );
+
+    // Banned member must NOT have a clear-timeout button
+    const noClearBtn = container.querySelector(
+      `[data-testid='restrictions-lift-timeout-btn-${bannedPubkey}']`,
+    );
+    assert.equal(
+      noClearBtn,
+      null,
+      "Clear timeout button must be absent for a banned-only member",
+    );
+  } finally {
+    await unmount();
+  }
+});
+
+test("restrictions-lift-ban-cancel: cancel does not invoke admin_lift_ban", async () => {
+  const origin = "https://admin-restrictions-cancel-ban.example.com";
+  const pubkey = "f6".repeat(32);
+  const bannedPubkey = "07".repeat(32);
+
+  const liftCalls = [];
+  setIpcHandler("admin_lift_ban", (args) => {
+    liftCalls.push(args);
+    return Promise.resolve();
+  });
+  setIpcHandler("admin_list_restrictions", () =>
+    Promise.resolve({ items: [makeBanRecord(bannedPubkey)], nextCursor: null }),
+  );
+
+  const { container, doRender, unmount } = mountStaffingPanel(
+    origin,
+    pubkey,
+    [],
+    { communityId: CM_COMMUNITY_ID },
+  );
+  await doRender();
+  await settle(50);
+
+  try {
+    const liftBanBtn = container.querySelector(
+      `[data-testid='restrictions-lift-ban-btn-${bannedPubkey}']`,
+    );
+    assert.ok(liftBanBtn !== null, "lift ban button must be present");
+    await act(async () => {
+      fireEvent.click(liftBanBtn);
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    const dialog = document.body.querySelector(
+      "[data-testid='restrictions-lift-ban-dialog']",
+    );
+    assert.ok(dialog !== null, "lift-ban dialog must open");
+    assert.equal(
+      liftCalls.length,
+      0,
+      "admin_lift_ban must not fire before confirm",
+    );
+
+    const cancelBtn = document.body.querySelector(
+      "[data-testid='restrictions-lift-ban-cancel']",
+    );
+    assert.ok(cancelBtn !== null, "cancel button must be present");
+    await act(async () => {
+      fireEvent.click(cancelBtn);
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    assert.equal(
+      liftCalls.length,
+      0,
+      "admin_lift_ban must not fire after cancel",
+    );
+    const dialogAfter = document.body.querySelector(
+      "[data-testid='restrictions-lift-ban-dialog']",
+    );
+    assert.equal(dialogAfter, null, "dialog must close after cancel");
+  } finally {
+    await unmount();
+  }
+});
+
+test("restrictions-lift-ban-confirm: confirming lift-ban calls admin_lift_ban with correct args and refreshes list", async () => {
+  //
+  // Mutation evidence:
+  //   - Remove the handleConfirmLiftBan → liftBan call → liftCalls stays 0 → RED.
+  //   - Remove setListGen bump → row stays after lift → RED (list not refreshed).
+  const origin = "https://admin-restrictions-confirm-ban.example.com";
+  const pubkey = "18".repeat(32);
+  const bannedPubkey = "29".repeat(32);
+
+  const liftCalls = [];
+  let remainingItems = [makeBanRecord(bannedPubkey)];
+
+  setIpcHandler("admin_lift_ban", (args) => {
+    liftCalls.push(args);
+    remainingItems = [];
+    return Promise.resolve();
+  });
+  setIpcHandler("admin_list_restrictions", () =>
+    Promise.resolve({ items: [...remainingItems], nextCursor: null }),
+  );
+
+  const { container, doRender, unmount } = mountStaffingPanel(
+    origin,
+    pubkey,
+    [],
+    { communityId: CM_COMMUNITY_ID },
+  );
+  await doRender();
+  await settle(50);
+
+  try {
+    const liftBanBtn = container.querySelector(
+      `[data-testid='restrictions-lift-ban-btn-${bannedPubkey}']`,
+    );
+    assert.ok(
+      liftBanBtn !== null,
+      "lift ban button must be present before confirm",
+    );
+
+    await act(async () => {
+      fireEvent.click(liftBanBtn);
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    const confirmBtn = document.body.querySelector(
+      "[data-testid='restrictions-lift-ban-confirm']",
+    );
+    assert.ok(confirmBtn !== null, "confirm button must be present in dialog");
+    await act(async () => {
+      fireEvent.click(confirmBtn);
+      await new Promise((r) => setTimeout(r, 50));
+    });
+
+    assert.equal(
+      liftCalls.length,
+      1,
+      `admin_lift_ban must be called exactly once; got ${liftCalls.length}`,
+    );
+    assert.equal(
+      liftCalls[0]?.pubkey,
+      bannedPubkey,
+      `admin_lift_ban must receive the banned pubkey; got: ${liftCalls[0]?.pubkey}`,
+    );
+    assert.equal(
+      liftCalls[0]?.communityId,
+      CM_COMMUNITY_ID,
+      `admin_lift_ban must receive the communityId; got: ${liftCalls[0]?.communityId}`,
+    );
+
+    // After the lift the list refreshes and the row must be gone.
+    await settle(50);
+    const rowAfter = container.querySelector(
+      `[data-testid='restriction-row-${bannedPubkey}']`,
+    );
+    assert.equal(
+      rowAfter,
+      null,
+      "banned member row must be gone after ban is lifted",
+    );
+  } finally {
+    await unmount();
+  }
+});
+
+test("restrictions-lift-timeout-confirm: confirming clear-timeout calls admin_lift_timeout with correct args", async () => {
+  const origin = "https://admin-restrictions-confirm-timeout.example.com";
+  const pubkey = "3a".repeat(32);
+  const timedOutPubkey = "4b".repeat(32);
+
+  const liftCalls = [];
+  let remainingItems = [makeTimeoutRecord(timedOutPubkey)];
+
+  setIpcHandler("admin_lift_timeout", (args) => {
+    liftCalls.push(args);
+    remainingItems = [];
+    return Promise.resolve();
+  });
+  setIpcHandler("admin_list_restrictions", () =>
+    Promise.resolve({ items: [...remainingItems], nextCursor: null }),
+  );
+
+  const { container, doRender, unmount } = mountStaffingPanel(
+    origin,
+    pubkey,
+    [],
+    { communityId: CM_COMMUNITY_ID },
+  );
+  await doRender();
+  await settle(50);
+
+  try {
+    const clearTimeoutBtn = container.querySelector(
+      `[data-testid='restrictions-lift-timeout-btn-${timedOutPubkey}']`,
+    );
+    assert.ok(clearTimeoutBtn !== null, "clear timeout button must be present");
+
+    await act(async () => {
+      fireEvent.click(clearTimeoutBtn);
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    const confirmBtn = document.body.querySelector(
+      "[data-testid='restrictions-lift-timeout-confirm']",
+    );
+    assert.ok(confirmBtn !== null, "confirm button must be present in dialog");
+    await act(async () => {
+      fireEvent.click(confirmBtn);
+      await new Promise((r) => setTimeout(r, 50));
+    });
+
+    assert.equal(
+      liftCalls.length,
+      1,
+      `admin_lift_timeout must be called exactly once; got ${liftCalls.length}`,
+    );
+    assert.equal(
+      liftCalls[0]?.pubkey,
+      timedOutPubkey,
+      `admin_lift_timeout must receive the timed-out pubkey; got: ${liftCalls[0]?.pubkey}`,
+    );
+    assert.equal(
+      liftCalls[0]?.communityId,
+      CM_COMMUNITY_ID,
+      `admin_lift_timeout must receive the communityId; got: ${liftCalls[0]?.communityId}`,
+    );
+
+    // Row must be gone after list refresh.
+    await settle(50);
+    const rowAfter = container.querySelector(
+      `[data-testid='restriction-row-${timedOutPubkey}']`,
+    );
+    assert.equal(
+      rowAfter,
+      null,
+      "timed-out member row must be gone after timeout is cleared",
+    );
+  } finally {
+    await unmount();
+  }
+});
+
+test("restrictions-lift-409-treated-as-success: a 409 (already gone) refreshes the list without showing an error", async () => {
+  // When the relay returns 409 ("no active ban"), the row is already gone on
+  // the server. The UI treats this as a soft success: refresh the list,
+  // don\'t surface an error.
+  //
+  // Mutation evidence:
+  //   - Remove the 409-as-success catch branch → liftError set → errEl found → RED.
+  //   - Remove setListGen → row stays after lift → row visible → can assert RED
+  //     by checking the ban row is absent (or use restrictions-lift-ban-confirm
+  //     which already covers the setListGen call on success).
+  const origin = "https://admin-restrictions-409.example.com";
+  const pubkey = "5c".repeat(32);
+  const bannedPubkey = "6d".repeat(32);
+
+  // `liftAttempted` flips to true only after admin_lift_ban is invoked, so the
+  // subsequent list refresh (setListGen inside catch) returns an empty list.
+  // Using a flag instead of a counter avoids races from multiple initial loads
+  // (AdminConsolePanel\'s generation-bump useEffect causes 2 loads on mount).
+  let liftAttempted = false;
+  setIpcHandler("admin_lift_ban", () => {
+    liftAttempted = true;
+    return mutationReject(
+      'admin API error: {"error":{"code":"conflict","message":"no active ban for this member"}}',
+      409,
+    );
+  });
+  setIpcHandler("admin_list_restrictions", () =>
+    Promise.resolve({
+      // Before lift attempt: show the row. After lift attempt: empty (gone).
+      items: liftAttempted ? [] : [makeBanRecord(bannedPubkey)],
+      nextCursor: null,
+    }),
+  );
+
+  const { container, doRender, unmount } = mountStaffingPanel(
+    origin,
+    pubkey,
+    [],
+    { communityId: CM_COMMUNITY_ID },
+  );
+  await doRender();
+  await settle(50);
+
+  try {
+    const liftBanBtn = container.querySelector(
+      `[data-testid='restrictions-lift-ban-btn-${bannedPubkey}']`,
+    );
+    assert.ok(liftBanBtn !== null, "lift ban button must be present");
+
+    await act(async () => {
+      fireEvent.click(liftBanBtn);
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    const confirmBtn = document.body.querySelector(
+      "[data-testid='restrictions-lift-ban-confirm']",
+    );
+    assert.ok(confirmBtn !== null, "confirm button must be present");
+    await act(async () => {
+      fireEvent.click(confirmBtn);
+      await new Promise((r) => setTimeout(r, 50));
+    });
+
+    // No error must be visible — 409 is a soft success.
+    const errEl = container.querySelector(
+      "[data-testid='restrictions-section'] [class*='destructive']",
+    );
+    assert.equal(
+      errEl,
+      null,
+      "no error must be shown when 409 (already gone) is returned",
+    );
+    // Row must be gone (setListGen triggered a refresh which returned empty).
+    assert.ok(liftAttempted, "admin_lift_ban must have been called");
+    const rowAfter = container.querySelector(
+      `[data-testid='restriction-row-${bannedPubkey}']`,
+    );
+    assert.equal(
+      rowAfter,
+      null,
+      "ban row must be absent after soft-success refresh",
+    );
+  } finally {
+    await unmount();
+  }
+});

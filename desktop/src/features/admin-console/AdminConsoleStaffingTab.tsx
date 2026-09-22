@@ -9,6 +9,9 @@
  * Display-name resolution follows the same pattern as the Invites surface:
  * names come from `useUsersBatchQuery`; hovering a name cross-fades to the
  * truncated npub so the raw identity is always one interaction away.
+ *
+ * A "Restrictions" section below the operator list lets operators lift active
+ * bans and timeouts for the currently active community.
  */
 
 import { useState } from "react";
@@ -18,6 +21,7 @@ import { Button } from "@/shared/ui/button";
 import { Badge } from "@/shared/ui/badge";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import { useUsersBatchQuery } from "@/features/profile/hooks";
+import { useCommunities } from "@/features/communities/useCommunities";
 import type { UserProfileSummary } from "@/shared/api/types";
 import {
   AlertDialog,
@@ -32,7 +36,11 @@ import {
 import {
   deleteAdminOperator,
   listAdminOperators,
+  listAdminRestrictions,
+  liftAdminBan,
+  liftAdminTimeout,
   putAdminOperator,
+  type AdminMemberRestrictionDto,
   type AdminOperatorDto,
 } from "./api";
 import {
@@ -119,6 +127,268 @@ function SourceBadge({
   );
 }
 
+// ── Restrictions section ──────────────────────────────────────────────────
+
+/**
+ * Restriction type label for a row. A row can be banned, timed-out, or both.
+ */
+function RestrictionTypeBadge({
+  record,
+}: {
+  record: AdminMemberRestrictionDto;
+}) {
+  const now = new Date();
+  const isBanned =
+    record.banned &&
+    (record.banExpiresAt === null || new Date(record.banExpiresAt) > now);
+  const isTimedOut =
+    record.mutedUntil !== null && new Date(record.mutedUntil) > now;
+  return (
+    <span className="flex flex-wrap gap-1">
+      {isBanned && <Badge variant="destructive">banned</Badge>}
+      {isTimedOut && <Badge variant="secondary">timeout</Badge>}
+    </span>
+  );
+}
+
+/**
+ * Active restrictions for the current community. Operators can lift bans and
+ * timeouts per member row.
+ */
+function RestrictionsSection({
+  origin,
+  communityId,
+  generation,
+}: {
+  origin: string;
+  communityId: string;
+  generation: number;
+}) {
+  const [listGen, setListGen] = useState(0);
+  const [liftError, setLiftError] = useState<string | null>(null);
+  const [workingPubkey, setWorkingPubkey] = useState<string | null>(null);
+  /** Row pending a lift-ban confirmation. */
+  const [pendingLiftBan, setPendingLiftBan] =
+    useState<AdminMemberRestrictionDto | null>(null);
+  /** Row pending a lift-timeout confirmation. */
+  const [pendingLiftTimeout, setPendingLiftTimeout] =
+    useState<AdminMemberRestrictionDto | null>(null);
+
+  const listState: AsyncState<{
+    items: AdminMemberRestrictionDto[];
+    nextCursor: string | null;
+  }> = useAsyncLoad(
+    () => listAdminRestrictions(origin, communityId),
+    [origin, communityId],
+    generation + listGen,
+  );
+
+  const handleConfirmLiftBan = async () => {
+    const row = pendingLiftBan;
+    if (!row) return;
+    setPendingLiftBan(null);
+    setLiftError(null);
+    setWorkingPubkey(row.pubkey);
+    try {
+      await liftAdminBan(origin, row.pubkey, communityId);
+      setListGen((g) => g + 1);
+    } catch (e) {
+      const msg = adminErrorMessage(e);
+      // 409 = no active ban — treat as a soft success (already gone).
+      if (msg.includes("no active ban") || msg.includes("conflict")) {
+        setListGen((g) => g + 1);
+      } else {
+        setLiftError(msg);
+      }
+    } finally {
+      setWorkingPubkey(null);
+    }
+  };
+
+  const handleConfirmLiftTimeout = async () => {
+    const row = pendingLiftTimeout;
+    if (!row) return;
+    setPendingLiftTimeout(null);
+    setLiftError(null);
+    setWorkingPubkey(row.pubkey);
+    try {
+      await liftAdminTimeout(origin, row.pubkey, communityId);
+      setListGen((g) => g + 1);
+    } catch (e) {
+      const msg = adminErrorMessage(e);
+      // 409 = no active timeout — treat as a soft success (already gone).
+      if (msg.includes("no active timeout") || msg.includes("conflict")) {
+        setListGen((g) => g + 1);
+      } else {
+        setLiftError(msg);
+      }
+    } finally {
+      setWorkingPubkey(null);
+    }
+  };
+
+  const items = listState.status === "ok" ? listState.data.items : [];
+
+  return (
+    <div className="space-y-2" data-testid="restrictions-section">
+      {/* Lift-ban confirmation dialog */}
+      <AlertDialog
+        open={pendingLiftBan !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingLiftBan(null);
+        }}
+      >
+        <AlertDialogContent data-testid="restrictions-lift-ban-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Lift ban?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will remove the active ban for{" "}
+              <span className="font-mono">
+                {pendingLiftBan ? truncatePubkey(pendingLiftBan.pubkey) : ""}
+              </span>
+              . They will be able to post again.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="restrictions-lift-ban-cancel">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              asChild
+              data-testid="restrictions-lift-ban-confirm"
+            >
+              <Button
+                onClick={() => void handleConfirmLiftBan()}
+                variant="default"
+              >
+                Lift ban
+              </Button>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Lift-timeout confirmation dialog */}
+      <AlertDialog
+        open={pendingLiftTimeout !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingLiftTimeout(null);
+        }}
+      >
+        <AlertDialogContent data-testid="restrictions-lift-timeout-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Clear timeout?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will clear the active timeout for{" "}
+              <span className="font-mono">
+                {pendingLiftTimeout
+                  ? truncatePubkey(pendingLiftTimeout.pubkey)
+                  : ""}
+              </span>
+              . They will be able to post again.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="restrictions-lift-timeout-cancel">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              asChild
+              data-testid="restrictions-lift-timeout-confirm"
+            >
+              <Button
+                onClick={() => void handleConfirmLiftTimeout()}
+                variant="default"
+              >
+                Clear timeout
+              </Button>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <p className="text-xs font-medium text-muted-foreground">
+        Active restrictions
+      </p>
+
+      {listState.status === "loading" && <LoadingSpinner />}
+      {listState.status === "error" && (
+        <ErrorMessage message={listState.message} />
+      )}
+      {liftError && <ErrorMessage message={liftError} />}
+      {listState.status === "ok" && items.length === 0 && (
+        <p
+          className="text-sm text-muted-foreground"
+          data-testid="restrictions-empty"
+        >
+          No active bans or timeouts.
+        </p>
+      )}
+      {listState.status === "ok" && items.length > 0 && (
+        <ul className="space-y-1">
+          {items.map((row) => {
+            const isWorking = workingPubkey === row.pubkey;
+            const now = new Date();
+            const isBanned =
+              row.banned &&
+              (row.banExpiresAt === null || new Date(row.banExpiresAt) > now);
+            const isTimedOut =
+              row.mutedUntil !== null && new Date(row.mutedUntil) > now;
+            return (
+              <li
+                className="flex items-center gap-2 rounded-md border border-border/60 px-3 py-2"
+                data-testid={`restriction-row-${row.pubkey}`}
+                key={row.pubkey}
+              >
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-mono truncate">
+                    {truncatePubkey(row.pubkey)}
+                  </p>
+                  <div className="mt-0.5">
+                    <RestrictionTypeBadge record={row} />
+                  </div>
+                </div>
+                {isBanned && (
+                  <Button
+                    data-testid={`restrictions-lift-ban-btn-${row.pubkey}`}
+                    disabled={isWorking}
+                    onClick={() => setPendingLiftBan(row)}
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                  >
+                    {isWorking ? (
+                      <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      "Lift ban"
+                    )}
+                  </Button>
+                )}
+                {isTimedOut && (
+                  <Button
+                    data-testid={`restrictions-lift-timeout-btn-${row.pubkey}`}
+                    disabled={isWorking}
+                    onClick={() => setPendingLiftTimeout(row)}
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                  >
+                    {isWorking ? (
+                      <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      "Clear timeout"
+                    )}
+                  </Button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 // ── Staffing tab ──────────────────────────────────────────────────────────
 
 export function StaffingTab({
@@ -127,6 +397,7 @@ export function StaffingTab({
   generation,
   canMutate,
   onSelfMutation,
+  communityId: communityIdOverride,
 }: {
   origin: string;
   pubkey: string;
@@ -143,7 +414,18 @@ export function StaffingTab({
    * server state.
    */
   onSelfMutation?: () => void;
+  /**
+   * Override the community ID used for the Restrictions section. When absent
+   * the active community from `useCommunities` is used. Intended for unit
+   * tests that need to exercise the restrictions surface without seeding
+   * localStorage with a community entry.
+   *
+   * Do not pass this prop in production code.
+   */
+  communityId?: string;
 }) {
+  const { activeCommunity } = useCommunities();
+  const effectiveCommunityId = communityIdOverride ?? activeCommunity?.id;
   const [listGen, setListGen] = useState(0);
   const [addPubkey, setAddPubkey] = useState("");
   const [addRole, setAddRole] = useState<"operator" | "moderator">("moderator");
@@ -436,6 +718,17 @@ export function StaffingTab({
             );
           })}
         </ul>
+      )}
+
+      {/* Restrictions section — active bans and timeouts for the current community */}
+      {effectiveCommunityId && (
+        <div className="mt-6 rounded-md border border-border/60 px-3 py-2.5">
+          <RestrictionsSection
+            origin={origin}
+            communityId={effectiveCommunityId}
+            generation={generation}
+          />
+        </div>
       )}
     </div>
   );

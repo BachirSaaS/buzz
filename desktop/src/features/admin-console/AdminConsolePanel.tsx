@@ -91,6 +91,7 @@ export function AdminConsolePanel({
   role,
   initialTab,
   onSelfMutation,
+  communityId,
 }: {
   /**
    * Whether mutation controls should be enabled. `false` when the relay probe
@@ -117,6 +118,12 @@ export function AdminConsolePanel({
    * Do not pass this prop in production code.
    */
   initialTab?: Tab;
+  /**
+   * Override the community ID forwarded to the Restrictions section. Intended
+   * for unit tests; the production path reads `activeCommunity` from context.
+   * Do not pass this prop in production code.
+   */
+  communityId?: string;
 }) {
   const isOperator = role === "operator";
   const [activeTab, setActiveTab] = useState<Tab>(initialTab ?? "reports");
@@ -182,6 +189,7 @@ export function AdminConsolePanel({
           pubkey={pubkey}
           generation={generation}
           onSelfMutation={onSelfMutation}
+          communityId={communityId}
         />
       )}
     </div>

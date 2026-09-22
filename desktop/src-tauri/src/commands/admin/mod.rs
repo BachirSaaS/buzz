@@ -762,10 +762,82 @@ pub async fn admin_fetch_feedback_attachment(
     finish_attachment_response(resp, &expected_mime, expected_size).await
 }
 
+// ── Member restrictions ───────────────────────────────────────────────────
+
+/// List active bans and timeouts — GET /api/admin/v1/members/restrictions?communityId={uuid}.
+///
+/// Returns `{ items: [...], nextCursor: string|null }`. The client always
+/// requests page size 200 (the relay's default) and the UI does not paginate
+/// beyond the first page — more than 200 simultaneous restrictions would
+/// require a dedicated pagination affordance that is out of scope for the
+/// fix round.
+#[tauri::command]
+pub async fn admin_list_restrictions(
+    origin: String,
+    community_id: String,
+    state: tauri::State<'_, crate::app_state::AppState>,
+) -> Result<serde_json::Value, String> {
+    let origin = origin::AdminOrigin::parse(&origin)?;
+    let q = routes::AdminQuery {
+        community_id: Some(community_id),
+        ..Default::default()
+    };
+    let url = origin.route_url(&routes::AdminRoute::MemberRestrictionsList, &q);
+    let bytes = fetch_admin_json(&url, SUCCESS_JSON_CAP, &state).await?;
+    serde_json::from_slice(&bytes).map_err(|e| format!("invalid JSON from relay: {e}"))
+}
+
+/// Lift an active ban — DELETE /api/admin/v1/members/{pubkey}/ban?communityId={uuid}.
+///
+/// Returns 204 on success, 409 when no active ban exists for this member.
+/// A 409 is surfaced as an `AdminMutationError` so the UI can handle it
+/// gracefully ("no active ban").
+#[tauri::command]
+pub async fn admin_lift_ban(
+    origin: String,
+    pubkey: String,
+    community_id: String,
+    state: tauri::State<'_, crate::app_state::AppState>,
+) -> Result<(), AdminMutationError> {
+    let origin = origin::AdminOrigin::parse(&origin)?;
+    let pubkey =
+        routes::HexPubkey::parse(&pubkey).map_err(|e| format!("invalid member pubkey: {e}"))?;
+    let q = routes::AdminQuery {
+        community_id: Some(community_id),
+        ..Default::default()
+    };
+    let url = origin.route_url(&routes::AdminRoute::MemberBanDelete { pubkey }, &q);
+    // 204 No Content: empty body is the success signal. delete_admin_json
+    // returns Ok(vec![]) for 204; we discard the bytes and return ().
+    let _bytes = delete_admin_json(&url, SUCCESS_JSON_CAP, &state).await?;
+    Ok(())
+}
+
+/// Lift an active timeout — DELETE /api/admin/v1/members/{pubkey}/timeout?communityId={uuid}.
+///
+/// Returns 204 on success, 409 when no active timeout exists for this member.
+#[tauri::command]
+pub async fn admin_lift_timeout(
+    origin: String,
+    pubkey: String,
+    community_id: String,
+    state: tauri::State<'_, crate::app_state::AppState>,
+) -> Result<(), AdminMutationError> {
+    let origin = origin::AdminOrigin::parse(&origin)?;
+    let pubkey =
+        routes::HexPubkey::parse(&pubkey).map_err(|e| format!("invalid member pubkey: {e}"))?;
+    let q = routes::AdminQuery {
+        community_id: Some(community_id),
+        ..Default::default()
+    };
+    let url = origin.route_url(&routes::AdminRoute::MemberTimeoutDelete { pubkey }, &q);
+    let _bytes = delete_admin_json(&url, SUCCESS_JSON_CAP, &state).await?;
+    Ok(())
+}
+
 // ── Origin storage commands ───────────────────────────────────────────────
 
 /// Core storage logic for `get_admin_origin`, parameterised by data directory
-/// and resolved pubkey hex. No `tauri::State` — testable with `tempdir`.
 ///
 /// Reads the per-pubkey JSON file, reparses the stored origin through
 /// `AdminOrigin::parse()`, and returns the canonical string. Returns `None`
