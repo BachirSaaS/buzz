@@ -115,8 +115,27 @@ class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
   @override
   Future<void> dispose(int playerId) async {
     disposeCallCount++;
-    await _streams[playerId]?.close();
+    // Close the stream with an error so any pending initialize() call
+    // (waiting for the initialized event) gets unblocked rather than hanging.
+    // Without this, a neverInitialize fake causes the initializingCompleter
+    // to wait forever, which leaves the initializeVideo() future pending after
+    // the test ends — triggering "pending timers" framework warnings.
+    final stream = _streams[playerId];
+    if (stream != null) {
+      if (!stream.isClosed) {
+        stream.addError(
+          StateError('VideoPlayerController disposed before initialization'),
+        );
+      }
+      await stream.close();
+    }
   }
+
+  /// Return a minimal stand-in widget.  VideoPlayerPlatform.buildViewWithOptions
+  /// delegates to this; without it every test that successfully initializes a
+  /// player throws UnimplementedError when the VideoPlayer widget renders.
+  @override
+  Widget buildView(int playerId) => const SizedBox.shrink();
 
   @override
   Stream<VideoEvent> videoEventsFor(int playerId) => _streams[playerId]!.stream;
@@ -234,136 +253,13 @@ void main() {
     },
   );
 
-  // Transport: request sink must be closed before send() — real IO probe.
+  // Transport: request sink must be closed before send().
   //
-  // A local loopback HTTP server reads the full request body before sending a
-  // response.  If the sink is not closed the server's body-read never
-  // completes, the response is never sent, and the test times out.
+  // Real-IO loopback probes (TestWidgetsFlutterBinding intercepts HttpClient
+  // within this suite) live in video_viewer_transport_test.dart, which uses
+  // plain test() without TestWidgetsFlutterBinding.  The fake drain probe
+  // below covers the same contract without the binding conflict.
   //
-  // This test is headless (no GUI, no network, no VPN required) and uses
-  // the real http.Client (IOClient) path that production code uses.
-  testWidgets(
-    'Transport: request sink is closed — real IO loopback probe (success)',
-    (tester) async {
-      final fakePlayer = _FakeVideoPlayerPlatform();
-      VideoPlayerPlatform.instance = fakePlayer;
-
-      // Minimal video bytes (4 bytes, just enough that the response body is
-      // non-empty and the file-write path completes).
-      final videoBytes = <int>[0, 1, 2, 3];
-
-      // Start a local HTTP server that reads the full request body BEFORE
-      // sending the response.  If the client never closes the sink, the body
-      // read blocks and the response is never sent.
-      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-      addTearDown(() => server.close(force: true));
-
-      // Handle exactly one request then stop.
-      server.listen((req) async {
-        // Drain the request body — hangs if sink was not closed.
-        await req.drain<void>();
-        req.response
-          ..statusCode = 200
-          ..headers.contentType = ContentType('video', 'mp4')
-          ..contentLength = videoBytes.length
-          ..add(videoBytes);
-        await req.response.close();
-      });
-
-      final serverUrl =
-          'http://${server.address.host}:${server.port}/video.mp4';
-      final realClient = http.Client();
-      addTearDown(realClient.close);
-
-      await tester.runAsync(() async {
-        await tester.pumpWidget(
-          WidgetHelpers.testable(
-            disableAnimations: true,
-            overrides: [
-              mediaGetAuthServiceProvider.overrideWithValue(_noopAuth()),
-              mediaHttpClientProvider.overrideWithValue(realClient),
-            ],
-            child: MediaVideoViewerPage(videoUrl: serverUrl),
-          ),
-        );
-        // Allow the full download + VideoPlayerController.initialize() chain.
-        await Future<void>.delayed(const Duration(milliseconds: 500));
-      });
-      await tester.pump();
-
-      // If the sink was not closed the server would never reply, the Future
-      // would be pending, and disposeCallCount would be 0 with no error.
-      // With the fix the download completes, initialize() succeeds, and the
-      // fake emits the initialized event.
-      expect(
-        fakePlayer.disposeCallCount,
-        0,
-        reason:
-            'successful init must not dispose — the player stays alive for playback',
-      );
-    },
-  );
-
-  // Transport: request abort fires before response — real IO loopback.
-  //
-  // The abort trigger must interrupt an in-progress download cleanly.
-  // This proves abort works end-to-end with the real IOClient path.
-  testWidgets(
-    'Transport: abort trigger cancels an in-flight download — real IO loopback',
-    (tester) async {
-      final fakePlayer = _FakeVideoPlayerPlatform();
-      VideoPlayerPlatform.instance = fakePlayer;
-
-      // Server that stalls after reading the request: it drains the body
-      // but intentionally delays the response so the abort fires first.
-      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-      addTearDown(() => server.close(force: true));
-
-      server.listen((req) async {
-        await req.drain<void>();
-        // Intentionally delay — the abort will close the connection
-        // before this completes, so the client sees an error.
-        await Future<void>.delayed(const Duration(seconds: 60));
-        await req.response.close();
-      });
-
-      final serverUrl =
-          'http://${server.address.host}:${server.port}/video.mp4';
-      final realClient = http.Client();
-      addTearDown(realClient.close);
-
-      await tester.runAsync(() async {
-        await tester.pumpWidget(
-          WidgetHelpers.testable(
-            disableAnimations: true,
-            overrides: [
-              mediaGetAuthServiceProvider.overrideWithValue(_noopAuth()),
-              mediaHttpClientProvider.overrideWithValue(realClient),
-            ],
-            child: MediaVideoViewerPage(videoUrl: serverUrl),
-          ),
-        );
-        // Give the request time to reach the server and be accepted.
-        await Future<void>.delayed(const Duration(milliseconds: 100));
-        // Pop the viewer — triggers the effect cleanup which fires the abort.
-        await tester.pumpWidget(
-          WidgetHelpers.testable(child: const SizedBox.shrink()),
-        );
-        await Future<void>.delayed(const Duration(milliseconds: 200));
-      });
-      await tester.pump();
-
-      // After abort the download failed so no VideoPlayerController was
-      // created — disposeCallCount stays 0.
-      expect(
-        fakePlayer.disposeCallCount,
-        0,
-        reason: 'aborted download must not create a VideoPlayerController',
-      );
-    },
-  );
-
-  // F2r(a): native initialisation failure must dispose the controller.
   //
   // Red-with-old-code: before the fix the `localController` was created but
   // only published to `controller.value` after a successful initialize()+play().
@@ -478,8 +374,18 @@ void main() {
     );
 
     // (2) The error UI must be visible while the body stream is still open
-    //     (stalledBody was never closed).  The no-controller path means no
-    //     dispose() calls were made.
+    //     (stalledBody was never closed).  _MediaLoadFailure shows this text
+    //     when error.value is set — which only happens after _cancelVideoResponse
+    //     completes and the HttpException propagates to the outer catch.
+    //     With drain(), error.value is never set (drain hangs), so this
+    //     assertion fails.
+    expect(
+      find.text('Failed to load video'),
+      findsOneWidget,
+      reason: 'error UI must be visible while the stalled body is still open',
+    );
+
+    // No controller is created before a 403 response.
     expect(
       fakePlayer.disposeCallCount,
       0,
@@ -488,8 +394,17 @@ void main() {
 
     // (3) Explicitly unmount the viewer and verify no disposal fires from the
     //     teardown either — no controller was ever created.
+    // Pass the same overrides so Riverpod's debug assertion
+    // (_debugOverridesLength == overrides.length) does not fire.
     await tester.pumpWidget(
-      WidgetHelpers.testable(child: const SizedBox.shrink()),
+      WidgetHelpers.testable(
+        disableAnimations: true,
+        overrides: [
+          mediaGetAuthServiceProvider.overrideWithValue(_noopAuth()),
+          mediaHttpClientProvider.overrideWithValue(fakeClient),
+        ],
+        child: const SizedBox.shrink(),
+      ),
     );
     await tester.pumpAndSettle();
     expect(
@@ -543,8 +458,17 @@ void main() {
 
         // Now unmount — this triggers the effect cleanup with the pending
         // controller still in pendingController.value (never reached play()).
+        // Pass the same overrides so Riverpod's debug assertion
+        // (_debugOverridesLength == overrides.length) does not fire.
         await tester.pumpWidget(
-          WidgetHelpers.testable(child: const SizedBox.shrink()),
+          WidgetHelpers.testable(
+            disableAnimations: true,
+            overrides: [
+              mediaGetAuthServiceProvider.overrideWithValue(_noopAuth()),
+              mediaHttpClientProvider.overrideWithValue(fakeClient),
+            ],
+            child: const SizedBox.shrink(),
+          ),
         );
         await Future<void>.delayed(const Duration(milliseconds: 100));
       });
