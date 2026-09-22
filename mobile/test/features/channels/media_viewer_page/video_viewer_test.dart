@@ -65,24 +65,31 @@ class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
   @override
   Future<int?> create(DataSource dataSource) async {
     final id = nextPlayerId++;
-    final controller = StreamController<VideoEvent>();
+    final controller = StreamController<VideoEvent>(
+      onListen: () {
+        // Emit the event/error only when the stream is first subscribed so that
+        // VideoPlayerController.initialize() is already listening.  Emitting
+        // before the subscription means the event is dropped and initialize()
+        // hangs waiting for the initialized signal.
+        if (forceInitError) {
+          _streams[id]!.addError(
+            PlatformException(
+              code: 'VideoError',
+              message: 'Fake native init failure',
+            ),
+          );
+        } else {
+          _streams[id]!.add(
+            VideoEvent(
+              eventType: VideoEventType.initialized,
+              size: const Size(100, 100),
+              duration: const Duration(seconds: 1),
+            ),
+          );
+        }
+      },
+    );
     _streams[id] = controller;
-    if (forceInitError) {
-      controller.addError(
-        PlatformException(
-          code: 'VideoError',
-          message: 'Fake native init failure',
-        ),
-      );
-    } else {
-      controller.add(
-        VideoEvent(
-          eventType: VideoEventType.initialized,
-          size: const Size(100, 100),
-          duration: const Duration(seconds: 1),
-        ),
-      );
-    }
     return id;
   }
 
@@ -153,22 +160,33 @@ void main() {
   // `localController.dispose()`.  With forceInitError=true the fake emits a
   // PlatformException; `initialize()` throws; the new inner catch calls
   // `dispose()` before rethrowing.  disposeCallCount >= 1 verifies it.
-  testWidgets(
-    'F2r(a): VideoPlayerController is disposed when native init fails',
-    (tester) async {
-      final fakePlayer = _FakeVideoPlayerPlatform(forceInitError: true);
-      VideoPlayerPlatform.instance = fakePlayer;
+  testWidgets('F2r(a): VideoPlayerController is disposed when native init fails', (
+    tester,
+  ) async {
+    final fakePlayer = _FakeVideoPlayerPlatform(forceInitError: true);
+    VideoPlayerPlatform.instance = fakePlayer;
 
-      // 200-ok response with an immediately-completed body so the download
-      // phase completes and initializeVideo() reaches the
-      // VideoPlayerController.file() path.
-      final client = http_testing.MockClient((request) async {
-        return http.Response.bytes(<int>[0, 1, 2, 3], 200);
-      });
-      addTearDown(client.close);
+    // 200-ok response with a tiny immediate body so the download phase
+    // completes and initializeVideo() reaches the VideoPlayerController.file()
+    // path.  MockClient.streaming is required (not MockClient) because the
+    // production code sends an AbortableStreamedRequest whose sink is never
+    // explicitly closed; MockClient's non-streaming handler drains the body
+    // via ByteStream.toBytes() which hangs on an unclosed StreamController.
+    final client = http_testing.MockClient.streaming(
+      (request, bodyStream) async =>
+          http.StreamedResponse(Stream.value(<int>[0, 1, 2, 3]), 200),
+    );
+    addTearDown(client.close);
 
+    // Build and mount the widget inside runAsync so that VideoPlayerController
+    // microtask delivery (StreamController event → initializingCompleter) can
+    // fire.  The fake zone in testWidgets suppresses microtask dispatch in ways
+    // that prevent VideoPlayerController.initialize() from completing without
+    // being inside a real-async scope.
+    await tester.runAsync(() async {
       await tester.pumpWidget(
         WidgetHelpers.testable(
+          disableAnimations: true,
           overrides: [
             mediaGetAuthServiceProvider.overrideWithValue(_noopAuth()),
             mediaHttpClientProvider.overrideWithValue(client),
@@ -178,21 +196,20 @@ void main() {
           ),
         ),
       );
+      // Give the initializeVideo() async chain time to complete: HTTP response,
+      // file write, VideoPlayerController.initialize(), and dispose().
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+    });
+    await tester.pump();
 
-      // Pump until idle — initializeVideo() completes after catching the
-      // PlatformException and recording the error.
-      await tester.pumpAndSettle(const Duration(seconds: 5));
-
-      // The fake must have recorded at least one dispose() call, confirming
-      // the native player was released even on an initialisation failure.
-      expect(
-        fakePlayer.disposeCallCount,
-        greaterThanOrEqualTo(1),
-        reason:
-            'VideoPlayerController must be disposed when initialize() throws',
-      );
-    },
-  );
+    // The fake must have recorded at least one dispose() call, confirming
+    // the native player was released even on an initialisation failure.
+    expect(
+      fakePlayer.disposeCallCount,
+      greaterThanOrEqualTo(1),
+      reason: 'VideoPlayerController must be disposed when initialize() throws',
+    );
+  });
 
   // F2r(b): close-during-error-body must cancel the stream, not drain it.
   //
@@ -222,6 +239,7 @@ void main() {
 
     await tester.pumpWidget(
       WidgetHelpers.testable(
+        disableAnimations: true,
         overrides: [
           mediaGetAuthServiceProvider.overrideWithValue(_noopAuth()),
           mediaHttpClientProvider.overrideWithValue(client),
@@ -232,9 +250,14 @@ void main() {
       ),
     );
 
-    // Must settle within the short window — a stalled drain() would block
-    // until the Flutter test runner's outer timeout kills the test.
-    await tester.pumpAndSettle(const Duration(seconds: 5));
+    // Allow real async I/O to complete.  disableAnimations: true stops
+    // BuzzLoadingIndicator from repeating, so pumpAndSettle converges.
+    // A stalled drain() would block runAsync here indefinitely; the fix
+    // (listen+cancel) completes immediately regardless of body stream state.
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 50)),
+    );
+    await tester.pumpAndSettle();
 
     // The error response was rejected before any VideoPlayerController was
     // created, so no dispose() calls should have been recorded.
