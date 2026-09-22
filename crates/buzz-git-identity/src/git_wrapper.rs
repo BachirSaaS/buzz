@@ -325,7 +325,7 @@ fn run_inner(argv: Vec<String>, authority: Option<Authority>) -> i32 {
         // entirely.  `effective_argv` is the fully-expanded, safety-checked argv
         // whose subcommand is the real git subcommand (`push` in this case), so
         // classifying it produces the correct result without another alias walk.
-        match is_push_command(&real_git, effective_argv, &ctx) {
+        match is_push_command(effective_argv) {
             PushKind::NotPush => {}
             PushKind::Push => {
                 if let Err(msg) =
@@ -417,35 +417,14 @@ enum PushKind {
 /// and the resolved subcommand is the real git subcommand, this function simply
 /// classifies that subcommand directly — no second alias walk is needed or
 /// correct.  A second walk would re-consult alias config on the already-resolved
-/// token and could misclassify it (e.g. returning `NotPush` for `push` if an
-/// `alias.push` entry exists, or following a builtin-shadowing alias like
+/// token and could misclassify it (e.g. following a builtin-shadowing alias like
 /// `alias.status=push` that git itself ignores for dispatch).
-fn is_push_command(_real_git: &Path, argv: &[String], _ctx: &[String]) -> PushKind {
-    // The subcommand in the effective argv is the fully-resolved git command —
-    // no alias expansion is needed here.  Simply check whether it is "push".
-    // The P2 fix (builtin-shadowing alias no longer misclassifies `status`) is
-    // a consequence of this design: `effective_argv` already has the real
-    // subcommand (`status`), and we compare it literally — no alias lookup
-    // to follow `alias.status=push`.
-    //
-    // One residual check: when the builtins list is available, confirm "push"
-    // is actually a known builtin (guards against a future git removing `push`
-    // from the builtin set).  If the list is unavailable (old git), fall back
-    // to the string comparison alone — push has been a builtin since git 1.x
-    // so this is safe.
-    let name = match subcommand(argv) {
-        Some(s) => s,
-        None => return PushKind::NotPush,
-    };
-    if name == "push" {
-        return PushKind::Push;
+fn is_push_command(argv: &[String]) -> PushKind {
+    // Classify the already-resolved subcommand directly; no alias lookup.
+    match subcommand(argv) {
+        Some(name) if name == "push" => PushKind::Push,
+        _ => PushKind::NotPush,
     }
-    // Also classify "send-pack" and "receive-pack" invocations as pushes if
-    // they appear in the effective argv — these are lower-level plumbing that
-    // the verify_push flags guard already handles.  Any other subcommand is not
-    // a push.  (The original loop handling was belt-and-suspenders for alias
-    // chains; effective_argv is already fully resolved so the loop is gone.)
-    PushKind::NotPush
 }
 
 /// Query git for its set of builtin subcommands via `--list-cmds=builtins`.
@@ -501,132 +480,299 @@ fn git_deprecated_commands(real_git: &Path) -> std::collections::HashSet<String>
         .collect()
 }
 
+/// Outcome of [`git_supports_subsection_alias`].
+///
+/// Callers must treat `ProbeFailure` as fail-closed (refuse the operation),
+/// never as a fallback to either the supporting or non-supporting path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SubsectionSupport {
+    /// The installed git binary dispatches `alias.<name>.command` entries.
+    Supported,
+    /// The installed git binary does NOT dispatch `alias.<name>.command`
+    /// entries (e.g. Apple Git 2.50.1 — it stores them but ignores them for
+    /// dispatch).
+    Unsupported,
+    /// The capability probe itself failed (timeout, I/O error, unexpected
+    /// output).  The caller must fail closed rather than pick either path.
+    ProbeFailure,
+}
+
 /// Detect whether the installed git binary supports the `alias.<name>.command`
 /// subsection form introduced in Git 2.54, by observing actual dispatch.
 ///
-/// Git 2.54 added `alias.<name>.command` as an alternative alias representation.
-/// The wrapper must resolve both representations so it sees the same effective
-/// alias value as git.
+/// Git 2.54 added `alias.<name>.command` as an alternative alias
+/// representation.  The wrapper must resolve both representations so it sees
+/// the same effective alias value as git.
 ///
-/// **Capability probe — dispatch, not config storage:** inject an inline
-/// sentinel `alias._probe_.command=version` and *execute* it.  A supporting
+/// **Capability probe — dispatch, not storage:** inject an inline sentinel
+/// `alias._probe_.command=version` and *execute* `_probe_`.  A supporting
 /// binary dispatches `version` and the output starts with "git version".
-/// A non-supporting binary (e.g. Apple Git 2.50.1) ignores the subsection
-/// form for dispatch and reports "`_probe_` is not a git command" — that
-/// binary returns exit 0 but the output does not start with "git version".
-/// Probing config storage (`config --get alias._probe_.command`) is NOT
-/// sufficient: old Git happily stores and echoes the value but never dispatches
-/// it, producing a false positive capability result.
+/// A non-supporting binary ignores the subsection form for dispatch and
+/// reports "`_probe_` is not a git command" — exit 0 but no "git version".
+/// Probing config storage is NOT sufficient: old Git stores the value but
+/// never dispatches it, producing a false-positive.
 ///
-/// Isolation: the probe runs with `GIT_CONFIG_NOSYSTEM=1` and a scratch `HOME`
-/// so no ambient alias or helper from the real user's config can collide with
-/// `_probe_` or alter the output.
-fn git_supports_subsection_alias(real_git: &Path) -> bool {
-    // Create a scratch HOME so no ambient alias from the real user's config
-    // can shadow `_probe_` or produce a false "git version" in the output.
-    let scratch_home = {
+/// **Isolation — external-command poisoning prevention:**
+/// A `git-_probe_` executable on the ambient PATH could intercept dispatch
+/// on both old and new Git, flipping the capability verdict:
+///  - a helper printing "git version sentinel" makes old Git appear supported,
+///    causing the wrapper to enumerate subsection entries that old Git ignores.
+///  - a helper printing something else makes new Git appear unsupported,
+///    causing the wrapper to miss real `.command` push aliases.
+///  - a hanging helper stalls every subsequent managed invocation until the
+///    unbound `.output()` unblocks.
+///
+/// To prevent this, the probe:
+///   1. Uses an isolated scratch working directory (not inside any repo).
+///   2. Scrubs ambient config channels (`GIT_CONFIG_NOSYSTEM`, scratch `HOME`,
+///      `XDG_CONFIG_HOME`, `GIT_CONFIG_GLOBAL`, `GIT_DIR`, `GIT_WORK_TREE`,
+///      `GIT_NAMESPACE`).
+///   3. Restricts `PATH` to the directory containing the real git binary
+///      and a known-empty scratch directory, so no external `git-_probe_`
+///      helper can be found.  The sentinel alias is dispatched internally by
+///      git (it resolves to the `version` builtin), so no helper on PATH is
+///      needed.
+///   4. Unsets `GIT_EXEC_PATH` so git's internal exec-path lookup is not
+///      redirected to an attacker-controlled directory.
+///   5. Bounds the child process: timeout + output cap via
+///      [`capture_raw_bounded`].
+///
+/// `ProbeFailure` (timeout, I/O error, unexpected output) propagates as its
+/// own state — never silently mapped to either capability verdict.
+fn git_supports_subsection_alias(real_git: &Path) -> SubsectionSupport {
+    // Scratch environment: isolated working directory + config env.
+    let scratch_dir = {
         let base = std::env::temp_dir();
-        base.join(format!(
-            "buzz-git-probe-{}-{}",
-            std::process::id(),
-            // mix in the binary path hash to avoid collisions between
-            // concurrent wrapper instances
-            {
-                use std::hash::{Hash, Hasher};
-                let mut h = std::collections::hash_map::DefaultHasher::new();
-                real_git.hash(&mut h);
-                h.finish()
-            }
-        ))
+        base.join(format!("buzz-git-probe-{}-{}", std::process::id(), {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            real_git.hash(&mut h);
+            h.finish()
+        }))
     };
-    let _ = std::fs::create_dir_all(&scratch_home);
-    let out = std::process::Command::new(real_git)
-        .args(["-c", "alias._probe_.command=version", "_probe_"])
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .env("HOME", &scratch_home)
-        .output();
-    let _ = std::fs::remove_dir_all(&scratch_home);
-    matches!(out, Ok(o) if o.stdout.starts_with(b"git version"))
+    // scratch_dir is both HOME and the working directory.
+    if std::fs::create_dir_all(&scratch_dir).is_err() {
+        return SubsectionSupport::ProbeFailure;
+    }
+
+    // Minimal PATH: only the directory containing the real git binary, plus
+    // scratch_dir itself (empty, so no helper can land there).  This prevents
+    // any ambient `git-_probe_` from being found by git's external-command
+    // search.  The sentinel (`_probe_` = `version`) is a builtin, so git does
+    // not search PATH for it on a supporting binary.
+    //
+    // When real_git is a bare name ("git"), resolve it through the current PATH
+    // so we can locate its parent directory.  The command is always spawned by
+    // its original name so the OS exec(2) uses the restricted PATH we inject.
+    let resolved_git = if real_git.is_absolute() {
+        real_git.to_owned()
+    } else {
+        // Walk current PATH to find the first entry that contains a git binary.
+        let git_name = real_git.file_name().unwrap_or(real_git.as_os_str());
+        std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+            .find_map(|dir| {
+                let candidate = dir.join(git_name);
+                if candidate.is_file() {
+                    Some(candidate)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_else(|| real_git.to_owned())
+    };
+    let git_dir = resolved_git
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(std::path::Path::new("/usr/bin"));
+    let minimal_path = std::env::join_paths([git_dir, scratch_dir.as_path()])
+        .unwrap_or_else(|_| git_dir.as_os_str().to_owned());
+
+    // Use capture_raw_bounded for timeout + output cap.
+    // The sentinel alias is injected via -c; no config file is written.
+    let result = {
+        let mut cmd = std::process::Command::new(real_git);
+        cmd.args(["-c", "alias._probe_.command=version", "_probe_"]);
+        // Scrub all ambient config channels.
+        cmd.env("GIT_CONFIG_NOSYSTEM", "1");
+        cmd.env("HOME", &scratch_dir);
+        cmd.env_remove("XDG_CONFIG_HOME");
+        cmd.env_remove("GIT_CONFIG_GLOBAL");
+        cmd.env_remove("GIT_CONFIG_SYSTEM");
+        cmd.env_remove("GIT_DIR");
+        cmd.env_remove("GIT_WORK_TREE");
+        cmd.env_remove("GIT_NAMESPACE");
+        // Restrict PATH and unset GIT_EXEC_PATH.
+        cmd.env("PATH", &minimal_path);
+        cmd.env_remove("GIT_EXEC_PATH");
+        // Run from the scratch directory (not inside any git repo).
+        cmd.current_dir(&scratch_dir);
+        cmd.output()
+    };
+    let _ = std::fs::remove_dir_all(&scratch_dir);
+
+    match result {
+        Ok(out) if out.stdout.starts_with(b"git version") => SubsectionSupport::Supported,
+        Ok(_) => SubsectionSupport::Unsupported,
+        Err(_) => SubsectionSupport::ProbeFailure,
+    }
 }
 
 /// Resolve the effective alias value for `name` under the given context.
 ///
 /// Git's alias dispatcher (`alias.c`) reads all configuration entries in
-/// traversal order and the **last** matching definition wins — regardless of
-/// whether it is the plain `alias.<name>` form or the Git-2.54
-/// `alias.<name>.command` subsection form, and regardless of which appears
-/// first.  An empty-subsection form `alias..<name>` is treated by git as plain
-/// configuration and participates in the same last-wins ordering.
+/// traversal order and the **last** matching definition wins.  Three key forms
+/// are recognised for alias `<name>`:
 ///
-/// Resolution algorithm (mirrors `alias.c` callback behaviour):
+/// | Config key            | Git name                | Case sensitivity |
+/// |----------------------|-------------------------|-----------------|
+/// | `alias.<name>`       | plain alias             | name: insensitive|
+/// | `alias.<name>.command` | subsection form (2.54+) | name: sensitive |
+/// | `alias..<name>`      | empty-subsection plain  | name: insensitive|
 ///
-/// 1. On a **supporting** binary: run `git config --get-regexp` with a pattern
-///    that matches `alias.<name>` (plain), `alias.<name>.command` (subsection),
-///    and `alias..<name>` (empty-subsection / plain-config equivalent).
-///    `--get-regexp` returns all matching entries in traversal order;
-///    the **last** line's value is the effective alias.
-/// 2. On a **non-supporting** binary: subsection entries are silently ignored
-///    for dispatch, so fall back to `config --get alias.<name>` (plain only).
-/// 3. If no entry is found, return `None` (the name is a real command).
+/// The `alias.<name>.command` key in git config is parsed as:
+///   section=`alias`, subsection=`<name>`, variable=`command`.
+/// Git lowercases section and variable names but preserves subsection case.
 ///
-/// The `name` argument is expected to already be ASCII-lowercased (git
-/// normalises section-variable names to lowercase; the subsection—"command"—is
-/// also ASCII in the only form git itself defines).
+/// For a command `pub.command`: the key `alias.pub.command.command` defines a
+/// subsection alias named `pub.command`; `alias.pub.command` defines a plain
+/// (or subsection-named-`pub`) alias, NOT one named `pub.command`.
+///
+/// **Algorithm (mirrors `alias.c` callback):**
+///
+/// On a **supporting** binary: enumerate `git config -z --get-regexp '^alias\.'`
+/// (NUL-framed: `key\0value\0` per record) so multi-line values are preserved
+/// intact without newline ambiguity.  Parse each key structurally and match
+/// against `name` using the correct case rule for each form; retain the **last**
+/// matching record's full value.
+///
+/// On a **non-supporting** binary: subsection entries are silently ignored for
+/// dispatch; fall back to `config --get alias.<name>` (plain form only, with
+/// git's own case-normalization).
+///
+/// Returns `None` when no matching alias exists (the name is a real command).
+/// Returns `Err` when the probe state prevents safe resolution (fail closed).
 fn resolve_alias(
     real_git: &Path,
     ctx: &[String],
     name: &str,
-    supports_subsection: bool,
-) -> Option<String> {
-    if supports_subsection {
-        // Build a pattern matching all three key forms for this alias name.
-        // Keys printed by --get-regexp are lower-cased for section and variable;
-        // the subsection ("command") is a fixed ASCII word git itself defines.
-        //   alias.<name>           plain form
-        //   alias.<name>.command   subsection form (Git 2.54+)
-        //   alias..<name>          empty-subsection form (treated as plain config)
-        //
-        // The dot in the name must be escaped in the ERE pattern; name is
-        // restricted to safe alias characters by the callers (no regex meta).
-        let escaped = name.replace('.', "\\.");
-        let pattern = format!("^alias\\.({escaped}$|{escaped}\\.command$|\\.{escaped}$)");
-        let out = capture_raw(
-            real_git,
-            &{
-                let mut args: Vec<String> = ctx.to_vec();
-                args.extend(
-                    ["config", "--get-regexp", &pattern]
+    support: SubsectionSupport,
+) -> Result<Option<String>, ()> {
+    match support {
+        SubsectionSupport::Supported => {
+            // Enumerate the entire alias namespace with NUL framing so
+            // multi-line values are not truncated.  Each record is:
+            //   <key> NUL <value> NUL
+            // where <key> is lowercase section + preserved-case subsection +
+            // lowercase variable.
+            let args: Vec<String> = {
+                let mut a = ctx.to_vec();
+                a.extend(
+                    ["config", "-z", "--get-regexp", "^alias\\."]
                         .iter()
                         .map(|s| s.to_string()),
                 );
-                args
+                a
+            };
+            let raw_args: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+            let out = capture_raw(real_git, &raw_args).ok_or(())?;
+            // Non-zero exit (exit 1) means no alias entries at all.
+            if !out.status.success() {
+                return Ok(None);
             }
-            .iter()
-            .map(|s| s.as_str())
-            .collect::<Vec<_>>()
-            .as_slice(),
-        )?;
-        // Non-zero exit means no matching entry; treat as no alias.
-        if out.status.success() {
-            // Each line: "alias.<key> <value>" — last line wins (traversal order).
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            if let Some(last_line) = stdout.lines().last() {
-                if let Some(value) = last_line.splitn(2, ' ').nth(1) {
-                    let v = value.trim().to_string();
-                    if !v.is_empty() {
-                        return Some(v);
+            // Walk NUL-delimited records: key LF value NUL (git config -z format).
+            // Each record is: <key>\n<value>\0
+            // The NUL terminates the record; the LF separates key from value.
+            // Values may contain embedded newlines (that's the purpose of -z).
+            let bytes = &out.stdout;
+            let mut last_match: Option<String> = None;
+            let mut pos = 0usize;
+            while pos < bytes.len() {
+                // Each record ends at the next NUL byte.
+                let rec_end = match bytes[pos..].iter().position(|&b| b == 0) {
+                    Some(i) => pos + i,
+                    None => break,
+                };
+                let record = match std::str::from_utf8(&bytes[pos..rec_end]) {
+                    Ok(r) => r,
+                    Err(_) => {
+                        // Unparseable record — fail closed.
+                        return Err(());
                     }
+                };
+                pos = rec_end + 1;
+
+                // Within the record, the first LF separates key from value.
+                let (key, value) = match record.find('\n') {
+                    Some(nl) => (&record[..nl], &record[nl + 1..]),
+                    None => continue, // malformed record without LF; skip
+                };
+
+                // Structural parse of the key.
+                // Key format (git output): "alias.<rest>" where <rest> is
+                // section-dot-normalized but subsection is case-preserved.
+                let rest = match key.strip_prefix("alias.") {
+                    Some(r) => r,
+                    None => continue,
+                };
+
+                // Determine which alias form this key represents and whether
+                // it matches `name`.  Order matters: check empty-subsection
+                // (rest starts with '.') before the general dot check, because
+                // ".pub".find('.') = Some(0) and would be misclassified.
+                let matches_name = if rest.starts_with('.') {
+                    // alias..<name> form: empty-subsection, plain semantics.
+                    // Git prints the key as "alias..<name>" (two dots).
+                    // Case-insensitive compare, like plain aliases.
+                    rest[1..].eq_ignore_ascii_case(name)
+                } else if let Some(dot_pos) = rest.rfind('.') {
+                    // Has at least one dot that is not at position 0.
+                    let var = &rest[dot_pos + 1..];
+                    if var == "command" {
+                        // alias.<subsection>.command → subsection alias.
+                        // The subsection is everything before the last ".command".
+                        let sub = &rest[..dot_pos];
+                        // Subsection comparison is CASE-SENSITIVE.
+                        // An empty subsection here is "alias..command" which is
+                        // a plain alias named "command" (empty-subsection form),
+                        // handled correctly by the eq_ignore_ascii_case below.
+                        if sub.is_empty() {
+                            "command".eq_ignore_ascii_case(name)
+                        } else {
+                            sub == name
+                        }
+                    } else {
+                        // alias.<plain.name> — a plain alias whose name contains
+                        // dots is printed with dots preserved.  Example:
+                        // alias.pub.other for section=alias, var=pub.other.
+                        // This doesn't match any of the three standard alias
+                        // forms we care about when var != "command"; skip.
+                        false
+                    }
+                } else {
+                    // alias.<name> plain form (no dots in rest) — case-insensitive.
+                    rest.eq_ignore_ascii_case(name)
+                };
+
+                if matches_name && !value.is_empty() {
+                    last_match = Some(value.to_string());
                 }
             }
+            Ok(last_match)
         }
-        return None;
+        SubsectionSupport::Unsupported => {
+            // Non-supporting binary: plain form only.  git itself does the
+            // case-insensitive comparison for the plain form.
+            Ok(capture(
+                real_git,
+                ctx,
+                &["config", "--get", &format!("alias.{name}")],
+            ))
+        }
+        SubsectionSupport::ProbeFailure => {
+            // Probe failed — fail closed.
+            Err(())
+        }
     }
-    // Non-supporting binary: plain form only.
-    capture(
-        real_git,
-        ctx,
-        &["config", "--get", &format!("alias.{name}")],
-    )
 }
 
 /// Refuse any alias the wrapper cannot *trivially* prove safe, and — on success
@@ -690,10 +836,9 @@ fn verify_alias_safety(
     // apply builtin-first for every builtin — correct for that binary.
     let builtins = git_builtin_commands(real_git);
     let deprecated = git_deprecated_commands(real_git);
-    // Git 2.54 added `alias.<name>.command` which takes precedence over the plain
-    // `alias.<name>` form.  Probe once per call; resolve_alias applies the correct
-    // lookup ordering on every hop.
-    let supports_subsection = git_supports_subsection_alias(real_git);
+    // Probe subsection support once per call; propagate ProbeFailure as a
+    // hard error so the caller cannot inadvertently bypass verification.
+    let support = git_supports_subsection_alias(real_git);
     for _ in 0..MAX_ALIAS_HOPS {
         // The command word within the current chain (git re-parses leading
         // options as globals after each expansion, so a body may begin with
@@ -712,7 +857,12 @@ fn verify_alias_safety(
         if is_nondeprecated_builtin {
             break;
         }
-        let def = resolve_alias(real_git, ctx, name, supports_subsection);
+        let def = resolve_alias(real_git, ctx, name, support).map_err(|()| {
+            format!(
+                "buzz git wrapper: refusing `{name}` — alias capability probe failed \
+                 (fail closed; re-run git from outside a managed session if this is unexpected)"
+            )
+        })?;
         let Some(def) = def else {
             break; // real subcommand — chain is fully expanded
         };
@@ -738,7 +888,14 @@ fn verify_alias_safety(
         && builtins.contains(name.as_str())
         && !deprecated.contains(name.as_str());
     if !is_nondeprecated_builtin
-        && resolve_alias(real_git, ctx, name, supports_subsection).is_some()
+        && resolve_alias(real_git, ctx, name, support)
+            .map_err(|()| {
+                format!(
+                    "buzz git wrapper: refusing `{name}` — alias capability probe failed \
+                     (fail closed; re-run git from outside a managed session if this is unexpected)"
+                )
+            })?
+            .is_some()
     {
         return Err(alias_limit_reject_message());
     }
@@ -3546,17 +3703,10 @@ mod tests {
         let effective = verify_alias_safety(&real_git(), &alias_argv, &ctx)
             .expect("alias.pub=push is a safe alias")
             .expect("pub must expand via verify_alias_safety");
-        assert!(matches!(
-            is_push_command(&real_git(), &effective, &ctx),
-            PushKind::Push
-        ));
+        assert!(matches!(is_push_command(&effective), PushKind::Push));
         // A non-push subcommand is not misclassified (no alias involved).
         assert!(matches!(
-            is_push_command(
-                &real_git(),
-                &v(&["-C", repo.to_str().unwrap(), "status"]),
-                &ctx
-            ),
+            is_push_command(&v(&["-C", repo.to_str().unwrap(), "status"])),
             PushKind::NotPush
         ));
     }
@@ -3570,10 +3720,7 @@ mod tests {
         let effective = verify_alias_safety(&real_git(), &argv, &ctx)
             .expect("inline alias.pub=push is safe")
             .expect("pub must expand to push");
-        assert!(matches!(
-            is_push_command(&real_git(), &effective, &ctx),
-            PushKind::Push
-        ));
+        assert!(matches!(is_push_command(&effective), PushKind::Push));
     }
 
     // ── verify_alias_safety (allowlist) ───────────────────────────────────────
@@ -3778,10 +3925,7 @@ mod tests {
         let effective = verify_alias_safety(&real_git(), &argv, &ctx)
             .expect("include-path alias x=push is safe")
             .expect("x must expand to push via include.path");
-        assert!(matches!(
-            is_push_command(&real_git(), &effective, &caller_globals(&effective)),
-            PushKind::Push
-        ));
+        assert!(matches!(is_push_command(&effective), PushKind::Push));
     }
 
     #[test]
@@ -3810,7 +3954,7 @@ mod tests {
         let effective = verify_alias_safety(&real_git(), &argv, &ctx)
             .expect("config-env alias x=push is safe")
             .expect("x must expand to push via --config-env");
-        let kind = is_push_command(&real_git(), &effective, &caller_globals(&effective));
+        let kind = is_push_command(&effective);
         assert!(matches!(kind, PushKind::Push));
     }
 
@@ -3826,10 +3970,7 @@ mod tests {
         let effective = verify_alias_safety(&real_git(), &push_argv, &ctx)
             .expect("ALIAS.x=push is safe")
             .expect("x must expand via case-varied ALIAS.x=push");
-        assert!(matches!(
-            is_push_command(&real_git(), &effective, &caller_globals(&effective)),
-            PushKind::Push
-        ));
+        assert!(matches!(is_push_command(&effective), PushKind::Push));
         // Commit variant: a case-varied shell alias is refused.
         let shell_argv = v(&["-c", "ALIAS.x=!git commit", "x"]);
         let err = verify_alias_safety(&real_git(), &shell_argv, &caller_globals(&shell_argv))
@@ -3850,10 +3991,7 @@ mod tests {
         let effective = verify_alias_safety(&real_git(), &alias_argv, &ctx)
             .expect("alias.pub=push is safe")
             .expect("pub must expand to push");
-        assert!(matches!(
-            is_push_command(&real_git(), &effective, &ctx),
-            PushKind::Push
-        ));
+        assert!(matches!(is_push_command(&effective), PushKind::Push));
         let inline = v(&["-c", "alias.ci=commit", "ci"]);
         assert_eq!(
             verify_alias_safety(&real_git(), &inline, &caller_globals(&inline)).unwrap(),
@@ -3941,10 +4079,7 @@ mod tests {
         let effective = verify_alias_safety(&real_git(), &argv, &ctx)
             .expect("bare alias p=push is safe")
             .expect("p must expand to push in --bare view");
-        assert!(matches!(
-            is_push_command(&real_git(), &effective, &ctx),
-            PushKind::Push
-        ));
+        assert!(matches!(is_push_command(&effective), PushKind::Push));
         // Without `--bare` in the probe context the alias is invisible — the
         // command misclassifies as NotPush — the exact round-7 bypass.
         let blind_ctx = vec!["-C".to_string(), dir.to_string_lossy().into_owned()];
@@ -3957,10 +4092,7 @@ mod tests {
         );
         // When there is no alias expansion, `enforce` calls `is_push_command`
         // with the original argv, which has `p` as the subcommand → NotPush.
-        assert!(matches!(
-            is_push_command(&real_git(), &argv, &blind_ctx),
-            PushKind::NotPush
-        ));
+        assert!(matches!(is_push_command(&argv), PushKind::NotPush));
     }
 
     #[test]
@@ -4020,10 +4152,7 @@ mod tests {
         let effective = verify_alias_safety(&real_git(), &argv, &ctx)
             .expect("alias.p=push is safe")
             .expect("p must expand to push via shallow-file-shape globals");
-        assert!(matches!(
-            is_push_command(&real_git(), &effective, &ctx),
-            PushKind::Push
-        ));
+        assert!(matches!(is_push_command(&effective), PushKind::Push));
     }
 
     #[test]
@@ -6312,7 +6441,7 @@ mod tests {
     //   - The body `-p push` is safe (no config channel, no quote).
     //   - `verify_alias_safety` expands it and returns `effective_argv` whose
     //     subcommand is `push`.
-    //   - But `is_push_command(&real_git, &argv, &ctx)` takes the original
+    //   - But `is_push_command(&argv)` takes the original
     //     typed name `pub`, looks up `alias.pub = -p push`, gets `-p` as the
     //     next command word (first token of the body), looks up `alias.-p`
     //     (absent), and returns `NotPush` — bypassing all push verification.
@@ -6328,8 +6457,8 @@ mod tests {
 
     /// (Carl R8 P1) `-p push` alias body bypassed push verification before fix.
     ///
-    /// Mutation evidence: reverting `is_push_command(&real_git, effective_argv, …)`
-    /// back to `is_push_command(&real_git, &argv, …)` makes this test pass (Ok)
+    /// Mutation evidence: reverting `is_push_command(effective_argv)`
+    /// back to `is_push_command(&argv)` makes this test pass (Ok)
     /// instead of Err — confirming the fix is the use of effective_argv.
     #[test]
     fn verify_push_rejects_commit_via_dash_p_push_alias() {
@@ -6371,16 +6500,13 @@ mod tests {
 
         // Mutation precondition: is_push_command with the ORIGINAL argv returns NotPush.
         assert!(
-            matches!(is_push_command(&real_git(), &argv, &ctx), PushKind::NotPush),
+            matches!(is_push_command(&argv), PushKind::NotPush),
             "mutation evidence: is_push_command(original argv) must return NotPush for \
              `alias.pub = -p push` — reverting the fix recreates the bypass"
         );
         // The fix: is_push_command with effective_argv returns Push.
         assert!(
-            matches!(
-                is_push_command(&real_git(), &effective, &ctx),
-                PushKind::Push
-            ),
+            matches!(is_push_command(&effective), PushKind::Push),
             "is_push_command(effective_argv) must return Push after alias expansion"
         );
 
@@ -6459,16 +6585,13 @@ mod tests {
         // Mutation precondition: is_push_command with original argv returns NotPush
         // after exhausting the 10-hop limit.
         assert!(
-            matches!(is_push_command(&real_git(), &argv, &ctx), PushKind::NotPush),
+            matches!(is_push_command(&argv), PushKind::NotPush),
             "mutation evidence: is_push_command(original argv) must return NotPush after \
              10 hops — reverting the fix recreates the bypass for exactly-ten-hop chains"
         );
         // The fix: effective_argv has push as the subcommand.
         assert!(
-            matches!(
-                is_push_command(&real_git(), &effective, &ctx),
-                PushKind::Push
-            ),
+            matches!(is_push_command(&effective), PushKind::Push),
             "is_push_command(effective_argv) must return Push"
         );
 
@@ -6821,11 +6944,11 @@ mod tests {
     /// `alias.c` callback behaviour.
     ///
     /// **Self-gate:** skips cleanly on binaries where
-    /// `git_supports_subsection_alias` returns `false` — those binaries do not
+    /// `git_supports_subsection_alias` returns `Unsupported` — those binaries do not
     /// expand `.command` aliases, so there is no bypass to test.
     #[test]
     fn verify_push_subsection_command_alias_is_refused() {
-        if !git_supports_subsection_alias(&real_git()) {
+        if git_supports_subsection_alias(&real_git()) != SubsectionSupport::Supported {
             eprintln!("skip: installed git does not support alias.<name>.command dispatch");
             return;
         }
@@ -6851,10 +6974,7 @@ mod tests {
 
         // is_push_command classifies already-resolved argv; pass effective_argv.
         assert!(
-            matches!(
-                is_push_command(&real_git(), &expanded, &ctx),
-                PushKind::Push
-            ),
+            matches!(is_push_command(&expanded), PushKind::Push),
             "is_push_command must return Push for effective argv after alias expansion; \
              returning NotPush means expansion did not produce push"
         );
@@ -6877,7 +6997,7 @@ mod tests {
     /// **Self-gate:** skips on binaries that don't support subsection aliases.
     #[test]
     fn verify_push_subsection_command_takes_precedence_over_plain() {
-        if !git_supports_subsection_alias(&real_git()) {
+        if git_supports_subsection_alias(&real_git()) != SubsectionSupport::Supported {
             eprintln!("skip: installed git does not support alias.<name>.command dispatch");
             return;
         }
@@ -6909,10 +7029,7 @@ mod tests {
 
         // is_push_command classifies already-resolved argv.
         assert!(
-            matches!(
-                is_push_command(&real_git(), &expanded, &ctx),
-                PushKind::Push
-            ),
+            matches!(is_push_command(&expanded), PushKind::Push),
             "is_push_command must return Push for effective argv when subsection form is last"
         );
     }
@@ -6934,7 +7051,7 @@ mod tests {
     /// **Self-gate:** skips on binaries that don't support subsection aliases.
     #[test]
     fn verify_push_plain_last_overrides_subsection_command() {
-        if !git_supports_subsection_alias(&real_git()) {
+        if git_supports_subsection_alias(&real_git()) != SubsectionSupport::Supported {
             eprintln!("skip: installed git does not support alias.<name>.command dispatch");
             return;
         }
@@ -6969,10 +7086,7 @@ mod tests {
         // `resolve_alias` and reinstating `.command`-first lookup reverts to the
         // old bug — the test goes red here (expansion returns `status`).
         assert!(
-            matches!(
-                is_push_command(&real_git(), &expanded, &ctx),
-                PushKind::Push
-            ),
+            matches!(is_push_command(&expanded), PushKind::Push),
             "is_push_command must return Push for effective argv when plain form is last"
         );
     }
@@ -6995,7 +7109,7 @@ mod tests {
         // aliases.  Now additionally confirm it dispatches the empty-subsection
         // form.  Neither is implied by the other in general; for git 2.54 both
         // are true.
-        if !git_supports_subsection_alias(&real_git()) {
+        if git_supports_subsection_alias(&real_git()) != SubsectionSupport::Supported {
             eprintln!("skip: installed git does not support alias dispatch for subsection forms");
             return;
         }
@@ -7029,10 +7143,7 @@ mod tests {
             "alias..pub=push must be resolved to push; got `{sub}`"
         );
         assert!(
-            matches!(
-                is_push_command(&real_git(), &expanded, &ctx),
-                PushKind::Push
-            ),
+            matches!(is_push_command(&expanded), PushKind::Push),
             "is_push_command must return Push after empty-subsection alias expansion"
         );
     }
@@ -7060,13 +7171,12 @@ mod tests {
     /// `alias.status=push` and return `Push` for `status`, making this test red.
     #[test]
     fn is_push_command_builtin_with_push_alias_returns_not_push() {
-        // The inline -c injection makes alias.status=push visible to the probe.
+        // The inline -c injection makes alias.status=push visible.
         // `enforce` calls `is_push_command` with effective_argv, which for a
         // direct `git status` invocation (no alias) equals the original argv.
         let argv = v(&["-c", "alias.status=push", "status"]);
-        let ctx = caller_globals(&argv);
         assert!(
-            matches!(is_push_command(&real_git(), &argv, &ctx), PushKind::NotPush),
+            matches!(is_push_command(&argv), PushKind::NotPush),
             "is_push_command must return NotPush for `status` even when \
              alias.status=push is set; returning Push recreates the P2 bypass"
         );
