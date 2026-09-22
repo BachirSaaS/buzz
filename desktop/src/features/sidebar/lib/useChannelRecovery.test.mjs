@@ -36,47 +36,12 @@ before(() => {
 after(() => dom.window.close());
 
 // ---------------------------------------------------------------------------
-// Fake timer helpers
-//
-// The retry effect uses bare global setTimeout/clearTimeout (not window.*).
-// We patch globalThis directly so the effect sees the fake clock.  The fake
-// simply captures the latest pending callback so tests can inspect it without
-// actually advancing wall-clock time.
+// Tauri mock helper
 // ---------------------------------------------------------------------------
-
-function installFakeTimers() {
-  let pending = null;
-  const orig = {
-    setTimeout: globalThis.setTimeout,
-    clearTimeout: globalThis.clearTimeout,
-  };
-  globalThis.setTimeout = (fn, _ms) => {
-    pending = fn;
-    return 999;
-  };
-  globalThis.clearTimeout = (_id) => {
-    pending = null;
-  };
-  return {
-    fire: () => {
-      if (pending) {
-        const fn = pending;
-        pending = null;
-        fn();
-      }
-    },
-    hasPending: () => pending !== null,
-    restore: () => {
-      globalThis.setTimeout = orig.setTimeout;
-      globalThis.clearTimeout = orig.clearTimeout;
-    },
-  };
-}
-
-// Shared Tauri mock factory: decrypt returns ciphertext as-is (so the test
-// controls the payload by setting it as the event content directly).
-function makeTauriMock(pubkey) {
-  return {
+function installTauri(pubkey) {
+  const orig = globalThis.window?.__TAURI_INTERNALS__;
+  if (typeof globalThis.window === "undefined") globalThis.window = {};
+  globalThis.window.__TAURI_INTERNALS__ = {
     invoke: (cmd, args) => {
       if (cmd === "nip44_decrypt_from_self")
         return Promise.resolve(args?.ciphertext ?? "{}");
@@ -96,12 +61,39 @@ function makeTauriMock(pubkey) {
       return Promise.reject(new Error(`unmocked: ${cmd}`));
     },
   };
+  return () => {
+    if (orig !== undefined) globalThis.window.__TAURI_INTERNALS__ = orig;
+    else delete globalThis.window.__TAURI_INTERNALS__;
+  };
 }
 
-function installTauri(pubkey) {
+// ---------------------------------------------------------------------------
+// Tauri mock that hangs on encrypt (keeps pendingStore non-null)
+// ---------------------------------------------------------------------------
+function installHangingTauri(pubkey) {
   const orig = globalThis.window?.__TAURI_INTERNALS__;
   if (typeof globalThis.window === "undefined") globalThis.window = {};
-  globalThis.window.__TAURI_INTERNALS__ = makeTauriMock(pubkey);
+  globalThis.window.__TAURI_INTERNALS__ = {
+    invoke: (cmd, args) => {
+      if (cmd === "nip44_decrypt_from_self")
+        return Promise.resolve(args?.ciphertext ?? "{}");
+      // Hang — keeps pendingStore non-null indefinitely.
+      if (cmd === "nip44_encrypt_to_self") return new Promise(() => {});
+      if (cmd === "sign_event")
+        return Promise.resolve(
+          JSON.stringify({
+            id: "eid",
+            pubkey,
+            content: "ct",
+            created_at: 0,
+            kind: 0,
+            tags: [],
+            sig: "s",
+          }),
+        );
+      return Promise.reject(new Error(`unmocked: ${cmd}`));
+    },
+  };
   return () => {
     if (orig !== undefined) globalThis.window.__TAURI_INTERNALS__ = orig;
     else delete globalThis.window.__TAURI_INTERNALS__;
@@ -119,7 +111,6 @@ test("useChannelSections retry applies remote after bootstrap fetch failure", as
   const { storageKey } = await import("./channelSectionsStorage.ts");
   const { useChannelSections } = await import("./useChannelSections.ts");
 
-  const timers = installFakeTimers();
   const restoreTauri = installTauri("pk-sec");
 
   let fetchCallCount = 0;
@@ -158,7 +149,8 @@ test("useChannelSections retry applies remote after bootstrap fetch failure", as
       useChannelSections(pubkey, relayUrl),
     );
 
-    // Wait for the fetch count to reach 2 (one failure + one success).
+    // The retry effect fires its first tick immediately on mount.
+    // Bootstrap fails (call 1), retry fires immediately (call 2, no timer wait).
     await waitFor(() => assert.ok(fetchCallCount >= 2), { timeout: 2000 });
     await waitFor(
       () =>
@@ -171,7 +163,6 @@ test("useChannelSections retry applies remote after bootstrap fetch failure", as
     unmount();
   } finally {
     cleanup();
-    timers.restore();
     restoreTauri();
     relayClient.fetchEvents = origFetch;
     relayClient.subscribeLive = origSubscribeLive;
@@ -194,7 +185,6 @@ test("useChannelSortPreference retry applies remote after bootstrap fetch failur
     "./useChannelSortPreference.ts"
   );
 
-  const timers = installFakeTimers();
   const restoreTauri = installTauri("pk-sort");
 
   let fetchCallCount = 0;
@@ -244,7 +234,6 @@ test("useChannelSortPreference retry applies remote after bootstrap fetch failur
     unmount();
   } finally {
     cleanup();
-    timers.restore();
     restoreTauri();
     relayClient.fetchEvents = origFetch;
     relayClient.subscribeLive = origSubscribeLive;
@@ -263,7 +252,6 @@ test("useChannelStars retry merges remote after bootstrap fetch failure", async 
   const { storageKey } = await import("./channelStarsStorage.ts");
   const { useChannelStars } = await import("./useChannelStars.ts");
 
-  const timers = installFakeTimers();
   const restoreTauri = installTauri("pk-stars");
 
   let fetchCallCount = 0;
@@ -327,7 +315,6 @@ test("useChannelStars retry merges remote after bootstrap fetch failure", async 
     unmount();
   } finally {
     cleanup();
-    timers.restore();
     restoreTauri();
     relayClient.fetchEvents = origFetch;
     relayClient.subscribeLive = origSubscribeLive;
@@ -349,7 +336,6 @@ test("useChannelMutes retry merges remote after bootstrap fetch failure", async 
   const { storageKey } = await import("./channelMutesStorage.ts");
   const { useChannelMutes } = await import("./useChannelMutes.ts");
 
-  const timers = installFakeTimers();
   const restoreTauri = installTauri("pk-mutes");
 
   let fetchCallCount = 0;
@@ -410,7 +396,6 @@ test("useChannelMutes retry merges remote after bootstrap fetch failure", async 
     unmount();
   } finally {
     cleanup();
-    timers.restore();
     restoreTauri();
     relayClient.fetchEvents = origFetch;
     relayClient.subscribeLive = origSubscribeLive;
@@ -431,7 +416,6 @@ test("useChannelSections visibility-change to visible triggers immediate retry",
   const { relayClient } = await import("@/shared/api/relayClient");
   const { useChannelSections } = await import("./useChannelSections.ts");
 
-  const timers = installFakeTimers();
   const restoreTauri = installTauri("pk-vis");
 
   let fetchCallCount = 0;
@@ -491,7 +475,6 @@ test("useChannelSections visibility-change to visible triggers immediate retry",
     unmount();
   } finally {
     cleanup();
-    timers.restore();
     restoreTauri();
     relayClient.fetchEvents = origFetch;
     relayClient.subscribeLive = origSubscribeLive;
@@ -501,62 +484,41 @@ test("useChannelSections visibility-change to visible triggers immediate retry",
 
 // ---------------------------------------------------------------------------
 // 6a. Pending whole-blob edit defers apply on the current tick (sections)
+//
+// Strategy: make fetchEvents hang on the first call so the retry tick is
+// in-flight when we trigger the local edit.  createSection sets pendingStore
+// immediately (inside publishSections, before the debounce timer fires).
+// When we then resolve the hanging fetch, applyRemote is skipped because
+// getPendingStore() is non-null.
 // ---------------------------------------------------------------------------
 test("useChannelSections retry skips apply when a pending publish is in flight", async () => {
-  const { act, cleanup, renderHook } = await import("@testing-library/react");
+  const { act, cleanup, renderHook, waitFor } = await import(
+    "@testing-library/react"
+  );
   const { relayClient } = await import("@/shared/api/relayClient");
   const { useChannelSections } = await import("./useChannelSections.ts");
 
-  const timers = installFakeTimers();
-
-  // fetchEvents always returns a "found" result so the retry would normally apply.
+  // fetchEvents hangs until manually resolved so we can set the pending store
+  // mid-flight.  The remote payload would normally overwrite local state.
   const remotePayload = JSON.stringify({
     version: 1,
     sections: [{ id: "s-skip", name: "ShouldNotAppear", order: 0 }],
     assignments: {},
   });
+  let resolveFetch = null;
   const origFetch = relayClient.fetchEvents;
-  relayClient.fetchEvents = async () => [
-    {
-      id: "eid-skip",
-      pubkey: "pk-skip",
-      created_at: 5000,
-      kind: 30078,
-      content: remotePayload,
-      tags: [["d", "channel-sections"]],
-      sig: "sig",
-    },
-  ];
+  relayClient.fetchEvents = () =>
+    new Promise((res) => {
+      resolveFetch = res;
+    });
   const origSubscribeLive = relayClient.subscribeLive;
   relayClient.subscribeLive = async () => async () => {};
   const origSubscribeToReconnects = relayClient.subscribeToReconnects;
   relayClient.subscribeToReconnects = () => () => {};
 
-  // Tauri: make nip44_encrypt_to_self hang indefinitely so the pending store
-  // is never cleared (the debounce timer fires but encrypt never returns).
-  const origTauri = globalThis.window?.__TAURI_INTERNALS__;
-  if (typeof globalThis.window === "undefined") globalThis.window = {};
-  globalThis.window.__TAURI_INTERNALS__ = {
-    invoke: (cmd, args) => {
-      if (cmd === "nip44_decrypt_from_self")
-        return Promise.resolve(args?.ciphertext ?? "{}");
-      // Hang — keeps pendingStore non-null.
-      if (cmd === "nip44_encrypt_to_self") return new Promise(() => {});
-      if (cmd === "sign_event")
-        return Promise.resolve(
-          JSON.stringify({
-            id: "eid",
-            pubkey: "pk-skip",
-            content: "ct",
-            created_at: 0,
-            kind: 0,
-            tags: [],
-            sig: "s",
-          }),
-        );
-      return Promise.reject(new Error(`unmocked: ${cmd}`));
-    },
-  };
+  // Tauri: make nip44_encrypt_to_self hang so the pending store is never
+  // cleared after the debounce timer fires.
+  const restoreTauri = installHangingTauri("pk-skip");
 
   const pubkey = "pk-skip";
   const relayUrl = "wss://relay.example";
@@ -566,14 +528,29 @@ test("useChannelSections retry skips apply when a pending publish is in flight",
       useChannelSections(pubkey, relayUrl),
     );
 
-    // Trigger a local edit — this sets pendingStore and initiates a debounced
-    // publish (which hangs on encrypt, keeping pendingStore non-null).
+    // Wait for the retry tick to start (fetchEvents is hanging, resolveFetch set).
+    await waitFor(() => assert.ok(resolveFetch !== null), { timeout: 2000 });
+
+    // Now trigger a local edit — publishSections sets pendingStore immediately.
     await act(async () => {
       result.current.createSection("PendingSection");
     });
 
-    // Give the retry effect's first tick time to run and observe the pending.
-    await new Promise((r) => setTimeout(r, 100));
+    // Resolve the hanging fetch with the remote payload.
+    resolveFetch([
+      {
+        id: "eid-skip",
+        pubkey: "pk-skip",
+        created_at: 5000,
+        kind: 30078,
+        content: remotePayload,
+        tags: [["d", "channel-sections"]],
+        sig: "sig",
+      },
+    ]);
+
+    // Give React a tick to process the resolution.
+    await new Promise((r) => setTimeout(r, 50));
 
     // The remote "ShouldNotAppear" section must NOT have been applied because
     // the pending edit guard deferred it.
@@ -584,13 +561,10 @@ test("useChannelSections retry skips apply when a pending publish is in flight",
     unmount();
   } finally {
     cleanup();
-    timers.restore();
+    restoreTauri();
     relayClient.fetchEvents = origFetch;
     relayClient.subscribeLive = origSubscribeLive;
     relayClient.subscribeToReconnects = origSubscribeToReconnects;
-    if (origTauri !== undefined)
-      globalThis.window.__TAURI_INTERNALS__ = origTauri;
-    else delete globalThis.window.__TAURI_INTERNALS__;
   }
 });
 
@@ -601,8 +575,6 @@ test("useChannelStars retry skips apply when a pending publish is in flight", as
   const { act, cleanup, renderHook } = await import("@testing-library/react");
   const { relayClient } = await import("@/shared/api/relayClient");
   const { useChannelStars } = await import("./useChannelStars.ts");
-
-  const timers = installFakeTimers();
 
   const remotePayload = JSON.stringify({
     version: 1,
@@ -625,29 +597,7 @@ test("useChannelStars retry skips apply when a pending publish is in flight", as
   const origSubscribeToReconnects = relayClient.subscribeToReconnects;
   relayClient.subscribeToReconnects = () => () => {};
 
-  const origTauri = globalThis.window?.__TAURI_INTERNALS__;
-  if (typeof globalThis.window === "undefined") globalThis.window = {};
-  globalThis.window.__TAURI_INTERNALS__ = {
-    invoke: (cmd, args) => {
-      if (cmd === "nip44_decrypt_from_self")
-        return Promise.resolve(args?.ciphertext ?? "{}");
-      // Hang — keeps pendingStore non-null.
-      if (cmd === "nip44_encrypt_to_self") return new Promise(() => {});
-      if (cmd === "sign_event")
-        return Promise.resolve(
-          JSON.stringify({
-            id: "eid",
-            pubkey: "pk-stars-skip",
-            content: "ct",
-            created_at: 0,
-            kind: 0,
-            tags: [],
-            sig: "s",
-          }),
-        );
-      return Promise.reject(new Error(`unmocked: ${cmd}`));
-    },
-  };
+  const restoreTauri = installHangingTauri("pk-stars-skip");
 
   const pubkey = "pk-stars-skip";
   const relayUrl = "wss://relay.example";
@@ -673,13 +623,10 @@ test("useChannelStars retry skips apply when a pending publish is in flight", as
     unmount();
   } finally {
     cleanup();
-    timers.restore();
+    restoreTauri();
     relayClient.fetchEvents = origFetch;
     relayClient.subscribeLive = origSubscribeLive;
     relayClient.subscribeToReconnects = origSubscribeToReconnects;
-    if (origTauri !== undefined)
-      globalThis.window.__TAURI_INTERNALS__ = origTauri;
-    else delete globalThis.window.__TAURI_INTERNALS__;
   }
 });
 
@@ -693,7 +640,6 @@ test("useChannelSections unmount prevents stale retry from applying state", asyn
   const { relayClient } = await import("@/shared/api/relayClient");
   const { useChannelSections } = await import("./useChannelSections.ts");
 
-  const timers = installFakeTimers();
   const restoreTauri = installTauri("pk-cancel");
 
   // fetchEvents hangs until manually resolved so we can unmount mid-flight.
@@ -750,7 +696,6 @@ test("useChannelSections unmount prevents stale retry from applying state", asyn
     );
   } finally {
     cleanup();
-    timers.restore();
     restoreTauri();
     relayClient.fetchEvents = origFetch;
     relayClient.subscribeLive = origSubscribeLive;
@@ -772,7 +717,6 @@ test("useChannelSections applyRemote retains lower event ID at equal second", as
   const { relayClient } = await import("@/shared/api/relayClient");
   const { useChannelSections } = await import("./useChannelSections.ts");
 
-  const timers = installFakeTimers();
   const restoreTauri = installTauri("pk-tb");
 
   const TS = 1_700_000_000;
@@ -844,7 +788,6 @@ test("useChannelSections applyRemote retains lower event ID at equal second", as
     unmount();
   } finally {
     cleanup();
-    timers.restore();
     restoreTauri();
     relayClient.fetchEvents = origFetch;
     relayClient.subscribeLive = origSubscribeLive;
