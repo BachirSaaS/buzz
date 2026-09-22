@@ -91,32 +91,37 @@ void main() {
       // AFTER the connection is established, not before).
       final requestArrivedCompleter = Completer<void>();
 
+      // Teardown-controlled gate: the server handler awaits this before
+      // calling response.close(), so the response body stays open until the
+      // test explicitly releases it (on success) or teardown releases it (on
+      // failure).  Without this gate, response.close() would send an empty 200
+      // immediately and the abort would race against a completed response —
+      // making the probe scheduling-sensitive rather than a controlled
+      // in-flight cancellation.
+      final releaseResponse = Completer<void>();
+
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       addTearDown(() => server.close(force: true));
+      addTearDown(() {
+        if (!releaseResponse.isCompleted) releaseResponse.complete();
+      });
 
-      // Use a Completer to let the server handler exit cleanly when the client
-      // closes the connection (abort-induced socket close).  The server listen
-      // callback completes the Completer; addTearDown ensures the handler is
-      // released even if the test fails.
-      final serverDone = Completer<void>();
       server.listen((req) async {
         await req.drain<void>();
-        // Signal that the server has received the request.
+        // Signal that the server has received the request, then hold the
+        // response open until the test releases it or teardown fires.
         if (!requestArrivedCompleter.isCompleted) {
           requestArrivedCompleter.complete();
         }
-        // Hold the response open.  The abort closes the socket and causes
-        // dart:io to surface a SocketException here, which completes serverDone.
+        // Await the teardown-controlled gate before attempting to close.
+        // The abort closes the socket before the gate fires, so close() will
+        // throw a SocketException — caught and discarded here.
+        await releaseResponse.future;
         try {
           await req.response.close();
         } catch (_) {
-          // Socket closed by client abort — expected.
-        } finally {
-          if (!serverDone.isCompleted) serverDone.complete();
+          // Socket already closed by the client abort — expected.
         }
-      });
-      addTearDown(() async {
-        if (!serverDone.isCompleted) serverDone.complete();
       });
 
       final serverUrl =
@@ -152,6 +157,12 @@ void main() {
         throwsA(isA<http.RequestAbortedException>()),
         reason: 'abort must cause send() to throw RequestAbortedException',
       );
+
+      // Release the server handler so it can exit cleanly.  The abort has
+      // already closed the socket, so close() in the handler will throw and
+      // be discarded.  Teardown also releases this gate; this is belt-and-
+      // suspenders cleanup for the success path.
+      if (!releaseResponse.isCompleted) releaseResponse.complete();
     },
   );
 }

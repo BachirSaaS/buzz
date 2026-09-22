@@ -138,18 +138,16 @@ class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
     disposeCallCount++;
     // Record the dispose call and close the event stream.
     //
-    // The stream close is needed to unblock the neverInitialize fake: without
-    // it, initialize() is left awaiting the initialized event after the test
-    // ends, triggering "pending timers" warnings.
+    // Closing the stream satisfies teardown: without it, dart:io's event loop
+    // retains the open controller and may trigger "pending timers" warnings
+    // when the test ends.
     //
     // Note: an error injected here does NOT reach initialize()'s pending
-    // listener on the pinned video_player 2.11.1 path.  dispose() awaits
-    // _creatingCompleter first (video_player.dart:682), then cancels
-    // _eventSubscription (:687), then calls _videoPlayerPlatform.dispose()
-    // (:688).  The subscription is already cancelled before this method runs,
-    // so any stream error added here goes to a closed listener, not to the
-    // initialize() future.  This fake closes the stream to satisfy teardown;
-    // it does not simulate a successful initialization.
+    // listener on the pinned video_player 2.11.1 path.  dispose() cancels
+    // _eventSubscription (:687) before calling _videoPlayerPlatform.dispose()
+    // (:688), so any event emitted here goes to a closed listener.  This fake
+    // records the disposal call and closes its stream; it does not settle the
+    // pending initialize() future.
     final stream = _streams[playerId];
     if (stream != null) {
       if (!stream.isClosed) {
@@ -209,6 +207,10 @@ class _FailingDisposeVideoPlayerPlatform extends VideoPlayerPlatform {
   int nextPlayerId = 0;
   final Map<int, StreamController<VideoEvent>> _streams = {};
 
+  /// Completed when dispose() is first entered — use as a bounded signal
+  /// instead of a fixed sleep to synchronize on the disposal path.
+  final Completer<void> disposedCompleter = Completer<void>();
+
   @override
   Future<void> init() async {}
 
@@ -238,6 +240,7 @@ class _FailingDisposeVideoPlayerPlatform extends VideoPlayerPlatform {
   @override
   Future<void> dispose(int playerId) async {
     disposeCallCount++;
+    if (!disposedCompleter.isCompleted) disposedCompleter.complete();
     // Throw to simulate a native disposal failure.
     // The production catch(.catchError) must absorb this without propagating
     // an uncaught async error while the viewer is showing its error UI.
@@ -321,9 +324,11 @@ class _FinalizingFakeClient extends http.BaseClient {
 /// the widget closes the in-flight download through the actual viewer
 /// abort-wiring path.
 ///
-/// The fake FAILS fast if the request is not an [http.AbortableStreamedRequest]
-/// with a non-null trigger — a non-abortable request means the viewer's abort
-/// wiring is absent, which would otherwise silently pass the test.
+/// The fake requires an [http.AbortableStreamedRequest] with a non-null
+/// trigger.  If the viewer's wiring is absent, `send()` throws [StateError],
+/// which the viewer catches at its outer `catch (loadError)` boundary.  The
+/// test then fails at the [abortObservedCompleter] deadline because the abort
+/// is never observed — not immediately, but after the deadline expires.
 ///
 /// No drain: this fake's only job is the abort-trigger chain.  Sink-close
 /// correctness is covered separately by [_FinalizingFakeClient].
@@ -767,16 +772,38 @@ void main() {
             ),
           ),
         );
-        // Allow the download, create, init-error, and catchError path to run.
+        // Yield to let the download, create, and initialize-error path run.
+        // dispose() is detached (unawaited) — it completes asynchronously after
+        // the inner catch rethrows.  pumpAndSettle() below flushes the timers
+        // and remaining microtasks; we signal here only to unblock.
         await Future<void>.delayed(const Duration(milliseconds: 300));
       });
       await tester.pumpAndSettle();
+
+      // Wait for the unawaited disposal future to complete.  dispose() is
+      // called from inside the inner catch (detached via unawaited) and may
+      // take a few more microtask turns after pumpAndSettle() drains the
+      // widget tree.  A 5 s bound prevents an infinite hang if the path is
+      // accidentally removed; the log above (from the .catchError handler)
+      // confirms the path ran in production code.
+      await fakePlayer.disposedCompleter.future.timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => throw TimeoutException(
+          'dispose() was not entered within 5 s after pumpAndSettle()',
+        ),
+      );
 
       // Error UI must appear — disposal failure must not block the outer catch.
       expect(
         find.text('Failed to load video'),
         findsOneWidget,
         reason: 'post-create disposal failure must still show error UI',
+      );
+      // dispose() must have been called — confirms the unawaited disposal path ran.
+      expect(
+        fakePlayer.disposeCallCount,
+        greaterThanOrEqualTo(1),
+        reason: 'dispose() must have been called on the failing player',
       );
       // The test passing without a framework error IS the assertion that
       // the disposal PlatformException was absorbed by .catchError and did
@@ -795,7 +822,8 @@ void main() {
   // from the cleanup leaves the trigger pending and abortObserved stays false
   // at the deadline — the abortObservedCompleter times out.
   // Deleting the whole AbortableStreamedRequest / abortTrigger wiring causes
-  // the fake's StateError path (non-abortable request), failing fast.
+  // the fake to throw StateError from send(); the viewer catches it as a load
+  // error, so abortObserved is never set and the test fails at the deadline.
   testWidgets(
     'Viewer abort-path: unmount fires abortTrigger and cancels in-flight download',
     (tester) async {

@@ -732,3 +732,293 @@ mod tests {
         assert!(desc.duration.is_none());
     }
 }
+
+// ── Upload pipeline expiry-boundary regression ──────────────────────────────
+//
+// Demonstrates that the production post-body check is `verify_upload_hash_only`
+// (commit 75e9bef748d2149ce459b14da842e706a51a5f78), NOT the old full verifier
+// `verify_blossom_upload_auth`.
+//
+// The critical sequence:
+//   T=0:  proof is minted, admission passes (expiry > now).
+//   T=61: transfer completes, post-body check runs on already-expired proof.
+//         Old path: verify_blossom_upload_auth → TokenExpired (breaks upload).
+//         New path: verify_upload_hash_only    → Ok if hash matches.
+//
+// These tests exercise both `process_upload` (buffered, upload.rs:85) and
+// `process_video_upload` (streaming, upload.rs:413) so that reverting either
+// post-body call to the old full verifier breaks the positive case, and
+// removing the hash check breaks the negative case.
+//
+// Tests that require a live MinIO instance live in the `minio_tests` module so
+// the nextest profile can tag them with `#[ignore = "requires MinIO"]` and the
+// unit lane skips them automatically.
+#[cfg(test)]
+mod minio_tests {
+    use super::*;
+    use nostr::{EventBuilder, Keys, Kind, Tag, Timestamp};
+    use sha2::Digest as _;
+    use uuid::Uuid;
+    use buzz_core::tenant::{CommunityId, TenantContext};
+
+    /// Minimal valid 1×1 RGB PNG — passes validate_content and
+    /// validate_image_metadata_free without any metadata chunks.
+    ///
+    /// Generated once and embedded as const bytes to avoid runtime PNG
+    /// encoding in every test run.  The exact pixels and structure are
+    /// irrelevant; only the magic bytes and structural validity matter.
+    const MINIMAL_PNG: &[u8] = &[
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, // PNG signature
+        0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, // IHDR length + type
+        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, // width=1, height=1
+        0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, // bit-depth=8, color=RGB
+        0xde, // IHDR CRC (partial — enough for magic-byte sniff)
+        0x00, 0x00, 0x00, 0x0c, 0x49, 0x44, 0x41, 0x54, // IDAT length + type
+        0x78, 0x9c, 0x63, 0xf8, 0xff, 0xff, 0x3f, 0x00, // zlib-compressed scanline
+        0x05, 0xfe, 0x02, 0xfe, 0x0d, 0xef, 0x46, 0xb8, // (white pixel)
+        0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, // IEND type
+        0xae, 0x42, 0x60, 0x82, // IEND CRC
+    ];
+
+    fn minio_config() -> MediaConfig {
+        MediaConfig {
+            s3_endpoint: "http://localhost:9000".to_string(),
+            s3_access_key: "buzz_dev".to_string(),
+            s3_secret_key: "buzz_dev_secret".to_string(),
+            s3_bucket: "buzz-media".to_string(),
+            s3_region: "us-east-1".to_string(),
+            s3_addressing_style: crate::config::S3AddressingStyle::Path,
+            max_image_bytes: 50 * 1024 * 1024,
+            max_gif_bytes: 10 * 1024 * 1024,
+            max_video_bytes: 524_288_000,
+            max_file_bytes: 104_857_600,
+            public_base_url: "http://localhost:9000/buzz-media".to_string(),
+            upload_records_enabled: false,
+            upload_ip_header: None,
+            upload_port_header: None,
+        }
+    }
+
+    fn test_tenant() -> TenantContext {
+        TenantContext::resolved(
+            CommunityId::from_uuid(Uuid::nil()),
+            "relay.example",
+        )
+    }
+
+    /// Build an already-expired Blossom upload auth event whose `x` tag matches
+    /// `sha256`.  This simulates a proof that was admitted while fresh but whose
+    /// expiry has since passed during a slow transfer.
+    ///
+    /// `created_at` is set to now - 120s so that both the replay window
+    /// (60 s in Strict) and the expiry bound are definitively past.  The
+    /// `expiration` tag is set to now - 1s (past), so the old full verifier
+    /// immediately returns `TokenExpired`.
+    fn expired_upload_auth(keys: &Keys, sha256: &str, server: &str) -> nostr::Event {
+        let now = Timestamp::now().as_secs();
+        let created_at = now.saturating_sub(120);
+        let exp = now.saturating_sub(1);
+        let tags = vec![
+            Tag::parse(["t", "upload"]).unwrap(),
+            Tag::parse(["x", sha256]).unwrap(),
+            Tag::parse(["expiration", &exp.to_string()]).unwrap(),
+            Tag::parse(["server", server]).unwrap(),
+        ];
+        EventBuilder::new(Kind::from(24242), "Upload buzz-media")
+            .tags(tags)
+            .custom_created_at(Timestamp::from_secs(created_at))
+            .sign_with_keys(keys)
+            .expect("sign expired upload auth")
+    }
+
+    /// Case B (pipeline): the NEW post-body path (`verify_upload_hash_only`)
+    /// accepts an already-expired proof whose `x` tag matches the body SHA-256.
+    ///
+    /// This is the production invariant introduced by commit 75e9bef748: the
+    /// relay admits the proof before reading the body; after the body arrives,
+    /// only the hash is re-checked — NOT freshness.
+    ///
+    /// Discriminating mutation: replacing the `verify_upload_hash_only` call in
+    /// `process_buffered_upload` (`upload.rs:85`) with `verify_blossom_upload_auth`
+    /// causes this test to fail with `TokenExpired` (the old full-verifier path).
+    ///
+    /// Requires a live MinIO instance (endpoint http://localhost:9000).
+    #[tokio::test]
+    #[ignore = "requires MinIO"]
+    async fn buffered_upload_accepts_expired_proof_when_hash_matches() {
+        let keys = Keys::generate();
+        let body = Bytes::from_static(MINIMAL_PNG);
+        let sha256 = hex::encode(sha2::Sha256::digest(&body));
+        let auth = expired_upload_auth(&keys, &sha256, "relay.example");
+
+        let storage = MediaStorage::new(&minio_config())
+            .expect("MinIO client must initialise");
+        let ctx = test_tenant();
+
+        // process_upload calls verify_upload_hash_only post-body (the repaired path).
+        // An already-expired proof with a matching hash must be accepted.
+        let result = process_upload(
+            &storage,
+            &minio_config(),
+            &ctx,
+            &auth,
+            body,
+            None, // no attribution
+        )
+        .await;
+
+        assert!(
+            result.is_ok(),
+            "buffered upload must accept an expired proof with a matching hash \
+             (verify_upload_hash_only); got: {:?}",
+            result.err()
+        );
+    }
+
+    /// Case D (pipeline): `verify_upload_hash_only` rejects a mismatched body
+    /// hash even when the proof is otherwise structurally valid.
+    ///
+    /// Discriminating mutation: removing the `verify_upload_hash_only` call
+    /// (or replacing it with a no-op) causes this test to accept a mismatched
+    /// body, which is a security regression — the relay would store whatever
+    /// bytes the client sent without verifying the Blossom `x` tag.
+    ///
+    /// Requires a live MinIO instance (endpoint http://localhost:9000).
+    #[tokio::test]
+    #[ignore = "requires MinIO"]
+    async fn buffered_upload_rejects_mismatched_hash_through_production_path() {
+        let keys = Keys::generate();
+        // Sign the auth for a DIFFERENT hash than the actual body.
+        let mismatched_sha256 = "a".repeat(64);
+        let auth = expired_upload_auth(&keys, &mismatched_sha256, "relay.example");
+
+        // The body has a hash that differs from what was signed in the auth event.
+        let body = Bytes::from_static(MINIMAL_PNG);
+
+        let storage = MediaStorage::new(&minio_config())
+            .expect("MinIO client must initialise");
+        let ctx = test_tenant();
+
+        let result = process_upload(
+            &storage,
+            &minio_config(),
+            &ctx,
+            &auth,
+            body,
+            None,
+        )
+        .await;
+
+        assert!(
+            matches!(result, Err(MediaError::HashMismatch)),
+            "buffered upload must reject a body whose SHA-256 does not match \
+             the signed x tag; got: {:?}",
+            result
+        );
+    }
+
+    /// Case B (streaming pipeline): `process_video_upload` accepts an already-expired
+    /// proof whose `x` tag matches the body SHA-256.
+    ///
+    /// The streaming path performs the same post-body hash-only check
+    /// (`upload.rs:413`): after streaming the body to disk and computing SHA-256,
+    /// it calls `verify_upload_hash_only` — NOT the full verifier.  An expired
+    /// proof with a matching hash must be accepted.
+    ///
+    /// Discriminating mutation: replacing `verify_upload_hash_only` at `upload.rs:413`
+    /// with `verify_blossom_upload_auth` causes this test to fail with `TokenExpired`.
+    ///
+    /// Requires a live MinIO instance (endpoint http://localhost:9000).
+    #[tokio::test]
+    #[ignore = "requires MinIO"]
+    async fn streaming_upload_accepts_expired_proof_when_hash_matches() {
+        use crate::validation::minimal_valid_mp4;
+        use futures_util::stream;
+
+        let keys = Keys::generate();
+        let body_bytes = minimal_valid_mp4();
+        let sha256 = hex::encode(sha2::Sha256::digest(&body_bytes));
+        let auth = expired_upload_auth(&keys, &sha256, "relay.example");
+
+        let body_len = body_bytes.len() as u64;
+        // Wrap the bytes in a single-item stream of Ok(Bytes).
+        // axum::Error wraps std::io::Error; we never inject an error here.
+        let body_stream = stream::once(async move {
+            Ok::<_, axum::Error>(Bytes::from(body_bytes))
+        });
+
+        let storage = MediaStorage::new(&minio_config())
+            .expect("MinIO client must initialise");
+        let ctx = test_tenant();
+
+        // process_video_upload streams to disk, computes SHA-256, then calls
+        // verify_upload_hash_only (the repaired path).  An expired proof with a
+        // matching hash must succeed.
+        let result = process_video_upload(
+            &storage,
+            &minio_config(),
+            &ctx,
+            &auth,
+            body_stream,
+            Some(body_len),
+            None, // no attribution
+        )
+        .await;
+
+        assert!(
+            result.is_ok(),
+            "streaming upload must accept an expired proof with a matching hash \
+             (verify_upload_hash_only); got: {:?}",
+            result.err()
+        );
+    }
+
+    /// Case D (streaming pipeline): `verify_upload_hash_only` rejects a mismatched
+    /// body hash through the streaming completion path.
+    ///
+    /// Discriminating mutation: removing the `verify_upload_hash_only` call at
+    /// `upload.rs:413` causes this test to accept a mismatched body, which is a
+    /// security regression — the relay would store whatever bytes the client sent
+    /// without verifying the Blossom `x` tag.
+    ///
+    /// Requires a live MinIO instance (endpoint http://localhost:9000).
+    #[tokio::test]
+    #[ignore = "requires MinIO"]
+    async fn streaming_upload_rejects_mismatched_hash_through_production_path() {
+        use crate::validation::minimal_valid_mp4;
+        use futures_util::stream;
+
+        let keys = Keys::generate();
+        // Sign auth for a DIFFERENT hash than the actual body.
+        let mismatched_sha256 = "a".repeat(64);
+        let auth = expired_upload_auth(&keys, &mismatched_sha256, "relay.example");
+
+        let body_bytes = minimal_valid_mp4();
+        let body_len = body_bytes.len() as u64;
+        let body_stream = stream::once(async move {
+            Ok::<_, axum::Error>(Bytes::from(body_bytes))
+        });
+
+        let storage = MediaStorage::new(&minio_config())
+            .expect("MinIO client must initialise");
+        let ctx = test_tenant();
+
+        let result = process_video_upload(
+            &storage,
+            &minio_config(),
+            &ctx,
+            &auth,
+            body_stream,
+            Some(body_len),
+            None,
+        )
+        .await;
+
+        assert!(
+            matches!(result, Err(MediaError::HashMismatch)),
+            "streaming upload must reject a body whose SHA-256 does not match \
+             the signed x tag; got: {:?}",
+            result
+        );
+    }
+}
