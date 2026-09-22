@@ -890,195 +890,139 @@ test("old-list-after-new-list: stale list result does not replace new list after
 // adminConsolePanelEvents.jsdom-test.mjs where fireEvent dispatches native
 // events through React 19's container-level delegation.
 
-// ── disabled-mode mounts panel ────────────────────────────────────────────
-
-test("disabled-probe-mounts-panel: admin-console-panel renders when probe state is disabled", async () => {
-  // Pinning test for item 1 render-gate fix.
-  //
-  // Verifies that a `disabled` probe result (relay serves admin API without
-  // credential) causes AdminConsolePanel to mount, with the disabled badge
-  // still visible alongside the panel.
-  //
-  // Fails if the render gate is reverted to `authorized`-only:
-  //   isPanelVisible = probeUiState.kind === "authorized" && savedOrigin !== null
-  // → disabled state never mounts the panel and this test goes red.
-
-  const pubkey = "f".repeat(64);
-  const savedOrigin = "https://admin.example.com";
-
-  setIpcHandler("get_admin_origin", () => Promise.resolve(savedOrigin));
-  setIpcHandler("admin_probe", () => Promise.resolve({ state: "disabled" }));
-  setIpcHandler("admin_list_reports", () => Promise.resolve([]));
-  setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
-
-  const qc = makeQueryClient(pubkey);
-  const { container, doRender, unmount } = mountCard(qc);
-  await doRender();
-  await settle(50);
-
-  const panel = container.querySelector("[data-testid='admin-console-panel']");
-  assert.ok(
-    panel !== null,
-    "admin-console-panel must mount when probe state is disabled — render gate missing",
-  );
-
-  // The disabled badge must still appear above the panel.
-  const text = container.textContent ?? "";
-  assert.ok(
-    text.includes("Auth is disabled"),
-    `disabled badge must remain visible; got: ${text.slice(0, 300)}`,
-  );
-
-  await unmount();
-});
-
-// ── structured detail layouts ─────────────────────────────────────────────
+// ── probe role/source gating — table-driven ──────────────────────────────
 //
-// Tests for report-detail-renders-structured-fields and
-// feedback-detail-renders-structured-fields live in
-// adminConsolePanelEvents.jsdom-test.mjs — they require fireEvent.click
-// (React 19's container-level event delegation) which is only available
-// in the jsdom suite.
+// Five rows cover the full probe-state → role-gate matrix. Each row shares
+// the standard MinimalDocument mount; unique scheduler-sensitive assertions
+// (disabled-probe-mounts-panel, probe-no-role) stay in this environment.
+//
+// Mutation evidence per row is preserved inline.
 
-// ── probe role/source badge ───────────────────────────────────────────────
-
-test("probe-role-source-badge: operator role and config source render in panel when probe returns them", async () => {
-  // Verifies that AdminConsolePanel renders role+source badges when the probe
-  // returns nip98Authorized with role/source populated.
-  //
-  // Mutation evidence: remove role/source from AdminProbeResult → badges absent → red.
-
-  const pubkey = "b1".repeat(32);
-  const savedOrigin = "https://admin-role.example.com";
-
-  setIpcHandler("get_admin_origin", () => Promise.resolve(savedOrigin));
-  setIpcHandler("admin_probe", () =>
-    Promise.resolve({
+const PROBE_ROLE_ROWS = [
+  {
+    name: "disabled-probe-mounts-panel",
+    desc: "admin-console-panel renders when probe state is disabled",
+    pubkey: "f".repeat(64),
+    savedOrigin: "https://admin.example.com",
+    probeResult: { state: "disabled" },
+    // Fails if render gate reverts to authorized-only (disabled state never mounts panel).
+    check: (container) => {
+      const panel = container.querySelector(
+        "[data-testid='admin-console-panel']",
+      );
+      assert.ok(
+        panel !== null,
+        "admin-console-panel must mount when probe state is disabled — render gate missing",
+      );
+      const text = container.textContent ?? "";
+      assert.ok(
+        text.includes("Auth is disabled"),
+        `disabled badge must remain visible; got: ${text.slice(0, 300)}`,
+      );
+    },
+  },
+  {
+    name: "probe-role-source-badge",
+    desc: "operator role and config source render in panel when probe returns them",
+    pubkey: "b1".repeat(32),
+    savedOrigin: "https://admin-role.example.com",
+    probeResult: {
       state: "nip98Authorized",
       role: "operator",
       source: "config",
-    }),
-  );
-  setIpcHandler("admin_list_reports", () => Promise.resolve([]));
-  setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
-
-  const qc = makeQueryClient(pubkey);
-  const { container, doRender, unmount } = mountCard(qc);
-  await doRender();
-  await settle(50);
-
-  const text = container.textContent ?? "";
-  assert.ok(
-    text.includes("operator"),
-    `role badge "operator" must render; got: ${text.slice(0, 300)}`,
-  );
-  assert.ok(
-    text.includes("config"),
-    `source badge "config" must render; got: ${text.slice(0, 300)}`,
-  );
-
-  await unmount();
-});
-
-test("probe-moderator-role: moderator role renders without staffing tab", async () => {
-  // A moderator should see their role badge but NOT the Staffing tab.
-  const pubkey = "c2".repeat(32);
-  const savedOrigin = "https://admin-mod.example.com";
-
-  setIpcHandler("get_admin_origin", () => Promise.resolve(savedOrigin));
-  setIpcHandler("admin_probe", () =>
-    Promise.resolve({
-      state: "nip98Authorized",
-      role: "moderator",
-      source: "db",
-    }),
-  );
-  setIpcHandler("admin_list_reports", () => Promise.resolve([]));
-  setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
-
-  const qc = makeQueryClient(pubkey);
-  const { container, doRender, unmount } = mountCard(qc);
-  await doRender();
-  await settle(50);
-
-  const text = container.textContent ?? "";
-  assert.ok(
-    text.includes("moderator"),
-    `role "moderator" must render; got: ${text.slice(0, 300)}`,
-  );
-  // Staffing tab must NOT be present for a moderator.
-  const staffingTab = container.querySelector(
-    "[data-testid='admin-tab-staffing']",
-  );
-  assert.equal(
-    staffingTab,
-    null,
-    "Staffing tab must not render for moderator role",
-  );
-
-  await unmount();
-});
-
-test("probe-operator-role: staffing tab renders for operator role", async () => {
-  // An operator should see the Staffing tab.
-  const pubkey = "d3".repeat(32);
-  const savedOrigin = "https://admin-operator.example.com";
-
-  setIpcHandler("get_admin_origin", () => Promise.resolve(savedOrigin));
-  setIpcHandler("admin_probe", () =>
-    Promise.resolve({
+    },
+    // Mutation: remove role/source from AdminProbeResult → badges absent → RED.
+    check: (container) => {
+      const text = container.textContent ?? "";
+      assert.ok(
+        text.includes("operator"),
+        `role badge "operator" must render; got: ${text.slice(0, 300)}`,
+      );
+      assert.ok(
+        text.includes("config"),
+        `source badge "config" must render; got: ${text.slice(0, 300)}`,
+      );
+    },
+  },
+  {
+    name: "probe-moderator-role",
+    desc: "moderator role renders without staffing tab",
+    pubkey: "c2".repeat(32),
+    savedOrigin: "https://admin-mod.example.com",
+    probeResult: { state: "nip98Authorized", role: "moderator", source: "db" },
+    check: (container) => {
+      const text = container.textContent ?? "";
+      assert.ok(
+        text.includes("moderator"),
+        `role "moderator" must render; got: ${text.slice(0, 300)}`,
+      );
+      assert.equal(
+        container.querySelector("[data-testid='admin-tab-staffing']"),
+        null,
+        "Staffing tab must not render for moderator role",
+      );
+    },
+  },
+  {
+    name: "probe-operator-role",
+    desc: "staffing tab renders for operator role",
+    pubkey: "d3".repeat(32),
+    savedOrigin: "https://admin-operator.example.com",
+    probeResult: {
       state: "nip98Authorized",
       role: "operator",
       source: "config",
-    }),
-  );
-  setIpcHandler("admin_list_reports", () => Promise.resolve([]));
-  setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
+    },
+    check: (container) => {
+      const staffingTab = container.querySelector(
+        "[data-testid='admin-tab-staffing']",
+      );
+      assert.ok(
+        staffingTab !== null,
+        "Staffing tab must render for operator role",
+      );
+    },
+  },
+  {
+    name: "probe-no-role",
+    desc: "disabled-mode panel renders without staffing tab",
+    pubkey: "e4".repeat(32),
+    savedOrigin: "https://admin-disabled.example.com",
+    probeResult: { state: "disabled" },
+    // Badge absence is not asserted here.
+    check: (container) => {
+      assert.ok(
+        container.querySelector("[data-testid='admin-console-panel']") !== null,
+        "panel must render in disabled mode",
+      );
+      assert.equal(
+        container.querySelector("[data-testid='admin-tab-staffing']"),
+        null,
+        "Staffing tab must not render in disabled mode",
+      );
+    },
+  },
+];
 
-  const qc = makeQueryClient(pubkey);
-  const { container, doRender, unmount } = mountCard(qc);
-  await doRender();
-  await settle(50);
+for (const row of PROBE_ROLE_ROWS) {
+  test(`${row.name}: ${row.desc}`, async () => {
+    setIpcHandler("get_admin_origin", () => Promise.resolve(row.savedOrigin));
+    setIpcHandler("admin_probe", () => Promise.resolve(row.probeResult));
+    setIpcHandler("admin_list_reports", () => Promise.resolve([]));
+    setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
 
-  const staffingTab = container.querySelector(
-    "[data-testid='admin-tab-staffing']",
-  );
-  assert.ok(staffingTab !== null, "Staffing tab must render for operator role");
+    const qc = makeQueryClient(row.pubkey);
+    const { container, doRender, unmount } = mountCard(qc);
+    await doRender();
+    await settle(50);
 
-  await unmount();
-});
-
-test("probe-no-role: disabled-mode panel renders without staffing tab", async () => {
-  // disabled probe has no role/source — panel renders but Staffing tab is absent.
-  // Badge absence is not asserted here.
-  const pubkey = "e4".repeat(32);
-  const savedOrigin = "https://admin-disabled.example.com";
-
-  setIpcHandler("get_admin_origin", () => Promise.resolve(savedOrigin));
-  setIpcHandler("admin_probe", () => Promise.resolve({ state: "disabled" }));
-  setIpcHandler("admin_list_reports", () => Promise.resolve([]));
-  setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
-
-  const qc = makeQueryClient(pubkey);
-  const { container, doRender, unmount } = mountCard(qc);
-  await doRender();
-  await settle(50);
-
-  const panel = container.querySelector("[data-testid='admin-console-panel']");
-  assert.ok(panel !== null, "panel must render in disabled mode");
-
-  // No staffing tab (no role = no operator).
-  const staffingTab = container.querySelector(
-    "[data-testid='admin-tab-staffing']",
-  );
-  assert.equal(
-    staffingTab,
-    null,
-    "Staffing tab must not render in disabled mode",
-  );
-
-  await unmount();
-});
+    try {
+      row.check(container);
+    } finally {
+      await unmount();
+    }
+  });
+}
 
 // ── P1-2: applyAttachmentBudget — count and aggregate-byte limit ──────────
 
