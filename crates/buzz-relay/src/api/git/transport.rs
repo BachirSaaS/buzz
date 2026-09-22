@@ -92,10 +92,12 @@ impl axum::extract::FromRequestParts<Arc<AppState>> for GitAuth {
         // regardless of whether the Host resolves to a known community.  No
         // database work for syntactically bad requests in Off mode.
         //
-        // Active modes (Enforce, DenyProtected): admission runs first and is
-        // fail-closed — it maps auth failures to NIP-FI denial bytes — so tenant
-        // lookup happens inside the admission path below (after cardinality is
-        // checked), not here.
+        // Active modes (Enforce, DenyProtected): the header syntax is validated
+        // inside the NIP-FI admission closure below, where proof failures are
+        // mapped to NIP-FI denial bytes.  Tenant lookup still happens before
+        // admission (immediately after this block) because the signed `u` tag
+        // must be verified against the tenant-bound host, not a process-global
+        // domain.
         let mode = state.config.nip_fi.mode;
         if matches!(mode, buzz_auth::NipFiMode::Off) {
             parse_git_auth_header(&parts.headers, method)?;
@@ -156,7 +158,7 @@ impl axum::extract::FromRequestParts<Arc<AppState>> for GitAuth {
                 // In active modes it runs for the first time inside this closure
                 // (on the auth-rejection path the NIP-FI layer maps the error).
                 let (event_json, method_for_verify) =
-                    parse_git_auth_header_full(&headers_clone, &method_str).map_err(|r| r)?;
+                    parse_git_auth_header_full(&headers_clone, &method_str)?;
 
                 // SECURITY: method intentionally not verified for git routes. The tautological
                 // check (event.method == event.method) is deliberate — see comment block above.
@@ -327,6 +329,7 @@ fn enforce_git_ban_cascade(
 ///
 /// [FI-INV-15] — Off mode must return 401 + challenge for missing/malformed
 /// credentials before any tenant lookup.
+#[allow(clippy::result_large_err)] // Response is the natural error type for axum handlers
 fn parse_git_auth_header(headers: &axum::http::HeaderMap, method: &str) -> Result<(), Response> {
     parse_git_auth_header_full(headers, method).map(|_| ())
 }
@@ -3893,10 +3896,12 @@ mod off_mode_precedence_tests {
 
     /// Off mode, no Authorization header → 401 + WWW-Authenticate challenge.
     ///
-    /// Falsifying mutation: remove the Off-mode early-exit block in
-    /// `GitAuth::from_request_parts`.  The request proceeds to
-    /// `bind_community()` on an unmapped host → 404.  This test's status
-    /// assert (401 expected) fires.
+    /// Scope: this test exercises `parse_git_auth_header` directly, not the
+    /// full `GitAuth::from_request_parts` path.  It proves the parser
+    /// rejects a missing header with the correct status and challenge.
+    ///
+    /// Falsifying mutation: return `Ok(())` from `parse_git_auth_header`
+    /// when no Authorization header is present → `unwrap_err()` panics.
     #[test]
     fn off_mode_missing_auth_header_returns_401_with_challenge() {
         let headers = make_headers(None);
@@ -3921,9 +3926,10 @@ mod off_mode_precedence_tests {
 
     /// Off mode, wrong Authorization scheme → 401 + challenge.
     ///
-    /// Falsifying mutation: same as Case A.  Additionally, if the scheme check
-    /// is removed, the `strip_prefix` returns None and the early-exit fires
-    /// with the wrong body — the body assertion fires.
+    /// Scope: parser-only test (calls `parse_git_auth_header` directly).
+    /// Falsifying mutations: return `Ok(())` for non-Nostr schemes, or
+    /// emit 403 instead of 401 — status assertion fires; or omit the
+    /// WWW-Authenticate header — challenge assertion fires.
     #[test]
     fn off_mode_wrong_scheme_returns_401_with_challenge() {
         let headers = make_headers(Some("Bearer sometoken"));
@@ -3947,6 +3953,9 @@ mod off_mode_precedence_tests {
     // ── Case C: invalid base64 ────────────────────────────────────────────
 
     /// Off mode, Authorization: Nostr <invalid-base64> → 401.
+    ///
+    /// Scope: parser-only test. Falsifying mutation: accept invalid
+    /// base64 and return `Ok(())` → `unwrap_err()` panics.
     #[test]
     fn off_mode_invalid_base64_returns_401() {
         let headers = make_headers(Some("Nostr !!!not-base64!!!"));
@@ -3961,6 +3970,9 @@ mod off_mode_precedence_tests {
     // ── Case D: valid base64 but invalid UTF-8 bytes ─────────────────────
 
     /// Off mode, Authorization: Nostr <valid-base64-but-not-utf8> → 401.
+    ///
+    /// Scope: parser-only test. Falsifying mutation: skip UTF-8 check,
+    /// return `Ok(())` → `unwrap_err()` panics.
     #[test]
     fn off_mode_invalid_utf8_returns_401() {
         // 0xC3 0x28 is invalid UTF-8.
@@ -3978,10 +3990,14 @@ mod off_mode_precedence_tests {
 
     /// Valid Nostr base64 JSON payload passes syntax validation.
     ///
-    /// This is the same-key positive control: a structurally correct credential
-    /// succeeds the early-exit, allowing the request to proceed to tenant
-    /// lookup.  Without this, an always-denying implementation could pass all
-    /// four negative cases above while breaking valid requests.
+    /// Scope: parser-only test. A structurally correct credential passes
+    /// `parse_git_auth_header`, allowing the request to proceed to tenant
+    /// lookup in the full path.
+    ///
+    /// Falsifying mutation: always return `Err(...)` from
+    /// `parse_git_auth_header` → `is_ok()` fails and the assertion fires.
+    /// Without this positive control, an always-denying parser could pass
+    /// all four negative cases above while also breaking valid requests.
     #[test]
     fn off_mode_valid_nostr_token_passes_syntax_check() {
         use nostr::{EventBuilder, Keys, Kind, Tag};
@@ -4004,5 +4020,343 @@ mod off_mode_precedence_tests {
             parse_git_auth_header(&headers, "GET").is_ok(),
             "Off mode: a valid Nostr token must pass syntax validation"
         );
+    }
+
+    // ── Router-level Off-precedence tests (require Postgres) ─────────────
+    //
+    // These tests go through `git_router` → `GitAuth::from_request_parts`
+    // and prove that the Off-mode early-exit at transport.rs:100-102 fires
+    // BEFORE `bind_community()`.
+    //
+    // Key falsifiability: the unmapped-host cases assert 401.  Deleting lines
+    // 100-102 causes `bind_community()` to run for the unmapped host and
+    // return 404 — the status assertions fire.  Parser-only unit tests above
+    // cannot prove this ordering because they never call `from_request_parts`.
+    #[cfg(test)]
+    mod postgres_tests {
+        use super::*;
+        use axum::body::to_bytes;
+        use tower::ServiceExt;
+
+        const UNMAPPED_HOST: &str = "off-prec-unmapped.git.test.invalid";
+        const GIT_PATH: &str = "/git/aabbcc/myrepo/info/refs?service=git-upload-pack";
+
+        async fn off_mode_state() -> Option<Arc<AppState>> {
+            let mut config = crate::config::Config::from_env().ok()?;
+            config.nip_fi.mode = buzz_auth::NipFiMode::Off;
+            config.require_auth_token = false;
+            config.require_relay_membership = false;
+            config.redis_url =
+                std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
+            config.database_url = std::env::var("BUZZ_TEST_DATABASE_URL")
+                .or_else(|_| std::env::var("DATABASE_URL"))
+                .unwrap_or_else(|_| "postgres://buzz:buzz_dev@localhost:5432/buzz".to_string()); // sadscan:disable np.postgres.1
+
+            let pool = sqlx::PgPool::connect(&config.database_url).await.ok()?;
+            let db = buzz_db::Db::from_pool(pool.clone());
+            let redis_pool = deadpool_redis::Config::from_url(&config.redis_url)
+                .create_pool(Some(deadpool_redis::Runtime::Tokio1))
+                .ok()?;
+            let pubsub = Arc::new(
+                buzz_pubsub::PubSubManager::new(&config.redis_url, redis_pool.clone())
+                    .await
+                    .ok()?,
+            );
+            let audit = buzz_audit::AuditService::new(pool.clone());
+            let auth = buzz_auth::AuthService::new(config.auth.clone());
+            let search = buzz_search::SearchService::new(pool.clone());
+            let workflow_engine = Arc::new(buzz_workflow::WorkflowEngine::new(
+                db.clone(),
+                buzz_workflow::WorkflowConfig::default(),
+            ));
+            let media_storage = buzz_media::MediaStorage::new(&config.media).ok()?;
+            let (state, _) = AppState::new(
+                config,
+                db,
+                redis_pool,
+                audit,
+                pubsub,
+                auth,
+                search,
+                workflow_engine,
+                nostr::Keys::generate(),
+                media_storage,
+            );
+            Some(Arc::new(state))
+        }
+
+        async fn git_request(
+            state: Arc<AppState>,
+            host: &str,
+            auth: Option<&str>,
+        ) -> (axum::http::StatusCode, axum::http::HeaderMap, bytes::Bytes) {
+            let mut builder = axum::http::Request::builder()
+                .method("GET")
+                .uri(GIT_PATH)
+                .header("host", host);
+            if let Some(a) = auth {
+                builder = builder.header("authorization", a);
+            }
+            let req = builder
+                .body(axum::body::Body::empty())
+                .expect("build request");
+            let resp = git_router(Arc::clone(&state))
+                .oneshot(req)
+                .await
+                .expect("router oneshot");
+            let status = resp.status();
+            let headers = resp.headers().clone();
+            let body = to_bytes(resp.into_body(), 4096).await.unwrap_or_default();
+            (status, headers, body)
+        }
+
+        // ── Unmapped host — missing auth: must be 401 before DB lookup ────
+        //
+        // An unmapped host has no community row.  If the Off-mode early-exit
+        // is removed, `bind_community()` returns 404 for this host.
+        // The assertion fires because 404 ≠ 401.
+        //
+        // Falsifying mutation: delete lines 100-102 in `from_request_parts`
+        // → unmapped host proceeds to `bind_community()` → 404 → assertion.
+        #[tokio::test]
+        #[ignore = "requires Postgres"]
+        async fn off_mode_unmapped_host_missing_auth_returns_401_before_db() {
+            let Some(state) = off_mode_state().await else {
+                panic!("local Postgres not reachable");
+            };
+            let (status, headers, _body) = git_request(state, UNMAPPED_HOST, None).await;
+            assert_eq!(
+                status,
+                axum::http::StatusCode::UNAUTHORIZED,
+                "Off mode + unmapped host + missing auth must yield 401 BEFORE \
+                 bind_community (not 404). \
+                 Falsifying mutation: delete Off-mode early-exit lines 100-102 \
+                 → bind_community returns 404 for unmapped host → assertion fires."
+            );
+            let challenge = headers
+                .get("WWW-Authenticate")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("");
+            assert!(
+                challenge.contains("Nostr"),
+                "Off mode: 401 must carry Nostr challenge; got {challenge:?}"
+            );
+        }
+
+        // ── Unmapped host — wrong scheme: must be 401 before DB lookup ────
+        //
+        // Same falsifiability as the missing-auth case.
+        //
+        // Falsifying mutation: same — delete lines 100-102.
+        #[tokio::test]
+        #[ignore = "requires Postgres"]
+        async fn off_mode_unmapped_host_wrong_scheme_returns_401_before_db() {
+            let Some(state) = off_mode_state().await else {
+                panic!("local Postgres not reachable");
+            };
+            let (status, _headers, _body) =
+                git_request(state, UNMAPPED_HOST, Some("Bearer token")).await;
+            assert_eq!(
+                status,
+                axum::http::StatusCode::UNAUTHORIZED,
+                "Off mode + unmapped host + wrong auth scheme must yield 401 before \
+                 bind_community. \
+                 Falsifying mutation: delete lines 100-102 → 404."
+            );
+        }
+
+        // ── Unmapped host — invalid base64: must be 401 before DB lookup ──
+        #[tokio::test]
+        #[ignore = "requires Postgres"]
+        async fn off_mode_unmapped_host_invalid_base64_returns_401_before_db() {
+            let Some(state) = off_mode_state().await else {
+                panic!("local Postgres not reachable");
+            };
+            let (status, _headers, _body) =
+                git_request(state, UNMAPPED_HOST, Some("Nostr !!!not-base64!!!")).await;
+            assert_eq!(
+                status,
+                axum::http::StatusCode::UNAUTHORIZED,
+                "Off mode + unmapped host + invalid base64 must yield 401 before \
+                 bind_community. \
+                 Falsifying mutation: delete lines 100-102 → 404."
+            );
+        }
+
+        // ── Positive control: valid syntax with unmapped host reaches DB ──
+        //
+        // A syntactically valid Nostr token PASSES the Off-mode early-exit
+        // and proceeds to `bind_community()`.  The unmapped host then yields
+        // 404 — proving the early-exit was NOT the blocker.
+        //
+        // Falsifying mutation: always 401 from `parse_git_auth_header`
+        // regardless of input → this control returns 401 instead of 404
+        // → assertion fires.  (The negative cases above prove the opposite
+        // direction: always-allow parser → they return non-401.)
+        #[tokio::test]
+        #[ignore = "requires Postgres"]
+        async fn off_mode_unmapped_host_valid_syntax_reaches_db_and_returns_404() {
+            let Some(state) = off_mode_state().await else {
+                panic!("local Postgres not reachable");
+            };
+            let keys = nostr::Keys::generate();
+            let tags = vec![
+                nostr::Tag::parse(["u", &format!("http://{UNMAPPED_HOST}{GIT_PATH}")]).unwrap(),
+                nostr::Tag::parse(["method", "GET"]).unwrap(),
+            ];
+            let event = nostr::EventBuilder::new(nostr::Kind::Custom(27235), "")
+                .tags(tags)
+                .sign_with_keys(&keys)
+                .unwrap();
+            let token = format!(
+                "Nostr {}",
+                base64::engine::general_purpose::STANDARD
+                    .encode(serde_json::to_vec(&event).unwrap())
+            );
+            let (status, _headers, _body) = git_request(state, UNMAPPED_HOST, Some(&token)).await;
+            assert_eq!(
+                status,
+                axum::http::StatusCode::NOT_FOUND,
+                "Off mode + unmapped host + valid syntax: parser passes → \
+                 bind_community fires → 404. \
+                 Falsifying mutation: always-deny parser → 401 instead of 404."
+            );
+        }
+
+        // ── Enforce mode: missing assertion on info/refs → exact body/CT/challenge ─
+        //
+        // Proves that git routes (info/refs, and transitively upload-pack and
+        // receive-pack which share `GitAuth::from_request_parts`) produce the
+        // exact contract bytes for MissingEvidence in Enforce mode.
+        //
+        // A Nostr-scheme Authorization header is present (syntactically valid)
+        // so the Off-mode early-exit passes; no Nostr-Federated-Identity header
+        // is sent, so `extract_bearer_token` returns MissingEvidence → 401.
+        //
+        // Falsifying mutation: remove the `admit_nip_fi_http_on_state` call
+        // from `GitAuth::from_request_parts` → git NIP-98 verification runs →
+        // fails (bad payload hash) → 401 from legacy mapping but DIFFERENT
+        // body ("NIP-98 auth failed") — body assertion fires.
+        //
+        // Why no assertion header: in Enforce mode with no verifier configured
+        // (startup race) an assertion present + no verifier would return 503.
+        // The MissingEvidence path (no assertion header) is the correct gate
+        // test for git routes and is the most discriminating falsifiable case.
+        #[tokio::test]
+        #[ignore = "requires Postgres"]
+        async fn enforce_mode_git_info_refs_missing_assertion_exact_bytes() {
+            use buzz_auth::NipFiMode;
+
+            let mut config = match crate::config::Config::from_env() {
+                Ok(c) => c,
+                Err(_) => panic!("local Postgres not reachable (enforce git): config"),
+            };
+            config.nip_fi.mode = NipFiMode::Enforce;
+            config.require_auth_token = false;
+            config.require_relay_membership = false;
+            config.redis_url =
+                std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
+            config.database_url = std::env::var("BUZZ_TEST_DATABASE_URL")
+                .or_else(|_| std::env::var("DATABASE_URL"))
+                .unwrap_or_else(|_| "postgres://buzz:buzz_dev@localhost:5432/buzz".to_string()); // sadscan:disable np.postgres.1
+
+            let pool = match sqlx::PgPool::connect(&config.database_url).await {
+                Ok(p) => p,
+                Err(_) => panic!("local Postgres not reachable (enforce git)"),
+            };
+            let db = buzz_db::Db::from_pool(pool.clone());
+            let redis_pool = deadpool_redis::Config::from_url(&config.redis_url)
+                .create_pool(Some(deadpool_redis::Runtime::Tokio1))
+                .expect("redis pool");
+            let pubsub = Arc::new(
+                buzz_pubsub::PubSubManager::new(&config.redis_url, redis_pool.clone())
+                    .await
+                    .expect("pubsub"),
+            );
+            let audit = buzz_audit::AuditService::new(pool.clone());
+            let auth = buzz_auth::AuthService::new(config.auth.clone());
+            let search = buzz_search::SearchService::new(pool.clone());
+            let workflow_engine = Arc::new(buzz_workflow::WorkflowEngine::new(
+                db.clone(),
+                buzz_workflow::WorkflowConfig::default(),
+            ));
+            let media_storage =
+                buzz_media::MediaStorage::new(&config.media).expect("media storage");
+            let (state, _) = AppState::new(
+                config,
+                db,
+                redis_pool,
+                audit,
+                pubsub,
+                auth,
+                search,
+                workflow_engine,
+                nostr::Keys::generate(),
+                media_storage,
+            );
+            let state = Arc::new(state);
+
+            // Register a mapped host so bind_community succeeds → the NIP-FI
+            // gate is the first denial point after Off-mode early-exit.
+            let host = format!(
+                "nip-fi-git-enf-{}.test.invalid",
+                uuid::Uuid::new_v4().simple()
+            );
+            state
+                .db
+                .ensure_configured_community(&host)
+                .await
+                .expect("ensure community");
+
+            // Build a syntactically valid Nostr token for a GET to the path.
+            // No Nostr-Federated-Identity header → MissingEvidence in Enforce.
+            let keys = nostr::Keys::generate();
+            let tags = vec![
+                nostr::Tag::parse(["u", &format!("http://{host}{GIT_PATH}")]).unwrap(),
+                nostr::Tag::parse(["method", "GET"]).unwrap(),
+            ];
+            let event = nostr::EventBuilder::new(nostr::Kind::Custom(27235), "")
+                .tags(tags)
+                .sign_with_keys(&keys)
+                .unwrap();
+            let auth_token = format!(
+                "Nostr {}",
+                base64::engine::general_purpose::STANDARD
+                    .encode(serde_json::to_vec(&event).unwrap())
+            );
+
+            let (status, headers, body) = git_request(state, &host, Some(&auth_token)).await;
+
+            assert_eq!(
+                status,
+                axum::http::StatusCode::UNAUTHORIZED,
+                "Enforce mode + info/refs + missing assertion MUST deny 401 MissingEvidence. \
+                 Falsifying mutation: remove admit_nip_fi_http_on_state from GitAuth → \
+                 NIP-98 auth fires → 401 but with different body → body assertion fires."
+            );
+            assert_eq!(
+                body.as_ref(),
+                b"authentication required\n",
+                "Enforce mode: git MissingEvidence body must be exact 'authentication required\\n' \
+                 [FI-TRACE-DENIAL-ORACLE]. Different body means the legacy git error path fired \
+                 instead of the NIP-FI gate."
+            );
+            let ct = headers
+                .get("content-type")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("");
+            assert_eq!(
+                ct, "text/plain; charset=utf-8",
+                "Enforce mode: git 401 content-type must be text/plain; charset=utf-8"
+            );
+            let www_auth = headers
+                .get("www-authenticate")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("");
+            assert_eq!(
+                www_auth, "Nostr",
+                "Enforce mode: git 401 must carry WWW-Authenticate: Nostr"
+            );
+        }
     }
 }

@@ -24,13 +24,45 @@ use buzz_media::{BlobDescriptor, MediaError, UploadAttribution, UploadNetworkInf
 
 use crate::state::AppState;
 
-/// Axum extractor that validates Blossom auth, the BUD-11 hash binding, and
-/// relay membership (NIP-43, when enabled) from headers BEFORE the request
-/// body is read. This prevents unauthenticated clients from forcing the
-/// server to buffer up to 50MB of body data.
+/// Lightweight pre-auth upload context: tenant + route mode only.
 ///
-/// Axum processes `FromRequestParts` extractors before `FromRequest` (body)
-/// extractors, so auth rejection happens before any body buffering.
+/// Used as the first-phase extractor for `upload_blob`. Blossom auth
+/// extraction is deliberately NOT done here so it can run inside the
+/// NIP-FI admission closure, ensuring that in active modes a missing or
+/// malformed Authorization header is mapped to the correct NIP-FI denial
+/// bytes (MissingEvidence/EvidenceRejected) rather than legacy
+/// `MediaError` JSON 401/403.  [FI-TRACE-AUTHORITY-UNIFORM]
+// pub(crate) so axum can resolve the extractor from the pub handler signature.
+pub(crate) struct UploadContext {
+    tenant: TenantContext,
+    route_mode: UploadRouteMode,
+}
+
+impl FromRequestParts<Arc<AppState>> for UploadContext {
+    type Rejection = MediaError;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &Arc<AppState>,
+    ) -> Result<Self, Self::Rejection> {
+        let headers = &parts.headers;
+
+        // Row zero: bind tenant from the request host.  Same fail-closed
+        // semantics as `AuthenticatedUpload`: unmapped host → 404.
+        let raw_host = headers
+            .get(header::HOST)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        let tenant = crate::tenant::bind_community(&state.db, raw_host)
+            .await
+            .map_err(|_| MediaError::NotFound)?;
+
+        let route_mode = upload_route_mode(parts.uri.path())?;
+
+        Ok(UploadContext { tenant, route_mode })
+    }
+}
+
 pub(crate) struct AuthenticatedUpload {
     auth_event: nostr::Event,
     /// Community resolved from the request host at extraction time (row zero for
@@ -58,11 +90,6 @@ fn upload_route_mode(path: &str) -> Result<UploadRouteMode, MediaError> {
         "/media/upload" => Ok(UploadRouteMode::LegacyMedia),
         _ => Err(MediaError::NotFound),
     }
-}
-
-struct MediaReadAuth {
-    tenant: TenantContext,
-    pubkey: nostr::PublicKey,
 }
 
 const MEDIA_UPLOAD_RATE_WINDOW: Duration = Duration::from_secs(60);
@@ -301,12 +328,9 @@ fn serving_lease_lost(error: anyhow::Error) -> MediaError {
 
 /// PUT `/upload` or the temporary media-only `/media/upload` alias.
 ///
-/// Auth is validated via the [`AuthenticatedUpload`] extractor BEFORE the body
-/// is read, preventing unauthenticated clients from forcing body buffering.
-// AuthenticatedUpload is pub(crate) — it's an internal extractor type, never
-// exposed outside this crate. The warning is benign: axum resolves it at
-// compile time via trait bounds, not by name.
-#[allow(private_interfaces)]
+/// Auth is extracted inside the NIP-FI admission closure so that in active
+/// modes a missing or malformed Authorization header produces the contract's
+/// NIP-FI denial bytes rather than legacy `MediaError` JSON. [FI-TRACE-AUTHORITY-UNIFORM]
 ///
 /// Expects:
 ///   - `Authorization: Nostr <base64(kind:24242 event)>` — Blossom auth
@@ -318,25 +342,105 @@ fn serving_lease_lost(error: anyhow::Error) -> MediaError {
 /// Returns a [`BlobDescriptor`] JSON on success.
 // TODO(v2): Add persistent per-pubkey storage quotas. Admission limits below
 // bound active parser/storage work, but they do not cap durable bytes stored.
-#[allow(clippy::result_large_err)] // Response is the natural error type for axum handlers
+// UploadContext is pub(crate) — it's an internal extractor type, never exposed
+// outside this crate. The warning is benign: axum resolves it at compile time
+// via trait bounds, not by name.
+#[allow(private_interfaces)]
+#[allow(clippy::result_large_err)] // Response is the natural error type for axum closures
 pub async fn upload_blob(
     State(state): State<Arc<AppState>>,
-    auth: AuthenticatedUpload,
+    ctx: UploadContext,
     headers: HeaderMap,
     body: axum::body::Body,
 ) -> axum::response::Response {
     use crate::nip_fi_http::{admit_nip_fi_http_on_state, Nip98Proof};
+    use axum::response::IntoResponse as _;
 
-    // NIP-FI admission: the Blossom extractor already verified the NIP-98
-    // auth event; the closure supplies the proven pubkey.  The admission
-    // function then runs assertion verify → pair → deny-map in fixed order.
-    // [FI-TRACE-AUTHORITY-UNIFORM]
-    let proven_pubkey = auth.auth_event.pubkey;
-    match admit_nip_fi_http_on_state(&state, &headers, || Ok(Nip98Proof::new(proven_pubkey, ()))) {
-        Ok(_) => {}
+    // NIP-FI admission with Blossom extraction as the NIP-98 closure.
+    // In active modes: extraction failure → NIP-FI denial bytes (MissingEvidence/
+    // EvidenceRejected).  In Off mode: MediaError propagates unchanged [FI-INV-15].
+    //
+    // The closure must verify the auth event against the tenant host BEFORE
+    // returning the proven pubkey to the admission gate — same ordering invariant
+    // as the read path. [FI-TRACE-AUTHORITY-UNIFORM]
+    let tenant_host = ctx.tenant.host().to_owned();
+    let headers_clone = headers.clone();
+    let admission = match admit_nip_fi_http_on_state(&state, &headers, move || {
+        let auth_event = extract_blossom_auth(&headers_clone).map_err(|e| e.into_response())?;
+        // Permissive window (3600s): content type unknown until body arrives.
+        buzz_media::auth::verify_blossom_auth_event(&auth_event, Some(&tenant_host), 3600)
+            .map_err(|e| e.into_response())?;
+        let pubkey = auth_event.pubkey;
+        Ok(Nip98Proof::new(pubkey, auth_event))
+    }) {
+        Ok(a) => a,
         Err(resp) => return resp,
+    };
+    let auth_event = admission.into_extra();
+
+    // Post-admission: validate X-SHA-256 header and hash binding.
+    // These are Blossom-protocol checks, not NIP-FI — Off mode still enforces
+    // them because they protect body integrity, not the assertion boundary.
+    let claimed_hash = match headers.get("x-sha-256").and_then(|v| v.to_str().ok()) {
+        Some(h) => h.to_owned(),
+        None => return MediaError::MissingTag("x-sha-256").into_response(),
+    };
+    if claimed_hash.len() != 64
+        || !claimed_hash
+            .chars()
+            .all(|c| matches!(c, '0'..='9' | 'a'..='f'))
+    {
+        return MediaError::HashMismatch.into_response();
+    }
+    let has_matching_x = auth_event
+        .tags
+        .iter()
+        .any(|tag| tag.kind().to_string() == "x" && (tag.content() == Some(&claimed_hash)));
+    if !has_matching_x {
+        return MediaError::HashMismatch.into_response();
     }
 
+    // Post-admission: relay membership gate (NIP-43).
+    let auth_tag = crate::api::relay_members::extract_auth_tag_header(&headers);
+    if let Err(e) = crate::api::relay_members::enforce_relay_membership(
+        &state,
+        ctx.tenant.community(),
+        auth_event.pubkey.as_bytes(),
+        auth_tag,
+        Some(auth_event.created_at.as_secs()),
+    )
+    .await
+    .map(|_| ())
+    .map_err(|_| MediaError::RelayMembershipRequired)
+    {
+        return e.into_response();
+    }
+
+    // Post-admission: rate limit and concurrency permit.
+    if upload_rate_limited(&state, ctx.tenant.community(), &auth_event.pubkey) {
+        metrics::counter!("buzz_media_upload_rejections_total", "reason" => "rate_limit")
+            .increment(1);
+        return MediaError::UploadRateLimitExceeded.into_response();
+    }
+    let upload_permit = match acquire_upload_permit(
+        &state,
+        ctx.tenant.community(),
+        &auth_event.pubkey,
+    )
+    .inspect_err(|_| {
+        metrics::counter!("buzz_media_upload_rejections_total", "reason" => "concurrency")
+            .increment(1);
+    }) {
+        Ok(p) => p,
+        Err(e) => return e.into_response(),
+    };
+
+    let auth = AuthenticatedUpload {
+        auth_event,
+        tenant: ctx.tenant,
+        route_mode: ctx.route_mode,
+        _upload_permit: upload_permit,
+    };
     upload_blob_inner(state, auth, headers, body).await
 }
 
@@ -559,17 +663,41 @@ async fn bind_media_read_tenant(
         .map_err(|_| MediaError::NotFound)
 }
 
-async fn authenticate_media_read(
-    state: &AppState,
+/// Extract and signature-verify the Blossom auth event for a GET/HEAD read.
+///
+/// This is the NIP-98 extraction step for media reads: it parses the
+/// `Authorization: Nostr <base64>` header, decodes and verifies the NIP-98
+/// event, and checks the Blossom GET auth binding (sha256 and server tags).
+///
+/// Used as the NIP-98 closure inside `admit_nip_fi_http_on_state` so that in
+/// active NIP-FI modes a missing/malformed Authorization header is mapped to
+/// the correct NIP-FI DenialClass instead of a legacy `MediaError` JSON 401.
+/// Off mode propagates `MediaError` unchanged ([FI-INV-15]).
+///
+/// [FI-TRACE-AUTHORITY-UNIFORM]
+fn extract_blossom_read_proof(
     headers: &HeaderMap,
-    sha256_ext: &str,
-) -> Result<MediaReadAuth, MediaError> {
-    let tenant = bind_media_read_tenant(state, headers).await?;
-
+    sha256: &str,
+    tenant_host: &str,
+) -> Result<crate::nip_fi_http::Nip98Proof<nostr::Event>, MediaError> {
     let auth_event = extract_blossom_auth(headers)?;
-    let sha256 = sha256_ext.split('.').next().unwrap_or(sha256_ext);
-    buzz_media::auth::verify_blossom_get_auth(&auth_event, sha256, Some(tenant.host()), 3600)?;
+    buzz_media::auth::verify_blossom_get_auth(&auth_event, sha256, Some(tenant_host), 3600)?;
+    let pubkey = auth_event.pubkey;
+    Ok(crate::nip_fi_http::Nip98Proof::new(pubkey, auth_event))
+}
 
+/// Post-admission membership gate for media reads.
+///
+/// Called after `admit_nip_fi_http_on_state` succeeds so that membership
+/// is checked against the NIP-FI-verified pubkey rather than a raw
+/// header value.  Separated from extraction so it can run after admission
+/// in both Off and active modes.
+async fn enforce_blossom_read_membership(
+    state: &AppState,
+    tenant: &TenantContext,
+    auth_event: &nostr::Event,
+    headers: &HeaderMap,
+) -> Result<(), MediaError> {
     let auth_tag = crate::api::relay_members::extract_auth_tag_header(headers);
     crate::api::relay_members::enforce_relay_membership(
         state,
@@ -579,10 +707,8 @@ async fn authenticate_media_read(
         Some(auth_event.created_at.as_secs()),
     )
     .await
-    .map_err(|_| MediaError::RelayMembershipRequired)?;
-
-    let pubkey = auth_event.pubkey;
-    Ok(MediaReadAuth { tenant, pubkey })
+    .map(|_| ())
+    .map_err(|_| MediaError::RelayMembershipRequired)
 }
 
 fn blob_cache_control() -> &'static str {
@@ -675,16 +801,32 @@ pub async fn get_blob(
     req_headers: HeaderMap,
 ) -> Result<Response, MediaError> {
     validate_media_path(&sha256_ext)?;
-    let media_auth = authenticate_media_read(&state, &req_headers, &sha256_ext).await?;
-    // NIP-FI admission. [FI-TRACE-AUTHORITY-UNIFORM]
-    use crate::nip_fi_http::{admit_nip_fi_http_on_state, Nip98Proof};
-    let proven_pubkey = media_auth.pubkey;
-    if let Err(resp) = admit_nip_fi_http_on_state(&state, &req_headers, || {
-        Ok(Nip98Proof::new(proven_pubkey, ()))
+    // Row zero: bind tenant. Blossom auth extraction and NIP-FI admission follow
+    // so that in active modes a missing/malformed Authorization header produces
+    // NIP-FI denial bytes (not legacy MediaError JSON). [FI-TRACE-AUTHORITY-UNIFORM]
+    let tenant = bind_media_read_tenant(&state, &req_headers).await?;
+    let sha256 = sha256_ext
+        .split('.')
+        .next()
+        .unwrap_or(&sha256_ext)
+        .to_owned();
+    let tenant_host = tenant.host().to_owned();
+    let headers_clone = req_headers.clone();
+    // NIP-FI admission with Blossom extraction as the NIP-98 closure.
+    // In active modes: extraction failure → NIP-FI denial bytes (MissingEvidence/
+    // EvidenceRejected).  In Off mode: MediaError propagates unchanged [FI-INV-15].
+    use crate::nip_fi_http::admit_nip_fi_http_on_state;
+    let admission = match admit_nip_fi_http_on_state(&state, &req_headers, move || {
+        extract_blossom_read_proof(&headers_clone, &sha256, &tenant_host)
+            .map_err(|e| e.into_response())
     }) {
-        return Ok(resp);
-    }
-    serve_blob_for_tenant(&state, &media_auth.tenant, &sha256_ext, &req_headers).await
+        Ok(a) => a,
+        Err(resp) => return Ok(resp),
+    };
+    let auth_event = admission.into_extra();
+    // Post-admission: membership gate.
+    enforce_blossom_read_membership(&state, &tenant, &auth_event, &req_headers).await?;
+    serve_blob_for_tenant(&state, &tenant, &sha256_ext, &req_headers).await
 }
 
 /// Serve a validated blob from an already-authorized tenant context.
@@ -949,16 +1091,27 @@ pub async fn head_blob(
     Path(sha256_ext): Path<String>,
 ) -> Result<Response, MediaError> {
     validate_media_path(&sha256_ext)?;
-    let media_auth = authenticate_media_read(&state, &headers, &sha256_ext).await?;
-    // NIP-FI admission. [FI-TRACE-AUTHORITY-UNIFORM]
-    use crate::nip_fi_http::{admit_nip_fi_http_on_state, Nip98Proof};
-    let proven_pubkey = media_auth.pubkey;
-    if let Err(resp) =
-        admit_nip_fi_http_on_state(&state, &headers, || Ok(Nip98Proof::new(proven_pubkey, ())))
-    {
-        return Ok(resp);
-    }
-    let tenant = media_auth.tenant;
+    // Row zero: bind tenant. Blossom auth extraction and NIP-FI admission follow
+    // so that in active modes a missing/malformed Authorization header produces
+    // NIP-FI denial bytes (not legacy MediaError JSON). [FI-TRACE-AUTHORITY-UNIFORM]
+    let tenant = bind_media_read_tenant(&state, &headers).await?;
+    let sha256 = sha256_ext
+        .split('.')
+        .next()
+        .unwrap_or(&sha256_ext)
+        .to_owned();
+    let tenant_host = tenant.host().to_owned();
+    let headers_clone = headers.clone();
+    use crate::nip_fi_http::admit_nip_fi_http_on_state;
+    let admission = match admit_nip_fi_http_on_state(&state, &headers, move || {
+        extract_blossom_read_proof(&headers_clone, &sha256, &tenant_host)
+            .map_err(|e| e.into_response())
+    }) {
+        Ok(a) => a,
+        Err(resp) => return Ok(resp),
+    };
+    let auth_event = admission.into_extra();
+    enforce_blossom_read_membership(&state, &tenant, &auth_event, &headers).await?;
     let cache_control = blob_cache_control();
 
     // Sidecar gate FIRST — reject before any blob I/O.

@@ -1993,7 +1993,7 @@ mod tests {
         // ── DenyProtected matrix ──────────────────────────────────────────────
         //
         // Admin host + DenyProtected: guard exempts admin SPA paths → 200 HTML.
-        // Tenant host + DenyProtected: guard NOT exempted → 503.
+        // Tenant host + DenyProtected: guard NOT exempted → 503 + exact body.
         let deny_admin_dir = tempfile::tempdir().expect("deny admin bundle dir");
         let deny_web_dir = tempfile::tempdir().expect("deny public bundle dir");
         let deny_state = state_with_mode(
@@ -2004,19 +2004,41 @@ mod tests {
         .await;
         for path in &admin_paths {
             let admin_resp = spa_response(deny_state.clone(), "admin.matrix.example", path).await;
+            let admin_status = admin_resp.status();
+            let admin_body = axum::body::to_bytes(admin_resp.into_body(), 8192)
+                .await
+                .unwrap_or_default();
             assert_eq!(
-                admin_resp.status(),
+                admin_status,
                 axum::http::StatusCode::OK,
                 "DenyProtected: {path} on admin host must be 200 (SPA exemption). \
                  Falsifying mutation: remove is_admin_spa_path || restrict to /reports only → 503"
             );
+            assert!(
+                std::str::from_utf8(&admin_body)
+                    .unwrap_or("")
+                    .contains("<!doctype html>"),
+                "DenyProtected: {path} on admin host 200 must serve HTML body; \
+                 status-only assertion can pass if the handler accidentally returns 200 \
+                 for a different reason."
+            );
 
             let tenant_resp = spa_response(deny_state.clone(), "tenant.matrix.example", path).await;
+            let tenant_status = tenant_resp.status();
+            let tenant_body = axum::body::to_bytes(tenant_resp.into_body(), 8192)
+                .await
+                .unwrap_or_default();
             assert_eq!(
-                tenant_resp.status(),
+                tenant_status,
                 axum::http::StatusCode::SERVICE_UNAVAILABLE,
                 "DenyProtected: {path} on tenant host must be 503. \
                  Exemption must not apply to non-admin hosts."
+            );
+            assert_eq!(
+                tenant_body.as_ref(),
+                b"authorization unavailable\n",
+                "DenyProtected: {path} on tenant host 503 must have exact body \
+                 'authorization unavailable\\n' (AuthorizationUnavailable contract)."
             );
         }
 
@@ -2024,8 +2046,12 @@ mod tests {
         //
         // Admin host + Enforce + no verifier (None) → NIP-FI admission guard
         // fires for non-exempt paths.  Admin SPA paths are host-qualified exempt
-        // → 200 HTML.  Tenant host → 401 (missing assertion) or 503 (no verifier).
-        // DenyProtected startup fires for missing verifier in non-exempt paths.
+        // → 200 HTML.  Tenant host → 401 (missing assertion, no verifier configured)
+        // with exact body "authentication required\n" and WWW-Authenticate: Nostr.
+        //
+        // Important: asserting only `!= 200` for the tenant case is insufficient —
+        // the fallthrough public 404 path also returns non-200.  Exact 401 + header
+        // + body distinguishes the NIP-FI guard from a public 404 fallback.
         let enforce_admin_dir = tempfile::tempdir().expect("enforce admin bundle dir");
         let enforce_web_dir = tempfile::tempdir().expect("enforce public bundle dir");
         let enforce_state = state_with_mode(
@@ -2037,19 +2063,55 @@ mod tests {
         for path in &admin_paths {
             let admin_resp =
                 spa_response(enforce_state.clone(), "admin.matrix.example", path).await;
+            let admin_status = admin_resp.status();
+            let admin_body = axum::body::to_bytes(admin_resp.into_body(), 8192)
+                .await
+                .unwrap_or_default();
             assert_eq!(
-                admin_resp.status(),
+                admin_status,
                 axum::http::StatusCode::OK,
                 "Enforce: {path} on admin host must be 200 (SPA exemption active in Enforce too). \
                  Falsifying mutation: remove is_admin_spa_path exemption from Enforce branch → non-200"
             );
+            assert!(
+                std::str::from_utf8(&admin_body)
+                    .unwrap_or("")
+                    .contains("<!doctype html>"),
+                "Enforce: {path} on admin host 200 must serve HTML body."
+            );
 
             let tenant_resp =
                 spa_response(enforce_state.clone(), "tenant.matrix.example", path).await;
-            assert_ne!(
-                tenant_resp.status(),
-                axum::http::StatusCode::OK,
-                "Enforce: {path} on tenant host must not be 200; NIP-FI guard fires."
+            let tenant_status = tenant_resp.status();
+            let tenant_headers = tenant_resp.headers().clone();
+            let tenant_body = axum::body::to_bytes(tenant_resp.into_body(), 8192)
+                .await
+                .unwrap_or_default();
+            // Must be 401, not just != 200.  A 404 fallback would also satisfy != 200
+            // but would indicate the NIP-FI guard was bypassed.
+            assert_eq!(
+                tenant_status,
+                axum::http::StatusCode::UNAUTHORIZED,
+                "Enforce: {path} on tenant host must be 401 MissingEvidence (not 200, not 404). \
+                 The NIP-FI guard must fire and produce an exact denial, not fall through to \
+                 the public 404 route. \
+                 Falsifying mutation: remove the guard call → 404 → assertion fires."
+            );
+            assert_eq!(
+                tenant_body.as_ref(),
+                b"authentication required\n",
+                "Enforce: {path} on tenant host 401 must have exact body \
+                 'authentication required\\n' (MissingEvidence contract)."
+            );
+            let www_auth = tenant_headers
+                .get("WWW-Authenticate")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("");
+            assert_eq!(
+                www_auth,
+                "Nostr",
+                "Enforce: {path} on tenant host 401 must have WWW-Authenticate: Nostr header. \
+                 Falsifying mutation: remove challenge from MissingEvidence denial → assertion fires."
             );
         }
     }

@@ -448,25 +448,49 @@ mod tests {
     // `{s}` interpolation.  The sentinel strings would appear in the error
     // message and the assertion fires.
 
-    /// Malformed issuer JSON must not leak the raw JSON value in the error.
+    /// Malformed issuer JSON: wrong-typed field must not leak the sentinel value.
+    ///
+    /// We use a valid JSON array with `skew_seconds` as a string (where the
+    /// deserializer expects a number).  Raw serde would echo the actual string
+    /// value in a type-error message like `expected u64, got string "SENTINEL..."`.
+    /// The test asserts the sentinel does NOT appear — proving the code strips or
+    /// classifies the error rather than forwarding serde's message.
+    ///
+    /// This is stronger than using outright-malformed JSON, which serde never
+    /// echoes in the first place.  A non-discriminating malformed-JSON sentinel
+    /// passes even if the code leaks values from valid-but-wrong-typed fields.
     #[test]
     fn malformed_issuer_json_error_does_not_leak_raw_value() {
         let _guard = ENV_LOCK.lock().unwrap();
         let _env = EnvGuard::new(NIP_FI_VARS);
 
-        // Embed a sentinel that must not appear in any error.
-        const SENTINEL: &str = "SENTINEL_ISSUER_URL_https://secret.example";
-        let malformed = format!("{{{{\"issuer\":\"{SENTINEL}\"}}");
+        // A sentinel that serde would echo in a type-mismatch error if not suppressed.
+        const SENTINEL: &str = "SENTINEL_SKEW_VALUE_abc123xyz";
+        // Valid array with `skew_seconds` as a string — deserializer expects u64.
+        // Raw serde error would be something like:
+        //   "invalid type: string \"SENTINEL_SKEW_VALUE_abc123xyz\", expected u64"
+        let issuers_json = serde_json::json!([{
+            "issuer": "https://issuer.test",
+            "audiences": ["https://relay.test"],
+            "token_class": "nip-fi+jwt",
+            "algorithms": ["ES256"],
+            "skew_seconds": SENTINEL,   // wrong type: serde echoes this value
+            "maximum_assertion_age_seconds": 3600,
+            "jwks_uri": "https://issuer.test/.well-known/jwks.json",
+            "jwks_refresh_interval_seconds": 300,
+            "jwks_hard_deadline_seconds": 3600
+        }])
+        .to_string();
         std::env::set_var("BUZZ_NIP_FI_MODE", "enforce");
-        std::env::set_var("BUZZ_NIP_FI_ISSUERS", &malformed);
+        std::env::set_var("BUZZ_NIP_FI_ISSUERS", &issuers_json);
         std::env::set_var("BUZZ_NIP_FI_MAX_CONNECTION_LIFETIME_SECS", "3600");
 
-        let err = NipFiRelayConfig::from_env().expect_err("malformed JSON must fail");
+        let err = NipFiRelayConfig::from_env().expect_err("wrong-typed field must fail");
         let msg = err.to_string();
 
         assert!(
             !msg.contains(SENTINEL),
-            "parse error MUST NOT echo the raw issuer URL (privacy sentinel leaked): {msg}"
+            "parse error MUST NOT echo the raw field value (privacy sentinel leaked): {msg}"
         );
         // The error must still be non-empty and identify the config variable.
         assert!(

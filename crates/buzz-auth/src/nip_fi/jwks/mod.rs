@@ -546,8 +546,8 @@ impl<F: JwksFetcher> ProductionJwksSource<F> {
 
     /// **Test-only.** Construct with an injectable clock so tests can advance
     /// `now` past snapshot hard deadlines without wall-clock sleep.
-    #[cfg(test)]
-    pub(crate) fn new_with_clock(
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn new_with_clock(
         configs: Vec<IssuerJwksConfig>,
         fetcher: F,
         now_fn: Arc<dyn Fn() -> DateTime<Utc> + Send + Sync>,
@@ -736,3 +736,52 @@ impl<F> std::fmt::Debug for ProductionJwksSource<F> {
 
 #[cfg(test)]
 mod tests;
+
+/// A scripted JWKS fetcher for integration tests outside this crate.
+///
+/// Returns pre-queued responses in FIFO order.  When the queue is
+/// exhausted every subsequent call returns `NetworkError`.  Callers can
+/// simulate nonzero latency by inserting sleeps inside the queued futures.
+///
+/// Sealed for `JwksFetcher` so callers never need to name the sealed trait.
+#[cfg(any(test, feature = "test-utils"))]
+pub struct ScriptedJwksFetcher {
+    /// Remaining responses, front = next to return.  Thread-safe.
+    pub responses: std::sync::Arc<
+        std::sync::Mutex<std::collections::VecDeque<Result<String, JwksFetchError>>>,
+    >,
+    /// Incremented on each call regardless of outcome.  Thread-safe.
+    pub call_count: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+impl ScriptedJwksFetcher {
+    /// Create a new `ScriptedJwksFetcher` with the given queued responses (FIFO).
+    pub fn new(responses: impl IntoIterator<Item = Result<String, JwksFetchError>>) -> Self {
+        Self {
+            responses: std::sync::Arc::new(std::sync::Mutex::new(responses.into_iter().collect())),
+            call_count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        }
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+impl super::verifier::sealed::Sealed for ScriptedJwksFetcher {}
+
+#[cfg(any(test, feature = "test-utils"))]
+impl JwksFetcher for ScriptedJwksFetcher {
+    fn fetch_jwks<'a>(
+        &'a self,
+        _uri: &'a str,
+    ) -> impl std::future::Future<Output = Result<String, JwksFetchError>> + Send + 'a {
+        self.call_count
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let result = self
+            .responses
+            .lock()
+            .unwrap()
+            .pop_front()
+            .unwrap_or(Err(JwksFetchError::NetworkError));
+        async move { result }
+    }
+}

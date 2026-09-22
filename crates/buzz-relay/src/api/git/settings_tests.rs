@@ -468,7 +468,6 @@ mod postgres_tests {
         (status, body)
     }
 
-    #[allow(dead_code)] // Used by Off-mode POST tests added in future commits.
     fn nip98_token_for_method(keys: &Keys, url: &str, method: &str, body: Option<&[u8]>) -> String {
         use sha2::{Digest, Sha256};
         let mut tags = vec![
@@ -607,17 +606,18 @@ mod postgres_tests {
         );
     }
 
-    // ── Settings via build_router: POST protection ────────────────────────────
+    // ── Settings via build_router: POST — wrong method (GET token) → 403 ───────
     //
-    // A GET NIP-98 token cannot authorize a POST to the same URL.
-    // `authenticate()` in settings.rs verifies method + payload binding.
+    // A GET NIP-98 token on a POST request carries a present but invalid
+    // Authorization header (method mismatch).  In NIP-FI Enforce mode,
+    // `admit_nip_fi_http` maps a present-but-failing NIP-98 to
+    // `EvidenceRejected` (403 "evidence rejected\n"), not 401.
     //
-    // Falsifying mutation: remove `strict: true` from the NIP-98 verification
-    // call inside `authenticate()` → a GET token passes POST admission →
-    // this test returns non-401 → assertion fires.
+    // Falsifying mutation: change `EvidenceRejected` to `MissingEvidence` in
+    // `admit_nip_fi_http` → returns 401 → assertion fires.
     #[test]
     #[ignore = "requires Postgres"]
-    fn settings_build_router_enforce_post_requires_correct_method_and_payload() {
+    fn settings_build_router_enforce_post_wrong_method_is_403() {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -627,7 +627,7 @@ mod postgres_tests {
             panic!("local Postgres not reachable");
         };
         let host = format!(
-            "nip-fi-settings-post-{}.local",
+            "nip-fi-settings-post-wrong-method-{}.local",
             uuid::Uuid::new_v4().simple()
         );
         rt.block_on(state.db.ensure_configured_community(&host))
@@ -641,11 +641,12 @@ mod postgres_tests {
         );
         let url = format!("http://{host}{path}");
 
-        // A GET token presented on a POST request → NIP-98 method mismatch.
+        // GET token on a POST request: Authorization header IS present but
+        // carries method=GET → NIP-98 verification fails → EvidenceRejected (403).
         let get_token = nip98_get_token(&key, &url);
         let post_body = b"{\"branch\":\"main\",\"expected_manifest\":\"abc\"}";
 
-        let (status, _body) = rt.block_on(settings_post_via_build_router(
+        let (status, body) = rt.block_on(settings_post_via_build_router(
             state,
             &host,
             &path,
@@ -656,11 +657,150 @@ mod postgres_tests {
 
         assert_eq!(
             status,
+            StatusCode::FORBIDDEN,
+            "NIP-FI Enforce: GET token on a POST settings request must deny 403 EvidenceRejected \
+             (present but invalid Authorization → EvidenceRejected, not MissingEvidence). \
+             Falsifying mutation: flip the DenialClass mapping for present-but-failing NIP-98 \
+             to MissingEvidence → 401 → assertion fires."
+        );
+        assert_eq!(
+            body.as_ref(),
+            b"evidence rejected\n",
+            "EvidenceRejected body must be exact contract bytes"
+        );
+    }
+
+    // ── Settings via build_router: POST — correct method, no payload tag → 403 ─
+    //
+    // A POST NIP-98 token without a payload tag is present but invalid
+    // (settings POST requires a hash-bound body per NIP-FI.md:619-637).
+    // In active mode, present-but-failing NIP-98 → EvidenceRejected (403).
+    //
+    // Falsifying mutation: set `require_payload = false` in `authenticate()`
+    // for POST → payload-tag check skipped → NIP-98 succeeds → non-403 status.
+    #[test]
+    #[ignore = "requires Postgres"]
+    fn settings_build_router_enforce_post_missing_payload_tag_is_403() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("current_thread runtime");
+
+        let Some(state) = rt.block_on(enforce_state_with_verifier()) else {
+            panic!("local Postgres not reachable");
+        };
+        let host = format!(
+            "nip-fi-settings-post-no-payload-{}.local",
+            uuid::Uuid::new_v4().simple()
+        );
+        rt.block_on(state.db.ensure_configured_community(&host))
+            .expect("ensure community");
+
+        let key = Keys::generate();
+        let assertion = mint_assertion(&key.public_key().to_hex());
+        let path = format!(
+            "/git/{}/test-repo/default-branch",
+            key.public_key().to_hex()
+        );
+        let url = format!("http://{host}{path}");
+
+        // POST token with correct method but no payload tag: settings handler
+        // requires a hash-bound body; missing tag → NIP-98 fails → 403.
+        let post_token_no_payload = nip98_token_for_method(&key, &url, "POST", None);
+        let post_body = b"{\"branch\":\"main\",\"expected_manifest\":\"abc\"}";
+
+        let (status, body) = rt.block_on(settings_post_via_build_router(
+            state,
+            &host,
+            &path,
+            &post_token_no_payload,
+            post_body,
+            Some(&assertion),
+        ));
+
+        assert_eq!(
+            status,
+            StatusCode::FORBIDDEN,
+            "NIP-FI Enforce: POST token without payload tag must deny 403 EvidenceRejected \
+             (present but missing payload tag → NIP-98 failure → EvidenceRejected). \
+             Falsifying mutation: remove require_payload=true from authenticate() → tag \
+             check skipped → different status."
+        );
+        assert_eq!(
+            body.as_ref(),
+            b"evidence rejected\n",
+            "EvidenceRejected body must be exact contract bytes"
+        );
+    }
+
+    // ── Settings via build_router: POST — same-key, valid payload → reaches handler ─
+    //
+    // A correctly signed POST NIP-98 token (method=POST, payload tag matching
+    // the body) with a matching assertion passes NIP-FI admission and reaches
+    // the handler.  The handler returns a non-NIP-FI error (404 repo not found
+    // or similar), proving admission succeeded.
+    //
+    // Positive control: without this, an always-denying admission implementation
+    // could pass all three POST tests above without testing real admission.
+    //
+    // Falsifying mutation: remove `admit_nip_fi_http_on_state` from
+    // `authenticate()` → admission skipped → but request still reaches handler
+    // (non-denial result), so the positive control would not fire.  Combined
+    // with the negative controls above, the full set distinguishes correct
+    // admission from both always-deny and always-admit implementations.
+    #[test]
+    #[ignore = "requires Postgres"]
+    fn settings_build_router_enforce_post_same_key_valid_payload_reaches_handler() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("current_thread runtime");
+
+        let Some(state) = rt.block_on(enforce_state_with_verifier()) else {
+            panic!("local Postgres not reachable");
+        };
+        let host = format!(
+            "nip-fi-settings-post-ok-{}.local",
+            uuid::Uuid::new_v4().simple()
+        );
+        rt.block_on(state.db.ensure_configured_community(&host))
+            .expect("ensure community");
+
+        let key = Keys::generate();
+        let assertion = mint_assertion(&key.public_key().to_hex());
+        let path = format!(
+            "/git/{}/test-repo/default-branch",
+            key.public_key().to_hex()
+        );
+        let url = format!("http://{host}{path}");
+        let post_body = b"{\"branch\":\"main\",\"expected_manifest\":\"abc\"}";
+
+        // Correct POST token: method=POST + payload tag hash-bound to the body.
+        let post_token = nip98_token_for_method(&key, &url, "POST", Some(post_body));
+
+        let (status, _body) = rt.block_on(settings_post_via_build_router(
+            state,
+            &host,
+            &path,
+            &post_token,
+            post_body,
+            Some(&assertion),
+        ));
+
+        // Admission passes; handler returns a non-NIP-FI error (repo not found).
+        // The invariant is NOT 401 MissingEvidence and NOT 403 EvidenceRejected/
+        // AuthorizationDenied — those mean admission blocked the request.
+        assert_ne!(
+            status,
             StatusCode::UNAUTHORIZED,
-            "NIP-FI Enforce: GET token on a POST settings request must deny 401 \
-             (NIP-98 method mismatch → MissingEvidence in active mode). \
-             Falsifying mutation: removing method verification from authenticate() \
-             would admit the request → non-401 status."
+            "NIP-FI Enforce: same-key valid POST token MUST NOT deny 401. \
+             Positive control: proves the admission path is correct, not just deny-all."
+        );
+        assert_ne!(
+            status,
+            StatusCode::FORBIDDEN,
+            "NIP-FI Enforce: same-key valid POST token MUST NOT deny 403. \
+             Positive control: proves key pairing succeeded and handler was reached."
         );
     }
 

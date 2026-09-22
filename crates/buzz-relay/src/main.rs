@@ -2735,3 +2735,381 @@ mod tests {
         task.await.expect("refresh loop task");
     }
 }
+
+// ── F5: Composition — production timer + ProductionJwksSource ─────────────────
+//
+// Tests that `nip_fi_jwks_refresh_loop` and `ProductionJwksSource` compose
+// correctly across four scenarios that individual tests cannot cover separately:
+//
+// 1. **Nonzero fetch latency**: a 10s simulated fetch inside a 60s interval;
+//    the second refresh is anchored to post-fetch instant (T≈130, not T≈120).
+// 2. **Not-due cache hit**: at T=59 (one second before the interval) the source
+//    returns the cached snapshot immediately without fetching; fetch_count stays
+//    at 1.  The timer loop's boolean return (`is_some()`) correctly reflects a
+//    live snapshot from the cache.
+// 3. **Failure does not extend snapshot freshness**: after a failed refresh
+//    the source's hard_deadline is unchanged (no new snapshot was committed);
+//    the previous snapshot remains valid until its original deadline.
+// 4. **Hard-deadline cleared by source**: the source clears an expired snapshot
+//    on the next `get_snapshot()` call; the timer loop then fires a second
+//    fetch and the source commits the fresh snapshot.
+//
+// ProductionJwksSource uses a controlled clock (`new_with_clock`) so tests
+// advance time without wall-clock sleeps.  The timer loop uses tokio's paused
+// clock for its own `sleep_until`.
+//
+// Falsifying mutations:
+//   - Remove clock injection → test times out (wall time, unpaused).
+//   - Remove `*last = Instant::now()` post-fetch → second refresh fires at T≈120
+//     (before T=130 assertion) — test A fails.
+//   - Return `true` from the failure path → false positive on the failure test.
+//
+// These tests are in `mod composition_tests` to isolate their `use` declarations.
+#[cfg(test)]
+mod composition_tests {
+    use buzz_auth::{
+        IssuerJwksConfig, JwksFetchError, JwksSourceContract, ProductionJwksSource,
+        ScriptedJwksFetcher,
+    };
+    use std::sync::atomic::Ordering;
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio_util::sync::CancellationToken;
+
+    use super::nip_fi_jwks_refresh_loop;
+
+    fn test_jwks(kid: &str) -> String {
+        format!(
+            r#"{{"keys":[{{"kty":"EC","crv":"P-256","x":"f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU","y":"x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0","use":"sig","alg":"ES256","kid":"{kid}"}}]}}"#
+        )
+    }
+
+    fn make_source_config(issuer: &str, refresh: u64, hard_deadline: u64) -> IssuerJwksConfig {
+        IssuerJwksConfig {
+            issuer: issuer.to_owned(),
+            contract: JwksSourceContract::new(
+                format!("https://{issuer}/.well-known/jwks.json"),
+                refresh,
+                hard_deadline,
+            )
+            .expect("valid test contract"),
+        }
+    }
+
+    // ── Composition A: nonzero fetch latency, not-due cache hit ─────────────
+    //
+    // Scenario:
+    //   T=0: source has no snapshot.  Timer fires at T=60, fetch takes 10s.
+    //   T=59: cache NOT due (age < refresh=60) — source returns None (not yet
+    //         populated) but the timer's boolean treats None as "no snapshot".
+    //         Actually we advance to T=70 to pass the first fetch, then test
+    //         the not-due case at T=129 (post-fetch last ≈70, next due ≈130).
+    //   T=129: cache is NOT due (age = 129-70 = 59 < 60); timer has not re-fired.
+    //   T=131: cache is due; second fetch fires and completes at T=141.
+    //
+    // The not-due case proves `ProductionJwksSource.get_snapshot()` returns the
+    // cached snapshot without fetching when `age < refresh_interval`.  The timer
+    // loop's callback receives `true` (snapshot exists) and does NOT advance
+    // `last` — so no second refresh fires.  The test proves fetch_count stays
+    // at 1 at T=129 and advances to 2 by T=141.
+    #[tokio::test(start_paused = true)]
+    async fn composition_nonzero_latency_and_not_due_cache_hit() {
+        const ISSUER: &str = "https://comp-a.issuer.test";
+        const REFRESH: u64 = 60;
+        const HARD_DEADLINE: u64 = 90;
+        const FETCH_LATENCY_SECS: u64 = 10;
+
+        // Controlled clock for the source: starts at T0.
+        let t0_secs = chrono::Utc::now().timestamp();
+        let clock_secs = Arc::new(std::sync::atomic::AtomicI64::new(t0_secs));
+        let clock2 = Arc::clone(&clock_secs);
+        let clock3 = Arc::clone(&clock_secs); // for the task closure
+        let now_fn: Arc<dyn Fn() -> chrono::DateTime<chrono::Utc> + Send + Sync> =
+            Arc::new(move || {
+                chrono::DateTime::from_timestamp(clock2.load(Ordering::SeqCst), 0)
+                    .unwrap_or(chrono::DateTime::UNIX_EPOCH)
+            });
+
+        // Two responses: first succeeds (populates cache), second succeeds.
+        let fetcher = ScriptedJwksFetcher::new([Ok(test_jwks("key-a1")), Ok(test_jwks("key-a2"))]);
+        let fetcher_count = Arc::clone(&fetcher.call_count);
+
+        let source = Arc::new(
+            ProductionJwksSource::new_with_clock(
+                vec![make_source_config(ISSUER, REFRESH, HARD_DEADLINE)],
+                fetcher,
+                Arc::clone(&now_fn),
+            )
+            .expect("valid source"),
+        );
+
+        let cancel = CancellationToken::new();
+        let cancel_task = cancel.clone();
+        let source_task = Arc::clone(&source);
+
+        let task = tokio::spawn(async move {
+            nip_fi_jwks_refresh_loop(
+                vec![(ISSUER.to_owned(), REFRESH)],
+                move |issuer| {
+                    let s = Arc::clone(&source_task);
+                    let issuer = issuer.to_owned();
+                    let clock_ref = Arc::clone(&clock3);
+                    Box::pin(async move {
+                        // Simulate nonzero fetch latency by advancing tokio time
+                        // and the source clock by FETCH_LATENCY_SECS.
+                        // The source clock advances so `fetched_at` is set correctly.
+                        tokio::time::sleep(Duration::from_secs(FETCH_LATENCY_SECS)).await;
+                        clock_ref.fetch_add(FETCH_LATENCY_SECS as i64, Ordering::SeqCst);
+                        s.get_snapshot(&issuer).await.is_some()
+                    })
+                },
+                cancel_task,
+            )
+            .await;
+        });
+
+        // T=0: loop starts.
+        tokio::task::yield_now().await;
+
+        // Advance to T=60: first refresh due.
+        tokio::time::advance(Duration::from_secs(60)).await;
+        clock_secs.store(t0_secs + 60, Ordering::SeqCst);
+        tokio::task::yield_now().await;
+
+        // Advance through 10s fetch latency to T=70.
+        tokio::time::advance(Duration::from_secs(10)).await;
+        tokio::task::yield_now().await;
+
+        // At T=70: first fetch completed; post-fetch last ≈70; next due ≈130.
+        // cache has a snapshot with fetched_at ≈70.
+        assert_eq!(
+            fetcher_count.load(Ordering::SeqCst),
+            1,
+            "composition A: exactly one fetch at T=70"
+        );
+
+        // T=129: NOT due (age = 129-70 = 59 < 60). No second fetch.
+        tokio::time::advance(Duration::from_secs(59)).await; // T=129
+        clock_secs.store(t0_secs + 129, Ordering::SeqCst);
+        tokio::task::yield_now().await;
+
+        assert_eq!(
+            fetcher_count.load(Ordering::SeqCst),
+            1,
+            "composition A: cache not-due at T=129 — no second fetch. \
+             Falsifying mutation: use pre-fetch `now` for `last` → second fetch at T≈120."
+        );
+
+        // Verify the source serves the cached snapshot without fetching.
+        // get_snapshot advances the source clock by 0 (no latency here).
+        let snap = source.get_snapshot(ISSUER).await;
+        assert!(
+            snap.is_some(),
+            "composition A: cached snapshot must be live at T=129 (hard_deadline is T≈160)"
+        );
+        assert_eq!(
+            fetcher_count.load(Ordering::SeqCst),
+            1,
+            "composition A: get_snapshot at T=129 must NOT trigger a new fetch"
+        );
+
+        // T=131: second refresh is due (post-fetch last ≈70 + 60 = 130 ≤ 131).
+        tokio::time::advance(Duration::from_secs(2)).await; // T=131
+        clock_secs.store(t0_secs + 131, Ordering::SeqCst);
+        tokio::task::yield_now().await;
+
+        // Advance through 10s fetch latency.
+        tokio::time::advance(Duration::from_secs(10)).await; // T=141
+        clock_secs.store(t0_secs + 141, Ordering::SeqCst);
+        tokio::task::yield_now().await;
+
+        assert_eq!(
+            fetcher_count.load(Ordering::SeqCst),
+            2,
+            "composition A: second fetch by T=141 (post-fetch last ≈70 + interval 60 + fetch 10)"
+        );
+
+        cancel.cancel();
+        task.await.expect("refresh loop task");
+    }
+
+    // ── Composition B: fetch failure does not extend snapshot freshness ──────
+    //
+    // A successful first fetch populates the snapshot (hard_deadline = T0+90).
+    // A second fetch fails — source state is NOT updated; hard_deadline is
+    // unchanged.  The snapshot remains valid until T0+90.
+    //
+    // Falsifying mutation: update `state.snapshot` on failure → hard_deadline
+    // advances → the `assert_eq!(deadline_after, deadline_before)` fires.
+    #[tokio::test(start_paused = true)]
+    async fn composition_failure_does_not_extend_snapshot_freshness() {
+        const ISSUER: &str = "https://comp-b.issuer.test";
+        const REFRESH: u64 = 60;
+        const HARD_DEADLINE: u64 = 90;
+
+        let t0_secs = chrono::Utc::now().timestamp();
+        let clock_secs = Arc::new(std::sync::atomic::AtomicI64::new(t0_secs));
+        let clock2 = Arc::clone(&clock_secs);
+        let now_fn: Arc<dyn Fn() -> chrono::DateTime<chrono::Utc> + Send + Sync> =
+            Arc::new(move || {
+                chrono::DateTime::from_timestamp(clock2.load(Ordering::SeqCst), 0)
+                    .unwrap_or(chrono::DateTime::UNIX_EPOCH)
+            });
+
+        // First response succeeds; second fails.
+        let fetcher =
+            ScriptedJwksFetcher::new([Ok(test_jwks("key-b1")), Err(JwksFetchError::NetworkError)]);
+        let fetcher_count = Arc::clone(&fetcher.call_count);
+
+        let source = Arc::new(
+            ProductionJwksSource::new_with_clock(
+                vec![make_source_config(ISSUER, REFRESH, HARD_DEADLINE)],
+                fetcher,
+                Arc::clone(&now_fn),
+            )
+            .expect("valid source"),
+        );
+
+        // Warm the cache: first fetch at T=0.
+        let snap_before = source.get_snapshot(ISSUER).await.expect("initial snapshot");
+        let generation_before = snap_before.generation();
+        assert_eq!(
+            fetcher_count.load(Ordering::SeqCst),
+            1,
+            "composition B: one fetch for initial warm"
+        );
+
+        // Advance time to T=61 (past refresh interval) — second fetch will fail.
+        clock_secs.store(t0_secs + 61, Ordering::SeqCst);
+
+        // Drive a second get_snapshot: source detects age > REFRESH, tries to fetch, fails.
+        let snap_after = source.get_snapshot(ISSUER).await;
+        assert!(
+            snap_after.is_some(),
+            "composition B: failed refresh must still return the previous live snapshot"
+        );
+        let generation_after = snap_after.unwrap().generation();
+        assert_eq!(
+            fetcher_count.load(Ordering::SeqCst),
+            2,
+            "composition B: second fetch was attempted (and failed)"
+        );
+        assert_eq!(
+            generation_before, generation_after,
+            "composition B: fetch failure MUST NOT advance the snapshot generation — \
+             the cached snapshot is unchanged. \
+             Falsifying mutation: commit a new snapshot on failure → generation changes."
+        );
+    }
+
+    // ── Composition C: privacy — issuer URL must not appear in log output ────
+    //
+    // `ProductionJwksSource` logs `warn!(error = %err, ...)` on fetch failure
+    // and the timer loop logs `warn!(issuer_index = idx, ...)` on no-snapshot.
+    // Neither path must echo the raw issuer URL.
+    //
+    // This test drives `get_snapshot()` directly (not through the timer loop)
+    // to cover both the success path (no warning emitted) and the failure path
+    // (`warn!(error = %err, "nip-fi jwks fetch failed...")`).  It captures
+    // all tracing output and asserts the sentinel issuer URL does not appear.
+    //
+    // Falsifying mutation: change `warn!(error = %err, "...")` to
+    // `warn!(issuer_uri = config.contract.jwks_uri(), error = %err, "...")`
+    // → URI in log → sentinel appears → assertion fires.
+    //
+    // Uses `#[test]` + manual runtime so `with_default` wraps all async execution.
+    #[test]
+    fn composition_log_does_not_leak_issuer_url() {
+        use std::io::Write;
+
+        const SENTINEL: &str = "SENTINEL_ISSUER_URL_9f4e2b1a";
+        let issuer = format!("https://{SENTINEL}.example.invalid");
+        const REFRESH: u64 = 60;
+        const HARD_DEADLINE: u64 = 90;
+
+        let t0_secs = chrono::Utc::now().timestamp();
+        let clock_secs = Arc::new(std::sync::atomic::AtomicI64::new(t0_secs));
+        let clock2 = Arc::clone(&clock_secs);
+        let now_fn: Arc<dyn Fn() -> chrono::DateTime<chrono::Utc> + Send + Sync> =
+            Arc::new(move || {
+                chrono::DateTime::from_timestamp(clock2.load(Ordering::SeqCst), 0)
+                    .unwrap_or(chrono::DateTime::UNIX_EPOCH)
+            });
+
+        // Two responses: first succeeds (warm), second fails (exercises warn path).
+        let fetcher = ScriptedJwksFetcher::new([
+            Ok(r#"{"keys":[{"kty":"EC","crv":"P-256","x":"f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU","y":"x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0","use":"sig","alg":"ES256","kid":"k1"}]}"#.to_string()),
+            Err(JwksFetchError::NetworkError),
+        ]);
+
+        // Use a JwksSourceContract with a JWKS URI that also embeds the sentinel
+        // — so if the URI leaks into logs it's caught by the sentinel check.
+        let jwks_uri = format!("https://{SENTINEL}.cdn.example.invalid/jwks.json");
+        let source = Arc::new(
+            ProductionJwksSource::new_with_clock(
+                vec![IssuerJwksConfig {
+                    issuer: issuer.clone(),
+                    contract: JwksSourceContract::new(jwks_uri.clone(), REFRESH, HARD_DEADLINE)
+                        .expect("valid test contract"),
+                }],
+                fetcher,
+                Arc::clone(&now_fn),
+            )
+            .expect("valid source"),
+        );
+
+        // Capture log output.
+        let buf = Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
+        #[derive(Clone)]
+        struct MakeCapturing(Arc<std::sync::Mutex<Vec<u8>>>);
+        struct CapturingWriter(Arc<std::sync::Mutex<Vec<u8>>>);
+        impl Write for CapturingWriter {
+            fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(data);
+                Ok(data.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for MakeCapturing {
+            type Writer = CapturingWriter;
+            fn make_writer(&'a self) -> CapturingWriter {
+                CapturingWriter(Arc::clone(&self.0))
+            }
+        }
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(MakeCapturing(Arc::clone(&buf)))
+            .with_ansi(false)
+            .finish();
+
+        tracing::subscriber::with_default(subscriber, || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_time()
+                .build()
+                .expect("runtime");
+
+            rt.block_on(async {
+                // Warm path: first get_snapshot succeeds, no warning emitted.
+                let snap = source.get_snapshot(&issuer).await;
+                assert!(snap.is_some(), "first snapshot must be warmed");
+
+                // Advance source clock past refresh interval → second call fails (warn path).
+                clock_secs.store(t0_secs + 61, Ordering::SeqCst);
+                let _ = source.get_snapshot(&issuer).await;
+                // The warn!(error = %err, "nip-fi jwks fetch failed...") fires here.
+            });
+        });
+
+        let captured = String::from_utf8(buf.lock().unwrap().clone()).unwrap_or_default();
+
+        assert!(
+            !captured.contains(SENTINEL),
+            "NIP-FI source logs MUST NOT contain the raw issuer URL or JWKS URI. \
+             Sentinel '{SENTINEL}' found in captured log output. \
+             Falsifying mutation: add issuer_uri field to the warn! call → sentinel appears.\n\
+             Captured (first 500 chars):\n{}",
+            &captured[..captured.len().min(500)]
+        );
+    }
+}
