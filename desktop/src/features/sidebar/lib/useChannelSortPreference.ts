@@ -15,6 +15,7 @@ import {
 } from "./channelSortPreference";
 import { ChannelSortSyncManager } from "./channelSortSync";
 import type { RemoteSortPrefs } from "./channelSortSync";
+import { useStaleReaderRecovery } from "./useStaleReaderRecovery";
 
 /**
  * Persistent per-group sidebar sort preferences, scoped by pubkey + relay so
@@ -48,6 +49,9 @@ export function useChannelSortPreference(
   const managerRef = React.useRef<ChannelSortSyncManager | null>(null);
   const lastAppliedRemoteTs = React.useRef(0);
   const lastAppliedEventId = React.useRef("");
+  // Local-mutation revision: incremented on every user edit so an in-flight
+  // retry fetch that started before the edit is discarded at apply time.
+  const localRevision = React.useRef(0);
 
   React.useEffect(() => {
     if (!pubkey || !relayUrl) {
@@ -91,10 +95,12 @@ export function useChannelSortPreference(
           remote.eventId >= lastAppliedEventId.current
         )
           return prev;
-        lastAppliedRemoteTs.current = remote.createdAt;
-        lastAppliedEventId.current = remote.eventId;
         managerRef.current?.cancelPendingPublish();
         if (!writeChannelSortStore(pubkey, remote.store, relayUrl)) return prev;
+        // Advance the applied head only after the cache write succeeds so a
+        // failed write leaves the same head retryable on the next tick.
+        lastAppliedRemoteTs.current = remote.createdAt;
+        lastAppliedEventId.current = remote.eventId;
         return remote.store;
       };
     },
@@ -160,62 +166,28 @@ export function useChannelSortPreference(
     };
   }, [pubkey, applyRemote]);
 
-  // Retry effect: polls the relay at a bounded-backoff cadence (5 → 10 → 30 →
-  // 60 s, then steady at 60 s) so a stale view recovers without an edit-kick
-  // or reconnect.  Fires immediately on visibility-change to "visible".
-  // Single-flight; skips apply when a local publish is pending.
-  React.useEffect(() => {
-    if (!pubkey || !relayUrl) return;
-    let cancelled = false;
-    let inFlight = false;
-    const BACKOFF_STEPS = [5_000, 10_000, 30_000, 60_000];
-    let stepIndex = 0;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-
-    const tick = async () => {
-      if (cancelled || inFlight) return;
-      inFlight = true;
-      try {
-        const result = await managerRef.current?.fetchRemoteSortPrefs();
-        if (!cancelled && result?.status === "found") {
-          const pending = managerRef.current?.getPendingStore();
-          if (!pending) {
-            setStore(applyRemote(result.data));
-          }
-        }
-      } finally {
-        inFlight = false;
-      }
-      if (!cancelled) {
-        const delay = BACKOFF_STEPS[
-          Math.min(stepIndex, BACKOFF_STEPS.length - 1)
-        ] as number;
-        stepIndex = Math.min(stepIndex + 1, BACKOFF_STEPS.length - 1);
-        timer = setTimeout(() => {
-          void tick();
-        }, delay);
-      }
-    };
-
-    const onVisible = () => {
-      if (document.visibilityState !== "visible") return;
-      if (timer !== null) {
-        clearTimeout(timer);
-        timer = null;
-      }
-      stepIndex = 0;
-      void tick();
-    };
-
-    document.addEventListener("visibilitychange", onVisible);
-    void tick();
-
-    return () => {
-      cancelled = true;
-      document.removeEventListener("visibilitychange", onVisible);
-      if (timer !== null) clearTimeout(timer);
-    };
-  }, [pubkey, relayUrl, applyRemote]);
+  // Retry effect: see useStaleReaderRecovery for full behavior contract.
+  const retryFetch = React.useCallback(
+    () => managerRef.current?.fetchRemoteSortPrefs(),
+    [],
+  );
+  const retryHasPending = React.useCallback(
+    () => managerRef.current?.getPendingStore() != null,
+    [],
+  );
+  const retryGetRevision = React.useCallback(() => localRevision.current, []);
+  const retryMakeUpdater = React.useCallback(
+    (data: RemoteSortPrefs) => applyRemote(data),
+    [applyRemote],
+  );
+  useStaleReaderRecovery({
+    enabled: !!pubkey && !!relayUrl,
+    fetch: retryFetch,
+    hasPending: retryHasPending,
+    getRevision: retryGetRevision,
+    makeUpdater: retryMakeUpdater,
+    setStore,
+  });
 
   const sortModeFor = React.useCallback(
     (group: ChannelSortGroupKey) => sortModeForGroup(store, group),
@@ -238,6 +210,7 @@ export function useChannelSortPreference(
             : withUpdate,
         );
         if (!writeChannelSortStore(pubkey, next, relayUrl)) return prev;
+        localRevision.current += 1;
         managerRef.current?.publishSortPrefs(next);
         return next;
       });

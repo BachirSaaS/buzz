@@ -14,6 +14,7 @@ import {
 } from "./channelMutesStorage";
 import { ChannelMuteSyncManager } from "./channelMutesSync";
 import type { RemoteMutes } from "./channelMutesSync";
+import { useStaleReaderRecovery } from "./useStaleReaderRecovery";
 
 export function useChannelMutes(
   pubkey: string | undefined,
@@ -33,6 +34,9 @@ export function useChannelMutes(
   const managerRef = React.useRef<ChannelMuteSyncManager | null>(null);
   const lastAppliedRemoteTs = React.useRef(0);
   const lastAppliedEventId = React.useRef("");
+  // Local-mutation revision: incremented on every user edit so an in-flight
+  // retry fetch that started before the edit is discarded at apply time.
+  const localRevision = React.useRef(0);
 
   React.useEffect(() => {
     if (!pubkey || !relayUrl) {
@@ -78,11 +82,13 @@ export function useChannelMutes(
           remote.eventId >= lastAppliedEventId.current
         )
           return prev;
-        lastAppliedRemoteTs.current = remote.createdAt;
-        lastAppliedEventId.current = remote.eventId;
         managerRef.current?.cancelPendingMutePublish();
         const merged = mergeStores(prev, remote.store);
         if (!writeChannelMutesStore(pubkey, merged)) return prev;
+        // Advance the applied head only after the cache write succeeds so a
+        // failed write leaves the same head retryable on the next tick.
+        lastAppliedRemoteTs.current = remote.createdAt;
+        lastAppliedEventId.current = remote.eventId;
         return merged;
       };
     },
@@ -150,63 +156,28 @@ export function useChannelMutes(
     };
   }, [pubkey, relayUrl, applyRemote]);
 
-  // Retry effect: polls the relay at a bounded-backoff cadence (5 → 10 → 30 →
-  // 60 s, then steady at 60 s) so a stale view recovers without an edit-kick
-  // or reconnect.  Fires immediately on visibility-change to "visible".
-  // Single-flight; skips apply when a local publish is pending so the retry
-  // path never cancels an in-flight edit.
-  React.useEffect(() => {
-    if (!pubkey || !relayUrl) return;
-    let cancelled = false;
-    let inFlight = false;
-    const BACKOFF_STEPS = [5_000, 10_000, 30_000, 60_000];
-    let stepIndex = 0;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-
-    const tick = async () => {
-      if (cancelled || inFlight) return;
-      inFlight = true;
-      try {
-        const result = await managerRef.current?.fetchRemoteMutes();
-        if (!cancelled && result?.status === "found") {
-          const pending = managerRef.current?.getPendingMuteStore();
-          if (!pending) {
-            setStore(applyRemote(result.data));
-          }
-        }
-      } finally {
-        inFlight = false;
-      }
-      if (!cancelled) {
-        const delay = BACKOFF_STEPS[
-          Math.min(stepIndex, BACKOFF_STEPS.length - 1)
-        ] as number;
-        stepIndex = Math.min(stepIndex + 1, BACKOFF_STEPS.length - 1);
-        timer = setTimeout(() => {
-          void tick();
-        }, delay);
-      }
-    };
-
-    const onVisible = () => {
-      if (document.visibilityState !== "visible") return;
-      if (timer !== null) {
-        clearTimeout(timer);
-        timer = null;
-      }
-      stepIndex = 0;
-      void tick();
-    };
-
-    document.addEventListener("visibilitychange", onVisible);
-    void tick();
-
-    return () => {
-      cancelled = true;
-      document.removeEventListener("visibilitychange", onVisible);
-      if (timer !== null) clearTimeout(timer);
-    };
-  }, [pubkey, relayUrl, applyRemote]);
+  // Retry effect: see useStaleReaderRecovery for full behavior contract.
+  const retryFetch = React.useCallback(
+    () => managerRef.current?.fetchRemoteMutes(),
+    [],
+  );
+  const retryHasPending = React.useCallback(
+    () => managerRef.current?.getPendingMuteStore() != null,
+    [],
+  );
+  const retryGetRevision = React.useCallback(() => localRevision.current, []);
+  const retryMakeUpdater = React.useCallback(
+    (data: RemoteMutes) => applyRemote(data),
+    [applyRemote],
+  );
+  useStaleReaderRecovery({
+    enabled: !!pubkey && !!relayUrl,
+    fetch: retryFetch,
+    hasPending: retryHasPending,
+    getRevision: retryGetRevision,
+    makeUpdater: retryMakeUpdater,
+    setStore,
+  });
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: store.channels is the relevant dep — the outer store identity can change without channels changing (e.g., on reconnect writes)
   const mutedChannelIds = React.useMemo(
@@ -230,6 +201,7 @@ export function useChannelMutes(
           channelId,
         );
         if (!writeChannelMutesStore(pubkey, next)) return prev;
+        localRevision.current += 1;
         managerRef.current?.publishMutes(next);
         return next;
       });
