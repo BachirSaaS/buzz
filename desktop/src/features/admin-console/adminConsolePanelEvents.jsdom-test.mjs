@@ -3928,236 +3928,142 @@ test("staffing-tab-reset-on-role-downgrade: panel shows reports content after op
 });
 
 // ── P2 round-6 #3: reason audience disclosure ────────────────────────────
+//
+// Table-driven: each action button selects a disclosure copy. Assertions verify
+// both positive presence and negative exclusion of sibling audiences.
+// delete has channelId set (Kick/Delete only available for event-in-channel);
+// ban and dismiss use a pubkey-target (no channel).
 
-test("reason-audience-delete: delete action shows public-room disclosure", async () => {
-  // Verifies that selecting 'delete' shows the exact copy that discloses
-  // the affected user + public room tombstone audience.
-  //
-  // Mutation evidence: change to a static or affected-user-only copy →
-  // the "publicly in the room" assertion goes RED.
-
-  const origin = "https://admin.example.com";
-  const pubkey = "d1".repeat(32);
-
-  const openItem = {
-    id: "00000000-0000-0000-0000-000000000d01",
-    communityId: "comm-1",
-    communityHost: "alpha.example.com",
-    reportEventId: "aa",
-    reporterPubkey: "bb",
+const REASON_AUDIENCE_ROWS = [
+  {
+    name: "delete",
+    action: "delete",
     targetKind: "event",
-    target: "cc",
-    reportType: "spam",
-    status: "open",
-    createdAt: "2024-07-01T00:00:00Z",
-  };
-  const openDetail = {
-    ...openItem,
     channelId: "00000000-0000-0000-0000-000000000001",
-    note: null,
-    resolvedBy: null,
-    resolvedAt: null,
-    actionId: null,
-    message: null,
-  };
-
-  setIpcHandler("admin_list_reports", () => Promise.resolve([openItem]));
-  setIpcHandler("admin_get_report", () => Promise.resolve(openDetail));
-  setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
-
-  const { container, doRender, unmount } = mountPanel({ origin, pubkey });
-  try {
-    await doRender();
-    await settle(30);
-    await openFirstReportDetail(container);
-    await settle(20);
-
-    const deleteBtn = container.querySelector(
-      "[data-testid='action-btn-delete']",
-    );
-    assert.ok(
-      deleteBtn,
-      "delete action button must be present for event target",
-    );
-
-    await act(async () => {
-      fireEvent.click(deleteBtn);
-      await new Promise((r) => setTimeout(r, 10));
-    });
-
-    const audienceEl = container.querySelector(
-      "[data-testid='resolve-reason-audience']",
-    );
-    assert.ok(
-      audienceEl !== null,
-      "reason audience element must appear after selecting delete",
-    );
-    const copy = audienceEl.textContent ?? "";
-    assert.ok(
-      copy.includes("affected user"),
-      `delete audience must mention affected user; got: "${copy}"`,
-    );
-    assert.ok(
-      copy.toLowerCase().includes("publicly in the room"),
-      `delete audience must disclose public room posting; got: "${copy}"`,
-    );
-  } finally {
-    await unmount();
-  }
-});
-
-test("reason-audience-ban: ban action shows affected-user-only disclosure", async () => {
-  // Verifies that 'ban' shows "Sent verbatim to the affected user." only —
-  // no room mention.
-  //
-  // Mutation evidence: use delete-family copy (includes room) for ban →
-  // "publicly in the room" present → RED.
-
-  const origin = "https://admin.example.com";
-  const pubkey = "d2".repeat(32);
-
-  const openItem = {
-    id: "00000000-0000-0000-0000-000000000d02",
-    communityId: "comm-1",
-    communityHost: "alpha.example.com",
-    reportEventId: "aa",
-    reporterPubkey: "bb",
+    pubkey: "d1".repeat(32),
+    id: "00000000-0000-0000-0000-000000000d01",
+    // Mutation: static or affected-user-only copy → room mention absent → RED.
+    check: (copy) => {
+      assert.ok(
+        copy.includes("affected user"),
+        `delete audience must mention affected user; got: "${copy}"`,
+      );
+      assert.ok(
+        copy.toLowerCase().includes("publicly in the room"),
+        `delete audience must disclose public room; got: "${copy}"`,
+      );
+    },
+  },
+  {
+    name: "ban",
+    action: "ban",
     targetKind: "event",
-    target: "cc",
-    reportType: "spam",
-    status: "open",
-    createdAt: "2024-07-01T00:00:00Z",
-  };
-  const openDetail = {
-    ...openItem,
     channelId: null,
-    note: null,
-    resolvedBy: null,
-    resolvedAt: null,
-    actionId: null,
-    message: null,
-  };
-
-  setIpcHandler("admin_list_reports", () => Promise.resolve([openItem]));
-  setIpcHandler("admin_get_report", () => Promise.resolve(openDetail));
-  setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
-
-  const { container, doRender, unmount } = mountPanel({ origin, pubkey });
-  try {
-    await doRender();
-    await settle(30);
-    await openFirstReportDetail(container);
-    await settle(20);
-
-    const banBtn = container.querySelector("[data-testid='action-btn-ban']");
-    assert.ok(banBtn, "ban action button must be present");
-
-    await act(async () => {
-      fireEvent.click(banBtn);
-      await new Promise((r) => setTimeout(r, 10));
-    });
-
-    const audienceEl = container.querySelector(
-      "[data-testid='resolve-reason-audience']",
-    );
-    assert.ok(
-      audienceEl !== null,
-      "reason audience element must appear after selecting ban",
-    );
-    const copy = audienceEl.textContent ?? "";
-    assert.ok(
-      copy.includes("affected user"),
-      `ban audience must mention affected user; got: "${copy}"`,
-    );
-    assert.ok(
-      !copy.toLowerCase().includes("publicly in the room"),
-      `ban audience must NOT mention room; got: "${copy}"`,
-    );
-    assert.ok(
-      !copy.toLowerCase().includes("reporter"),
-      `ban audience must NOT mention reporter; got: "${copy}"`,
-    );
-  } finally {
-    await unmount();
-  }
-});
-
-test("reason-audience-dismiss: dismiss action shows reporter-only disclosure", async () => {
-  // Verifies that 'dismiss' shows "Sent verbatim to the reporter." only.
-  //
-  // Mutation evidence: use affected-user copy for dismiss → no "reporter" →
-  // RED.
-
-  const origin = "https://admin.example.com";
-  const pubkey = "d3".repeat(32);
-
-  const openItem = {
-    id: "00000000-0000-0000-0000-000000000d03",
-    communityId: "comm-1",
-    communityHost: "alpha.example.com",
-    reportEventId: "aa",
-    reporterPubkey: "bb",
+    pubkey: "d2".repeat(32),
+    id: "00000000-0000-0000-0000-000000000d02",
+    // Mutation: delete-family copy (includes room) for ban → "publicly in the room" present → RED.
+    check: (copy) => {
+      assert.ok(
+        copy.includes("affected user"),
+        `ban audience must mention affected user; got: "${copy}"`,
+      );
+      assert.ok(
+        !copy.toLowerCase().includes("publicly in the room"),
+        `ban must NOT mention room; got: "${copy}"`,
+      );
+      assert.ok(
+        !copy.toLowerCase().includes("reporter"),
+        `ban must NOT mention reporter; got: "${copy}"`,
+      );
+    },
+  },
+  {
+    name: "dismiss",
+    action: "dismiss",
     targetKind: "pubkey",
-    target: "ee",
-    reportType: "spam",
-    status: "open",
-    createdAt: "2024-07-01T00:00:00Z",
-  };
-  const openDetail = {
-    ...openItem,
     channelId: null,
-    note: null,
-    resolvedBy: null,
-    resolvedAt: null,
-    actionId: null,
-    message: null,
-  };
+    pubkey: "d3".repeat(32),
+    id: "00000000-0000-0000-0000-000000000d03",
+    // Mutation: affected-user copy for dismiss → no "reporter" → RED.
+    check: (copy) => {
+      assert.ok(
+        copy.toLowerCase().includes("reporter"),
+        `dismiss audience must mention reporter; got: "${copy}"`,
+      );
+      assert.ok(
+        !copy.includes("affected user"),
+        `dismiss must NOT mention affected user; got: "${copy}"`,
+      );
+      assert.ok(
+        !copy.toLowerCase().includes("publicly in the room"),
+        `dismiss must NOT mention room; got: "${copy}"`,
+      );
+    },
+  },
+];
 
-  setIpcHandler("admin_list_reports", () => Promise.resolve([openItem]));
-  setIpcHandler("admin_get_report", () => Promise.resolve(openDetail));
-  setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
+for (const row of REASON_AUDIENCE_ROWS) {
+  test(`reason-audience-${row.name}: ${row.name} action shows correct audience disclosure`, async () => {
+    const origin = "https://admin.example.com";
+    const openItem = {
+      id: row.id,
+      communityId: "comm-1",
+      communityHost: "alpha.example.com",
+      reportEventId: "aa",
+      reporterPubkey: "bb",
+      targetKind: row.targetKind,
+      target: "cc",
+      reportType: "spam",
+      status: "open",
+      createdAt: "2024-07-01T00:00:00Z",
+    };
+    const openDetail = {
+      ...openItem,
+      channelId: row.channelId,
+      note: null,
+      resolvedBy: null,
+      resolvedAt: null,
+      actionId: null,
+      message: null,
+    };
 
-  const { container, doRender, unmount } = mountPanel({ origin, pubkey });
-  try {
-    await doRender();
-    await settle(30);
-    await openFirstReportDetail(container);
-    await settle(20);
+    setIpcHandler("admin_list_reports", () => Promise.resolve([openItem]));
+    setIpcHandler("admin_get_report", () => Promise.resolve(openDetail));
+    setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
 
-    const dismissBtn = container.querySelector(
-      "[data-testid='action-btn-dismiss']",
-    );
-    assert.ok(dismissBtn, "dismiss action button must be present");
-
-    await act(async () => {
-      fireEvent.click(dismissBtn);
-      await new Promise((r) => setTimeout(r, 10));
+    const { container, doRender, unmount } = mountPanel({
+      origin,
+      pubkey: row.pubkey,
     });
+    try {
+      await doRender();
+      await settle(30);
+      await openFirstReportDetail(container);
+      await settle(20);
 
-    const audienceEl = container.querySelector(
-      "[data-testid='resolve-reason-audience']",
-    );
-    assert.ok(
-      audienceEl !== null,
-      "reason audience element must appear after selecting dismiss",
-    );
-    const copy = audienceEl.textContent ?? "";
-    assert.ok(
-      copy.toLowerCase().includes("reporter"),
-      `dismiss audience must mention reporter; got: "${copy}"`,
-    );
-    assert.ok(
-      !copy.includes("affected user"),
-      `dismiss audience must NOT mention affected user; got: "${copy}"`,
-    );
-    assert.ok(
-      !copy.toLowerCase().includes("publicly in the room"),
-      `dismiss audience must NOT mention room; got: "${copy}"`,
-    );
-  } finally {
-    await unmount();
-  }
-});
+      const btn = container.querySelector(
+        `[data-testid='action-btn-${row.action}']`,
+      );
+      assert.ok(btn, `${row.action} action button must be present`);
+
+      await act(async () => {
+        fireEvent.click(btn);
+        await new Promise((r) => setTimeout(r, 10));
+      });
+
+      const audienceEl = container.querySelector(
+        "[data-testid='resolve-reason-audience']",
+      );
+      assert.ok(
+        audienceEl !== null,
+        `reason audience element must appear after selecting ${row.action}`,
+      );
+      row.check(audienceEl.textContent ?? "");
+    } finally {
+      await unmount();
+    }
+  });
+}
 
 // ── P2 round-6 #4: frozen payload, locked controls, authoritative toast ───
 
