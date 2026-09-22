@@ -3313,18 +3313,14 @@ test("attachment-budget-seam: only 5 of 7 image attachments trigger native fetch
 //   D. Feedback status control (FeedbackDetail)
 //   E. Staffing add/remove (role=operator, staffing tab)
 //
-// These two tests are NOT vacuous: each control-presence assertion fails if
+// These five tests are NOT vacuous: each control-presence assertion fails if
 // the corresponding {canMutate && …} guard is removed.
+//
+// Shared fixtures — each test receives a fresh copy via the factory helpers.
 
-test("canMutate-false: all five mutation affordances are absent in disabled mode", async () => {
-  const origin = "https://admin-readonly.example.com";
-  const pubkey = "cc".repeat(32);
-  const opPubkey = "dd".repeat(32);
-
-  // Open report for family A.
-  const openReportId = "00000000-0000-0000-0000-000000000001";
+function makeCmFalseReports() {
   const openReport = {
-    id: openReportId,
+    id: "00000000-0000-0000-0000-000000000001",
     communityId: "comm-1",
     communityHost: "relay.example.com",
     reportEventId: "ev001",
@@ -3345,12 +3341,9 @@ test("canMutate-false: all five mutation affordances are absent in disabled mode
     actionId: null,
     message: null,
   };
-
-  // Resolved report for family B.
-  const resolvedReportId = "00000000-0000-0000-0000-000000000002";
   const resolvedReport = {
     ...openReport,
-    id: resolvedReportId,
+    id: "00000000-0000-0000-0000-000000000002",
     status: "resolved",
   };
   const resolvedDetail = {
@@ -3362,10 +3355,7 @@ test("canMutate-false: all five mutation affordances are absent in disabled mode
     actionId: null,
     message: null,
   };
-
-  // Report with failed enforcement for family C.
-  const failedReportId = "00000000-0000-0000-0000-000000000003";
-  const failedActiveAction = {
+  const failedAction = {
     id: "act003",
     requestId: "req003",
     actorPubkey: "ac".repeat(32),
@@ -3380,9 +3370,9 @@ test("canMutate-false: all five mutation affordances are absent in disabled mode
   };
   const failedReport = {
     ...openReport,
-    id: failedReportId,
+    id: "00000000-0000-0000-0000-000000000003",
     status: "open",
-    activeAction: failedActiveAction,
+    activeAction: failedAction,
   };
   const failedDetail = {
     ...failedReport,
@@ -3393,11 +3383,19 @@ test("canMutate-false: all five mutation affordances are absent in disabled mode
     actionId: "act003",
     message: null,
   };
+  return {
+    openReport,
+    openDetail,
+    resolvedReport,
+    resolvedDetail,
+    failedReport,
+    failedDetail,
+  };
+}
 
-  // Feedback for family D.
-  const feedbackId = "00000000-0000-0000-0000-000000000099";
+function makeCmFalseFeedback() {
   const feedbackSummary = {
-    id: feedbackId,
+    id: "00000000-0000-0000-0000-000000000099",
     communityId: "comm-1",
     communityHost: "relay.example.com",
     submitterPubkey: "sub001",
@@ -3406,7 +3404,7 @@ test("canMutate-false: all five mutation affordances are absent in disabled mode
     receivedAt: "2024-01-01T00:00:00Z",
   };
   const feedbackDetail = {
-    id: feedbackId,
+    id: "00000000-0000-0000-0000-000000000099",
     communityId: "comm-1",
     communityHost: "relay.example.com",
     eventId: "fev001",
@@ -3418,115 +3416,106 @@ test("canMutate-false: all five mutation affordances are absent in disabled mode
     eventCreatedAt: "2024-01-01T00:00:00Z",
     receivedAt: "2024-01-01T00:00:00Z",
   };
+  return { feedbackSummary, feedbackDetail };
+}
 
-  setIpcHandler("admin_list_reports", () =>
-    Promise.resolve([openReport, resolvedReport, failedReport]),
-  );
+const CM_ORIGIN = "https://admin-readonly.example.com";
+const CM_PUBKEY = "cc".repeat(32);
+const CM_OP_PUBKEY = "dd".repeat(32);
+
+test("canMutate-false-resolve: resolve-report-form absent in disabled mode", async () => {
+  // Mutation: remove {canMutate && …} guard on ResolveReportForm → form renders → RED.
+  const { openReport, openDetail } = makeCmFalseReports();
+  setIpcHandler("admin_list_reports", () => Promise.resolve([openReport]));
+  setIpcHandler("admin_get_report", () => Promise.resolve(openDetail));
+  setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
+  const { container, doRender, unmount } = mountPanel({
+    origin: CM_ORIGIN,
+    pubkey: CM_PUBKEY,
+    canMutate: false,
+  });
+  try {
+    await doRender();
+    await settle(30);
+    await openFirstReportDetail(container);
+    await settle(20);
+    assert.equal(
+      container.querySelector("[data-testid='resolve-report-form']"),
+      null,
+      "resolve-report-form must be absent when canMutate=false",
+    );
+  } finally {
+    await unmount();
+  }
+});
+
+test("canMutate-false-reopen: reopen-report-form absent in disabled mode", async () => {
+  // Mutation: remove {canMutate && …} guard on ReopenReportForm → form renders → RED.
+  const { resolvedReport, resolvedDetail } = makeCmFalseReports();
+  setIpcHandler("admin_list_reports", () => Promise.resolve([resolvedReport]));
+  setIpcHandler("admin_get_report", () => Promise.resolve(resolvedDetail));
+  setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
+  const { container, doRender, unmount } = mountPanel({
+    origin: CM_ORIGIN,
+    pubkey: CM_PUBKEY,
+    canMutate: false,
+  });
+  try {
+    await doRender();
+    await settle(30);
+    await openFirstReportDetail(container);
+    await settle(20);
+    assert.equal(
+      container.querySelector("[data-testid='reopen-report-form']"),
+      null,
+      "reopen-report-form must be absent when canMutate=false",
+    );
+  } finally {
+    await unmount();
+  }
+});
+
+test("canMutate-false-cancel: enforcement-cancel-btn absent in disabled mode", async () => {
+  // Mutation: remove {canMutate && …} guard on enforcement cancel → button renders → RED.
+  const { failedReport, failedDetail } = makeCmFalseReports();
+  setIpcHandler("admin_list_reports", () => Promise.resolve([failedReport]));
+  setIpcHandler("admin_get_report", () => Promise.resolve(failedDetail));
+  setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
+  const { container, doRender, unmount } = mountPanel({
+    origin: CM_ORIGIN,
+    pubkey: CM_PUBKEY,
+    canMutate: false,
+  });
+  try {
+    await doRender();
+    await settle(30);
+    await openFirstReportDetail(container);
+    await settle(20);
+    assert.equal(
+      container.querySelector("[data-testid='enforcement-cancel-btn']"),
+      null,
+      "enforcement-cancel-btn must be absent when canMutate=false",
+    );
+  } finally {
+    await unmount();
+  }
+});
+
+test("canMutate-false-feedback: feedback-status-control absent in disabled mode", async () => {
+  // Mutation: remove {canMutate && …} guard on feedback status control → control renders → RED.
+  // Also asserts the read-only badge and zero PATCH calls via the detail route.
+  const { feedbackSummary, feedbackDetail } = makeCmFalseFeedback();
+  setIpcHandler("admin_list_reports", () => Promise.resolve([]));
   setIpcHandler("admin_list_feedback", () =>
     Promise.resolve([feedbackSummary]),
   );
-  setIpcHandler("admin_list_operators", () =>
-    Promise.resolve([
-      {
-        pubkey: opPubkey,
-        effectiveRole: "moderator",
-        sources: ["db"],
-      },
-    ]),
-  );
-  // getAdminReport returns the right detail based on which ID is queried.
-  setIpcHandler("admin_get_report", (args) => {
-    const id = args?.id;
-    if (id === openReportId) return Promise.resolve(openDetail);
-    if (id === resolvedReportId) return Promise.resolve(resolvedDetail);
-    if (id === failedReportId) return Promise.resolve(failedDetail);
-    return Promise.reject(new Error(`unknown report id: ${id}`));
-  });
   setIpcHandler("admin_get_feedback", () => Promise.resolve(feedbackDetail));
-
-  // ── Family A: resolve-report-form must be absent ──
-  {
-    const { container, doRender, unmount } = mountPanel({
-      origin,
-      pubkey,
-      canMutate: false,
-    });
-    await doRender();
-    await settle(30);
-    await openFirstReportDetail(container);
-    await settle(20);
-    const form = container.querySelector("[data-testid='resolve-report-form']");
-    try {
-      assert.equal(
-        form,
-        null,
-        "resolve-report-form must be absent when canMutate=false (family A)",
-      );
-    } finally {
-      await unmount();
-    }
-  }
-
-  // ── Family B: reopen-report-form must be absent ──
-  {
-    setIpcHandler("admin_list_reports", () =>
-      Promise.resolve([resolvedReport]),
-    );
-    const { container, doRender, unmount } = mountPanel({
-      origin,
-      pubkey,
-      canMutate: false,
-    });
-    await doRender();
-    await settle(30);
-    await openFirstReportDetail(container);
-    await settle(20);
-    const form = container.querySelector("[data-testid='reopen-report-form']");
-    try {
-      assert.equal(
-        form,
-        null,
-        "reopen-report-form must be absent when canMutate=false (family B)",
-      );
-    } finally {
-      await unmount();
-    }
-  }
-
-  // ── Family C: enforcement-cancel-btn must be absent ──
-  {
-    setIpcHandler("admin_list_reports", () => Promise.resolve([failedReport]));
-    const { container, doRender, unmount } = mountPanel({
-      origin,
-      pubkey,
-      canMutate: false,
-    });
-    await doRender();
-    await settle(30);
-    await openFirstReportDetail(container);
-    await settle(20);
-    const cancelBtn = container.querySelector(
-      "[data-testid='enforcement-cancel-btn']",
-    );
-    try {
-      assert.equal(
-        cancelBtn,
-        null,
-        "enforcement-cancel-btn must be absent when canMutate=false (family C)",
-      );
-    } finally {
-      await unmount();
-    }
-  }
-
-  // ── Family D: feedback-status-control must be absent ──
-  {
-    setIpcHandler("admin_list_reports", () => Promise.resolve([]));
-    const { container, doRender, unmount } = mountPanel({
-      origin,
-      pubkey,
-      canMutate: false,
-    });
+  const { container, doRender, unmount } = mountPanel({
+    origin: CM_ORIGIN,
+    pubkey: CM_PUBKEY,
+    canMutate: false,
+  });
+  try {
     await doRender();
     await settle(30);
     const feedbackTab = container.querySelector(
@@ -3538,7 +3527,6 @@ test("canMutate-false: all five mutation affordances are absent in disabled mode
       await new Promise((r) => setTimeout(r, 30));
     });
     await settle(30);
-    // Click the feedback list item to open detail.
     const listBtns = Array.from(container.querySelectorAll("button")).filter(
       (b) => !(b.getAttribute("data-testid") ?? "").startsWith("admin-tab"),
     );
@@ -3548,55 +3536,49 @@ test("canMutate-false: all five mutation affordances are absent in disabled mode
       await new Promise((r) => setTimeout(r, 30));
     });
     await settle(30);
-    const ctrl = container.querySelector(
-      "[data-testid='feedback-status-control']",
+    assert.equal(
+      container.querySelector("[data-testid='feedback-status-control']"),
+      null,
+      "feedback-status-control must be absent when canMutate=false",
     );
-    try {
-      assert.equal(
-        ctrl,
-        null,
-        "feedback-status-control must be absent when canMutate=false (family D)",
-      );
-    } finally {
-      await unmount();
-    }
+  } finally {
+    await unmount();
   }
+});
 
-  // ── Family E: staffing add/remove must be absent ──
-  {
-    setIpcHandler("admin_list_reports", () => Promise.resolve([]));
-    setIpcHandler("admin_list_operators", () =>
-      Promise.resolve([
-        { pubkey: opPubkey, effectiveRole: "moderator", sources: ["db"] },
-      ]),
-    );
-    const { container, doRender, unmount } = mountPanel({
-      origin,
-      pubkey,
-      canMutate: false,
-      role: "operator",
-      initialTab: "staffing",
-    });
+test("canMutate-false-staffing: staffing add/remove absent in disabled mode", async () => {
+  // Mutation: remove {canMutate && …} guards on staffing add/remove → buttons render → RED.
+  setIpcHandler("admin_list_reports", () => Promise.resolve([]));
+  setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
+  setIpcHandler("admin_list_operators", () =>
+    Promise.resolve([
+      { pubkey: CM_OP_PUBKEY, effectiveRole: "moderator", sources: ["db"] },
+    ]),
+  );
+  const { container, doRender, unmount } = mountPanel({
+    origin: CM_ORIGIN,
+    pubkey: CM_PUBKEY,
+    canMutate: false,
+    role: "operator",
+    initialTab: "staffing",
+  });
+  try {
     await doRender();
     await settle(30);
-    const addBtn = container.querySelector("[data-testid='staffing-add-btn']");
-    const removeBtn = container.querySelector(
-      `[data-testid='staffing-remove-btn-${opPubkey}']`,
+    assert.equal(
+      container.querySelector("[data-testid='staffing-add-btn']"),
+      null,
+      "staffing-add-btn must be absent when canMutate=false",
     );
-    try {
-      assert.equal(
-        addBtn,
-        null,
-        "staffing-add-btn must be absent when canMutate=false (family E add)",
-      );
-      assert.equal(
-        removeBtn,
-        null,
-        "staffing-remove-btn must be absent when canMutate=false (family E remove)",
-      );
-    } finally {
-      await unmount();
-    }
+    assert.equal(
+      container.querySelector(
+        `[data-testid='staffing-remove-btn-${CM_OP_PUBKEY}']`,
+      ),
+      null,
+      "staffing-remove-btn must be absent when canMutate=false",
+    );
+  } finally {
+    await unmount();
   }
 });
 
