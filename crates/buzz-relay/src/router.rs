@@ -1914,6 +1914,146 @@ mod tests {
         );
     }
 
+    // ── F6 (extended): complete admin SPA matrix ─────────────────────────────
+    //
+    // Proves that the `is_admin_spa_path(path) && is_admin_host(...)` exemption
+    // covers all admin document routes (`/reports`, `/reports/<id>`, `/feedback`)
+    // in both Enforce and DenyProtected modes, and that none of these are
+    // accidentally exempted on tenant hosts.
+    //
+    // The existing `build_router_admin_spa_path_exempt_on_admin_host_denied_on_tenant_host`
+    // test covers `/reports` in DenyProtected.  This test fills the matrix.
+    //
+    // Falsifying mutation (coverage of all paths): replacing `is_admin_spa_path`
+    // with a hardcoded `/reports`-only check would cause the `/reports/<id>` and
+    // `/feedback` rows to return 503 on the admin host → assertions fire.
+    #[tokio::test]
+    async fn build_router_admin_spa_full_matrix() {
+        use buzz_auth::NipFiMode;
+
+        // Helper: build a state with a given mode.
+        // Returns (state, _admin_dir, _web_dir) — callers must keep the TempDirs
+        // alive for the lifetime of the test; they are dropped at end of scope.
+        async fn state_with_mode(
+            mode: NipFiMode,
+            admin_dir: &std::path::Path,
+            web_dir: &std::path::Path,
+        ) -> Arc<AppState> {
+            write_bundle(admin_dir);
+            write_bundle(web_dir);
+
+            let mut config = crate::config::Config::from_env().expect("default config loads");
+            config.require_relay_membership = false;
+            config.redis_url = "redis://127.0.0.1:1".to_string();
+            config.web_dir = Some(web_dir.to_path_buf());
+            config.admin = Some(crate::config::AdminConfig {
+                host: "admin.matrix.example".to_string(),
+                auth: crate::config::AdminAuth::Disabled,
+                web_dir: Some(admin_dir.to_path_buf()),
+            });
+            config.nip_fi.mode = mode;
+
+            let pool = sqlx::PgPool::connect_lazy(&config.database_url).expect("lazy pg pool");
+            let db = buzz_db::Db::from_pool(pool.clone());
+            let redis_pool = deadpool_redis::Config::from_url(&config.redis_url)
+                .create_pool(Some(deadpool_redis::Runtime::Tokio1))
+                .expect("redis pool");
+            let pubsub = Arc::new(
+                buzz_pubsub::PubSubManager::new(&config.redis_url, redis_pool.clone())
+                    .await
+                    .expect("pubsub manager"),
+            );
+            let audit = buzz_audit::AuditService::new(pool.clone());
+            let auth = buzz_auth::AuthService::new(config.auth.clone());
+            let search = buzz_search::SearchService::new(pool.clone());
+            let workflow_engine = Arc::new(buzz_workflow::WorkflowEngine::new(
+                db.clone(),
+                buzz_workflow::WorkflowConfig::default(),
+            ));
+            let media_storage =
+                buzz_media::MediaStorage::new(&config.media).expect("media storage");
+            let (state, _audit_shutdown) = AppState::new(
+                config,
+                db,
+                redis_pool,
+                audit,
+                pubsub,
+                auth,
+                search,
+                workflow_engine,
+                nostr::Keys::generate(),
+                media_storage,
+            );
+            Arc::new(state)
+        }
+
+        // Admin SPA paths to test.
+        let admin_paths = ["/reports", "/reports/abc-123-id", "/feedback"];
+
+        // ── DenyProtected matrix ──────────────────────────────────────────────
+        //
+        // Admin host + DenyProtected: guard exempts admin SPA paths → 200 HTML.
+        // Tenant host + DenyProtected: guard NOT exempted → 503.
+        let deny_admin_dir = tempfile::tempdir().expect("deny admin bundle dir");
+        let deny_web_dir = tempfile::tempdir().expect("deny public bundle dir");
+        let deny_state = state_with_mode(
+            NipFiMode::DenyProtected,
+            deny_admin_dir.path(),
+            deny_web_dir.path(),
+        )
+        .await;
+        for path in &admin_paths {
+            let admin_resp = spa_response(deny_state.clone(), "admin.matrix.example", path).await;
+            assert_eq!(
+                admin_resp.status(),
+                axum::http::StatusCode::OK,
+                "DenyProtected: {path} on admin host must be 200 (SPA exemption). \
+                 Falsifying mutation: remove is_admin_spa_path || restrict to /reports only → 503"
+            );
+
+            let tenant_resp = spa_response(deny_state.clone(), "tenant.matrix.example", path).await;
+            assert_eq!(
+                tenant_resp.status(),
+                axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                "DenyProtected: {path} on tenant host must be 503. \
+                 Exemption must not apply to non-admin hosts."
+            );
+        }
+
+        // ── Enforce matrix ────────────────────────────────────────────────────
+        //
+        // Admin host + Enforce + no verifier (None) → NIP-FI admission guard
+        // fires for non-exempt paths.  Admin SPA paths are host-qualified exempt
+        // → 200 HTML.  Tenant host → 401 (missing assertion) or 503 (no verifier).
+        // DenyProtected startup fires for missing verifier in non-exempt paths.
+        let enforce_admin_dir = tempfile::tempdir().expect("enforce admin bundle dir");
+        let enforce_web_dir = tempfile::tempdir().expect("enforce public bundle dir");
+        let enforce_state = state_with_mode(
+            NipFiMode::Enforce,
+            enforce_admin_dir.path(),
+            enforce_web_dir.path(),
+        )
+        .await;
+        for path in &admin_paths {
+            let admin_resp =
+                spa_response(enforce_state.clone(), "admin.matrix.example", path).await;
+            assert_eq!(
+                admin_resp.status(),
+                axum::http::StatusCode::OK,
+                "Enforce: {path} on admin host must be 200 (SPA exemption active in Enforce too). \
+                 Falsifying mutation: remove is_admin_spa_path exemption from Enforce branch → non-200"
+            );
+
+            let tenant_resp =
+                spa_response(enforce_state.clone(), "tenant.matrix.example", path).await;
+            assert_ne!(
+                tenant_resp.status(),
+                axum::http::StatusCode::OK,
+                "Enforce: {path} on tenant host must not be 200; NIP-FI guard fires."
+            );
+        }
+    }
+
     // ── T1-IMP1: adversarial guard — junk/non-Bearer assertion is denied ──────
     //
     // Before this fix the guard called `headers.contains_key(CLIENT_ATTACHED_HEADER)`,

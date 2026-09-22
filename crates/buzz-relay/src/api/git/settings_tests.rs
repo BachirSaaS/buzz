@@ -20,7 +20,8 @@
 // equivalent to having only the guard.  However, the handler call is required
 // by NIP-FI.md:516-533 for key pairing, which cannot be verified at the guard.
 // The `#[ignore]` comment explains why a full key-pairing test needs JWT infra.
-mod nip_fi_seam {
+#[cfg(test)]
+mod postgres_tests {
     use super::super::*;
     use axum::{
         body::Body,
@@ -192,7 +193,526 @@ mod nip_fi_seam {
              or other error"
         );
     }
-}
+
+    // ── NIP-FI settings via build_router: key-pairing, OFF, POST protection ──
+    //
+    // These tests exercise the settings route through `build_router` (the full
+    // relay router), which includes the `nip_fi_assertion_guard` middleware.
+    // The key-pairing tests require a real `FederatedAssertionVerifier` seeded
+    // with a static test key, so assertions signed by a known PKCS#8 key can
+    // carry a chosen `nostr_pubkey` claim.
+    //
+    // ## Test key constants
+    //
+    // Same P-256 key as buzz-auth/src/nip_fi/verifier/tests.rs so
+    // the construction pattern can be reviewed against a known-good example.
+    const TEST_EC_PKCS8_PEM: &str = "-----BEGIN PRIVATE KEY-----\n\
+        MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgcnxDM4EiirH9dHUE\n\
+        WZc759TX4s5PAn8kO5ovXSnGxCWhRANCAARFb6ZnsfkqOOXyEhj3KBQphGKF4vTa\n\
+        zhebbavbZ1ZoklqkF1cGg+jTO7rONAVEzXvXUWtV6CdDV+rybiVmFP2w\n\
+        -----END PRIVATE KEY-----\n";
+    const TEST_JWK_X: &str = "RW-mZ7H5Kjjl8hIY9ygUKYRiheL02s4Xm22r22dWaJI";
+    const TEST_JWK_Y: &str = "WqQXVwaD6NM7us40BUTNe9dRa1XoJ0NX6vJuJWYU_bA";
+    const TEST_KID: &str = "test-key-1";
+    const TEST_ISSUER: &str = "https://issuer.test";
+    const TEST_AUDIENCE: &str = "https://relay.test";
+
+    /// Build an Enforce-mode state with a real `FederatedAssertionVerifier`
+    /// seeded with the static test key.  Used for key-pairing tests.
+    async fn enforce_state_with_verifier() -> Option<Arc<AppState>> {
+        use buzz_auth::{
+            FederatedAssertionVerifier, FreshnessClass, IssuerPolicy, IssuerRegistry,
+            StaticIssuerKeySource, TokenClass, VerifyAssertion,
+        };
+        use jsonwebtoken::{jwk::JwkSet, Algorithm};
+
+        let mut config = crate::config::Config::from_env().ok()?;
+        config.database_url = crate::test_support::database_url();
+        config.redis_url =
+            std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
+        config.relay_url = "ws://nip-fi-settings-pairing-test.local".to_string();
+        config.require_auth_token = true;
+        config.require_relay_membership = false;
+        config.nip_fi.mode = buzz_auth::NipFiMode::Enforce;
+
+        let pool = sqlx::PgPool::connect(&crate::test_support::database_url())
+            .await
+            .ok()?;
+        let db = buzz_db::Db::from_pool(pool.clone());
+        let redis_pool = deadpool_redis::Config::from_url(&config.redis_url)
+            .create_pool(Some(deadpool_redis::Runtime::Tokio1))
+            .ok()?;
+        let pubsub = Arc::new(
+            buzz_pubsub::PubSubManager::new(&config.redis_url, redis_pool.clone())
+                .await
+                .ok()?,
+        );
+        let audit = buzz_audit::AuditService::new(pool.clone());
+        let auth = buzz_auth::AuthService::new(config.auth.clone());
+        let search = buzz_search::SearchService::new(pool.clone());
+        let workflow_engine = Arc::new(buzz_workflow::WorkflowEngine::new(
+            db.clone(),
+            buzz_workflow::WorkflowConfig::default(),
+        ));
+        let media_storage = buzz_media::MediaStorage::new(&config.media).ok()?;
+
+        let (mut state, _audit_shutdown) = AppState::new(
+            config,
+            db,
+            redis_pool,
+            audit,
+            pubsub,
+            auth,
+            search,
+            workflow_engine,
+            Keys::generate(),
+            media_storage,
+        );
+        state.nip98_replay = Arc::new(AlwaysFreshReplayGuard);
+
+        // Build the verifier with a static key.
+        let jwks: JwkSet = serde_json::from_value(serde_json::json!({
+            "keys": [{
+                "kty": "EC",
+                "crv": "P-256",
+                "use": "sig",
+                "alg": "ES256",
+                "kid": TEST_KID,
+                "x": TEST_JWK_X,
+                "y": TEST_JWK_Y
+            }]
+        }))
+        .expect("valid test JWKS");
+
+        let hard_deadline = chrono::Utc::now() + chrono::Duration::seconds(3600);
+        let key_set = buzz_auth::AssertionKeySet::new_for_test(
+            TEST_ISSUER.to_owned(),
+            1,
+            jwks,
+            hard_deadline,
+        )
+        .expect("valid test key set");
+
+        let jwks_contract = buzz_auth::JwksSourceContract::new(
+            format!("{TEST_ISSUER}/.well-known/jwks.json"),
+            300,
+            3600,
+        )
+        .expect("valid jwks contract");
+
+        let policy = IssuerPolicy::new(
+            TEST_ISSUER.to_owned(),
+            vec![TEST_AUDIENCE.to_owned()],
+            TokenClass::DedicatedNipFi,
+            FreshnessClass::OfflineJwt,
+            vec![Algorithm::ES256],
+            60,
+            3600,
+            None,
+            jwks_contract,
+        )
+        .expect("valid issuer policy");
+
+        let mut registry = IssuerRegistry::new();
+        registry.insert(policy);
+
+        let verifier: Arc<dyn VerifyAssertion> = Arc::new(FederatedAssertionVerifier::new(
+            registry,
+            StaticIssuerKeySource::new([key_set]),
+        ));
+        state.nip_fi_verifier = Some(verifier);
+
+        Some(Arc::new(state))
+    }
+
+    /// Build an Off-mode state (no verifier needed).
+    async fn off_state() -> Option<Arc<AppState>> {
+        let mut config = crate::config::Config::from_env().ok()?;
+        config.database_url = crate::test_support::database_url();
+        config.redis_url =
+            std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
+        config.relay_url = "ws://nip-fi-settings-off-test.local".to_string();
+        config.require_auth_token = false;
+        config.require_relay_membership = false;
+        config.nip_fi.mode = buzz_auth::NipFiMode::Off;
+
+        let pool = sqlx::PgPool::connect(&crate::test_support::database_url())
+            .await
+            .ok()?;
+        let db = buzz_db::Db::from_pool(pool.clone());
+        let redis_pool = deadpool_redis::Config::from_url(&config.redis_url)
+            .create_pool(Some(deadpool_redis::Runtime::Tokio1))
+            .ok()?;
+        let pubsub = Arc::new(
+            buzz_pubsub::PubSubManager::new(&config.redis_url, redis_pool.clone())
+                .await
+                .ok()?,
+        );
+        let audit = buzz_audit::AuditService::new(pool.clone());
+        let auth = buzz_auth::AuthService::new(config.auth.clone());
+        let search = buzz_search::SearchService::new(pool.clone());
+        let workflow_engine = Arc::new(buzz_workflow::WorkflowEngine::new(
+            db.clone(),
+            buzz_workflow::WorkflowConfig::default(),
+        ));
+        let media_storage = buzz_media::MediaStorage::new(&config.media).ok()?;
+
+        let (mut state, _audit_shutdown) = AppState::new(
+            config,
+            db,
+            redis_pool,
+            audit,
+            pubsub,
+            auth,
+            search,
+            workflow_engine,
+            Keys::generate(),
+            media_storage,
+        );
+        state.nip98_replay = Arc::new(AlwaysFreshReplayGuard);
+
+        Some(Arc::new(state))
+    }
+
+    /// Mint a signed ES256 NIP-FI assertion with the given `nostr_pubkey` claim.
+    ///
+    /// Uses the same static PKCS#8 PEM and key constants as the verifier above.
+    fn mint_assertion(nostr_pubkey_hex: &str) -> String {
+        use jsonwebtoken::{Algorithm, EncodingKey, Header};
+
+        let now = chrono::Utc::now().timestamp();
+        let claims = serde_json::json!({
+            "iss": TEST_ISSUER,
+            "aud": TEST_AUDIENCE,
+            "iat": now,
+            "exp": now + 600,
+            "sub": "test-subject",
+            "nostr_pubkey": nostr_pubkey_hex,
+        });
+        let mut header = Header::new(Algorithm::ES256);
+        header.kid = Some(TEST_KID.to_owned());
+        // NIP-FI dedicated assertion type
+        header.typ = Some("nip-fi+jwt".to_owned());
+        let key =
+            EncodingKey::from_ec_pem(TEST_EC_PKCS8_PEM.as_bytes()).expect("valid test EC PEM");
+        jsonwebtoken::encode(&header, &claims, &key).expect("sign assertion")
+    }
+
+    /// Drive a GET request through `build_router` for the settings path.
+    async fn settings_get_via_build_router(
+        state: Arc<AppState>,
+        host: &str,
+        path: &str,
+        auth_token: &str,
+        assertion: Option<&str>,
+    ) -> (StatusCode, bytes::Bytes) {
+        use axum::body::to_bytes;
+        use axum::http::Request;
+        use tower::ServiceExt;
+        let mut builder = Request::builder()
+            .method("GET")
+            .uri(path)
+            .header("host", host)
+            .header("authorization", auth_token);
+        if let Some(a) = assertion {
+            builder = builder.header(buzz_auth::CLIENT_ATTACHED_HEADER, format!("Bearer {a}"));
+        }
+        let response = crate::router::build_router(state)
+            .oneshot(
+                builder
+                    .body(axum::body::Body::empty())
+                    .expect("build request"),
+            )
+            .await
+            .expect("router oneshot");
+        let status = response.status();
+        let body = to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap_or_default();
+        (status, body)
+    }
+
+    /// Drive a POST request through `build_router` for the settings path.
+    async fn settings_post_via_build_router(
+        state: Arc<AppState>,
+        host: &str,
+        path: &str,
+        auth_token: &str,
+        body_bytes: &[u8],
+        assertion: Option<&str>,
+    ) -> (StatusCode, bytes::Bytes) {
+        use axum::body::to_bytes;
+        use axum::http::Request;
+        use tower::ServiceExt;
+        let mut builder = Request::builder()
+            .method("POST")
+            .uri(path)
+            .header("host", host)
+            .header("authorization", auth_token)
+            .header("content-type", "application/json");
+        if let Some(a) = assertion {
+            builder = builder.header(buzz_auth::CLIENT_ATTACHED_HEADER, format!("Bearer {a}"));
+        }
+        let response = crate::router::build_router(state)
+            .oneshot(
+                builder
+                    .body(axum::body::Body::from(body_bytes.to_vec()))
+                    .expect("build request"),
+            )
+            .await
+            .expect("router oneshot");
+        let status = response.status();
+        let body = to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap_or_default();
+        (status, body)
+    }
+
+    #[allow(dead_code)] // Used by Off-mode POST tests added in future commits.
+    fn nip98_token_for_method(keys: &Keys, url: &str, method: &str, body: Option<&[u8]>) -> String {
+        use sha2::{Digest, Sha256};
+        let mut tags = vec![
+            Tag::parse(["u", url]).expect("u tag"),
+            Tag::parse(["method", method]).expect("method tag"),
+            Tag::parse(["nonce", &uuid::Uuid::new_v4().to_string()]).expect("nonce tag"),
+        ];
+        if let Some(b) = body {
+            let hex = hex::encode(Sha256::digest(b));
+            tags.push(Tag::parse(["payload", &hex]).expect("payload tag"));
+        }
+        let event = EventBuilder::new(Kind::Custom(27235), "")
+            .tags(tags)
+            .sign_with_keys(keys)
+            .expect("sign NIP-98 event");
+        format!(
+            "Nostr {}",
+            base64::engine::general_purpose::STANDARD.encode(serde_json::to_vec(&event).unwrap())
+        )
+    }
+
+    // ── Settings via build_router: Enforce + valid-assertion-key-A + NIP-98-key-B → 403 ──
+    //
+    // The assertion claims key-A (`nostr_pubkey = pubkey_a`).  The NIP-98 is
+    // signed by key-B.  `admit_nip_fi_http` Step 6 (key pairing) fires → 403
+    // authorization_denied.
+    //
+    // Falsifying mutation: remove the key-pairing check in `admit_nip_fi_http`
+    // (the `Some(k) if k == proven_pubkey` match arm).  The admission succeeds
+    // → the handler returns a non-403 response (404 for a missing repo) →
+    // this test's `assert_eq(403)` fires.
+    #[test]
+    #[ignore = "requires Postgres"]
+    fn settings_build_router_enforce_key_mismatch_denied_403() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("current_thread runtime");
+
+        let Some(state) = rt.block_on(enforce_state_with_verifier()) else {
+            panic!("local Postgres not reachable");
+        };
+        let host = format!(
+            "nip-fi-settings-pairing-{}.local",
+            uuid::Uuid::new_v4().simple()
+        );
+        rt.block_on(state.db.ensure_configured_community(&host))
+            .expect("ensure community");
+
+        let key_a = Keys::generate();
+        let key_b = Keys::generate();
+
+        // Assertion claims key-A.
+        let assertion = mint_assertion(&key_a.public_key().to_hex());
+        // NIP-98 signed by key-B.
+        let path = format!(
+            "/git/{}/test-repo/default-branch",
+            key_a.public_key().to_hex()
+        );
+        let url = format!("http://{host}{path}");
+        let auth = nip98_get_token(&key_b, &url);
+
+        let (status, body) = rt.block_on(settings_get_via_build_router(
+            state,
+            &host,
+            &path,
+            &auth,
+            Some(&assertion),
+        ));
+
+        assert_eq!(
+            status,
+            StatusCode::FORBIDDEN,
+            "NIP-FI Enforce: assertion-for-A + NIP-98-for-B must deny 403 authorization_denied \
+             [FI-INV-05]. Falsifying mutation: remove key-pairing check in admit_nip_fi_http → \
+             admission succeeds → non-403 response."
+        );
+        assert_eq!(
+            body.as_ref(),
+            b"authorization denied\n",
+            "key mismatch denial MUST produce authorization_denied body bytes"
+        );
+    }
+
+    // ── Settings via build_router: Enforce + same-key assertion + NIP-98 → not-403 ──
+    //
+    // Positive control: assertion and NIP-98 both prove the same key → key
+    // pairing passes.  The handler proceeds to the repository lookup → 404
+    // (no such repo) or 200.  Either way, NOT 403 authorization_denied.
+    //
+    // Without this positive control an always-denying implementation would
+    // satisfy the negative tests above while being broken.
+    #[test]
+    #[ignore = "requires Postgres"]
+    fn settings_build_router_enforce_same_key_not_denied() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("current_thread runtime");
+
+        let Some(state) = rt.block_on(enforce_state_with_verifier()) else {
+            panic!("local Postgres not reachable");
+        };
+        let host = format!(
+            "nip-fi-settings-samekey-{}.local",
+            uuid::Uuid::new_v4().simple()
+        );
+        rt.block_on(state.db.ensure_configured_community(&host))
+            .expect("ensure community");
+
+        let key = Keys::generate();
+
+        // Assertion claims the same key that signs the NIP-98.
+        let assertion = mint_assertion(&key.public_key().to_hex());
+        let path = format!(
+            "/git/{}/test-repo/default-branch",
+            key.public_key().to_hex()
+        );
+        let url = format!("http://{host}{path}");
+        let auth = nip98_get_token(&key, &url);
+
+        let (status, _body) = rt.block_on(settings_get_via_build_router(
+            state,
+            &host,
+            &path,
+            &auth,
+            Some(&assertion),
+        ));
+
+        assert_ne!(
+            status,
+            StatusCode::FORBIDDEN,
+            "NIP-FI Enforce: same-key assertion + NIP-98 MUST NOT deny 403; \
+             key pairing should pass, handler proceeds to repo lookup. \
+             Positive control: without this, an always-denying implementation passes the mismatch test."
+        );
+    }
+
+    // ── Settings via build_router: POST protection ────────────────────────────
+    //
+    // A GET NIP-98 token cannot authorize a POST to the same URL.
+    // `authenticate()` in settings.rs verifies method + payload binding.
+    //
+    // Falsifying mutation: remove `strict: true` from the NIP-98 verification
+    // call inside `authenticate()` → a GET token passes POST admission →
+    // this test returns non-401 → assertion fires.
+    #[test]
+    #[ignore = "requires Postgres"]
+    fn settings_build_router_enforce_post_requires_correct_method_and_payload() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("current_thread runtime");
+
+        let Some(state) = rt.block_on(enforce_state_with_verifier()) else {
+            panic!("local Postgres not reachable");
+        };
+        let host = format!(
+            "nip-fi-settings-post-{}.local",
+            uuid::Uuid::new_v4().simple()
+        );
+        rt.block_on(state.db.ensure_configured_community(&host))
+            .expect("ensure community");
+
+        let key = Keys::generate();
+        let assertion = mint_assertion(&key.public_key().to_hex());
+        let path = format!(
+            "/git/{}/test-repo/default-branch",
+            key.public_key().to_hex()
+        );
+        let url = format!("http://{host}{path}");
+
+        // A GET token presented on a POST request → NIP-98 method mismatch.
+        let get_token = nip98_get_token(&key, &url);
+        let post_body = b"{\"branch\":\"main\",\"expected_manifest\":\"abc\"}";
+
+        let (status, _body) = rt.block_on(settings_post_via_build_router(
+            state,
+            &host,
+            &path,
+            &get_token,
+            post_body,
+            Some(&assertion),
+        ));
+
+        assert_eq!(
+            status,
+            StatusCode::UNAUTHORIZED,
+            "NIP-FI Enforce: GET token on a POST settings request must deny 401 \
+             (NIP-98 method mismatch → MissingEvidence in active mode). \
+             Falsifying mutation: removing method verification from authenticate() \
+             would admit the request → non-401 status."
+        );
+    }
+
+    // ── Settings via build_router: Off mode + valid NIP-98 → not blocked ─────
+    //
+    // Off mode must not apply NIP-FI admission.  A valid NIP-98 GET request
+    // (no assertion) reaches the handler and gets a non-NIP-FI result.
+    //
+    // Falsifying mutation: change Off-mode to Enforce → NIP-FI guard fires →
+    // 401 MissingEvidence → assertion fires (non-401 expected).
+    #[test]
+    #[ignore = "requires Postgres"]
+    fn settings_build_router_off_mode_valid_nip98_reaches_handler() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("current_thread runtime");
+
+        let Some(state) = rt.block_on(off_state()) else {
+            panic!("local Postgres not reachable");
+        };
+        let host = format!(
+            "nip-fi-settings-off-{}.local",
+            uuid::Uuid::new_v4().simple()
+        );
+        rt.block_on(state.db.ensure_configured_community(&host))
+            .expect("ensure community");
+
+        let key = Keys::generate();
+        let path = format!(
+            "/git/{}/test-repo/default-branch",
+            key.public_key().to_hex()
+        );
+        let url = format!("http://{host}{path}");
+        let auth = nip98_get_token(&key, &url);
+
+        let (status, _body) = rt.block_on(settings_get_via_build_router(
+            state, &host, &path, &auth,
+            None, // No assertion — Off mode must not require one.
+        ));
+
+        // In Off mode: NIP-FI guard does not fire; request reaches handler.
+        // The handler returns 404 (no repo) or some other non-NIP-FI response.
+        // The critical invariant: NOT 401 from NIP-FI MissingEvidence.
+        assert_ne!(
+            status,
+            StatusCode::UNAUTHORIZED,
+            "Off mode: a valid NIP-98 GET with no assertion MUST NOT return 401 from NIP-FI. \
+             Falsifying mutation: set mode=Enforce → guard fires → 401."
+        );
+    }
+} // mod postgres_tests
 
 mod external_infra {
     use super::super::*;

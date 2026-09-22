@@ -5513,4 +5513,136 @@ mod postgres_tests {
              → guard forwards → missing NIP-98 → 401 ≠ 403 → test fails."
         );
     }
+
+    // ── R3 cardinality regression: actual-caller (/query) ────────────────────
+    //
+    // Proves that the cardinality gate in `admit_nip_fi_http` fires on actual
+    // HTTP routes, not just the unit-level `admit_nip_fi_http` tests.
+    //
+    // The unit tests in nip_fi_http.rs prove the gate logic; this test proves
+    // the gate is actually wired into the `/query` route through the full router.
+    //
+    // ## Off-mode positive control
+    //
+    // Off mode must NOT reject duplicate Authorization headers — `verify_bridge_auth`
+    // used `.get()` (first-value) before NIP-FI.  FI-INV-15 requires that Off mode
+    // preserves this behavior.  With two identical Authorization headers, Off mode
+    // must NOT return 403 from the cardinality gate.
+    //
+    // Falsifying mutation: add cardinality check in Off mode → Off duplicate
+    // returns 403 → `assert_ne!(403)` fires.
+    //
+    // ## Enforce-mode denial
+    //
+    // Enforce mode + two Authorization headers must return 403 EvidenceRejected
+    // BEFORE NIP-98 or NIP-FI assertion checks.  The first header is structurally
+    // valid; cardinality fires before the header content is parsed.
+    //
+    // Falsifying mutation: remove the cardinality gate in active modes → closure
+    // runs → NIP-98 check proceeds → different error path → body mismatch or
+    // status change.
+    #[test]
+    #[ignore = "requires Postgres"]
+    fn r3_cardinality_actual_caller_query_off_passes_enforce_denies() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("current_thread runtime");
+
+        // ── Off mode: duplicate header must NOT be rejected ───────────────────
+        let Some(off_state) = rt.block_on(nip_fi_off_test_state()) else {
+            panic!("local Postgres not reachable");
+        };
+        let host = format!("nip-fi-cardinality-{}.local", uuid::Uuid::new_v4().simple());
+        rt.block_on(off_state.db.ensure_configured_community(&host))
+            .expect("ensure community");
+
+        let keys = Keys::generate();
+        let url = format!("https://{host}/query");
+        // Build a valid single NIP-98 header.
+        let nip98_header_value = {
+            let mut h = make_nip98_headers(&keys, &url, "POST", b"[]");
+            h.remove(axum::http::header::AUTHORIZATION)
+                .expect("authorization header")
+        };
+
+        // Put two Authorization headers.
+        let mut off_headers = axum::http::HeaderMap::new();
+        off_headers.append(
+            axum::http::header::AUTHORIZATION,
+            nip98_header_value.clone(),
+        );
+        off_headers.append(
+            axum::http::header::AUTHORIZATION,
+            nip98_header_value.clone(),
+        );
+        // Add x-pubkey dev bypass so verify_bridge_auth doesn't block.
+        off_headers.insert(
+            "x-pubkey",
+            keys.public_key().to_hex().parse().expect("valid header"),
+        );
+
+        let off_status = rt.block_on(oneshot_request(
+            off_state,
+            "POST",
+            "/query",
+            &host,
+            off_headers,
+            b"[]",
+        ));
+
+        // Off mode: cardinality gate MUST NOT fire → NOT 403 EvidenceRejected.
+        // The actual result may be 200 (valid query) or another downstream status.
+        assert_ne!(
+            off_status,
+            axum::http::StatusCode::FORBIDDEN,
+            "Off mode: duplicate Authorization headers MUST NOT yield 403 from cardinality gate \
+             [FI-INV-15]. Falsifying mutation: add cardinality check in Off mode → 403."
+        );
+        assert_ne!(
+            off_status,
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            "Off mode: duplicate Authorization must not trigger 503 (DenyProtected)"
+        );
+
+        // ── Enforce mode: duplicate header MUST be rejected 403 ──────────────
+        let Some(enforce_state) = rt.block_on(nip_fi_enforce_test_state()) else {
+            panic!("local Postgres not reachable (enforce)");
+        };
+        let host2 = format!(
+            "nip-fi-cardinality-enf-{}.local",
+            uuid::Uuid::new_v4().simple()
+        );
+        rt.block_on(enforce_state.db.ensure_configured_community(&host2))
+            .expect("ensure community");
+
+        let keys2 = Keys::generate();
+        let url2 = format!("https://{host2}/query");
+        let nip98_val2 = {
+            let mut h = make_nip98_headers(&keys2, &url2, "POST", b"[]");
+            h.remove(axum::http::header::AUTHORIZATION)
+                .expect("authorization header")
+        };
+
+        let mut enforce_headers = axum::http::HeaderMap::new();
+        enforce_headers.append(axum::http::header::AUTHORIZATION, nip98_val2.clone());
+        enforce_headers.append(axum::http::header::AUTHORIZATION, nip98_val2.clone());
+
+        let enforce_status = rt.block_on(oneshot_request(
+            enforce_state,
+            "POST",
+            "/query",
+            &host2,
+            enforce_headers,
+            b"[]",
+        ));
+
+        assert_eq!(
+            enforce_status,
+            axum::http::StatusCode::FORBIDDEN,
+            "Enforce mode: duplicate Authorization headers must yield 403 EvidenceRejected \
+             from cardinality gate [FI-TRACE-DENIAL-ORACLE]. \
+             Falsifying mutation: remove cardinality gate → NIP-98 proceeds → different status."
+        );
+    }
 }

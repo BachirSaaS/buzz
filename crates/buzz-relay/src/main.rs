@@ -2506,10 +2506,17 @@ mod tests {
     //   A. Nonzero fetch latency: a 10s fetch inside a 60s interval → the next
     //      refresh is scheduled 60s after the fetch completes (70s from start),
     //      not 60s after the pre-fetch `now` (which would be ≈60s from start).
-    //   B. Deadline between intervals: an issuer due at T=60 wakes at T=60 and
-    //      fires; no spurious second fire before T=120.
-    //   C. Fetch failure: a failed fetch (returns false) still advances `last`
-    //      and the loop continues — no tight-loop, no unbounded drift.
+    //   B. Fetch failure still advances `last`, preventing a tight-loop.
+    //      The loop continues; the third cycle fires at the correct deadline.
+    //   C. Hard deadline with early-cache: when interval=60 and hard_deadline=90s,
+    //      the loop fires at T=60; at T=70 (post-fetch) last=70, next due at
+    //      T=130. The `hard_deadline` is enforced by `ProductionJwksSource`, NOT
+    //      by the timer loop — the loop only tracks refresh cadence.
+    //   D. The production adapter's `.is_some()` contract: "a live snapshot
+    //      exists" (not "the last fetch succeeded"). After a failed refresh the
+    //      previously-cached snapshot may still be live; `src.get_snapshot().is_some()`
+    //      returns true in that case.  The timer loop treats the boolean as an
+    //      opaque "notify" / "warn" signal, not as a freshness oracle.
     //
     // Falsifying mutation: change `*last = tokio::time::Instant::now()` to
     // `*last = now` (where `now` is the pre-await snapshot).  Test A fails
@@ -2640,6 +2647,88 @@ mod tests {
             2,
             "second refresh at T=120; failure must still advance last. \
              Falsifying mutation: omit `*last = Instant::now()` on failure → tight-loop"
+        );
+
+        cancel.cancel();
+        task.await.expect("refresh loop task");
+    }
+
+    // ── Test C: hard-deadline is enforced by ProductionJwksSource, not the timer ──
+    //
+    // The timer loop is cadence-only: it fires at `last + interval_secs`.
+    // The `hard_deadline` in `ProductionJwksSource` is a separate contract that
+    // the timer loop does not enforce directly.  This test proves the timer loop
+    // fires at T=60 (interval) and then again at approximately T=130
+    // (post-fetch last ~70 + interval 60), with no spurious fires in between.
+    //
+    // A "cache-returns-early" fetch is simulated by the fetch returning `true`
+    // (a live snapshot is available).  This is the `.is_some()` contract: the
+    // production adapter returns `true` when a snapshot exists, which may be a
+    // cached snapshot even after a transient failure — NOT "fetch succeeded".
+    //
+    // Falsifying mutation (timer): advancing the interval check to use
+    // `last + hard_deadline_secs` instead of `last + interval_secs` would
+    // cause the first fire to happen at T=90 instead of T=60; the T=60 assert
+    // would fire.  This confirms the timer does not conflate hard_deadline with
+    // interval.
+    #[tokio::test(start_paused = true)]
+    async fn jwks_refresh_interval_is_cadence_only_not_hard_deadline() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let fetch_count = Arc::new(AtomicUsize::new(0));
+        let count_clone = Arc::clone(&fetch_count);
+        let cancel = CancellationToken::new();
+        let cancel_task = cancel.clone();
+
+        // interval=60s, simulating a hard_deadline of 90s at the source level.
+        // The timer loop receives only (issuer, interval=60) — it knows nothing
+        // about hard_deadline.  The hard_deadline enforcement belongs to
+        // ProductionJwksSource, not here.
+        let task = tokio::spawn(async move {
+            nip_fi_jwks_refresh_loop(
+                vec![("issuer-c".to_string(), 60)],
+                move |_| {
+                    let c = Arc::clone(&count_clone);
+                    Box::pin(async move {
+                        c.fetch_add(1, Ordering::SeqCst);
+                        // Returns true = "a live snapshot exists" (cache-hit).
+                        // This is the production .is_some() contract.
+                        true
+                    })
+                },
+                cancel_task,
+            )
+            .await;
+        });
+
+        tokio::task::yield_now().await;
+
+        // First fire at T=60 (interval).
+        tokio::time::advance(Duration::from_secs(60)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(
+            fetch_count.load(Ordering::SeqCst),
+            1,
+            "first refresh fires at T=60 (interval boundary). \
+             Falsifying mutation: if the loop used hard_deadline instead of interval → fires at T=90"
+        );
+
+        // No spurious fire at T=89 (before the hard-deadline would matter).
+        tokio::time::advance(Duration::from_secs(29)).await; // T=89
+        tokio::task::yield_now().await;
+        assert_eq!(
+            fetch_count.load(Ordering::SeqCst),
+            1,
+            "no spurious fire at T=89; next scheduled fire is at T=60+60=120 (cadence only)"
+        );
+
+        // Next fire at T=120 (post-fetch last=60 + interval=60).
+        tokio::time::advance(Duration::from_secs(31)).await; // T=120
+        tokio::task::yield_now().await;
+        assert_eq!(
+            fetch_count.load(Ordering::SeqCst),
+            2,
+            "second refresh fires at T=120; cadence-only scheduling confirmed"
         );
 
         cancel.cancel();

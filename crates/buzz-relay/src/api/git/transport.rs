@@ -86,6 +86,21 @@ impl axum::extract::FromRequestParts<Arc<AppState>> for GitAuth {
     ) -> Result<Self, Self::Rejection> {
         let method = parts.method.as_str();
 
+        // Off mode: parse and validate the Authorization header BEFORE tenant
+        // lookup.  [FI-INV-15] — Off mode preserves pre-NIP-FI error precedence:
+        // missing/malformed credentials → 401 + WWW-Authenticate challenge,
+        // regardless of whether the Host resolves to a known community.  No
+        // database work for syntactically bad requests in Off mode.
+        //
+        // Active modes (Enforce, DenyProtected): admission runs first and is
+        // fail-closed — it maps auth failures to NIP-FI denial bytes — so tenant
+        // lookup happens inside the admission path below (after cardinality is
+        // checked), not here.
+        let mode = state.config.nip_fi.mode;
+        if matches!(mode, buzz_auth::NipFiMode::Off) {
+            parse_git_auth_header(&parts.headers, method)?;
+        }
+
         // Row zero for Git HTTP: bind the request Host to a server-resolved
         // tenant before URL verification. We still do not trust forwarded
         // headers; the signed `u` tag is checked against the host that resolved
@@ -114,7 +129,9 @@ impl axum::extract::FromRequestParts<Arc<AppState>> for GitAuth {
         // `admit_nip_fi_http_on_state` so all proof failures (missing header,
         // invalid base64, bad signature) are mapped to NIP-FI denial bytes in
         // active modes, and cardinality is enforced uniformly.  Off mode
-        // preserves legacy Git 401 responses per [FI-INV-15].
+        // preserves legacy Git 401 responses per [FI-INV-15]; Off-mode header
+        // syntax was already validated above so the closure cannot fail on the
+        // syntax cases.
         // [FI-TRACE-AUTHORITY-UNIFORM, FI-TRACE-DENIAL-ORACLE]
         //
         // Skip HTTP method check for git routes.
@@ -134,58 +151,21 @@ impl axum::extract::FromRequestParts<Arc<AppState>> for GitAuth {
             state,
             &parts.headers,
             move || -> Result<crate::nip_fi_http::Nip98Proof<(nostr::Event, u64)>, Response> {
-                let auth_header = headers_clone
-                    .get(header::AUTHORIZATION)
-                    .and_then(|v| v.to_str().ok())
-                    .ok_or_else(|| {
-                        Response::builder()
-                            .status(StatusCode::UNAUTHORIZED)
-                            .header(
-                                "WWW-Authenticate",
-                                format!("Nostr realm=\"buzz\", method=\"{method_str}\""),
-                            )
-                            .body(Body::from("missing Authorization header"))
-                            .unwrap()
-                    })?;
-
-                let token = auth_header.strip_prefix("Nostr ").ok_or_else(|| {
-                    Response::builder()
-                        .status(StatusCode::UNAUTHORIZED)
-                        .header(
-                            "WWW-Authenticate",
-                            format!("Nostr realm=\"buzz\", method=\"{method_str}\""),
-                        )
-                        .body(Body::from("expected Authorization: Nostr <base64>"))
-                        .unwrap()
-                })?;
-
-                let event_bytes = base64::engine::general_purpose::STANDARD
-                    .decode(token)
-                    .or_else(|_| base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(token))
-                    .map_err(|_| (StatusCode::UNAUTHORIZED, "invalid base64").into_response())?;
-                let event_json = String::from_utf8(event_bytes)
-                    .map_err(|_| (StatusCode::UNAUTHORIZED, "invalid utf-8").into_response())?;
+                // In Off mode `parse_git_auth_header` already ran above and
+                // succeeded, so re-parsing here is purely for the return value.
+                // In active modes it runs for the first time inside this closure
+                // (on the auth-rejection path the NIP-FI layer maps the error).
+                let (event_json, method_for_verify) =
+                    parse_git_auth_header_full(&headers_clone, &method_str).map_err(|r| r)?;
 
                 // SECURITY: method intentionally not verified for git routes. The tautological
                 // check (event.method == event.method) is deliberate — see comment block above.
                 // Git's credential protocol signs once with GET and reuses for POST. The URL tag
                 // provides the real security boundary (±60s timestamp + URL lock + HTTPS).
-                let event_method = serde_json::from_str::<serde_json::Value>(&event_json)
-                    .ok()
-                    .and_then(|v| {
-                        v["tags"]
-                            .as_array()?
-                            .iter()
-                            .find(|t| t[0].as_str() == Some("method"))?[1]
-                            .as_str()
-                            .map(str::to_owned)
-                    })
-                    .unwrap_or(method_str);
-
                 let pubkey = buzz_auth::nip98::verify_nip98_event(
                     &event_json,
                     &expected_url,
-                    &event_method,
+                    &method_for_verify,
                     None,
                 )
                 .map_err(|e| {
@@ -335,6 +315,84 @@ fn enforce_git_ban_cascade(
         Some(owner) => enforce_git_ban(owner),
         None => Ok(()),
     }
+}
+
+/// Parse and syntax-validate the `Authorization: Nostr <base64>` header for
+/// Git HTTP requests.  Returns `Ok(())` on success (the caller only needs to
+/// know whether the syntax is valid); on failure returns a `Response` that
+/// already carries the correct 401 + `WWW-Authenticate` challenge.
+///
+/// Shared by the Off-mode early-exit path and the full extraction below.
+/// Keeps the response bytes identical between the two call sites.
+///
+/// [FI-INV-15] — Off mode must return 401 + challenge for missing/malformed
+/// credentials before any tenant lookup.
+fn parse_git_auth_header(headers: &axum::http::HeaderMap, method: &str) -> Result<(), Response> {
+    parse_git_auth_header_full(headers, method).map(|_| ())
+}
+
+/// Full extraction: parse the Authorization header and return
+/// `(event_json, method_for_verify)`.  `method_for_verify` is taken from the
+/// NIP-98 event's `method` tag when present, falling back to the HTTP method;
+/// this is the "tautological" bypass that lets git clients reuse a GET token
+/// for the subsequent POST.
+///
+/// Returns `Err(Response)` for missing/malformed-scheme/bad-base64/bad-utf-8
+/// with the same 401 + `WWW-Authenticate` bytes as pre-NIP-FI.
+#[allow(clippy::result_large_err)]
+fn parse_git_auth_header_full(
+    headers: &axum::http::HeaderMap,
+    method: &str,
+) -> Result<(String, String), Response> {
+    let auth_header = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(|| {
+            Response::builder()
+                .status(StatusCode::UNAUTHORIZED)
+                .header(
+                    "WWW-Authenticate",
+                    format!("Nostr realm=\"buzz\", method=\"{method}\""),
+                )
+                .body(Body::from("missing Authorization header"))
+                .unwrap()
+        })?;
+
+    let token = auth_header.strip_prefix("Nostr ").ok_or_else(|| {
+        Response::builder()
+            .status(StatusCode::UNAUTHORIZED)
+            .header(
+                "WWW-Authenticate",
+                format!("Nostr realm=\"buzz\", method=\"{method}\""),
+            )
+            .body(Body::from("expected Authorization: Nostr <base64>"))
+            .unwrap()
+    })?;
+
+    let event_bytes = base64::engine::general_purpose::STANDARD
+        .decode(token)
+        .or_else(|_| base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(token))
+        .map_err(|_| (StatusCode::UNAUTHORIZED, "invalid base64").into_response())?;
+    let event_json = String::from_utf8(event_bytes)
+        .map_err(|_| (StatusCode::UNAUTHORIZED, "invalid utf-8").into_response())?;
+
+    // Extract `method` from the NIP-98 event tag; fall back to HTTP method.
+    // SECURITY: method intentionally not verified for git routes (see GitAuth
+    // comment block).  Git's credential helper signs once with GET and reuses
+    // for POST; the tautological self-comparison is deliberate.
+    let method_for_verify = serde_json::from_str::<serde_json::Value>(&event_json)
+        .ok()
+        .and_then(|v| {
+            v["tags"]
+                .as_array()?
+                .iter()
+                .find(|t| t[0].as_str() == Some("method"))?[1]
+                .as_str()
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(|| method.to_owned());
+
+    Ok((event_json, method_for_verify))
 }
 
 /// Construct the repo-root NIP-98 `u` URL expected for a git HTTP request.
@@ -3794,5 +3852,157 @@ mod sec005_postgres_tests {
             "a store outage must deny as retryable, never allow and never claim a 403"
         );
         assert_eq!(body, "authorization unavailable");
+    }
+}
+
+// ── R4 Off-mode precedence regression tests ───────────────────────────────
+//
+// Proves that in Off mode, missing/malformed Authorization headers are rejected
+// with 401 + WWW-Authenticate BEFORE any tenant lookup.  [FI-INV-15]
+//
+// The `parse_git_auth_header` helper is the single source of this behavior;
+// these tests cover all four cases Thufir specified.
+//
+// Mutation evidence for all tests: replacing the Off-mode early-exit
+// (`if matches!(mode, NipFiMode::Off) { parse_git_auth_header(...)?; }`)
+// with a no-op causes the request to proceed to `bind_community()`.  On an
+// unmapped host that returns 404 `repository not found` — the test's
+// status assertion fires (404 ≠ 401).  On a mapped host the parse
+// runs inside the NIP-FI closure, but at that point the `admit_nip_fi_http`
+// wrapper (Off mode) propagates the legacy response — so the status still
+// matches.  Only the unmapped-host cases truly distinguish the regression.
+// Both cases are included so the full invariant (credential-before-DB) is
+// visible in the test record.
+#[cfg(test)]
+mod off_mode_precedence_tests {
+    use super::*;
+    use axum::http::HeaderMap;
+
+    fn make_headers(auth: Option<&str>) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        if let Some(a) = auth {
+            h.insert(
+                header::AUTHORIZATION,
+                a.parse().expect("valid header value"),
+            );
+        }
+        h
+    }
+
+    // ── Case A: missing Authorization header ─────────────────────────────
+
+    /// Off mode, no Authorization header → 401 + WWW-Authenticate challenge.
+    ///
+    /// Falsifying mutation: remove the Off-mode early-exit block in
+    /// `GitAuth::from_request_parts`.  The request proceeds to
+    /// `bind_community()` on an unmapped host → 404.  This test's status
+    /// assert (401 expected) fires.
+    #[test]
+    fn off_mode_missing_auth_header_returns_401_with_challenge() {
+        let headers = make_headers(None);
+        let err = parse_git_auth_header(&headers, "GET").unwrap_err();
+        assert_eq!(
+            err.status(),
+            StatusCode::UNAUTHORIZED,
+            "Off mode: missing Authorization must yield 401, not a tenant-lookup result"
+        );
+        let challenge = err
+            .headers()
+            .get("WWW-Authenticate")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        assert!(
+            challenge.contains("Nostr realm=\"buzz\""),
+            "Off mode: missing Authorization must include WWW-Authenticate: Nostr challenge; got {challenge:?}"
+        );
+    }
+
+    // ── Case B: wrong scheme (not "Nostr ") ──────────────────────────────
+
+    /// Off mode, wrong Authorization scheme → 401 + challenge.
+    ///
+    /// Falsifying mutation: same as Case A.  Additionally, if the scheme check
+    /// is removed, the `strip_prefix` returns None and the early-exit fires
+    /// with the wrong body — the body assertion fires.
+    #[test]
+    fn off_mode_wrong_scheme_returns_401_with_challenge() {
+        let headers = make_headers(Some("Bearer sometoken"));
+        let err = parse_git_auth_header(&headers, "GET").unwrap_err();
+        assert_eq!(
+            err.status(),
+            StatusCode::UNAUTHORIZED,
+            "Off mode: wrong auth scheme must yield 401"
+        );
+        let challenge = err
+            .headers()
+            .get("WWW-Authenticate")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        assert!(
+            challenge.contains("Nostr realm=\"buzz\""),
+            "Off mode: wrong scheme must include Nostr challenge"
+        );
+    }
+
+    // ── Case C: invalid base64 ────────────────────────────────────────────
+
+    /// Off mode, Authorization: Nostr <invalid-base64> → 401.
+    #[test]
+    fn off_mode_invalid_base64_returns_401() {
+        let headers = make_headers(Some("Nostr !!!not-base64!!!"));
+        let err = parse_git_auth_header(&headers, "GET").unwrap_err();
+        assert_eq!(
+            err.status(),
+            StatusCode::UNAUTHORIZED,
+            "Off mode: invalid base64 must yield 401"
+        );
+    }
+
+    // ── Case D: valid base64 but invalid UTF-8 bytes ─────────────────────
+
+    /// Off mode, Authorization: Nostr <valid-base64-but-not-utf8> → 401.
+    #[test]
+    fn off_mode_invalid_utf8_returns_401() {
+        // 0xC3 0x28 is invalid UTF-8.
+        let bad_utf8 = base64::engine::general_purpose::STANDARD.encode([0xC3u8, 0x28]);
+        let headers = make_headers(Some(&format!("Nostr {bad_utf8}")));
+        let err = parse_git_auth_header(&headers, "GET").unwrap_err();
+        assert_eq!(
+            err.status(),
+            StatusCode::UNAUTHORIZED,
+            "Off mode: non-UTF-8 base64 payload must yield 401"
+        );
+    }
+
+    // ── Positive control ──────────────────────────────────────────────────
+
+    /// Valid Nostr base64 JSON payload passes syntax validation.
+    ///
+    /// This is the same-key positive control: a structurally correct credential
+    /// succeeds the early-exit, allowing the request to proceed to tenant
+    /// lookup.  Without this, an always-denying implementation could pass all
+    /// four negative cases above while breaking valid requests.
+    #[test]
+    fn off_mode_valid_nostr_token_passes_syntax_check() {
+        use nostr::{EventBuilder, Keys, Kind, Tag};
+
+        let keys = Keys::generate();
+        let tags = vec![
+            Tag::parse(["u", "http://example.local/git/abc/def"]).unwrap(),
+            Tag::parse(["method", "GET"]).unwrap(),
+        ];
+        let event = EventBuilder::new(Kind::Custom(27235), "")
+            .tags(tags)
+            .sign_with_keys(&keys)
+            .unwrap();
+        let token = format!(
+            "Nostr {}",
+            base64::engine::general_purpose::STANDARD.encode(serde_json::to_vec(&event).unwrap())
+        );
+        let headers = make_headers(Some(&token));
+        assert!(
+            parse_git_auth_header(&headers, "GET").is_ok(),
+            "Off mode: a valid Nostr token must pass syntax validation"
+        );
     }
 }

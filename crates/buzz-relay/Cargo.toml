@@ -88,6 +88,9 @@ async-compression = { version = "0.4.42", features = ["tokio", "gzip"] }
 dev = ["buzz-auth/dev"]
 
 [dev-dependencies]
+# `use_pem` enables EncodingKey::from_ec_pem for minting ES256 test assertions
+# in settings_tests.rs (key-pairing build_router tests).
+jsonwebtoken = { version = "10.4.0", default-features = false, features = ["aws_lc_rs", "use_pem"] }
 http-body-util = "0.1"
 mesh-llm-sdk = { git = "https://github.com/Mesh-LLM/mesh-llm.git", tag = "v0.76.0-rc9", package = "mesh-llm-sdk", default-features = false, features = ["client", "serving"] }
 mesh-llm-host-runtime = { git = "https://github.com/Mesh-LLM/mesh-llm.git", tag = "v0.76.0-rc9", package = "mesh-llm-host-runtime", default-features = false, features = ["dynamic-native-runtime"] }
