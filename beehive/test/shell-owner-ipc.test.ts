@@ -26,14 +26,19 @@ for (const [width, height] of [[120,40],[60,20]]) test(`real owner IPC: form fai
     input.typeText('relay.example'); submit(); await new Promise(r=>setTimeout(r,0)); await ui.renderOnce(); assert.doesNotMatch(ui.captureCharFrame(),/CHOOSE A RELAY/);
     input.pressArrow('down'); enter(); input.typeText('invalid'); submit();
     await wait(()=>client.snapshot().phase==='error');
+    assert.equal(shell.state.mode,'owner');
     assert.match(ui.captureCharFrame(),/valid owner nsec/);
     enter(); input.typeText(nip19.nsecEncode(Buffer.from('1'.repeat(64),'hex')));
     await wait(()=>client.snapshot().secretLength>0);
     assert.doesNotMatch(ui.captureCharFrame(),/nsec1/); assert.match(ui.captureCharFrame(),/••/);
-    submit(); await wait(()=>client.snapshot().signedIn && shell.state.focus==='header');
+    submit(); await wait(()=>client.snapshot().signedIn && shell.state.mode==='section' && shell.state.activeSection===0 && client.snapshot().host?.state==='stopped');
     assert.doesNotMatch(ui.captureCharFrame(),/Continue to/);
+    assert.match(ui.captureCharFrame(),/Start Host/); assert.match(ui.captureCharFrame(),/Reset Host/);
+    input.pressEscape(); await new Promise(r=>setTimeout(r,50));
+    for(let i=0;i<4;i++) input.pressArrow('right');
     enter(); enter(); await wait(()=>!client.snapshot().signedIn);
     mode('denied'); enter(); await wait(()=>client.snapshot().phase==='error');
+    assert.equal(shell.state.mode,'owner');
     assert.match(ui.captureCharFrame(),/key access failed/);
     mode('mismatch'); enter(); await wait(()=>client.snapshot().phase==='error' && client.snapshot().message.includes('does not match'));
     assert.match(ui.captureCharFrame(),/does not match/);
@@ -43,7 +48,7 @@ for (const [width, height] of [[120,40],[60,20]]) test(`real owner IPC: form fai
     await new Promise(r=>setTimeout(r,1400));
     assert.equal(client.snapshot().signedIn,false); assert.equal(shell.state.activeSection,3);
     input.pressArrow('right'); mode('available'); enter(); enter();
-    await wait(()=>client.snapshot().signedIn && shell.state.focus==='header');
-    assert.match(ui.captureCharFrame(),/SIGNED IN/);
+    await wait(()=>client.snapshot().signedIn && shell.state.mode==='section' && shell.state.activeSection===0 && client.snapshot().host?.state==='stopped');
+    assert.match(ui.captureCharFrame(),/Start Host/); assert.doesNotMatch(ui.captureCharFrame(),/Continue to|Stay here/);
   } finally {shell.close();rmSync(home,{recursive:true,force:true});}
 });

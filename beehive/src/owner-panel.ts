@@ -20,7 +20,7 @@ export class OwnerPanel {
   private index = 0;
   private actionTop = 0;
   private relay = '';
-  private continuation?: number;
+  private requestedSection?: number;
   private prior?: { mode: ShellState['mode']; activeSection: number; headerIndex: number; focus: ShellState['focus'] };
   private shown = false;
   private generation = 0;
@@ -39,7 +39,7 @@ export class OwnerPanel {
   get modal() { return !!this.dialog; }
   private commands() {
     if (!this.state.ownerActive) return this.snapshot.signedIn ? [] : ['Sign in'];
-    if (this.snapshot.signedIn) return [...(this.continuation === undefined ? [] : [`Continue to ${this.continuation === 0 ? 'Host' : 'Agents'}`, 'Stay here']), 'Sign out'];
+    if (this.snapshot.signedIn) return ['Sign out'];
     if (!this.snapshot.relay && !this.relay) return ['Choose a relay', 'Use Buzz Desktop identity', 'Provide owner nsec'];
     return ['Use Buzz Desktop identity', 'Provide owner nsec', ...(this.snapshot.relay ? [] : ['Change relay']), 'Check Desktop identity'];
   }
@@ -47,24 +47,22 @@ export class OwnerPanel {
   private selectionNote(command: string) {
     if (command === 'Use Buzz Desktop identity') return !(this.snapshot.relay || this.relay) ? 'Choose a relay first. No sign-in or connection happens yet.' : this.snapshot.desktopReason;
     if (command === 'Provide owner nsec') return !(this.snapshot.relay || this.relay) ? 'Choose a relay first.' : 'Your nsec stays in memory until sign-out or quit.';
-    if (command === 'Stay here') return 'Keeps you signed in without opening the requested section.';
     if (command === 'Sign out') return 'Signs out of Beehive. Host and agents keep running.';
-    if (command.startsWith('Continue')) return 'Opens the requested section. No Host or agent operation runs.';
     if (command.includes('relay')) return 'First sign-in binds this Host to the owner and relay.';
     return 'Host and Agents require owner sign-in. Harnesses and Providers do not.';
   }
   private openOwner() {
     this.prior = { mode: this.state.mode, activeSection: this.state.activeSection, headerIndex: this.state.headerIndex, focus: this.state.focus };
-    this.continuation = this.state.activeSection;
+    this.requestedSection = this.state.activeSection;
     this.state.mode = 'owner'; this.state.headerIndex = destinations.length; this.state.focus = 'detail'; this.index = 0; this.repaint();
   }
-  private stay() {
-    this.generation++; this.continuation = undefined; this.prior = undefined; this.index = 0;
+  private focusOwner() {
+    this.generation++; this.requestedSection = undefined; this.prior = undefined; this.index = 0;
     this.state.mode = 'owner'; this.state.headerIndex = destinations.length; this.state.focus = 'header'; this.repaint();
   }
   private back() {
-    if (this.snapshot.signedIn) { this.stay(); return; }
-    this.generation++; this.client.cancel(); this.continuation = undefined;
+    if (this.snapshot.signedIn) { this.focusOwner(); return; }
+    this.generation++; this.client.cancel(); this.requestedSection = undefined;
     if (this.prior) { Object.assign(this.state, this.prior); this.prior = undefined; }
     else { this.state.mode = 'section'; this.state.headerIndex = this.state.activeSection; this.state.focus = 'header'; }
     this.repaint();
@@ -72,7 +70,7 @@ export class OwnerPanel {
   key(key: KeyEvent) {
     if (!this.shown) return false;
     if (this.dialog) { this.dialog.key(key); return true; }
-    if (key.name === 'escape' && this.snapshot.phase === 'busy') { this.client.cancel(); return true; }
+    if (key.name === 'escape' && this.snapshot.phase === 'busy') { this.generation++; this.client.cancel(); return true; }
     if (key.name === 'escape' && this.state.ownerActive) { this.back(); return true; }
     if (key.name === 'a' && this.commands().length) { this.state.focus = 'detail'; this.repaint(); return true; }
     if (this.state.focus !== 'detail') return false;
@@ -94,13 +92,7 @@ export class OwnerPanel {
     const command = this.commands()[this.index]; if (!command || this.disabled(command)) return;
     const generation = this.generation;
     if (command === 'Sign in') { this.openOwner(); return; }
-    if (command.startsWith('Continue')) {
-      const target = this.continuation; this.continuation = undefined; this.prior = undefined;
-      if (target !== undefined && this.snapshot.signedIn) this.state.activateHeader(target);
-      this.repaint(); return;
-    }
-    if (command === 'Stay here') { this.stay(); return; }
-    if (command === 'Sign out') { this.continuation = undefined; this.prior = undefined; this.index = 0; await this.client.request({ action: 'signout' }); this.repaint(); return; }
+    if (command === 'Sign out') { this.requestedSection = undefined; this.prior = undefined; this.index = 0; await this.client.request({ action: 'signout' }); this.repaint(); return; }
     if (command === 'Check Desktop identity') { await this.client.request({ action: 'probe' }); return; }
     if (command.includes('relay')) {
       const dialog = new ProviderDialog(this.renderer, 'CHOOSE A RELAY', [{ label: 'Relay URL', value: this.relay || 'wss://' }], () => {}, 'Use relay');
@@ -115,7 +107,11 @@ export class OwnerPanel {
       if (!result || generation !== this.generation) { this.repaint(); return; }
     }
     const ok = await this.client.request({ action: command === 'Use Buzz Desktop identity' ? 'signin-desktop' : 'signin-nsec', relay: this.relay });
-    if (ok && generation === this.generation) { this.index = 0; this.state.focus = 'header'; this.state.headerIndex = destinations.length; }
+    if (ok && generation === this.generation && this.snapshot.signedIn) {
+      const target = this.requestedSection ?? 0;
+      this.requestedSection = undefined; this.prior = undefined; this.index = 0;
+      this.state.activateHeader(target);
+    }
     this.repaint();
   }
   paint() {
@@ -127,21 +123,21 @@ export class OwnerPanel {
     if (left) {
       this.generation++; this.dialog?.cancel(); this.dialog = undefined;
       if (this.snapshot.phase === 'busy') this.client.cancel();
-      this.continuation = undefined; this.prior = undefined; this.index = 0;
+      this.requestedSection = undefined; this.prior = undefined; this.index = 0;
     }
     if (!shown) return;
     if (entered && !this.snapshot.signedIn && this.snapshot.desktop === 'unknown') void this.client.request({ action: 'probe' });
     const width = this.renderer.width - 4, height = this.renderer.height - 5;
     const wrap = (value: string) => { const rows: string[] = []; for (const line of value.split('\n')) { let rest = line; while (rest.length > width) { const at = rest.lastIndexOf(' ', width); const end = at > 0 ? at : width; rows.push(rest.slice(0, end)); rest = rest.slice(end).trimStart(); } rows.push(rest); } return rows; };
-    const truncate = (value: string) => { const limit = width - (owner && this.continuation !== undefined ? 19 : 8); return value.length > limit ? value.slice(0, Math.ceil((limit - 1) / 2)) + '…' + value.slice(-Math.floor((limit - 1) / 2)) : value; };
+    const truncate = (value: string) => { const limit = width - (owner && this.requestedSection !== undefined ? 19 : 8); return value.length > limit ? value.slice(0, Math.ceil((limit - 1) / 2)) + '…' + value.slice(-Math.floor((limit - 1) / 2)) : value; };
     const commands = this.commands(); this.index = Math.max(0, Math.min(this.index, commands.length - 1));
     this.title.top = 1; this.title.width = width; this.title.height = 1;
-    this.title.content = owner ? this.snapshot.signedIn ? 'SIGNED IN' : this.continuation === undefined ? 'OWNER SIGN-IN' : 'SIGN-IN REQUIRED' : destinations[this.state.activeSection]!;
-    const contextual = owner && this.continuation !== undefined;
+    this.title.content = owner ? this.snapshot.signedIn ? 'SIGNED IN' : this.requestedSection === undefined ? 'OWNER SIGN-IN' : 'SIGN-IN REQUIRED' : destinations[this.state.activeSection]!;
+    const contextual = owner && this.requestedSection !== undefined;
     const labelWidth = contextual ? 19 : 8;
     this.facts.top = 2; this.facts.left = owner ? 2 + labelWidth : 2; this.facts.width = owner ? width - labelWidth : width;
     this.labels.top = 2; this.labels.width = labelWidth; this.labels.height = contextual ? 3 : 2; this.labels.visible = owner; this.labels.content = (contextual ? 'Requested section\n' : '') + 'Relay\nOwner';
-    this.facts.content = owner ? `${contextual ? (this.continuation === 0 ? 'Host' : 'Agents') + '\n' : ''}${truncate(this.snapshot.relay || this.relay || 'Not configured')}\n${truncate(this.snapshot.owner || this.snapshot.boundOwner || 'Not configured')}` : this.snapshot.signedIn ? 'Owner access granted.\nThis section is not implemented in this slice.' : `Sign in to view and manage ${this.state.activeSection === 0 ? 'Host' : 'Agents'}.`;
+    this.facts.content = owner ? `${contextual ? (this.requestedSection === 0 ? 'Host' : 'Agents') + '\n' : ''}${truncate(this.snapshot.relay || this.relay || 'Not configured')}\n${truncate(this.snapshot.owner || this.snapshot.boundOwner || 'Not configured')}` : this.snapshot.signedIn ? 'Owner access granted.\nThis section is not implemented in this slice.' : `Sign in to view and manage ${this.state.activeSection === 0 ? 'Host' : 'Agents'}.`;
     this.facts.height = contextual ? 3 : owner || this.snapshot.signedIn ? 2 : 1;
     this.heading.top = contextual ? 5 : 4; this.heading.width = width; this.heading.height = 1; this.heading.visible = commands.length > 0;
     this.heading.content = 'AVAILABLE ACTIONS ' + '─'.repeat(Math.max(1, width - 18));
