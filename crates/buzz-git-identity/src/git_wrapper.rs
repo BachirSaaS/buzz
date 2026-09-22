@@ -4001,6 +4001,7 @@ mod tests {
         // resolves to push must classify as push so the outgoing-author gate
         // runs. A blind table (no `--shallow-file`) finds no subcommand and
         // returns NotPush — the round-7 signature-gate bypass.
+        // `is_push_command` classifies already-resolved argv; expand first.
         let dir = tempfile::tempdir().unwrap();
         let repo = dir.path();
         let git = |args: &[&str]| {
@@ -4016,8 +4017,11 @@ mod tests {
         let repo_str = repo.to_str().unwrap();
         let argv = v(&["-C", repo_str, "--shallow-file", "-c", "p"]);
         let ctx = caller_globals(&argv);
+        let effective = verify_alias_safety(&real_git(), &argv, &ctx)
+            .expect("alias.p=push is safe")
+            .expect("p must expand to push via shallow-file-shape globals");
         assert!(matches!(
-            is_push_command(&real_git(), &argv, &ctx),
+            is_push_command(&real_git(), &effective, &ctx),
             PushKind::Push
         ));
     }
