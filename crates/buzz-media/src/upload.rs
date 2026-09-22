@@ -756,10 +756,9 @@ mod tests {
 #[cfg(test)]
 mod minio_tests {
     use super::*;
-    use nostr::{EventBuilder, Keys, Kind, Tag, Timestamp};
-    use sha2::Digest as _;
-    use uuid::Uuid;
     use buzz_core::tenant::{CommunityId, TenantContext};
+    use nostr::{EventBuilder, Keys, Kind, Tag, Timestamp};
+    use uuid::Uuid;
 
     /// Minimal valid 1×1 RGB PNG — passes validate_content and
     /// validate_image_metadata_free without any metadata chunks.
@@ -800,10 +799,7 @@ mod minio_tests {
     }
 
     fn test_tenant() -> TenantContext {
-        TenantContext::resolved(
-            CommunityId::from_uuid(Uuid::nil()),
-            "relay.example",
-        )
+        TenantContext::resolved(CommunityId::from_uuid(Uuid::nil()), "relay.example")
     }
 
     /// Build an already-expired Blossom upload auth event whose `x` tag matches
@@ -851,8 +847,7 @@ mod minio_tests {
         let sha256 = hex::encode(sha2::Sha256::digest(&body));
         let auth = expired_upload_auth(&keys, &sha256, "relay.example");
 
-        let storage = MediaStorage::new(&minio_config())
-            .expect("MinIO client must initialise");
+        let storage = MediaStorage::new(&minio_config()).expect("MinIO client must initialise");
         let ctx = test_tenant();
 
         // process_upload calls verify_upload_hash_only post-body (the repaired path).
@@ -895,19 +890,10 @@ mod minio_tests {
         // The body has a hash that differs from what was signed in the auth event.
         let body = Bytes::from_static(MINIMAL_PNG);
 
-        let storage = MediaStorage::new(&minio_config())
-            .expect("MinIO client must initialise");
+        let storage = MediaStorage::new(&minio_config()).expect("MinIO client must initialise");
         let ctx = test_tenant();
 
-        let result = process_upload(
-            &storage,
-            &minio_config(),
-            &ctx,
-            &auth,
-            body,
-            None,
-        )
-        .await;
+        let result = process_upload(&storage, &minio_config(), &ctx, &auth, body, None).await;
 
         assert!(
             matches!(result, Err(MediaError::HashMismatch)),
@@ -943,12 +929,10 @@ mod minio_tests {
         let body_len = body_bytes.len() as u64;
         // Wrap the bytes in a single-item stream of Ok(Bytes).
         // axum::Error wraps std::io::Error; we never inject an error here.
-        let body_stream = stream::once(async move {
-            Ok::<_, axum::Error>(Bytes::from(body_bytes))
-        });
+        let body_stream =
+            stream::once(async move { Ok::<_, axum::Error>(Bytes::from(body_bytes)) });
 
-        let storage = MediaStorage::new(&minio_config())
-            .expect("MinIO client must initialise");
+        let storage = MediaStorage::new(&minio_config()).expect("MinIO client must initialise");
         let ctx = test_tenant();
 
         // process_video_upload streams to disk, computes SHA-256, then calls
@@ -995,12 +979,10 @@ mod minio_tests {
 
         let body_bytes = minimal_valid_mp4();
         let body_len = body_bytes.len() as u64;
-        let body_stream = stream::once(async move {
-            Ok::<_, axum::Error>(Bytes::from(body_bytes))
-        });
+        let body_stream =
+            stream::once(async move { Ok::<_, axum::Error>(Bytes::from(body_bytes)) });
 
-        let storage = MediaStorage::new(&minio_config())
-            .expect("MinIO client must initialise");
+        let storage = MediaStorage::new(&minio_config()).expect("MinIO client must initialise");
         let ctx = test_tenant();
 
         let result = process_video_upload(
