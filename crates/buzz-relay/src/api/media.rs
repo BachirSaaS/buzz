@@ -1686,7 +1686,9 @@ mod tests {
                 _ttl_secs: u64,
             ) -> std::pin::Pin<
                 Box<
-                    dyn std::future::Future<Output = Result<bool, buzz_auth::AuthError>> + Send + 'a,
+                    dyn std::future::Future<Output = Result<bool, buzz_auth::AuthError>>
+                        + Send
+                        + 'a,
                 >,
             > {
                 Box::pin(async { Ok(true) })
@@ -2319,7 +2321,11 @@ mod tests {
                 b"",
             ));
 
-            assert_eq!(status, StatusCode::UNAUTHORIZED, "Off GET missing auth → 401");
+            assert_eq!(
+                status,
+                StatusCode::UNAUTHORIZED,
+                "Off GET missing auth → 401"
+            );
             assert_eq!(
                 body.as_ref(),
                 br#"{"error":"authentication failed"}"#,

@@ -4235,8 +4235,7 @@ mod off_mode_precedence_tests {
                 panic!("local Postgres not reachable");
             };
             // base64-encode non-UTF8 bytes (0xff 0xfe is an invalid UTF-8 start)
-            let bad_utf8_b64 = base64::engine::general_purpose::STANDARD
-                .encode(b"\xff\xfe\x00");
+            let bad_utf8_b64 = base64::engine::general_purpose::STANDARD.encode(b"\xff\xfe\x00");
             let (status, headers, body) =
                 git_request(state, UNMAPPED_HOST, Some(&format!("Nostr {bad_utf8_b64}"))).await;
             assert_eq!(
