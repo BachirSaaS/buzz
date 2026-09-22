@@ -5071,11 +5071,17 @@ mod postgres_tests {
     //
     // The 401 is produced by the OUTER `nip_fi_assertion_guard` layer in
     // `build_router`: no `Nostr-Federated-Identity` header → MissingEvidence →
-    // 401 `authentication required\n`.  The per-handler gate is unreachable.
+    // 401 `authentication required\n`.
     //
-    // Falsifying mutation: remove `nip_fi_assertion_guard` from `build_router`
-    // → request reaches `authorize_moderation_read` → application-level authz
-    // runs → non-401 result (403 or 200). 401 ≠ non-401.
+    // Note: removing only the outer guard does NOT change this test — the
+    // handler's own `admit_nip_fi_http_on_state` also fires 401 on missing
+    // assertion.  This test witnesses the outer guard fires first and its
+    // error path is exercised; it does not claim the outer guard is the sole
+    // denial point.  The same-key positive (below) is the complement witness.
+    //
+    // The exact body/CT/challenge oracles discriminate any implementation that
+    // returns a different status or body (e.g. application-level 403 if both
+    // admission layers were removed).
     #[test]
     #[ignore = "requires Postgres"]
     fn nip_fi_enforce_moderation_reports_no_assertion_is_401() {
@@ -5141,12 +5147,17 @@ mod postgres_tests {
     //
     // The 401 is produced by the OUTER `nip_fi_assertion_guard` layer in
     // `build_router`: no `Nostr-Federated-Identity` header → MissingEvidence →
-    // 401 `authentication required\n`.  The per-handler gate in `gifs::authenticate`
-    // is unreachable on this request.
+    // 401 `authentication required\n`.
     //
-    // Falsifying mutation: remove `nip_fi_assertion_guard` from `build_router`
-    // → request reaches `gifs::authenticate` → Klipy config absent → 404
-    // (GIF search not configured). 404 ≠ 401.
+    // Note: removing only the outer guard does NOT change this test — the
+    // handler's own `admit_nip_fi_http_on_state` in `gifs::authenticate` also
+    // fires 401 on missing assertion.  This test witnesses the outer guard fires
+    // first and its error path is exercised; it does not claim the outer guard is
+    // the sole denial point.  The same-key positive (below) is the complement witness.
+    //
+    // The exact body/CT/challenge oracles discriminate any implementation that
+    // returns a different status or body (e.g. 404 if BOTH admission layers were
+    // removed and Klipy config was absent).
     #[test]
     #[ignore = "requires Postgres"]
     fn nip_fi_enforce_gif_search_no_assertion_is_401() {

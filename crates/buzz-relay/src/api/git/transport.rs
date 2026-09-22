@@ -5092,12 +5092,17 @@ mod off_mode_precedence_tests {
                             .encode(serde_json::to_vec(&admitted_event).unwrap())
                     );
 
-                    // ── Pack routes (POST): upload-pack and receive-pack ──────────
-                    for route in &["git-upload-pack", "git-receive-pack"] {
-                        let route: &'static str = route;
-                        let (adm_status, _adm_headers, adm_body) = send_pack_request(
+                    // ── git-upload-pack (POST): same-key admission → 404 ─────────
+                    //
+                    // upload-pack calls authorize_git_read which queries DB for
+                    // kind:30617 announcement. Repo absent → 404 "repository not found".
+                    //
+                    // Falsifying mutation: key-pairing always-deny → 403
+                    // `authorization denied\n` → body check fires.
+                    {
+                        let (s_up, _h_up, b_up) = send_pack_request(
                             Arc::clone(&state),
-                            route,
+                            "git-upload-pack",
                             vec![
                                 ("authorization", admitted_nip98_token.clone()),
                                 (
@@ -5107,23 +5112,72 @@ mod off_mode_precedence_tests {
                             ],
                         )
                         .await;
-                        // NIP-FI admission passes (same-key pairing verified).
-                        // Repo does not exist → authorize_git_read → 404 "repository not found".
                         assert_eq!(
-                            adm_status,
+                            s_up,
                             axum::http::StatusCode::NOT_FOUND,
-                            "{route}: same-key admission MUST reach handler → \
-                         404 (repo not found). \
-                         If 401/403: NIP-FI denial — check verifier injection and key pairing. \
-                         Body: {adm_body:?}"
+                            "git-upload-pack: same-key admission MUST reach authorize_git_read \
+                             → 404 (repo absent). \
+                             If 401/403: NIP-FI denial — check verifier injection and key pairing. \
+                             Body: {b_up:?}"
                         );
                         assert_eq!(
-                            adm_body.as_ref(),
+                            b_up.as_ref(),
                             b"repository not found",
-                            "{route}: same-key admitted 404 body must be exact \
-                         'repository not found'. \
-                         Falsifying mutation: key pairing always-deny → 403 \
-                         'authorization denied\\n'."
+                            "git-upload-pack: same-key admitted 404 body must be exact \
+                             'repository not found'. \
+                             Falsifying mutation: key pairing always-deny → 403 \
+                             'authorization denied\\n'."
+                        );
+                    }
+
+                    // ── git-receive-pack (POST): same-key admission → non-NIP-FI ─
+                    //
+                    // receive-pack calls hydrate_for_write which CREATES an empty
+                    // bare repo if none exists — it does NOT call authorize_git_read
+                    // and does NOT return 404 for an absent repo.  After admission,
+                    // git receive-pack runs against the empty workspace with an empty
+                    // body, then finalize_push attempts CAS writes to the git store.
+                    // Without a configured git store the response is a storage error
+                    // (5xx), not a NIP-FI denial.
+                    //
+                    // Witness: the body is NOT a NIP-FI denial string.  If key-pairing
+                    // always-denied, body would be `authorization denied\n`; if
+                    // verifier injected wrong, body would be `authorization unavailable\n`.
+                    //
+                    // Falsifying mutation: key-pairing always-deny → 403 and body
+                    // is `authorization denied\n` → assert_ne! fires.
+                    {
+                        let (s_rp, _h_rp, b_rp) = send_pack_request(
+                            Arc::clone(&state),
+                            "git-receive-pack",
+                            vec![
+                                ("authorization", admitted_nip98_token.clone()),
+                                (
+                                    buzz_auth::CLIENT_ATTACHED_HEADER,
+                                    format!("Bearer {same_key_assertion}"),
+                                ),
+                            ],
+                        )
+                        .await;
+                        // NIP-FI MUST have admitted (any non-NIP-FI response proves admission).
+                        assert_ne!(
+                            s_rp,
+                            axum::http::StatusCode::UNAUTHORIZED,
+                            "git-receive-pack: same-key admission MUST pass NIP-FI (not 401). \
+                             401 = MissingEvidence; verifier injection or key pairing failed. \
+                             Body: {b_rp:?}"
+                        );
+                        assert_ne!(
+                            b_rp.as_ref(),
+                            b"authorization denied\n",
+                            "git-receive-pack: body MUST NOT be 'authorization denied\\n'. \
+                             Falsifying mutation: key-pairing always-deny → 403 with this body."
+                        );
+                        assert_ne!(
+                            b_rp.as_ref(),
+                            b"authorization unavailable\n",
+                            "git-receive-pack: body MUST NOT be 'authorization unavailable\\n'. \
+                             This indicates the verifier was not injected correctly."
                         );
                     }
 

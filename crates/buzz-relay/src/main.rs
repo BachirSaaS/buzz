@@ -3213,9 +3213,7 @@ mod composition_tests {
              (response[4]=ok). \
              Falsifying mutation: make get_snapshot always return Some (never trigger a fetch) \
              → response[4]=ok never consumed → generation unchanged → assert_ne!(generation) \
-             below fires.  Note: removing only the early-expiry clearing inside \
-             nip_fi_jwks_refresh_loop still leaves the hard-deadline age filter and does \
-             NOT prevent the recovery fetch."
+             below fires."
         );
         assert_eq!(
             fetcher_count.load(Ordering::SeqCst),

@@ -2153,7 +2153,7 @@ mod external_infra {
         let assertion_key_a = mint_assertion(&key_a.public_key().to_hex());
         // NIP-98 signed by owner (f.owner), assertion claims key_a — mismatch.
         let mismatch_token = token(&f.owner, "POST", &settings_url, Some(&post_body));
-        let (status_mismatch, _) = response(
+        let (status_mismatch, body_mismatch) = response(
             crate::router::build_router(Arc::clone(&enforced_state))
                 .oneshot(build_post_request(mismatch_token, Some(assertion_key_a)))
                 .await
@@ -2166,11 +2166,18 @@ mod external_infra {
             "Key-mismatch assertion MUST deny 403 (AuthorizationDenied). \
              The handler must NOT be reached."
         );
+        assert_eq!(
+            body_mismatch["error"].as_str().unwrap_or(""),
+            "authorization denied\n",
+            "Key-mismatch 403 body MUST be exact 'authorization denied\\n'. \
+             Falsifying mutation: remove key-pairing check → handler reached → \
+             different body."
+        );
 
         // ── Step 3: malformed token → 403 EvidenceRejected ───────────────────
         let bad_token = "Nostr !!!bad!!!".to_string();
         let assertion_owner = mint_assertion(&f.owner.public_key().to_hex());
-        let (status_malformed, _) = response(
+        let (status_malformed, body_malformed) = response(
             crate::router::build_router(Arc::clone(&enforced_state))
                 .oneshot(build_post_request(bad_token, Some(assertion_owner.clone())))
                 .await
@@ -2182,6 +2189,13 @@ mod external_infra {
             StatusCode::FORBIDDEN,
             "Malformed NIP-98 token MUST deny 403 (EvidenceRejected). \
              The handler must NOT be reached."
+        );
+        assert_eq!(
+            body_malformed["error"].as_str().unwrap_or(""),
+            "evidence rejected\n",
+            "Malformed NIP-98 token 403 body MUST be exact 'evidence rejected\\n'. \
+             Falsifying mutation: remap EvidenceRejected to MissingEvidence → \
+             returns 401 instead of 403."
         );
 
         // ── Step 3b: wrong-payload-hash token → 403 EvidenceRejected ─────────
@@ -2204,7 +2218,7 @@ mod external_infra {
             Some("wrong body for hash mismatch"),
         );
         let assertion_owner_3b = mint_assertion(&f.owner.public_key().to_hex());
-        let (status_wrong_hash, _) = response(
+        let (status_wrong_hash, body_wrong_hash) = response(
             crate::router::build_router(Arc::clone(&enforced_state))
                 .oneshot(build_post_request(
                     wrong_hash_token,
@@ -2221,6 +2235,13 @@ mod external_infra {
              Token payload hash is bound to 'wrong body for hash mismatch', \
              but actual request body is post_body_bytes — hash mismatch. \
              Falsifying mutation: remove payload-hash check → handler reached."
+        );
+        assert_eq!(
+            body_wrong_hash["error"].as_str().unwrap_or(""),
+            "evidence rejected\n",
+            "Wrong-hash 403 body MUST be exact 'evidence rejected\\n'. \
+             Falsifying mutation: remap payload-hash EvidenceRejected → handler \
+             reached → different body."
         );
 
         // ── Step 4: digest unchanged after all three denials ─────────────────
