@@ -138,10 +138,6 @@ class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
     disposeCallCount++;
     // Record the dispose call and close the event stream.
     //
-    // Closing the stream satisfies teardown: without it, dart:io's event loop
-    // retains the open controller and may trigger "pending timers" warnings
-    // when the test ends.
-    //
     // Note: an error injected here does NOT reach initialize()'s pending
     // listener on the pinned video_player 2.11.1 path.  dispose() cancels
     // _eventSubscription (:687) before calling _videoPlayerPlatform.dispose()
@@ -774,23 +770,25 @@ void main() {
         );
         // Yield to let the download, create, and initialize-error path run.
         // dispose() is detached (unawaited) — it completes asynchronously after
-        // the inner catch rethrows.  pumpAndSettle() below flushes the timers
+        // the inner catch rethrows.  pumpAndSettle() flushes the timers
         // and remaining microtasks; we signal here only to unblock.
         await Future<void>.delayed(const Duration(milliseconds: 300));
       });
       await tester.pumpAndSettle();
-
-      // Wait for the unawaited disposal future to complete.  dispose() is
-      // called from inside the inner catch (detached via unawaited) and may
-      // take a few more microtask turns after pumpAndSettle() drains the
-      // widget tree.  A 5 s bound prevents an infinite hang if the path is
-      // accidentally removed; the log above (from the .catchError handler)
-      // confirms the path ran in production code.
-      await fakePlayer.disposedCompleter.future.timeout(
-        const Duration(seconds: 5),
-        onTimeout: () => throw TimeoutException(
-          'dispose() was not entered within 5 s after pumpAndSettle()',
-        ),
+      // The detached disposal future is queued during the 300 ms yield and
+      // pumpAndSettle() drains all pending microtasks, so the completer must
+      // already be complete by the time we reach this line.  A synchronous
+      // isCompleted check is the correct oracle here: a Duration-based timeout
+      // created outside runAsync becomes a FakeAsync timer that the binding
+      // never advances automatically — it would hang to the 30 s outer runner
+      // timeout instead of failing promptly.  Removing the unawaited disposal
+      // call leaves the completer incomplete; this fails immediately.
+      expect(
+        fakePlayer.disposedCompleter.isCompleted,
+        isTrue,
+        reason:
+            'dispose() must have been entered before pumpAndSettle() returns '
+            '— the unawaited disposal path may have been removed',
       );
 
       // Error UI must appear — disposal failure must not block the outer catch.

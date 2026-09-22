@@ -13,10 +13,11 @@
 //   at `stream.pipe(ioRequest)` forever — test times out.
 //
 // Transport probe #2: abort trigger cancels an in-flight download.
-//   The server waits for the client connection to close (signalled via a
-//   Completer) so the test does not race against a fixed sleep.  The abort
-//   fires after the server confirms request arrival; send() must throw the
-//   typed RequestAbortedException within a bounded deadline.
+//   The server holds the response open via a teardown-controlled release gate
+//   so the abort fires against a genuinely in-flight transfer rather than
+//   racing a completed response.  After server confirms request arrival,
+//   the abort is triggered; send() must throw the typed
+//   RequestAbortedException within a bounded deadline.
 
 import 'dart:async';
 import 'dart:io';
@@ -114,13 +115,13 @@ void main() {
           requestArrivedCompleter.complete();
         }
         // Await the teardown-controlled gate before attempting to close.
-        // The abort closes the socket before the gate fires, so close() will
-        // throw a SocketException — caught and discarded here.
+        // After an abort the client may have already torn down the connection,
+        // so close() may throw — caught and discarded here.
         await releaseResponse.future;
         try {
           await req.response.close();
         } catch (_) {
-          // Socket already closed by the client abort — expected.
+          // Connection may already be torn down by the client abort — expected.
         }
       });
 
@@ -158,10 +159,10 @@ void main() {
         reason: 'abort must cause send() to throw RequestAbortedException',
       );
 
-      // Release the server handler so it can exit cleanly.  The abort has
-      // already closed the socket, so close() in the handler will throw and
-      // be discarded.  Teardown also releases this gate; this is belt-and-
-      // suspenders cleanup for the success path.
+      // Release the server handler so it can exit cleanly.  The abort may
+      // have already torn down the connection, so close() in the handler may
+      // throw and be discarded.  Teardown also releases this gate; this is
+      // belt-and-suspenders cleanup for the success path.
       if (!releaseResponse.isCompleted) releaseResponse.complete();
     },
   );

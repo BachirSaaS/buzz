@@ -740,8 +740,9 @@ mod tests {
 // `verify_blossom_upload_auth`.
 //
 // The critical sequence:
-//   T=0:  proof is minted, admission passes (expiry > now).
-//   T=61: transfer completes, post-body check runs on already-expired proof.
+//   T=0:  proof is minted with `created_at = now - 58`, `expiration = now + 2`.
+//         Strict admission passes: age 58s ≤ 60s window, lifetime 60s, expiry future.
+//   T=3s: body transfer completes; post-body check runs on now-expired proof.
 //         Old path: verify_blossom_upload_auth → TokenExpired (breaks upload).
 //         New path: verify_upload_hash_only    → Ok if hash matches.
 //
@@ -749,6 +750,12 @@ mod tests {
 // `process_video_upload` (streaming, upload.rs:413) so that reverting either
 // post-body call to the old full verifier breaks the positive case, and
 // removing the hash check breaks the negative case.
+//
+// Note: `nostr::Timestamp::now()` reads the OS wall clock directly; paused
+// Tokio time does not advance it.  The positive cases use a real 3-second
+// sleep to sequence fresh admission at T=0 followed by expired completion at
+// T≈3s.  The negative (hash-mismatch) cases use a pre-expired proof and need
+// no timing sequence.
 //
 // Tests that require a live MinIO instance live in the `minio_tests` module so
 // the nextest profile can tag them with `#[ignore = "requires MinIO"]` and the
@@ -802,14 +809,44 @@ mod minio_tests {
         TenantContext::resolved(CommunityId::from_uuid(Uuid::nil()), "relay.example")
     }
 
-    /// Build an already-expired Blossom upload auth event whose `x` tag matches
-    /// `sha256`.  This simulates a proof that was admitted while fresh but whose
-    /// expiry has since passed during a slow transfer.
+    /// Build a fresh Blossom upload auth event that passes Strict admission NOW.
     ///
-    /// `created_at` is set to now - 120s so that both the replay window
-    /// (60 s in Strict) and the expiry bound are definitively past.  The
-    /// `expiration` tag is set to now - 1s (past), so the old full verifier
-    /// immediately returns `TokenExpired`.
+    /// Strict invariants:
+    ///   - `created_at` ≤ now + 5s (future-skew)
+    ///   - now - `created_at` ≤ 60s (replay window)
+    ///   - `expiration` ≤ `created_at` + 60s (token lifetime)
+    ///   - `expiration` > now (not yet expired)
+    ///
+    /// We set `created_at = now - 58` (age = 58s, inside the 60s window),
+    /// `expiration = now - 58 + 60 = now + 2` (lifetime = 60s, strictly future).
+    /// Calling `verify_blossom_upload_auth(Strict)` at sign time must return `Ok`.
+    /// After a ≥3 s real sleep the proof is expired (expiration ≤ now): the old
+    /// full verifier would return `TokenExpired`, while `verify_upload_hash_only`
+    /// only checks the `x` tag and must still succeed.
+    fn fresh_strict_upload_auth(keys: &Keys, sha256: &str, server: &str) -> nostr::Event {
+        let now = Timestamp::now().as_secs();
+        let created_at = now.saturating_sub(58);
+        let exp = created_at + 60; // now + 2s: strictly future, lifetime = 60s
+        let tags = vec![
+            Tag::parse(["t", "upload"]).unwrap(),
+            Tag::parse(["x", sha256]).unwrap(),
+            Tag::parse(["expiration", &exp.to_string()]).unwrap(),
+            Tag::parse(["server", server]).unwrap(),
+        ];
+        EventBuilder::new(Kind::from(24242), "Upload buzz-media")
+            .tags(tags)
+            .custom_created_at(Timestamp::from_secs(created_at))
+            .sign_with_keys(keys)
+            .expect("sign fresh upload auth")
+    }
+
+    /// Build an already-expired Blossom upload auth event for the mismatch-hash
+    /// negative cases.  No admission path is needed there: we only exercise the
+    /// post-body hash check, so the proof need not be fresh.
+    ///
+    /// `created_at = now - 120`, `expiration = now - 1`: definitively past for
+    /// the old full verifier (`TokenExpired`); the `x` tag is the only thing
+    /// `verify_upload_hash_only` reads.
     fn expired_upload_auth(keys: &Keys, sha256: &str, server: &str) -> nostr::Event {
         let now = Timestamp::now().as_secs();
         let created_at = now.saturating_sub(120);
@@ -827,31 +864,56 @@ mod minio_tests {
             .expect("sign expired upload auth")
     }
 
-    /// Case B (pipeline): the NEW post-body path (`verify_upload_hash_only`)
-    /// accepts an already-expired proof whose `x` tag matches the body SHA-256.
+    /// Case B (buffered pipeline): the NEW post-body path (`verify_upload_hash_only`)
+    /// accepts a proof whose expiry passes during the transfer.
     ///
-    /// This is the production invariant introduced by commit 75e9bef748: the
-    /// relay admits the proof before reading the body; after the body arrives,
-    /// only the hash is re-checked — NOT freshness.
+    /// Sequence:
+    ///   T=0:  `fresh_strict_upload_auth` signs a 60s-lifetime proof that passes
+    ///         Strict admission (`verify_blossom_upload_auth(Strict)` returns `Ok`).
+    ///   T≈3s: real sleep lets the proof expire (expiration ≤ now).
+    ///   T≈3s: `process_upload` runs; its post-body call is `verify_upload_hash_only`.
+    ///         Old path: `verify_blossom_upload_auth` → `TokenExpired` (upload breaks).
+    ///         New path: `verify_upload_hash_only`    → `Ok` if hash matches.
     ///
-    /// Discriminating mutation: replacing the `verify_upload_hash_only` call in
-    /// `process_buffered_upload` (`upload.rs:85`) with `verify_blossom_upload_auth`
-    /// causes this test to fail with `TokenExpired` (the old full-verifier path).
+    /// Note: `nostr::Timestamp::now()` reads the wall clock, not Tokio time.
+    /// Paused Tokio time does not advance it; a real sleep is required.
+    ///
+    /// Discriminating mutation: replacing `verify_upload_hash_only` at `upload.rs:85`
+    /// with `verify_blossom_upload_auth` causes this test to fail with `TokenExpired`.
     ///
     /// Requires a live MinIO instance (endpoint http://localhost:9000).
     #[tokio::test]
     #[ignore = "requires MinIO"]
     async fn buffered_upload_accepts_expired_proof_when_hash_matches() {
+        use crate::auth::{verify_blossom_upload_auth, BlossomStrictness};
+
         let keys = Keys::generate();
         let body = Bytes::from_static(MINIMAL_PNG);
         let sha256 = hex::encode(sha2::Sha256::digest(&body));
-        let auth = expired_upload_auth(&keys, &sha256, "relay.example");
+        let auth = fresh_strict_upload_auth(&keys, &sha256, "relay.example");
+
+        // Assert that the proof passes Strict admission RIGHT NOW, before any sleep.
+        assert!(
+            verify_blossom_upload_auth(
+                &auth,
+                &sha256,
+                Some("relay.example"),
+                BlossomStrictness::Strict
+            )
+            .is_ok(),
+            "proof must pass Strict admission at sign time"
+        );
+
+        // Wait for the proof to expire.  The expiry is `now + 2s` at sign time;
+        // 3s guarantees expiration ≤ current time when process_upload runs.
+        // `nostr::Timestamp::now()` reads the OS wall clock directly.
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
         let storage = MediaStorage::new(&minio_config()).expect("MinIO client must initialise");
         let ctx = test_tenant();
 
         // process_upload calls verify_upload_hash_only post-body (the repaired path).
-        // An already-expired proof with a matching hash must be accepted.
+        // The proof is now expired; a matching hash must still be accepted.
         let result = process_upload(
             &storage,
             &minio_config(),
@@ -870,8 +932,8 @@ mod minio_tests {
         );
     }
 
-    /// Case D (pipeline): `verify_upload_hash_only` rejects a mismatched body
-    /// hash even when the proof is otherwise structurally valid.
+    /// Case D (buffered pipeline): `verify_upload_hash_only` rejects a mismatched
+    /// body hash even when the proof is otherwise structurally valid.
     ///
     /// Discriminating mutation: removing the `verify_upload_hash_only` call
     /// (or replacing it with a no-op) causes this test to accept a mismatched
@@ -903,13 +965,17 @@ mod minio_tests {
         );
     }
 
-    /// Case B (streaming pipeline): `process_video_upload` accepts an already-expired
-    /// proof whose `x` tag matches the body SHA-256.
+    /// Case B (streaming pipeline): `process_video_upload` accepts a proof whose
+    /// expiry passes during the transfer.
     ///
-    /// The streaming path performs the same post-body hash-only check
-    /// (`upload.rs:413`): after streaming the body to disk and computing SHA-256,
-    /// it calls `verify_upload_hash_only` — NOT the full verifier.  An expired
-    /// proof with a matching hash must be accepted.
+    /// Sequence mirrors the buffered case:
+    ///   T=0:  `fresh_strict_upload_auth` signs a 60s-lifetime proof that passes
+    ///         Strict admission.
+    ///   T≈3s: real sleep lets the proof expire.
+    ///   T≈3s: `process_video_upload` streams to disk, computes SHA-256, then calls
+    ///         `verify_upload_hash_only` (the repaired path).
+    ///         Old path: `verify_blossom_upload_auth` → `TokenExpired`.
+    ///         New path: `verify_upload_hash_only`    → `Ok` if hash matches.
     ///
     /// Discriminating mutation: replacing `verify_upload_hash_only` at `upload.rs:413`
     /// with `verify_blossom_upload_auth` causes this test to fail with `TokenExpired`.
@@ -918,13 +984,29 @@ mod minio_tests {
     #[tokio::test]
     #[ignore = "requires MinIO"]
     async fn streaming_upload_accepts_expired_proof_when_hash_matches() {
+        use crate::auth::{verify_blossom_upload_auth, BlossomStrictness};
         use crate::validation::minimal_valid_mp4;
         use futures_util::stream;
 
         let keys = Keys::generate();
         let body_bytes = minimal_valid_mp4();
         let sha256 = hex::encode(sha2::Sha256::digest(&body_bytes));
-        let auth = expired_upload_auth(&keys, &sha256, "relay.example");
+        let auth = fresh_strict_upload_auth(&keys, &sha256, "relay.example");
+
+        // Assert Strict admission passes at sign time.
+        assert!(
+            verify_blossom_upload_auth(
+                &auth,
+                &sha256,
+                Some("relay.example"),
+                BlossomStrictness::Strict
+            )
+            .is_ok(),
+            "proof must pass Strict admission at sign time"
+        );
+
+        // Wait for the proof to expire (3s > 2s remaining until expiry).
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
         let body_len = body_bytes.len() as u64;
         // Wrap the bytes in a single-item stream of Ok(Bytes).
@@ -936,8 +1018,8 @@ mod minio_tests {
         let ctx = test_tenant();
 
         // process_video_upload streams to disk, computes SHA-256, then calls
-        // verify_upload_hash_only (the repaired path).  An expired proof with a
-        // matching hash must succeed.
+        // verify_upload_hash_only (the repaired path).  The proof is now expired;
+        // a matching hash must still be accepted.
         let result = process_video_upload(
             &storage,
             &minio_config(),
