@@ -19,6 +19,51 @@ import {
 
 afterEach(resetTestState);
 
+// ── Feedback fixture builder ──────────────────────────────────────────────────
+//
+// Builds a matched (summary, detail) pair with explicit overrides for the
+// fields that vary across feedback test scenarios. Reload handlers, IDs,
+// counters, and per-test assertions stay test-local.
+
+function makeFeedbackFixtures({
+  id = "00000000-0000-0000-0000-000000000099",
+  communityId = "comm-1",
+  communityHost = "relay.example.com",
+  submitterPubkey = "sub-fixture",
+  category = "bug",
+  bodySummary = "Fixture feedback summary",
+  body = "Fixture feedback full body",
+  status = "new",
+  eventId = "feedevent-fixture",
+  eventCreatedAt = "2024-06-01T09:00:00Z",
+  receivedAt = "2024-06-01T09:00:00Z",
+} = {}) {
+  const summary = {
+    id,
+    communityId,
+    communityHost,
+    submitterPubkey,
+    category,
+    bodySummary,
+    status,
+    receivedAt,
+  };
+  const detail = {
+    id,
+    communityId,
+    communityHost,
+    eventId,
+    submitterPubkey,
+    category,
+    body,
+    status,
+    tags: [],
+    eventCreatedAt,
+    receivedAt,
+  };
+  return { summary, detail };
+}
+
 test("feedback-detail-renders-structured-fields: FeedbackDetail shows field layout, not raw JSON", async () => {
   // Verifies item 3: the feedback detail view renders data-testid='feedback-detail-fields'.
   // Lives here (jsdom) because tab switching and item navigation require fireEvent.click.
@@ -228,29 +273,20 @@ test("feedback-status-honest: a reviewed detail reports reviewed, never defaulti
   const origin = "https://admin.example.com";
   const pubkey = "d5".repeat(32);
 
-  const reviewedSummary = {
-    id: "00000000-0000-0000-0000-0000000000d5",
-    communityId: "comm-1",
-    communityHost: "alpha.example.com",
-    submitterPubkey: "sub-reviewed",
-    category: "bug",
-    bodySummary: "Already-triaged feedback",
-    status: "reviewed",
-    receivedAt: "2024-06-01T09:00:00Z",
-  };
-  const reviewedDetail = {
-    id: reviewedSummary.id,
-    communityId: reviewedSummary.communityId,
-    communityHost: reviewedSummary.communityHost,
-    eventId: "revevent",
-    submitterPubkey: reviewedSummary.submitterPubkey,
-    category: "bug",
-    body: "Already-triaged feedback full body",
-    status: "reviewed",
-    tags: [],
-    eventCreatedAt: "2024-06-01T09:00:00Z",
-    receivedAt: "2024-06-01T09:00:00Z",
-  };
+  const { summary: reviewedSummary, detail: reviewedDetail } =
+    makeFeedbackFixtures({
+      id: "00000000-0000-0000-0000-0000000000d5",
+      communityId: "comm-1",
+      communityHost: "alpha.example.com",
+      submitterPubkey: "sub-reviewed",
+      category: "bug",
+      bodySummary: "Already-triaged feedback",
+      body: "Already-triaged feedback full body",
+      status: "reviewed",
+      eventId: "revevent",
+      receivedAt: "2024-06-01T09:00:00Z",
+      eventCreatedAt: "2024-06-01T09:00:00Z",
+    });
 
   setIpcHandler("admin_list_reports", () => Promise.resolve([]));
   setIpcHandler("admin_list_feedback", () =>
@@ -347,29 +383,20 @@ test("feedback-severed-community: a purged-source feedback row renders in list a
   const origin = "https://admin.example.com";
   const pubkey = "e8".repeat(32);
 
-  const severedSummary = {
-    id: "00000000-0000-0000-0000-0000000000e8",
-    communityId: null,
-    communityHost: null,
-    submitterPubkey: "sub-severed",
-    category: "bug",
-    bodySummary: "Feedback from a since-purged community",
-    status: "new",
-    receivedAt: "2024-06-01T09:00:00Z",
-  };
-  const severedDetail = {
-    id: severedSummary.id,
-    communityId: null,
-    communityHost: null,
-    eventId: "sevevent",
-    submitterPubkey: severedSummary.submitterPubkey,
-    category: "bug",
-    body: "Feedback from a since-purged community — full body",
-    status: "new",
-    tags: [],
-    eventCreatedAt: "2024-06-01T09:00:00Z",
-    receivedAt: "2024-06-01T09:00:00Z",
-  };
+  const { summary: severedSummary, detail: severedDetail } =
+    makeFeedbackFixtures({
+      id: "00000000-0000-0000-0000-0000000000e8",
+      communityId: null,
+      communityHost: null,
+      submitterPubkey: "sub-severed",
+      category: "bug",
+      bodySummary: "Feedback from a since-purged community",
+      body: "Feedback from a since-purged community — full body",
+      status: "new",
+      eventId: "sevevent",
+      eventCreatedAt: "2024-06-01T09:00:00Z",
+      receivedAt: "2024-06-01T09:00:00Z",
+    });
 
   setIpcHandler("admin_list_reports", () => Promise.resolve([]));
   setIpcHandler("admin_list_feedback", () => Promise.resolve([severedSummary]));
@@ -530,7 +557,6 @@ test("feedback-list-refetches-on-back-after-mutation: changing status then navig
 
 test("canMutate-false-feedback: feedback-status-control absent in disabled mode", async () => {
   // Mutation: remove {canMutate && …} guard on feedback status control → control renders → RED.
-  // Also asserts the read-only badge and zero PATCH calls via the detail route.
   const { feedbackSummary, feedbackDetail } = makeCmFalseFeedback();
   setIpcHandler("admin_list_reports", () => Promise.resolve([]));
   setIpcHandler("admin_list_feedback", () =>
@@ -572,8 +598,6 @@ test("canMutate-false-feedback: feedback-status-control absent in disabled mode"
     await unmount();
   }
 });
-
-// feedback-status-readonly is absent and the assertion goes RED.
 
 test("feedback-status-readonly: read-only detail shows status badge, no status-control, no PATCH", async () => {
   const origin = "https://admin-readonly.example.com";

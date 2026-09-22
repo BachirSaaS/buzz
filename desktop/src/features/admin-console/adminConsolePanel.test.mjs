@@ -21,7 +21,7 @@
  * suite handles async transitions cleanly without the jsdom global scheduler.
  *
  * Cross-identity delayed-save and all event-driven tests (origin-edit, detail-navigation,
- * attachment-unmount, same-session-save-race) live in adminConsolePanelEvents.jsdom-test.mjs
+ * attachment-unmount, same-session-save-race) live in adminConsolePanelSession.jsdom-test.mjs
  * where fireEvent dispatches native events through React 19's container-level delegation.
  *
  * Also covers:
@@ -558,48 +558,58 @@ test("parseImetaAttachments: parses a well-formed imeta tag", () => {
   assert.equal(result[0].size, 1234);
 });
 
-test("parseImetaAttachments: skips tags that are not imeta", () => {
-  const tags = [
-    ["p", "abc123"],
-    ["e", "def456"],
+test("parseImetaAttachments: skips or rejects invalid inputs", () => {
+  // Table of inputs that must produce an empty result. Retains every input
+  // from the original standalone tests, including zero/negative sizes and
+  // null/object/string non-array values.
+  const sha256 = "a".repeat(64);
+  const IMETA_REJECTION_ROWS = [
+    {
+      label: "non-imeta tags are skipped",
+      tags: [
+        ["p", "abc123"],
+        ["e", "def456"],
+      ],
+    },
+    {
+      label: "uppercase x hash rejected",
+      tags: [["imeta", `x ${"A".repeat(64)}`, "m image/png", "size 100"]],
+    },
+    {
+      label: "hash shorter than 64 chars rejected",
+      tags: [["imeta", `x ${"a".repeat(63)}`, "m image/png", "size 100"]],
+    },
+    {
+      label: "hash longer than 64 chars rejected",
+      tags: [["imeta", `x ${"a".repeat(65)}`, "m image/png", "size 100"]],
+    },
+    {
+      label: "missing m field rejected",
+      tags: [["imeta", `x ${"b".repeat(64)}`, "size 100"]],
+    },
+    {
+      label: "missing size field rejected",
+      tags: [["imeta", `x ${"c".repeat(64)}`, "m image/png"]],
+    },
+    {
+      label: "zero size rejected",
+      tags: [["imeta", `x ${sha256}`, "m image/png", "size 0"]],
+    },
+    {
+      label: "negative size rejected",
+      tags: [["imeta", `x ${sha256}`, "m image/png", "size -1"]],
+    },
+    { label: "null input returns empty array", tags: null },
+    { label: "object input returns empty array", tags: {} },
+    { label: "string input returns empty array", tags: "imeta" },
   ];
-  assert.deepEqual(parseImetaAttachments(tags), []);
-});
-
-test("parseImetaAttachments: rejects uppercase x hash", () => {
-  const sha256Upper = "A".repeat(64);
-  const tags = [["imeta", `x ${sha256Upper}`, "m image/png", "size 100"]];
-  assert.deepEqual(parseImetaAttachments(tags), []);
-});
-
-test("parseImetaAttachments: rejects hash shorter than 64 chars", () => {
-  const tags = [["imeta", `x ${"a".repeat(63)}`, "m image/png", "size 100"]];
-  assert.deepEqual(parseImetaAttachments(tags), []);
-});
-
-test("parseImetaAttachments: rejects hash longer than 64 chars", () => {
-  const tags = [["imeta", `x ${"a".repeat(65)}`, "m image/png", "size 100"]];
-  assert.deepEqual(parseImetaAttachments(tags), []);
-});
-
-test("parseImetaAttachments: rejects missing m field", () => {
-  const sha256 = "b".repeat(64);
-  const tags = [["imeta", `x ${sha256}`, "size 100"]];
-  assert.deepEqual(parseImetaAttachments(tags), []);
-});
-
-test("parseImetaAttachments: rejects missing size field", () => {
-  const sha256 = "c".repeat(64);
-  const tags = [["imeta", `x ${sha256}`, "m image/png"]];
-  assert.deepEqual(parseImetaAttachments(tags), []);
-});
-
-test("parseImetaAttachments: rejects non-positive size", () => {
-  const sha256 = "d".repeat(64);
-  const tags = [["imeta", `x ${sha256}`, "m image/png", "size 0"]];
-  assert.deepEqual(parseImetaAttachments(tags), []);
-  const tagsNeg = [["imeta", `x ${sha256}`, "m image/png", "size -1"]];
-  assert.deepEqual(parseImetaAttachments(tagsNeg), []);
+  for (const row of IMETA_REJECTION_ROWS) {
+    assert.deepEqual(
+      parseImetaAttachments(row.tags),
+      [],
+      `row must return []: ${row.label}`,
+    );
+  }
 });
 
 test("parseImetaAttachments: parses multiple imeta tags", () => {
@@ -613,12 +623,6 @@ test("parseImetaAttachments: parses multiple imeta tags", () => {
   assert.equal(result.length, 2);
   assert.equal(result[0].sha256, sha1);
   assert.equal(result[1].sha256, sha2);
-});
-
-test("parseImetaAttachments: returns empty array for non-array input", () => {
-  assert.deepEqual(parseImetaAttachments(null), []);
-  assert.deepEqual(parseImetaAttachments({}), []);
-  assert.deepEqual(parseImetaAttachments("imeta"), []);
 });
 
 // ── Component-level session boundary and race tests ───────────────────────────
@@ -772,7 +776,7 @@ test("storage-error surfaced: getAdminOrigin rejection shows error in UI", async
 });
 
 // origin-edit (abortAndResetProbe wired to onChange) is covered by
-// adminConsolePanelEvents.jsdom-test.mjs where fireEvent dispatches native
+// adminConsolePanelSession.jsdom-test.mjs where fireEvent dispatches native
 // events through React 19's container-level delegation.
 
 // ── AdminConsolePanel race tests ──────────────────────────────────────────────
@@ -887,7 +891,7 @@ test("old-list-after-new-list: stale list result does not replace new list after
 
 // detail-navigation and attachment-unmount (useAsyncLoad active flag,
 // AttachmentViewer loadGenRef cleanup) are covered by
-// adminConsolePanelEvents.jsdom-test.mjs where fireEvent dispatches native
+// adminConsolePanelSession.jsdom-test.mjs where fireEvent dispatches native
 // events through React 19's container-level delegation.
 
 // ── probe role/source gating — table-driven ──────────────────────────────

@@ -657,32 +657,36 @@ test("staffing-role-change-success: role selector change calls putAdminOperator 
   }
 });
 
-test("staffing-role-change-409: a 409 conflict from putAdminOperator surfaces the relay error message", async () => {
-  // Verifies that a 409 response to a role change surfaces the relay's parsed
-  // error message directly, not a hardcoded "config-backed" copy.
-  //
-  // Two sub-cases cover the two distinct 409 messages the relay sends:
-  //   (a) config-backed key: "pubkey is backed by config ..."
-  //   (b) last-operator conflict: "operation would remove the last relay
-  //       operator — add a replacement operator first"
-  //
-  // Before the fix, case (b) was incorrectly classified as config-backed,
-  // hiding the relay's recovery guidance. The fix replaces the 409 hardcode
-  // with adminErrorMessage(e), which parses the relay's error envelope.
+test("staffing-role-change-409: putAdminOperator error cases surface the relay message", async () => {
+  // Verifies that role-change errors surface the relay's parsed error message
+  // directly, not a hardcoded "config-backed" copy.
   //
   // Mutation evidence:
   //   - Restore the old adminMutationRelayStatus === 409 branch →
-  //     case (b) shows "config-backed" instead of the relay message → RED.
+  //     last-operator row shows "config-backed" instead of the relay message → RED.
   //   - Remove the adminErrorMessage(e) call → raw JSON renders → RED.
   const origin = "https://admin-staffing-role-reject.example.com";
   const pubkey = "07".repeat(32);
   const opPubkey = "18".repeat(32);
 
-  let putResult = () =>
-    mutationReject(
-      'admin API error: {"error":{"code":"conflict","message":"pubkey is backed by config (RELAY_OPERATOR_PUBKEYS or owner fallback) — immutable through the API"}}',
-      409,
-    );
+  const ROLE_CHANGE_ERROR_ROWS = [
+    {
+      name: "config-backed 409",
+      message:
+        'admin API error: {"error":{"code":"conflict","message":"pubkey is backed by config (RELAY_OPERATOR_PUBKEYS or owner fallback) — immutable through the API"}}',
+      status: 409,
+      contains: "immutable through the API",
+    },
+    {
+      name: "last-operator 409",
+      message:
+        'admin API error: {"error":{"code":"conflict","message":"operation would remove the last relay operator — add a replacement operator first"}}',
+      status: 409,
+      contains: "add a replacement operator first",
+    },
+  ];
+
+  let putResult = () => mutationReject(ROLE_CHANGE_ERROR_ROWS[0].message, 409);
   setIpcHandler("admin_put_operator", () => putResult());
 
   const { container, doRender, unmount } = mountStaffingPanel(origin, pubkey, [
@@ -697,87 +701,87 @@ test("staffing-role-change-409: a 409 conflict from putAdminOperator surfaces th
     );
     assert.ok(roleSelect !== null, "role selector must be present");
 
-    // ── Case (a): config-backed 409 surfaces relay's config-backed message ──
-    await act(async () => {
-      fireEvent.change(roleSelect, { target: { value: "operator" } });
-      await new Promise((r) => setTimeout(r, 30));
-    });
-
-    let errEls = Array.from(
-      container.querySelectorAll(
-        "[data-testid='staffing-tab'] [class*='destructive']",
-      ),
-    );
-    assert.ok(
-      errEls.length > 0,
-      "an error element must appear after rejected role change",
-    );
-    assert.ok(
-      errEls.some((el) => el.textContent.includes("immutable through the API")),
-      `config-backed 409 must surface relay message; got: ${errEls.map((e) => e.textContent).join(", ")}`,
-    );
-    assert.ok(
-      !errEls.some((el) => el.textContent.includes("admin API error")),
-      "raw envelope prefix must not render",
-    );
-
-    // ── Case (b): last-operator 409 surfaces relay's distinct recovery message ──
-    putResult = () =>
-      mutationReject(
-        'admin API error: {"error":{"code":"conflict","message":"operation would remove the last relay operator — add a replacement operator first"}}',
-        409,
+    for (const row of ROLE_CHANGE_ERROR_ROWS) {
+      putResult = () => mutationReject(row.message, row.status);
+      // Re-select moderator first so the change is non-trivial.
+      await act(async () => {
+        fireEvent.change(roleSelect, { target: { value: "moderator" } });
+        await new Promise((r) => setTimeout(r, 10));
+      });
+      const roleSelectCurrent = container.querySelector(
+        `[data-testid='staffing-role-select-${opPubkey}']`,
       );
-    await act(async () => {
-      // Re-select moderator first so the change is non-trivial, then operator.
-      fireEvent.change(roleSelect, { target: { value: "moderator" } });
-      await new Promise((r) => setTimeout(r, 10));
-    });
-    // roleSelect may have been refreshed — re-query.
-    const roleSelectB = container.querySelector(
-      `[data-testid='staffing-role-select-${opPubkey}']`,
-    );
-    await act(async () => {
-      fireEvent.change(roleSelectB, { target: { value: "operator" } });
-      await new Promise((r) => setTimeout(r, 30));
-    });
+      await act(async () => {
+        fireEvent.change(roleSelectCurrent, { target: { value: "operator" } });
+        await new Promise((r) => setTimeout(r, 30));
+      });
 
-    errEls = Array.from(
-      container.querySelectorAll(
-        "[data-testid='staffing-tab'] [class*='destructive']",
-      ),
-    );
-    assert.ok(
-      errEls.some((el) =>
-        el.textContent.includes("add a replacement operator first"),
-      ),
-      `last-operator 409 must surface the relay's recovery message, not "config-backed"; got: ${errEls.map((e) => e.textContent).join(", ")}`,
-    );
+      const errEls = Array.from(
+        container.querySelectorAll(
+          "[data-testid='staffing-tab'] [class*='destructive']",
+        ),
+      );
+      assert.ok(
+        errEls.length > 0,
+        `an error element must appear after rejected role change (${row.name})`,
+      );
+      assert.ok(
+        errEls.some((el) => el.textContent.includes(row.contains)),
+        `${row.name} must surface relay message containing "${row.contains}"; got: ${errEls.map((e) => e.textContent).join(", ")}`,
+      );
+      assert.ok(
+        !errEls.some((el) => el.textContent.includes("admin API error")),
+        `${row.name}: raw envelope prefix must not render`,
+      );
+    }
   } finally {
     await unmount();
   }
 });
 
-test("staffing-add-409: a typed 409 from putAdminOperator surfaces the relay error message; non-409 renders adminErrorMessage", async () => {
+test("staffing-add-409: putAdminOperator error cases surface the relay message", async () => {
   // handleAdd surfaces adminErrorMessage(e) for ALL errors — a 409 shows the
   // relay's parsed message (config-backed OR last-operator conflict), not a
   // hardcoded copy.
   //
-  // Two 409 sub-cases (a) config-backed and (b) last-operator verify that the
-  // distinct relay messages reach the UI unchanged.
-  //
   // Mutation evidence:
   //   - Restore the old adminMutationRelayStatus === 409 hardcode →
-  //     case (b) shows "config-backed" not the relay message → RED.
+  //     last-operator row shows "config-backed" not the relay message → RED.
   //   - Remove adminErrorMessage(e) → raw JSON envelope renders → RED.
   const origin = "https://admin-staffing-add-reject.example.com";
   const pubkey = "07".repeat(32);
-  const newPubkey = "19".repeat(32);
 
-  let putResult = () =>
-    mutationReject(
-      'admin API error: {"error":{"code":"conflict","message":"pubkey is backed by config (RELAY_OPERATOR_PUBKEYS or owner fallback) — immutable through the API"}}',
-      409,
-    );
+  const ADD_ERROR_ROWS = [
+    {
+      name: "config-backed 409",
+      pubkeyInput: "19".repeat(32),
+      message:
+        'admin API error: {"error":{"code":"conflict","message":"pubkey is backed by config (RELAY_OPERATOR_PUBKEYS or owner fallback) — immutable through the API"}}',
+      status: 409,
+      contains: "immutable through the API",
+      excludes: "admin API error",
+    },
+    {
+      name: "last-operator 409",
+      pubkeyInput: "2a".repeat(32),
+      message:
+        'admin API error: {"error":{"code":"conflict","message":"operation would remove the last relay operator — add a replacement operator first"}}',
+      status: 409,
+      contains: "add a replacement operator first",
+      excludes: "admin API error",
+    },
+    {
+      name: "non-409 typed failure",
+      pubkeyInput: "3b".repeat(32),
+      message:
+        'admin API error: {"error":{"code":"forbidden","message":"pubkey not permitted"}}',
+      status: 403,
+      contains: "pubkey not permitted",
+      excludes: "admin API error",
+    },
+  ];
+
+  let putResult = () => mutationReject(ADD_ERROR_ROWS[0].message, 409);
   setIpcHandler("admin_put_operator", () => putResult());
 
   const { container, doRender, unmount } = mountStaffingPanel(origin, pubkey);
@@ -792,108 +796,80 @@ test("staffing-add-409: a typed 409 from putAdminOperator surfaces the relay err
     const addBtn = container.querySelector("[data-testid='staffing-add-btn']");
     assert.ok(addBtn, "Add button must be present");
 
-    // ── Case (a): config-backed 409 → relay's config-backed message ──
-    await act(async () => {
-      fireEvent.change(pubkeyInput, { target: { value: newPubkey } });
-      await new Promise((r) => setTimeout(r, 10));
-    });
-    await act(async () => {
-      fireEvent.click(addBtn);
-      await new Promise((r) => setTimeout(r, 30));
-    });
+    for (const row of ADD_ERROR_ROWS) {
+      putResult = () => mutationReject(row.message, row.status);
+      await act(async () => {
+        fireEvent.change(pubkeyInput, { target: { value: row.pubkeyInput } });
+        await new Promise((r) => setTimeout(r, 10));
+      });
+      await act(async () => {
+        fireEvent.click(addBtn);
+        await new Promise((r) => setTimeout(r, 30));
+      });
 
-    let errEls = Array.from(
-      container.querySelectorAll(
-        "[data-testid='staffing-tab'] .text-destructive",
-      ),
-    );
-    assert.ok(
-      errEls.some((el) => el.textContent.includes("immutable through the API")),
-      `config-backed 409 add must surface relay message; got: ${errEls.map((e) => e.textContent).join(", ")}`,
-    );
-
-    // ── Case (b): last-operator 409 → relay's recovery message, not "config-backed" ──
-    putResult = () =>
-      mutationReject(
-        'admin API error: {"error":{"code":"conflict","message":"operation would remove the last relay operator — add a replacement operator first"}}',
-        409,
+      const errEls = Array.from(
+        container.querySelectorAll(
+          "[data-testid='staffing-tab'] .text-destructive",
+        ),
       );
-    const anotherPubkey = "2a".repeat(32);
-    await act(async () => {
-      fireEvent.change(pubkeyInput, { target: { value: anotherPubkey } });
-      await new Promise((r) => setTimeout(r, 10));
-    });
-    await act(async () => {
-      fireEvent.click(addBtn);
-      await new Promise((r) => setTimeout(r, 30));
-    });
-
-    errEls = Array.from(
-      container.querySelectorAll(
-        "[data-testid='staffing-tab'] .text-destructive",
-      ),
-    );
-    assert.ok(
-      errEls.some((el) =>
-        el.textContent.includes("add a replacement operator first"),
-      ),
-      `last-operator 409 add must surface relay recovery message; got: ${errEls.map((e) => e.textContent).join(", ")}`,
-    );
-
-    // ── Case (c): non-409 typed failure → adminErrorMessage's envelope text ──
-    putResult = () =>
-      mutationReject(
-        'admin API error: {"error":{"code":"forbidden","message":"pubkey not permitted"}}',
-        403,
+      assert.ok(
+        errEls.some((el) => el.textContent.includes(row.contains)),
+        `${row.name} must surface relay message containing "${row.contains}"; got: ${errEls.map((e) => e.textContent).join(", ")}`,
       );
-    const yetAnotherPubkey = "3b".repeat(32);
-    await act(async () => {
-      fireEvent.change(pubkeyInput, { target: { value: yetAnotherPubkey } });
-      await new Promise((r) => setTimeout(r, 10));
-    });
-    await act(async () => {
-      fireEvent.click(addBtn);
-      await new Promise((r) => setTimeout(r, 30));
-    });
-
-    errEls = Array.from(
-      container.querySelectorAll(
-        "[data-testid='staffing-tab'] .text-destructive",
-      ),
-    );
-    assert.ok(
-      errEls.some((el) => el.textContent.includes("pubkey not permitted")),
-      `non-409 add must surface adminErrorMessage envelope text; got: ${errEls.map((e) => e.textContent).join(", ")}`,
-    );
-    assert.ok(
-      !errEls.some((el) => el.textContent.includes("admin API error")),
-      "non-409 add must not render the raw serialized error prefix",
-    );
+      assert.ok(
+        !errEls.some((el) => el.textContent.includes(row.excludes)),
+        `${row.name} must not render the raw serialized error prefix`,
+      );
+    }
   } finally {
     await unmount();
   }
 });
 
-test("staffing-remove-409: a typed 409 from deleteAdminOperator surfaces the relay error message; non-409 renders adminErrorMessage", async () => {
+test("staffing-remove-409: deleteAdminOperator error cases surface the relay message", async () => {
   // handleConfirmRemove surfaces adminErrorMessage(e) for ALL errors — a 409
   // shows the relay's parsed message (config-backed OR last-operator conflict).
   //
-  // Before the fix, a last-operator 409 was misclassified as "config-backed",
-  // hiding the relay's "add a replacement operator first" recovery guidance.
-  //
   // Mutation evidence:
   //   - Restore the old adminMutationRelayStatus === 409 branch →
-  //     case (b) shows "config-backed" not the relay message → RED.
+  //     last-operator row shows "config-backed" not the relay message → RED.
   //   - Remove adminErrorMessage(e) → raw JSON envelope renders → RED.
+  //
+  // Dialog confirmation is shared; cancel and pre-confirm zero-DELETE evidence
+  // lives in staffing-remove-cancel and staffing-remove-confirm above.
   const origin = "https://admin-staffing-remove-reject.example.com";
   const pubkey = "07".repeat(32);
   const opPubkey = "1a".repeat(32);
 
+  const REMOVE_ERROR_ROWS = [
+    {
+      name: "config-backed 409",
+      message:
+        'admin API error: {"error":{"code":"conflict","message":"pubkey is backed by config (RELAY_OPERATOR_PUBKEYS or owner fallback) — immutable through the API"}}',
+      status: 409,
+      contains: "immutable through the API",
+      excludes: "admin API error",
+    },
+    {
+      name: "last-operator 409",
+      message:
+        'admin API error: {"error":{"code":"conflict","message":"operation would remove the last relay operator — add a replacement operator first"}}',
+      status: 409,
+      contains: "add a replacement operator first",
+      excludes: "admin API error",
+    },
+    {
+      name: "non-409 typed failure",
+      message:
+        'admin API error: {"error":{"code":"internal","message":"operator store unavailable"}}',
+      status: 500,
+      contains: "operator store unavailable",
+      excludes: "admin API error",
+    },
+  ];
+
   let deleteResult = () =>
-    mutationReject(
-      'admin API error: {"error":{"code":"conflict","message":"pubkey is backed by config (RELAY_OPERATOR_PUBKEYS or owner fallback) — immutable through the API"}}',
-      409,
-    );
+    mutationReject(REMOVE_ERROR_ROWS[0].message, REMOVE_ERROR_ROWS[0].status);
   setIpcHandler("admin_delete_operator", () => deleteResult());
 
   const { container, doRender, unmount } = mountStaffingPanel(origin, pubkey, [
@@ -922,62 +898,24 @@ test("staffing-remove-409: a typed 409 from deleteAdminOperator surfaces the rel
   };
 
   try {
-    // ── Case (a): config-backed 409 → relay's config-backed message ──
-    await confirmRemove();
+    for (const row of REMOVE_ERROR_ROWS) {
+      deleteResult = () => mutationReject(row.message, row.status);
+      await confirmRemove();
 
-    let errEls = Array.from(
-      container.querySelectorAll(
-        "[data-testid='staffing-tab'] [class*='destructive']",
-      ),
-    );
-    assert.ok(
-      errEls.some((el) => el.textContent.includes("immutable through the API")),
-      `config-backed 409 remove must surface relay message; got: ${errEls.map((e) => e.textContent).join(", ")}`,
-    );
-
-    // ── Case (b): last-operator 409 → relay's recovery message ──
-    deleteResult = () =>
-      mutationReject(
-        'admin API error: {"error":{"code":"conflict","message":"operation would remove the last relay operator — add a replacement operator first"}}',
-        409,
+      const errEls = Array.from(
+        container.querySelectorAll(
+          "[data-testid='staffing-tab'] [class*='destructive']",
+        ),
       );
-    await confirmRemove();
-
-    errEls = Array.from(
-      container.querySelectorAll(
-        "[data-testid='staffing-tab'] [class*='destructive']",
-      ),
-    );
-    assert.ok(
-      errEls.some((el) =>
-        el.textContent.includes("add a replacement operator first"),
-      ),
-      `last-operator 409 remove must surface relay recovery message, not "config-backed"; got: ${errEls.map((e) => e.textContent).join(", ")}`,
-    );
-
-    // ── Case (c): non-409 typed failure → adminErrorMessage's envelope text ──
-    deleteResult = () =>
-      mutationReject(
-        'admin API error: {"error":{"code":"internal","message":"operator store unavailable"}}',
-        500,
+      assert.ok(
+        errEls.some((el) => el.textContent.includes(row.contains)),
+        `${row.name} must surface relay message containing "${row.contains}"; got: ${errEls.map((e) => e.textContent).join(", ")}`,
       );
-    await confirmRemove();
-
-    errEls = Array.from(
-      container.querySelectorAll(
-        "[data-testid='staffing-tab'] [class*='destructive']",
-      ),
-    );
-    assert.ok(
-      errEls.some((el) =>
-        el.textContent.includes("operator store unavailable"),
-      ),
-      `non-409 remove must surface adminErrorMessage envelope text; got: ${errEls.map((e) => e.textContent).join(", ")}`,
-    );
-    assert.ok(
-      !errEls.some((el) => el.textContent.includes("admin API error")),
-      "non-409 remove must not render the raw serialized error prefix",
-    );
+      assert.ok(
+        !errEls.some((el) => el.textContent.includes(row.excludes)),
+        `${row.name} must not render the raw serialized error prefix`,
+      );
+    }
   } finally {
     await unmount();
   }

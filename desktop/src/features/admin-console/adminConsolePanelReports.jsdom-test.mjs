@@ -17,6 +17,8 @@ import {
   mountPanel,
   makeOpenReportFixtures,
   settle,
+  CM_ORIGIN,
+  CM_PUBKEY,
 } from "./adminConsolePanelTestHelpers.jsdom.mjs";
 
 afterEach(resetTestState);
@@ -840,6 +842,36 @@ for (const row of REOPEN_RETRY_ROWS) {
   });
 }
 
+// ── Report status fixture builder ─────────────────────────────────────────────
+//
+// Builds the invariant base object shared by the cancel/no-cancel/reopened-
+// after-enforcement trio. Reload handlers, action objects, IDs, counters, and
+// per-test assertions stay test-local.
+
+function makeReportBase({
+  id,
+  communityId = "00000000-0000-0000-0000-000000000002",
+  communityHost = "relay.example.com",
+  reportEventId = "aa",
+  reporterPubkey = "bb",
+  targetKind = "event",
+  target = "cc",
+  reportType = "spam",
+  createdAt = "2024-06-01T12:00:00Z",
+}) {
+  return {
+    id,
+    communityId,
+    communityHost,
+    reportEventId,
+    reporterPubkey,
+    targetKind,
+    target,
+    reportType,
+    createdAt,
+  };
+}
+
 test("cancel-on-failed: a failed action offers Cancel, POSTs {actionId} to admin_cancel_report, and reloads to open", async () => {
   // Cancel-then-resolve is the only recovery from a failed enforcement. The
   // block offers Cancel on `status: "failed"`, fences it on the action id, and
@@ -854,17 +886,7 @@ test("cancel-on-failed: a failed action offers Cancel, POSTs {actionId} to admin
   const origin = "https://admin.example.com";
   const pubkey = "e5".repeat(32);
 
-  const base = {
-    id: "00000000-0000-0000-0000-0000000000e5",
-    communityId: "00000000-0000-0000-0000-000000000002",
-    communityHost: "relay.example.com",
-    reportEventId: "aa",
-    reporterPubkey: "bb",
-    targetKind: "event",
-    target: "cc",
-    reportType: "spam",
-    createdAt: "2024-06-01T12:00:00Z",
-  };
+  const base = makeReportBase({ id: "00000000-0000-0000-0000-0000000000e5" });
   const actionId = "00000000-0000-0000-0000-0000000000f1";
   const failedDetail = {
     ...base,
@@ -999,17 +1021,7 @@ test("no-cancel-on-in-flight: an enforcing action offers no cancel button", asyn
   const origin = "https://admin.example.com";
   const pubkey = "e6".repeat(32);
 
-  const base = {
-    id: "00000000-0000-0000-0000-0000000000e6",
-    communityId: "00000000-0000-0000-0000-000000000002",
-    communityHost: "relay.example.com",
-    reportEventId: "aa",
-    reporterPubkey: "bb",
-    targetKind: "event",
-    target: "cc",
-    reportType: "spam",
-    createdAt: "2024-06-01T12:00:00Z",
-  };
+  const base = makeReportBase({ id: "00000000-0000-0000-0000-0000000000e6" });
   const enforcingDetail = {
     ...base,
     status: "processing",
@@ -1079,15 +1091,9 @@ test("reopened-after-enforcement: an open report carrying a succeeded action sho
   const origin = "https://admin.example.com";
   const pubkey = "e7".repeat(32);
 
+  const base = makeReportBase({ id: "00000000-0000-0000-0000-0000000000e7" });
   const reopenedDetail = {
-    id: "00000000-0000-0000-0000-0000000000e7",
-    communityId: "00000000-0000-0000-0000-000000000002",
-    communityHost: "relay.example.com",
-    reportEventId: "aa",
-    reporterPubkey: "bb",
-    targetKind: "event",
-    target: "cc",
-    reportType: "spam",
+    ...base,
     status: "open",
     channelId: null,
     note: null,
@@ -1549,11 +1555,12 @@ test("attachment-budget-seam: only 5 of 7 image attachments trigger native fetch
 //   D. Feedback status control (FeedbackDetail)
 //   E. Staffing add/remove (role=operator, staffing tab)
 //
-// These five tests are NOT vacuous: each control-presence assertion fails if
+// These three tests are NOT vacuous: each control-presence assertion fails if
 // the corresponding {canMutate && …} guard is removed.
 //
-// Shared fixtures — each test receives a fresh copy via the factory helpers.
+// Shared fixtures — each row receives a fresh copy via makeCmFalseReports().
 
+/** Build open/resolved/failed report fixtures for canMutate-false tests. */
 function makeCmFalseReports() {
   const openReport = {
     id: "00000000-0000-0000-0000-000000000001",
@@ -1629,93 +1636,75 @@ function makeCmFalseReports() {
   };
 }
 
-const CM_ORIGIN = "https://admin-readonly.example.com";
-const CM_PUBKEY = "cc".repeat(32);
+const CM_FALSE_REPORTS_ROWS = [
+  {
+    name: "resolve",
+    description: "resolve-report-form absent in disabled mode",
+    // Mutation: remove {canMutate && …} guard on ResolveReportForm → form renders → RED.
+    getFixtures: () => {
+      const { openReport, openDetail } = makeCmFalseReports();
+      return { listItem: openReport, detail: openDetail };
+    },
+    testId: "resolve-report-form",
+    label: "resolve-report-form must be absent when canMutate=false",
+  },
+  {
+    name: "reopen",
+    description: "reopen-report-form absent in disabled mode",
+    // Mutation: remove {canMutate && …} guard on ReopenReportForm → form renders → RED.
+    getFixtures: () => {
+      const { resolvedReport, resolvedDetail } = makeCmFalseReports();
+      return { listItem: resolvedReport, detail: resolvedDetail };
+    },
+    testId: "reopen-report-form",
+    label: "reopen-report-form must be absent when canMutate=false",
+  },
+  {
+    name: "cancel",
+    description: "enforcement-cancel-btn absent in disabled mode",
+    // Mutation: remove {canMutate && …} guard on enforcement cancel → button renders → RED.
+    getFixtures: () => {
+      const { failedReport, failedDetail } = makeCmFalseReports();
+      return { listItem: failedReport, detail: failedDetail };
+    },
+    testId: "enforcement-cancel-btn",
+    label: "enforcement-cancel-btn must be absent when canMutate=false",
+  },
+];
 
-test("canMutate-false-resolve: resolve-report-form absent in disabled mode", async () => {
-  // Mutation: remove {canMutate && …} guard on ResolveReportForm → form renders → RED.
-  const { openReport, openDetail } = makeCmFalseReports();
-  setIpcHandler("admin_list_reports", () => Promise.resolve([openReport]));
-  setIpcHandler("admin_get_report", () => Promise.resolve(openDetail));
-  setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
-  const { container, doRender, unmount } = mountPanel({
-    origin: CM_ORIGIN,
-    pubkey: CM_PUBKEY,
-    canMutate: false,
+for (const row of CM_FALSE_REPORTS_ROWS) {
+  test(`canMutate-false-${row.name}: ${row.description}`, async () => {
+    const { listItem, detail } = row.getFixtures();
+    setIpcHandler("admin_list_reports", () => Promise.resolve([listItem]));
+    setIpcHandler("admin_get_report", () => Promise.resolve(detail));
+    setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
+    const { container, doRender, unmount } = mountPanel({
+      origin: CM_ORIGIN,
+      pubkey: CM_PUBKEY,
+      canMutate: false,
+    });
+    try {
+      await doRender();
+      await settle(30);
+      await openFirstReportDetail(container);
+      await settle(20);
+      assert.equal(
+        container.querySelector(`[data-testid='${row.testId}']`),
+        null,
+        row.label,
+      );
+    } finally {
+      await unmount();
+    }
   });
-  try {
-    await doRender();
-    await settle(30);
-    await openFirstReportDetail(container);
-    await settle(20);
-    assert.equal(
-      container.querySelector("[data-testid='resolve-report-form']"),
-      null,
-      "resolve-report-form must be absent when canMutate=false",
-    );
-  } finally {
-    await unmount();
-  }
-});
-
-test("canMutate-false-reopen: reopen-report-form absent in disabled mode", async () => {
-  // Mutation: remove {canMutate && …} guard on ReopenReportForm → form renders → RED.
-  const { resolvedReport, resolvedDetail } = makeCmFalseReports();
-  setIpcHandler("admin_list_reports", () => Promise.resolve([resolvedReport]));
-  setIpcHandler("admin_get_report", () => Promise.resolve(resolvedDetail));
-  setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
-  const { container, doRender, unmount } = mountPanel({
-    origin: CM_ORIGIN,
-    pubkey: CM_PUBKEY,
-    canMutate: false,
-  });
-  try {
-    await doRender();
-    await settle(30);
-    await openFirstReportDetail(container);
-    await settle(20);
-    assert.equal(
-      container.querySelector("[data-testid='reopen-report-form']"),
-      null,
-      "reopen-report-form must be absent when canMutate=false",
-    );
-  } finally {
-    await unmount();
-  }
-});
-
-test("canMutate-false-cancel: enforcement-cancel-btn absent in disabled mode", async () => {
-  // Mutation: remove {canMutate && …} guard on enforcement cancel → button renders → RED.
-  const { failedReport, failedDetail } = makeCmFalseReports();
-  setIpcHandler("admin_list_reports", () => Promise.resolve([failedReport]));
-  setIpcHandler("admin_get_report", () => Promise.resolve(failedDetail));
-  setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
-  const { container, doRender, unmount } = mountPanel({
-    origin: CM_ORIGIN,
-    pubkey: CM_PUBKEY,
-    canMutate: false,
-  });
-  try {
-    await doRender();
-    await settle(30);
-    await openFirstReportDetail(container);
-    await settle(20);
-    assert.equal(
-      container.querySelector("[data-testid='enforcement-cancel-btn']"),
-      null,
-      "enforcement-cancel-btn must be absent when canMutate=false",
-    );
-  } finally {
-    await unmount();
-  }
-});
+}
 
 // ── P2 round-6 #3: reason audience disclosure ────────────────────────────
 //
 // Table-driven: each action button selects a disclosure copy. Assertions verify
 // both positive presence and negative exclusion of sibling audiences.
 // delete has channelId set (Kick/Delete only available for event-in-channel);
-// ban and dismiss use a pubkey-target (no channel).
+// ban uses targetKind "event" with no channel; dismiss uses a pubkey-target.
 
 const REASON_AUDIENCE_ROWS = [
   {

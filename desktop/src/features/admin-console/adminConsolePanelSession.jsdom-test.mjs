@@ -926,101 +926,107 @@ test("discovery-save-fails-falls-back: if set_admin_origin rejects for discovere
   await unmount();
 });
 
-test("discovery-absent: no saved origin and no advertised admin_api falls back to manual entry", async () => {
-  // Verifies the fallback path: get_admin_origin null + admin_discover_origin
-  // null → empty input, no probe fires, no panel — the operator can type a URL.
-  //
-  // Fails if discovery null is not treated as "fall back": a probe would fire
-  // for a null/empty origin or the panel would render.
+// ── Discovery fallback — null/rejection table ──────────────────────────────
+//
+// Both paths share the same observable outcome: empty input, no probe, no
+// panel. They differ in how admin_discover_origin behaves and in one extra
+// assertion that the rejection path never surfaces an error badge.
+//
+// Keep each row's own discovery mock so the distinction is visible.
 
-  const pubkey = "2".repeat(64);
+const DISCOVERY_FALLBACK_ROWS = [
+  {
+    name: "absent",
+    description:
+      "no saved origin and no advertised admin_api falls back to manual entry",
+    pubkey: "2".repeat(64),
+    // Fails if discovery null is not treated as "fall back": a probe would fire
+    // for a null/empty origin or the panel would render.
+    setupDiscovery: (trackCalls) => {
+      setIpcHandler("admin_discover_origin", () => {
+        trackCalls.count += 1;
+        return Promise.resolve(null);
+      });
+    },
+    extraAssert: null,
+  },
+  {
+    name: "error",
+    description:
+      "a failed discovery fetch falls back to manual entry without surfacing an error",
+    pubkey: "3".repeat(64),
+    // The relay-side admin_api validation lives in Rust: an advertised-but-invalid
+    // value resolves to null there. A transport error rejects the promise; the
+    // card swallows it and falls back to manual entry rather than showing an
+    // error badge (discovery is best-effort, not operator action).
+    //
+    // Fails if the discovery try/catch is removed: the rejection propagates to
+    // the outer catch and the card renders an error badge instead of a clean
+    // manual-entry state.
+    setupDiscovery: (_trackCalls) => {
+      setIpcHandler("admin_discover_origin", () =>
+        Promise.reject(new Error("relay unreachable: network error")),
+      );
+    },
+    extraAssert: (container) => {
+      const text = container.textContent ?? "";
+      assert.ok(
+        !text.includes("network error"),
+        `a best-effort discovery error must not surface as an error badge; got: ${text.slice(0, 200)}`,
+      );
+    },
+  },
+];
 
-  setIpcHandler("get_admin_origin", () => Promise.resolve(null));
-  let discoverCalls = 0;
-  setIpcHandler("admin_discover_origin", () => {
-    discoverCalls += 1;
-    return Promise.resolve(null);
+for (const row of DISCOVERY_FALLBACK_ROWS) {
+  test(`discovery-${row.name}: ${row.description}`, async () => {
+    const discoverTracker = { count: 0 };
+    setIpcHandler("get_admin_origin", () => Promise.resolve(null));
+    row.setupDiscovery(discoverTracker);
+    const probeOrigins = [];
+    setIpcHandler("admin_probe", (args) => {
+      probeOrigins.push(args?.origin ?? "(none)");
+      return Promise.resolve({ state: "disabled" });
+    });
+
+    const qc = makeQueryClient(row.pubkey);
+    const { container, doRender, unmount } = mountCard(qc);
+    await doRender();
+    await settle(30);
+
+    if (row.name === "absent") {
+      assert.equal(
+        discoverTracker.count,
+        1,
+        "admin_discover_origin must be attempted",
+      );
+    }
+    assert.deepEqual(
+      probeOrigins,
+      [],
+      `no probe must fire when discovery ${row.name === "absent" ? "returns null" : "errors"}; got: ${JSON.stringify(probeOrigins)}`,
+    );
+
+    const input = container.querySelector("[data-testid='admin-origin-input']");
+    assert.equal(
+      input?.value,
+      "",
+      `input must be empty for manual entry when discovery ${row.name === "absent" ? "finds nothing" : "errors"}; got: "${input?.value}"`,
+    );
+    const panel = container.querySelector(
+      "[data-testid='admin-console-panel']",
+    );
+    assert.equal(
+      panel,
+      null,
+      `admin-console-panel must not render when there is no discovered origin (${row.name})`,
+    );
+
+    if (row.extraAssert) row.extraAssert(container);
+
+    await unmount();
   });
-  const probeOrigins = [];
-  setIpcHandler("admin_probe", (args) => {
-    probeOrigins.push(args?.origin ?? "(none)");
-    return Promise.resolve({ state: "disabled" });
-  });
-
-  const qc = makeQueryClient(pubkey);
-  const { container, doRender, unmount } = mountCard(qc);
-  await doRender();
-  await settle(30);
-
-  assert.equal(discoverCalls, 1, "admin_discover_origin must be attempted");
-  assert.deepEqual(
-    probeOrigins,
-    [],
-    `no probe must fire when discovery returns null; got: ${JSON.stringify(probeOrigins)}`,
-  );
-
-  const input = container.querySelector("[data-testid='admin-origin-input']");
-  assert.equal(
-    input?.value,
-    "",
-    `input must be empty for manual entry when discovery finds nothing; got: "${input?.value}"`,
-  );
-  const panel = container.querySelector("[data-testid='admin-console-panel']");
-  assert.equal(
-    panel,
-    null,
-    "admin-console-panel must not render when there is no discovered origin",
-  );
-
-  await unmount();
-});
-
-test("discovery-error: a failed discovery fetch falls back to manual entry without surfacing an error", async () => {
-  // The relay-side admin_api validation lives in Rust: an advertised-but-invalid
-  // value resolves to null there. A transport error rejects the promise; the
-  // card swallows it and falls back to manual entry rather than showing an
-  // error badge (discovery is best-effort, not operator action).
-  //
-  // Fails if the discovery try/catch is removed: the rejection propagates to
-  // the outer catch and the card renders an error badge instead of a clean
-  // manual-entry state.
-
-  const pubkey = "3".repeat(64);
-
-  setIpcHandler("get_admin_origin", () => Promise.resolve(null));
-  setIpcHandler("admin_discover_origin", () =>
-    Promise.reject(new Error("relay unreachable: network error")),
-  );
-  const probeOrigins = [];
-  setIpcHandler("admin_probe", (args) => {
-    probeOrigins.push(args?.origin ?? "(none)");
-    return Promise.resolve({ state: "disabled" });
-  });
-
-  const qc = makeQueryClient(pubkey);
-  const { container, doRender, unmount } = mountCard(qc);
-  await doRender();
-  await settle(30);
-
-  assert.deepEqual(
-    probeOrigins,
-    [],
-    `no probe must fire when discovery errors; got: ${JSON.stringify(probeOrigins)}`,
-  );
-  const input = container.querySelector("[data-testid='admin-origin-input']");
-  assert.equal(
-    input?.value,
-    "",
-    `input must be empty for manual entry after a discovery error; got: "${input?.value}"`,
-  );
-  const text = container.textContent ?? "";
-  assert.ok(
-    !text.includes("network error"),
-    `a best-effort discovery error must not surface as an error badge; got: ${text.slice(0, 200)}`,
-  );
-
-  await unmount();
-});
+}
 
 test("discovery-skipped: a saved origin takes precedence and discovery is not attempted", async () => {
   // Verifies the manual-fallback-wins invariant: an explicitly saved origin

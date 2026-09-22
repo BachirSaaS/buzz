@@ -50,33 +50,32 @@ fn probe_json(auth_mode: &str, role: &str, source: &str, can_act: bool, can_staf
 }
 
 #[test]
-fn parse_probe_rejects_non_json_content_type() {
-    let body = probe_json("nip98", r#""operator""#, r#""config""#, true, true);
-    assert!(parse_probe("text/html", body.as_bytes()).is_none());
-    assert!(parse_probe("", body.as_bytes()).is_none());
-}
-
-#[test]
-fn parse_probe_rejects_missing_required_field() {
-    // Missing `canStaff` — an unrelated JSON endpoint must not classify as the
-    // admin API.
-    let body =
-        r#"{"status":"ok","authMode":"nip98","role":"operator","source":"config","canAct":true}"#;
-    assert!(parse_probe("application/json", body.as_bytes()).is_none());
-}
-
-#[test]
-fn parse_probe_rejects_wrong_typed_field() {
-    // `canAct` as a string, not a bool.
-    let body = r#"{"status":"ok","authMode":"nip98","role":"operator","source":"config","canAct":"yes","canStaff":true}"#;
-    assert!(parse_probe("application/json", body.as_bytes()).is_none());
-}
-
-#[test]
-fn parse_probe_rejects_non_object() {
-    assert!(parse_probe("application/json", b"[]").is_none());
-    assert!(parse_probe("application/json", b"\"string\"").is_none());
-    assert!(parse_probe("application/json", b"not json").is_none());
+fn parse_probe_rejects_invalid_inputs() {
+    // Table of structural rejection cases. Each row is (content_type, body_bytes, label).
+    // Non-JSON content type, missing required field, wrong-typed field, and non-object bodies
+    // must all return None — an unrelated endpoint must not classify as the admin API.
+    let well_formed = probe_json("nip98", r#""operator""#, r#""config""#, true, true);
+    let cases: &[(&str, &[u8], &str)] = &[
+        ("text/html",       well_formed.as_bytes(), "non-JSON content type (text/html)"),
+        ("",                well_formed.as_bytes(), "non-JSON content type (empty)"),
+        // Missing `canStaff` — an unrelated JSON endpoint must not classify as admin API.
+        ("application/json",
+         br#"{"status":"ok","authMode":"nip98","role":"operator","source":"config","canAct":true}"#,
+         "missing required field canStaff"),
+        // `canAct` as a string, not a bool.
+        ("application/json",
+         br#"{"status":"ok","authMode":"nip98","role":"operator","source":"config","canAct":"yes","canStaff":true}"#,
+         "wrong-typed field canAct"),
+        ("application/json", b"[]",         "non-object: array"),
+        ("application/json", b"\"string\"", "non-object: string"),
+        ("application/json", b"not json",   "non-object: invalid JSON"),
+    ];
+    for (ct, body, label) in cases {
+        assert!(
+            parse_probe(ct, body).is_none(),
+            "row must be rejected: {label}"
+        );
+    }
 }
 
 // ── authorized_principal / is_coherent_disabled invariants ────────────────
@@ -310,23 +309,24 @@ fn storage_no_file_returns_none() {
 // ── validate_pubkey_hex ───────────────────────────────────────────────────
 
 #[test]
-fn pubkey_hex_valid_64_lowercase() {
-    assert!(validate_pubkey_hex("a".repeat(64)).is_ok());
-}
-
-#[test]
-fn pubkey_hex_uppercase_rejected() {
-    assert!(validate_pubkey_hex("A".repeat(64)).is_err());
-}
-
-#[test]
-fn pubkey_hex_empty_rejected() {
-    assert!(validate_pubkey_hex("".to_string()).is_err());
-}
-
-#[test]
-fn pubkey_hex_63_chars_rejected() {
-    assert!(validate_pubkey_hex("a".repeat(63)).is_err());
+fn validate_pubkey_hex_cases() {
+    // Table-driven: valid input passes; uppercase, empty, and wrong-length inputs fail.
+    assert!(
+        validate_pubkey_hex("a".repeat(64)).is_ok(),
+        "64 lowercase hex chars must pass"
+    );
+    assert!(
+        validate_pubkey_hex("A".repeat(64)).is_err(),
+        "uppercase hex must be rejected"
+    );
+    assert!(
+        validate_pubkey_hex("".to_string()).is_err(),
+        "empty string must be rejected"
+    );
+    assert!(
+        validate_pubkey_hex("a".repeat(63)).is_err(),
+        "63 chars must be rejected"
+    );
 }
 
 // ── Live stub helpers ─────────────────────────────────────────────────────
@@ -452,98 +452,84 @@ async fn serve_gated_nip98(
 // ── admin_probe_inner end-to-end state machine ────────────────────────────
 
 #[tokio::test]
-async fn probe_inner_html_200_is_network_or_intercepted() {
-    // Content-Type: text/html; charset=utf-8 — the parameter-bearing form used by
-    // real intercept pages (carried forward from the redundant helper tests).
-    let addr = serve_sequence(vec![(
-        "200 OK",
-        "Content-Type: text/html; charset=utf-8\r\n",
-        "<html>sign in</html>",
-    )])
-    .await;
-    let result = admin_probe_inner(
-        &format!("http://{addr}"),
-        None::<fn(&str) -> Result<String, String>>,
-    )
-    .await
-    .unwrap();
-    assert!(matches!(result, AdminProbeResult::NetworkOrIntercepted));
-}
+async fn probe_inner_simple_response_classifications() {
+    // Table of single-response probe outcomes. Each row: (status, content_type,
+    // body, expected_result_label). Multi-step sequences (persistent-401,
+    // NIP-98 challenge/authorized) stay as dedicated tests below.
+    //
+    // Rows:
+    //   html-200:              text/html intercept page → NetworkOrIntercepted
+    //   malformed-json-200:    application/json malformed body → NotAdminApi
+    //   disabled-200:          canonical disabled probe → Disabled
+    //   nip98-200-no-auth:     nip98 authMode without 401 challenge is a contract
+    //                          violation → NotAdminApi (must not classify as Disabled)
+    //   garbage-json-200:      valid JSON but not a probe envelope → NotAdminApi
 
-#[tokio::test]
-async fn probe_inner_malformed_json_200_is_not_admin_api() {
-    let addr = serve_sequence(vec![(
-        "200 OK",
-        "Content-Type: application/json\r\n",
-        "not valid json",
-    )])
-    .await;
-    let result = admin_probe_inner(
-        &format!("http://{addr}"),
-        None::<fn(&str) -> Result<String, String>>,
-    )
-    .await
-    .unwrap();
-    assert!(matches!(result, AdminProbeResult::NotAdminApi));
-}
+    let disabled_body = probe_json("disabled", "null", "null", false, false);
+    let disabled_static: &'static str = Box::leak(disabled_body.into_boxed_str());
+    let nip98_body = probe_json("nip98", r#""operator""#, r#""config""#, true, true);
+    let nip98_static: &'static str = Box::leak(nip98_body.into_boxed_str());
 
-#[tokio::test]
-async fn probe_inner_disabled_probe_200_is_disabled() {
-    let body = probe_json("disabled", "null", "null", false, false);
-    let body_static: &'static str = Box::leak(body.into_boxed_str());
-    let addr = serve_sequence(vec![(
-        "200 OK",
-        "Content-Type: application/json\r\n",
-        body_static,
-    )])
-    .await;
-    let result = admin_probe_inner(
-        &format!("http://{addr}"),
-        None::<fn(&str) -> Result<String, String>>,
-    )
-    .await
-    .unwrap();
-    assert!(matches!(result, AdminProbeResult::Disabled));
-}
+    struct Row {
+        label: &'static str,
+        status: &'static str,
+        ct: &'static str,
+        body: &'static str,
+        is_match: fn(&AdminProbeResult) -> bool,
+    }
 
-#[tokio::test]
-async fn probe_inner_nip98_authmode_200_without_auth_is_not_admin_api() {
-    // A relay must 401 an unauthenticated caller in nip98/token mode. A 200
-    // carrying `authMode: "nip98"` (no 401 challenge) is a contract violation
-    // and must not be classified as Disabled.
-    let body = probe_json("nip98", r#""operator""#, r#""config""#, true, true);
-    let body_static: &'static str = Box::leak(body.into_boxed_str());
-    let addr = serve_sequence(vec![(
-        "200 OK",
-        "Content-Type: application/json\r\n",
-        body_static,
-    )])
-    .await;
-    let result = admin_probe_inner(
-        &format!("http://{addr}"),
-        None::<fn(&str) -> Result<String, String>>,
-    )
-    .await
-    .unwrap();
-    assert!(matches!(result, AdminProbeResult::NotAdminApi));
-}
+    let rows = [
+        Row {
+            label: "html-200 → NetworkOrIntercepted",
+            status: "200 OK",
+            ct: "Content-Type: text/html; charset=utf-8\r\n",
+            body: "<html>sign in</html>",
+            is_match: |r| matches!(r, AdminProbeResult::NetworkOrIntercepted),
+        },
+        Row {
+            label: "malformed-json-200 → NotAdminApi",
+            status: "200 OK",
+            ct: "Content-Type: application/json\r\n",
+            body: "not valid json",
+            is_match: |r| matches!(r, AdminProbeResult::NotAdminApi),
+        },
+        Row {
+            label: "disabled-200 → Disabled",
+            status: "200 OK",
+            ct: "Content-Type: application/json\r\n",
+            body: disabled_static,
+            is_match: |r| matches!(r, AdminProbeResult::Disabled),
+        },
+        Row {
+            label: "nip98-authmode-200-without-auth → NotAdminApi",
+            status: "200 OK",
+            ct: "Content-Type: application/json\r\n",
+            body: nip98_static,
+            is_match: |r| matches!(r, AdminProbeResult::NotAdminApi),
+        },
+        Row {
+            label: "garbage-json-200 → NotAdminApi",
+            status: "200 OK",
+            ct: "Content-Type: application/json\r\n",
+            body: "[1,2,3]",
+            is_match: |r| matches!(r, AdminProbeResult::NotAdminApi),
+        },
+    ];
 
-#[tokio::test]
-async fn probe_inner_bare_garbage_200_is_not_admin_api() {
-    // A JSON body that isn't a probe envelope must not classify as admin API.
-    let addr = serve_sequence(vec![(
-        "200 OK",
-        "Content-Type: application/json\r\n",
-        "[1,2,3]",
-    )])
-    .await;
-    let result = admin_probe_inner(
-        &format!("http://{addr}"),
-        None::<fn(&str) -> Result<String, String>>,
-    )
-    .await
-    .unwrap();
-    assert!(matches!(result, AdminProbeResult::NotAdminApi));
+    for row in &rows {
+        let addr = serve_sequence(vec![(row.status, row.ct, row.body)]).await;
+        let result = admin_probe_inner(
+            &format!("http://{addr}"),
+            None::<fn(&str) -> Result<String, String>>,
+        )
+        .await
+        .unwrap();
+        assert!(
+            (row.is_match)(&result),
+            "row must match expected classification: {}",
+            row.label
+        );
+    }
 }
 
 #[tokio::test]
