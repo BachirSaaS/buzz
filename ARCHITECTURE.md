@@ -449,11 +449,15 @@ shape is an explicit transition, not a flag day:
   backstops.
 - **Replica floor (transition foundation):** runtime now provides a shared
   replica-floor lock helper for compliant channel-event writers, and the writer
-  probe handshake takes the exclusive counterpart before `S`/activity/token.
-  Commit-time trigger+GUC enforcement remains authoritative for all paths.
+  probe handshake takes the exclusive counterpart before sampling `S`, scanning
+  activity, and committing the heartbeat token last. `probe_once` remains the
+  sole token/fence-wall publication path; there is no separately persisted active
+  floor cutoff. Commit-time trigger+GUC enforcement remains authoritative for all
+  paths.
 - **Dual enforcement (current):** application-owned lock+precheck paths run in
   front of the existing trigger/function enforcement; commit-time trigger checks
-  remain authoritative during this phase.
+  remain authoritative during this phase. Removing those backstops is a separate
+  gated migration, not part of the lock foundation.
 - **Role separation:** relay/runtime code owns admission and lock protocols;
   operator maintenance/backfill workflows must either use those protocols or run
   under explicit reviewed procedures that keep routing fences closed.
