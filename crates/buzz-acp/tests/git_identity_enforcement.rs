@@ -1933,17 +1933,19 @@ fn wrapper_refuses_push_via_regex_metachar_subsection_alias() {
     );
 }
 
-/// R12-c: Dotted-name ambiguity — `alias.pub.command` (the key) defines alias
-/// `pub`, NOT alias `pub.command`.  Invoking `pub.command` as a command must
-/// NOT accidentally resolve `alias.pub.command = push` as its expansion.
+/// R12-c/d: Dotted-command alias regression — two cases.
 ///
-/// This is a negative test: invoking a command named `pub.command` should NOT
-/// trigger push verification when only `alias.pub.command = push` (subsection
-/// alias for `pub`) is set.  If the resolver matches incorrectly, it would
-/// expand `pub.command` → push and refuse what is a legitimate (non-push) call.
-/// Here we deliberately set `alias.pub.command = status` and invoke `pub.command`;
-/// the wrapper should NOT intercept (pub.command is a real git command or
-/// unknown alias, not the subsection alias named `pub`).
+/// Case A: `alias.pub.command.command = push` + `alias.pub.command = status`.
+/// Invoking `pub.command` should resolve the subsection alias for `pub.command`
+/// (defined by `alias.pub.command.command=push`) and refuse.  The presence of
+/// `alias.pub.command=status` must not obscure the push.
+///
+/// Case B (CRIT-1): `alias..pub.command = push` invoked as `.pub`.
+/// Git 2.54 parses this as subsection `.pub`, variable `command` — dispatches
+/// `.pub` via the subsection alias path.  The wrapper must classify the
+/// subsection as ".pub" (leading dot preserved) and refuse.
+///
+/// Both cases must produce an author-refusal + empty remote.
 ///
 /// Self-gate: skips on binaries that don't dispatch `.command` form aliases.
 #[test]
@@ -1953,45 +1955,107 @@ fn wrapper_does_not_misresove_dotted_command_name_as_subsection_alias() {
         return;
     }
 
-    // alias.pub.command = status (defines alias `pub` → status).
-    // Invoking `pub.command` must NOT see `status` as its expansion.
-    // `pub.command` is not a real git command; the wrapper should either pass
-    // it through (git will report "not a git command") or classify it as
-    // NotPush and let git handle it — either way, no push reaches the remote.
-    let (_shim, path, _email, _keydir) = signed_shim_env();
-    let repo = human_repo();
-    let remote = tempfile::tempdir().unwrap();
-    assert!(Command::new("git")
-        .args(["init", "-q", "--bare", remote.path().to_str().unwrap()])
-        .status()
-        .unwrap()
-        .success());
-    wrapper(
-        &path,
-        repo.path(),
-        &["remote", "add", "origin", remote.path().to_str().unwrap()],
-    );
-    // Set only the subsection-alias for `pub` (not for `pub.command`).
-    wrapper(
-        &path,
-        repo.path(),
-        &["config", "alias.pub.command", "status"],
-    );
+    // ── Case A: alias.pub.command.command=push, alias.pub.command=status ──
+    {
+        let (_shim, path, _email, _keydir) = signed_shim_env();
+        let repo = human_repo();
+        let remote = tempfile::tempdir().unwrap();
+        assert!(Command::new("git")
+            .args(["init", "-q", "--bare", remote.path().to_str().unwrap()])
+            .status()
+            .unwrap()
+            .success());
+        wrapper(
+            &path,
+            repo.path(),
+            &["remote", "add", "origin", remote.path().to_str().unwrap()],
+        );
 
-    // Invoke `pub.command` — must NOT be matched as alias `pub`.
-    // The command will fail (no such alias/command), but the remote stays empty.
-    let _out = wrapper(&path, repo.path(), &["pub.command", "origin", "main"]);
-    // We don't assert on exit status (could be Err from git or Ok with no-op).
-    // Key assertion: no push reached the remote.
-    let refs = Command::new("git")
-        .args(["-C", remote.path().to_str().unwrap(), "for-each-ref"])
-        .output()
-        .unwrap();
-    assert!(
-        refs.stdout.is_empty(),
-        "alias.pub.command=status must NOT match command `pub.command`; refs={}",
-        String::from_utf8_lossy(&refs.stdout),
-    );
+        // Both entries present: the push lives in the deeper subsection key.
+        wrapper(
+            &path,
+            repo.path(),
+            &["config", "alias.pub.command.command", "push"],
+        );
+        wrapper(
+            &path,
+            repo.path(),
+            &["config", "alias.pub.command", "status"],
+        );
+
+        // Invoke pub.command — should resolve to push via the subsection alias;
+        // must be refused.
+        let out = wrapper(&path, repo.path(), &["pub.command", "origin", "main"]);
+        assert!(
+            !out.status.success(),
+            "alias.pub.command.command=push must be refused for `pub.command`; \
+             stderr={}",
+            String::from_utf8_lossy(&out.stderr),
+        );
+        assert!(
+            String::from_utf8_lossy(&out.stderr).contains("not authored by your agent identity"),
+            "expected push-gate author refusal for dotted-name alias; stderr={}",
+            String::from_utf8_lossy(&out.stderr),
+        );
+        let refs = Command::new("git")
+            .args(["-C", remote.path().to_str().unwrap(), "for-each-ref"])
+            .output()
+            .unwrap();
+        assert!(
+            refs.stdout.is_empty(),
+            "remote must be empty after refused dotted-command push; refs={}",
+            String::from_utf8_lossy(&refs.stdout),
+        );
+    }
+
+    // ── Case B: CRIT-1 — alias..pub.command=push invoked as `.pub` ──
+    {
+        let (_shim, path, _email, _keydir) = signed_shim_env();
+        let repo = human_repo();
+        let remote = tempfile::tempdir().unwrap();
+        assert!(Command::new("git")
+            .args(["init", "-q", "--bare", remote.path().to_str().unwrap()])
+            .status()
+            .unwrap()
+            .success());
+        wrapper(
+            &path,
+            repo.path(),
+            &["remote", "add", "origin", remote.path().to_str().unwrap()],
+        );
+
+        let out = wrapper(
+            &path,
+            repo.path(),
+            &[
+                "-c",
+                "alias..pub.command=push",
+                ".pub",
+                remote.path().to_str().unwrap(),
+                "main",
+            ],
+        );
+        assert!(
+            !out.status.success(),
+            "alias..pub.command=push must be refused when invoked as `.pub`; \
+             stderr={}",
+            String::from_utf8_lossy(&out.stderr),
+        );
+        assert!(
+            String::from_utf8_lossy(&out.stderr).contains("not authored by your agent identity"),
+            "expected push-gate author refusal for leading-dot subsection alias; stderr={}",
+            String::from_utf8_lossy(&out.stderr),
+        );
+        let refs = Command::new("git")
+            .args(["-C", remote.path().to_str().unwrap(), "for-each-ref"])
+            .output()
+            .unwrap();
+        assert!(
+            refs.stdout.is_empty(),
+            "remote must be empty after refused leading-dot subsection push; refs={}",
+            String::from_utf8_lossy(&refs.stdout),
+        );
+    }
 }
 
 /// R12-d: Stored-newline value — `alias.pub = push\norigin` (a literal newline
@@ -2057,27 +2121,54 @@ fn wrapper_refuses_push_via_multiline_alias_value() {
     );
 }
 
-/// R12-e: Probe-poisoning — a `git-_probe_` executable on the PATH must NOT
-/// flip the capability verdict.  If it prints "git version sentinel helper",
-/// old git would appear supported; the wrapper must ignore it and report the
-/// correct answer.
+/// R12-e: Probe-poisoning — a `git-_probe_` helper placed BESIDE the selected
+/// git binary must NOT flip the capability verdict.  The new probe uses a
+/// probe-only private directory (containing only a controlled `git` symlink)
+/// for both `PATH` and `GIT_EXEC_PATH`, so git's exec-path search cannot find
+/// any adjacent helper.
 ///
-/// This test places a temporary `git-_probe_` helper on a PATH prefix,
-/// verifies that the wrapper still produces the correct capability verdict
-/// for the installed binary, then removes the helper.
+/// This test exercises the INSTALLED WRAPPER (not the test-only probe fn):
+///  - Positive control: sibling helper exits 42 + prints "git version sentinel
+///    helper" → wrapper still refuses the push with author-refusal (probe was
+///    not fooled; capability verdict is correct).
+///  - Negative control: same alias without any sibling helper → also refused.
+///
+/// Both controls must produce author-refusal + empty remote.
+/// Does NOT mutate the global PATH — uses explicit PATH env on wrapper() instead.
 #[test]
-fn probe_isolation_rejects_path_helper_poisoning() {
-    // Create a temporary directory with a git-_probe_ helper that always
-    // prints "git version sentinel helper" regardless of which binary
-    // calls it.
-    let poison_dir = tempfile::tempdir().unwrap();
-    let helper_path = poison_dir.path().join("git-_probe_");
-    std::fs::write(
-        &helper_path,
-        "#!/bin/sh\necho 'git version sentinel helper'\n",
-    )
-    .unwrap();
-    // Make it executable.
+fn probe_isolation_rejects_sibling_helper_poisoning() {
+    if !isolated_subsection_probe() {
+        eprintln!("skip: installed git does not dispatch alias.<name>.command form");
+        return;
+    }
+
+    // Find the real git binary's absolute path.
+    let git_dir = real_git_dir();
+    let real_git_abs = {
+        let candidate = git_dir.join("git");
+        candidate.canonicalize().unwrap_or(candidate)
+    };
+
+    // Create a "sibling dir": a directory that contains both `git` (symlink to
+    // the real binary) and `git-_probe_` (a helper that exits 42 and prints
+    // the sentinel string — the classic PATH-poisoning payload).
+    // When we build a PATH with sibling_dir before shim_dir, find_real_git()
+    // inside the wrapper finds sibling_dir/git as the "real" git, so the
+    // probe's isolation logic is exercised against a helper adjacent to the
+    // selected binary.
+    let sibling_dir = tempfile::tempdir().unwrap();
+    let git_link_in_sibling = sibling_dir.path().join("git");
+    std::os::unix::fs::symlink(&real_git_abs, &git_link_in_sibling).unwrap();
+    let helper_path = sibling_dir.path().join("git-_probe_");
+    {
+        use std::io::Write;
+        let mut f = std::fs::File::create(&helper_path).unwrap();
+        write!(
+            f,
+            "#!/bin/sh\nprintf 'git version sentinel helper\\n'\nexit 42\n"
+        )
+        .unwrap();
+    }
     {
         use std::os::unix::fs::PermissionsExt;
         let mut perms = std::fs::metadata(&helper_path).unwrap().permissions();
@@ -2085,67 +2176,166 @@ fn probe_isolation_rejects_path_helper_poisoning() {
         std::fs::set_permissions(&helper_path, perms).unwrap();
     }
 
-    // Prepend the poison dir to PATH.
-    let original_path = std::env::var_os("PATH").unwrap_or_default();
-    let orig_dirs: Vec<PathBuf> = std::env::split_paths(&original_path).collect();
-    let poisoned_path = std::env::join_paths(
-        std::iter::once(poison_dir.path()).chain(orig_dirs.iter().map(|d| d.as_path())),
-    )
-    .unwrap();
+    // Build the shim environment manually, using sibling_dir as the real-git
+    // dir in the PATH string.  This avoids mutating the process-global PATH,
+    // which would cause races with parallel tests.
+    //
+    // PATH = shim_dir : sibling_dir : (original PATH minus real git dir)
+    //
+    // find_real_git() inside the wrapper will:
+    //   1. See shim_dir/git — skip it (that's itself, buzz-acp).
+    //   2. See sibling_dir/git — pick it up as the "real" git.
+    //   (sibling_dir/git is a symlink to real_git_abs, so execution is correct.)
+    let make_path_with_sibling = |shim: &tempfile::TempDir| -> String {
+        let original_path = std::env::var_os("PATH").unwrap_or_default();
+        let filtered: Vec<PathBuf> = std::env::split_paths(&original_path)
+            .filter(|d| d.canonicalize().ok() != git_dir.canonicalize().ok())
+            .collect();
+        std::env::join_paths(
+            std::iter::once(shim.path())
+                .chain(std::iter::once(sibling_dir.path()))
+                .chain(filtered.iter().map(|d| d.as_path())),
+        )
+        .unwrap()
+        .into_string()
+        .unwrap()
+    };
 
-    // The isolated_subsection_probe() function must NOT be fooled by the helper.
-    // It should produce the same result as when the helper is absent.
-    // We can't directly call the production probe here, but we can verify
-    // that the probe's PATH restriction prevents the helper from being invoked
-    // by checking that the real git binary location is NOT the poison dir.
-    let git_dir = real_git_dir();
-    assert_ne!(
-        git_dir,
-        poison_dir.path(),
-        "the test poison dir must not be the real git dir"
-    );
+    // ── Positive control: sibling helper present ──
+    {
+        use nostr::ToBech32;
+        let keys = nostr::Keys::generate();
+        let nsec = keys.secret_key().to_bech32().unwrap();
+        let keydir = tempfile::tempdir().unwrap();
+        let id = buzz_git_identity::write_keyfile(keydir.path(), &nsec).expect("write keyfile");
+        let shim = tempfile::tempdir().unwrap();
+        for name in ["git", "git-sign-nostr"] {
+            std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_buzz-acp"), shim.path().join(name))
+                .unwrap();
+        }
+        let entries = buzz_git_identity::identity_signing_entries(&id);
+        buzz_git_identity::write_identity_manifest(shim.path(), &entries).unwrap();
+        let path = make_path_with_sibling(&shim);
 
-    // Temporarily set PATH to the poisoned version and re-run the isolated probe.
-    // If isolation works, the result should be identical to the non-poisoned result.
-    let expected = isolated_subsection_probe();
-    // We can't easily set PATH just for this thread in a portable way, but we
-    // can verify that the helper binary was NOT executed by checking that a
-    // side-effect file it would create does not exist.
-    // Alternative: verify the isolated probe's PATH construction excludes
-    // the poison dir by checking that isolated_subsection_probe() only looks
-    // in the real git dir.
+        let repo = human_repo();
+        let remote = tempfile::tempdir().unwrap();
+        assert!(Command::new("git")
+            .args(["init", "-q", "--bare", remote.path().to_str().unwrap()])
+            .status()
+            .unwrap()
+            .success());
+        // Use the shim path for setup commands too.
+        wrapper(
+            &path,
+            repo.path(),
+            &["remote", "add", "origin", remote.path().to_str().unwrap()],
+        );
+        wrapper(&path, repo.path(), &["config", "alias.pub.command", "push"]);
 
-    // The real assertion: with a PATH prepended with the poison dir, the
-    // isolated probe still returns the correct answer (same as without poison).
-    // We set PATH temporarily for this test.
-    // SAFETY: modifying env in a test is unsafe in multi-threaded contexts;
-    // use std::env::set_var with awareness that nextest runs each test as a
-    // separate process, making this safe in practice.
-    unsafe { std::env::set_var("PATH", &poisoned_path) };
-    let poisoned_result = isolated_subsection_probe();
-    unsafe { std::env::set_var("PATH", &original_path) };
+        let out = wrapper(&path, repo.path(), &["pub", "origin", "main"]);
+        assert!(
+            !out.status.success(),
+            "push via subsection alias must be refused despite sibling helper; \
+             stderr={}",
+            String::from_utf8_lossy(&out.stderr),
+        );
+        assert!(
+            String::from_utf8_lossy(&out.stderr).contains("not authored by your agent identity"),
+            "expected author-refusal despite sibling helper; stderr={}",
+            String::from_utf8_lossy(&out.stderr),
+        );
+        let refs = Command::new("git")
+            .args(["-C", remote.path().to_str().unwrap(), "for-each-ref"])
+            .output()
+            .unwrap();
+        assert!(
+            refs.stdout.is_empty(),
+            "remote must be empty (positive control); refs={}",
+            String::from_utf8_lossy(&refs.stdout),
+        );
+    }
 
-    assert_eq!(
-        poisoned_result, expected,
-        "probe-poisoning: isolated_subsection_probe() changed its verdict \
-         when git-_probe_ helper was on PATH; expected={expected}, got={poisoned_result}. \
-         The probe is not immune to PATH-based helper injection."
-    );
+    // ── Negative control: no helper, same PATH setup ──
+    std::fs::remove_file(&helper_path).unwrap();
+    {
+        use nostr::ToBech32;
+        let keys = nostr::Keys::generate();
+        let nsec = keys.secret_key().to_bech32().unwrap();
+        let keydir = tempfile::tempdir().unwrap();
+        let id = buzz_git_identity::write_keyfile(keydir.path(), &nsec).expect("write keyfile");
+        let shim = tempfile::tempdir().unwrap();
+        for name in ["git", "git-sign-nostr"] {
+            std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_buzz-acp"), shim.path().join(name))
+                .unwrap();
+        }
+        let entries = buzz_git_identity::identity_signing_entries(&id);
+        buzz_git_identity::write_identity_manifest(shim.path(), &entries).unwrap();
+        let path = make_path_with_sibling(&shim);
+
+        let repo = human_repo();
+        let remote = tempfile::tempdir().unwrap();
+        assert!(Command::new("git")
+            .args(["init", "-q", "--bare", remote.path().to_str().unwrap()])
+            .status()
+            .unwrap()
+            .success());
+        wrapper(
+            &path,
+            repo.path(),
+            &["remote", "add", "origin", remote.path().to_str().unwrap()],
+        );
+        wrapper(&path, repo.path(), &["config", "alias.pub.command", "push"]);
+
+        let out = wrapper(&path, repo.path(), &["pub", "origin", "main"]);
+        assert!(
+            !out.status.success(),
+            "push via subsection alias must be refused without sibling helper; \
+             stderr={}",
+            String::from_utf8_lossy(&out.stderr),
+        );
+        assert!(
+            String::from_utf8_lossy(&out.stderr).contains("not authored by your agent identity"),
+            "expected author-refusal (negative control); stderr={}",
+            String::from_utf8_lossy(&out.stderr),
+        );
+        let refs = Command::new("git")
+            .args(["-C", remote.path().to_str().unwrap(), "for-each-ref"])
+            .output()
+            .unwrap();
+        assert!(
+            refs.stdout.is_empty(),
+            "remote must be empty (negative control); refs={}",
+            String::from_utf8_lossy(&refs.stdout),
+        );
+    }
 }
 
-/// R12-f: Old-git reverse-order mixed-definition — on BOTH git binaries,
-/// when plain `alias.pub = push` is the effective alias (the last-wins
-/// definition), the push must be refused.
+/// R12-f: Mixed-definition on BOTH git binaries — when BOTH `alias.pub.command`
+/// (subsection form, defines alias `pub`) AND `alias.pub` (plain form) are set,
+/// and the plain form has push as its value, the push must be refused on every
+/// binary regardless of which form is the "last-wins" definition.
 ///
-/// On supporting git (2.54): `.command=status` first, plain=push last —
-/// last-wins → push is the effective alias → refusal required.
-/// On non-supporting git (2.50): `.command` form is invisible; only the
-/// plain form is seen → push → refusal required.
+/// On supporting git (2.54): BOTH forms are visible; last-wins ordering applies.
+///   `.command=status` first, plain=push second → last-wins → push → refuse.
+/// On non-supporting git (2.50): `.command` form is invisible for dispatch;
+/// only the plain form is visible → push → refuse.
 ///
-/// Both code paths are exercised on this host.
+/// Both binaries must write BOTH definitions so the test is structurally identical
+/// across the two code paths (neither binary silently collapses to one definition).
+/// The alternate-discovery section records each binary's capability so a run that
+/// collapses to one binary is visible in the test output, not silently green.
 #[test]
 fn wrapper_refuses_push_plain_last_wins_on_both_binaries() {
-    // Test on the default (first real) git binary.
+    // ── Primary binary ──
+    let primary_supports_subsection = isolated_subsection_probe();
+    eprintln!(
+        "primary binary: {} subsection aliases",
+        if primary_supports_subsection {
+            "SUPPORTS"
+        } else {
+            "does NOT support"
+        }
+    );
     {
         let (_shim, path, _email, _keydir) = signed_shim_env();
         let repo = human_repo();
@@ -2160,28 +2350,28 @@ fn wrapper_refuses_push_plain_last_wins_on_both_binaries() {
             repo.path(),
             &["remote", "add", "origin", remote.path().to_str().unwrap()],
         );
-        // Set .command=status first, plain=push second (second wins regardless
-        // of which binary — on old git the .command form is invisible, leaving
-        // only plain=push; on new git last-wins picks the plain=push last entry).
-        if isolated_subsection_probe() {
-            wrapper(
-                &path,
-                repo.path(),
-                &["config", "alias.pub.command", "status"],
-            );
-        }
+        // Write BOTH definitions on BOTH binaries:
+        // .command=status first, plain=push second → plain wins on both.
+        // On supporting binary: last-wins sees plain=push.
+        // On non-supporting binary: .command form is invisible, so plain=push is
+        // the only visible definition — it is stored by git regardless.
+        wrapper(
+            &path,
+            repo.path(),
+            &["config", "alias.pub.command", "status"],
+        );
         wrapper(&path, repo.path(), &["config", "alias.pub", "push"]);
 
         let out = wrapper(&path, repo.path(), &["pub", "origin", "main"]);
         assert!(
             !out.status.success(),
-            "alias.pub=push (plain last) must be refused on the default binary; \
-             stderr={}",
+            "alias.pub=push (plain last) must be refused on the primary binary \
+             (supports_subsection={primary_supports_subsection}); stderr={}",
             String::from_utf8_lossy(&out.stderr),
         );
         assert!(
             String::from_utf8_lossy(&out.stderr).contains("not authored by your agent identity"),
-            "expected push-gate author refusal; stderr={}",
+            "expected push-gate author refusal on primary binary; stderr={}",
             String::from_utf8_lossy(&out.stderr),
         );
         let refs = Command::new("git")
@@ -2190,14 +2380,14 @@ fn wrapper_refuses_push_plain_last_wins_on_both_binaries() {
             .unwrap();
         assert!(
             refs.stdout.is_empty(),
-            "remote must be empty; refs={}",
+            "remote must be empty on primary binary; refs={}",
             String::from_utf8_lossy(&refs.stdout),
         );
     }
 
-    // If a second real git binary exists at a known location, run the same
-    // test against it.  On macOS, /usr/bin/git is Apple Git (old) and
-    // /opt/homebrew/bin/git is the newer binary — exercise the old-git path.
+    // ── Alternate binary discovery ──
+    // Record each binary's capability explicitly so a single-binary host is
+    // visible (eprintln skip message) rather than silently green.
     let apple_git = std::path::Path::new("/usr/bin/git");
     let brew_git = std::path::Path::new("/opt/homebrew/bin/git");
     let alt_git_dir: Option<std::path::PathBuf> = {
@@ -2209,7 +2399,7 @@ fn wrapper_refuses_push_plain_last_wins_on_both_binaries() {
     };
 
     let Some(alt_dir) = alt_git_dir else {
-        eprintln!("skip: no second git binary found; single-binary host");
+        eprintln!("skip second-binary leg: no second git binary found on this host");
         return;
     };
     let alt_git = alt_dir.join("git");
@@ -2219,30 +2409,71 @@ fn wrapper_refuses_push_plain_last_wins_on_both_binaries() {
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .unwrap_or_else(|_| "unknown".to_string());
 
+    // Determine the alt binary's capability by probing it directly (not via
+    // global PATH mutation, which would race with parallel tests).
+    let alt_supports_subsection = {
+        let scratch = tempfile::tempdir().unwrap();
+        let minimal_path = std::env::join_paths([alt_dir.as_path(), scratch.path()])
+            .unwrap_or_else(|_| alt_dir.as_os_str().to_owned());
+        let out = Command::new(&alt_git)
+            .args(["-c", "alias._probe_.command=version", "_probe_"])
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("HOME", scratch.path())
+            .env_remove("XDG_CONFIG_HOME")
+            .env_remove("GIT_CONFIG_GLOBAL")
+            .env_remove("GIT_DIR")
+            .env("PATH", &minimal_path)
+            .env_remove("GIT_EXEC_PATH")
+            .current_dir(scratch.path())
+            .output()
+            .unwrap_or_else(|_| panic!("failed to spawn alt git for probe"));
+        out.stdout.starts_with(b"git version")
+    };
     eprintln!(
-        "testing old-git path with: {alt_ver} @ {}",
-        alt_git.display()
+        "alternate binary ({alt_ver} @ {}): {} subsection aliases",
+        alt_git.display(),
+        if alt_supports_subsection {
+            "SUPPORTS"
+        } else {
+            "does NOT support"
+        }
     );
 
-    // Build a shim environment that uses the alt binary as its real git.
-    // We can't easily change which git binary a shim uses (it's PATH-based),
-    // so we prepend the alt_dir to PATH for this sub-test.
-    let original_path = std::env::var_os("PATH").unwrap_or_default();
-    // Build PATH: alt_dir first, then original (but remove the primary git dir
-    // to ensure alt git is picked up by find_real_git).
+    // Build the shim PATH string with alt_dir as the real-git dir — no global
+    // PATH mutation needed.  PATH = shim_dir : alt_dir : (original minus primary)
+    // find_real_git() in the wrapper subprocess sees shim_dir/git (itself, skip)
+    // then alt_dir/git (the alt binary — pick it up).
     let primary_dir = real_git_dir();
-    let filtered: Vec<PathBuf> = std::env::split_paths(&original_path)
-        .filter(|d| d != &primary_dir)
-        .collect();
-    let alt_first_path = std::env::join_paths(
-        std::iter::once(alt_dir.as_path()).chain(filtered.iter().map(|d| d.as_path())),
-    )
-    .unwrap();
-
-    unsafe { std::env::set_var("PATH", &alt_first_path) };
+    let make_alt_path = |shim: &tempfile::TempDir| -> String {
+        let original_path = std::env::var_os("PATH").unwrap_or_default();
+        let filtered: Vec<PathBuf> = std::env::split_paths(&original_path)
+            .filter(|d| d.canonicalize().ok() != primary_dir.canonicalize().ok())
+            .collect();
+        std::env::join_paths(
+            std::iter::once(shim.path())
+                .chain(std::iter::once(alt_dir.as_path()))
+                .chain(filtered.iter().map(|d| d.as_path())),
+        )
+        .unwrap()
+        .into_string()
+        .unwrap()
+    };
 
     let result = std::panic::catch_unwind(|| {
-        let (_shim, path, _email, _keydir) = signed_shim_env();
+        use nostr::ToBech32;
+        let keys = nostr::Keys::generate();
+        let nsec = keys.secret_key().to_bech32().unwrap();
+        let keydir = tempfile::tempdir().unwrap();
+        let id = buzz_git_identity::write_keyfile(keydir.path(), &nsec).expect("write keyfile");
+        let shim = tempfile::tempdir().unwrap();
+        for name in ["git", "git-sign-nostr"] {
+            std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_buzz-acp"), shim.path().join(name))
+                .unwrap();
+        }
+        let entries = buzz_git_identity::identity_signing_entries(&id);
+        buzz_git_identity::write_identity_manifest(shim.path(), &entries).unwrap();
+        let path = make_alt_path(&shim);
+
         let repo = human_repo();
         let remote = tempfile::tempdir().unwrap();
         assert!(Command::new(&alt_git)
@@ -2255,19 +2486,26 @@ fn wrapper_refuses_push_plain_last_wins_on_both_binaries() {
             repo.path(),
             &["remote", "add", "origin", remote.path().to_str().unwrap()],
         );
-        // On old git, .command form is invisible; only plain=push matters.
+        // Write BOTH definitions on the alt binary too.
+        // On old git: .command form is stored but invisible for dispatch;
+        // plain=push is the only visible alias.
+        wrapper(
+            &path,
+            repo.path(),
+            &["config", "alias.pub.command", "status"],
+        );
         wrapper(&path, repo.path(), &["config", "alias.pub", "push"]);
 
         let out = wrapper(&path, repo.path(), &["pub", "origin", "main"]);
         assert!(
             !out.status.success(),
-            "alias.pub=push must be refused on old git ({alt_ver}); \
-             stderr={}",
+            "alias.pub=push must be refused on alt git ({alt_ver}, \
+             supports_subsection={alt_supports_subsection}); stderr={}",
             String::from_utf8_lossy(&out.stderr),
         );
         assert!(
             String::from_utf8_lossy(&out.stderr).contains("not authored by your agent identity"),
-            "expected push-gate author refusal on old git; stderr={}",
+            "expected push-gate author refusal on alt git ({alt_ver}); stderr={}",
             String::from_utf8_lossy(&out.stderr),
         );
         let refs = Command::new(&alt_git)
@@ -2276,11 +2514,10 @@ fn wrapper_refuses_push_plain_last_wins_on_both_binaries() {
             .unwrap();
         assert!(
             refs.stdout.is_empty(),
-            "remote must be empty on old git; refs={}",
+            "remote must be empty on alt git ({alt_ver}); refs={}",
             String::from_utf8_lossy(&refs.stdout),
         );
     });
 
-    unsafe { std::env::set_var("PATH", &original_path) };
     result.unwrap();
 }

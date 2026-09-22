@@ -498,59 +498,50 @@ enum SubsectionSupport {
 /// `alias._probe_.command=version` and *execute* `_probe_`.  A supporting
 /// binary dispatches `version` and the output starts with "git version".
 /// A non-supporting binary ignores the subsection form for dispatch and
-/// reports "`_probe_` is not a git command" — exit 0 but no "git version".
+/// exits 1 with "is not a git command" on stderr — exit 1, no "git version".
 /// Probing config storage is NOT sufficient: old Git stores the value but
 /// never dispatches it, producing a false-positive.
 ///
 /// **Isolation — external-command poisoning prevention:**
-/// A `git-_probe_` executable on the ambient PATH could intercept dispatch
-/// on both old and new Git, flipping the capability verdict:
+/// A `git-_probe_` executable adjacent to the selected git binary could
+/// intercept dispatch on both old and new Git, flipping the capability verdict:
 ///  - a helper printing "git version sentinel" makes old Git appear supported,
 ///    causing the wrapper to enumerate subsection entries that old Git ignores.
 ///  - a helper printing something else makes new Git appear unsupported,
 ///    causing the wrapper to miss real `.command` push aliases.
-///  - a hanging helper stalls every subsequent managed invocation until the
-///    unbound `.output()` unblocks.
+///  - a hanging helper stalls every subsequent managed invocation.
 ///
-/// To prevent this, the probe:
-///   1. Uses an isolated scratch working directory (not inside any repo).
-///   2. Scrubs ambient config channels (`GIT_CONFIG_NOSYSTEM`, scratch `HOME`,
-///      `XDG_CONFIG_HOME`, `GIT_CONFIG_GLOBAL`, `GIT_DIR`, `GIT_WORK_TREE`,
-///      `GIT_NAMESPACE`).
-///   3. Restricts `PATH` to the directory containing the real git binary
-///      and a known-empty scratch directory, so no external `git-_probe_`
-///      helper can be found.  The sentinel alias is dispatched internally by
-///      git (it resolves to the `version` builtin), so no helper on PATH is
-///      needed.
-///   4. Unsets `GIT_EXEC_PATH` so git's internal exec-path lookup is not
-///      redirected to an attacker-controlled directory.
-///   5. Bounds the child process: timeout + output cap via
-///      [`capture_raw_bounded`].
+/// To prevent this, the probe uses a **probe-only private directory** containing
+/// only a controlled `git` symlink to the exact binary under test.  This
+/// directory is used for BOTH `PATH` and `GIT_EXEC_PATH` during the probe so
+/// that git's external-command search never finds an adjacent helper.  The
+/// sentinel (`_probe_` = `version`) resolves to git's `version` builtin and
+/// never invokes an external helper on a supporting binary.
 ///
-/// `ProbeFailure` (timeout, I/O error, unexpected output) propagates as its
-/// own state — never silently mapped to either capability verdict.
+/// Additional isolation:
+///   1. Scratch working directory (not inside any repo).
+///   2. Scrubs ambient config channels: `GIT_CONFIG_NOSYSTEM`, scratch `HOME`,
+///      `XDG_CONFIG_HOME`, `GIT_CONFIG_GLOBAL`, `GIT_CONFIG_SYSTEM`,
+///      `GIT_DIR`, `GIT_WORK_TREE`, `GIT_NAMESPACE`,
+///      `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_*`, `GIT_CONFIG_VALUE_*`,
+///      `GIT_CONFIG_PARAMETERS`.
+///   3. Bounds the child process: timeout + output cap via [`run_bounded`].
+///
+/// Verdict classification:
+///   - `Supported`: exit 0 AND output starts with "git version".
+///   - `Unsupported`: exit 1 AND output does NOT start with "git version"
+///     (old git's recognized unknown-command refusal).
+///   - `ProbeFailure`: any other outcome (I/O error, timeout, unexpected exit,
+///     wrong output on success).  Callers fail closed.
+///
+/// Do NOT apply this isolation to normal push execution — real pushes need
+/// `git-receive-pack` and other git helpers on `GIT_EXEC_PATH`.
 fn git_supports_subsection_alias(real_git: &Path) -> SubsectionSupport {
-    // Scratch environment: isolated working directory + config env.
-    // Use a truly unique temp dir so parallel test invocations do not race.
-    let scratch_dir_holder = match tempfile::tempdir() {
-        Ok(d) => d,
-        Err(_) => return SubsectionSupport::ProbeFailure,
-    };
-    let scratch_dir = scratch_dir_holder.path();
-
-    // Minimal PATH: only the directory containing the real git binary, plus
-    // scratch_dir itself (empty, so no helper can land there).  This prevents
-    // any ambient `git-_probe_` from being found by git's external-command
-    // search.  The sentinel (`_probe_` = `version`) is a builtin, so git does
-    // not search PATH for it on a supporting binary.
-    //
-    // When real_git is a bare name ("git"), resolve it through the current PATH
-    // so we can locate its parent directory.  The command is always spawned by
-    // its original name so the OS exec(2) uses the restricted PATH we inject.
+    // Resolve the git binary to an absolute path so we can create a controlled
+    // symlink inside the probe-only directory.
     let resolved_git = if real_git.is_absolute() {
         real_git.to_owned()
     } else {
-        // Walk current PATH to find the first entry that contains a git binary.
         let git_name = real_git.file_name().unwrap_or(real_git.as_os_str());
         std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
             .find_map(|dir| {
@@ -563,18 +554,33 @@ fn git_supports_subsection_alias(real_git: &Path) -> SubsectionSupport {
             })
             .unwrap_or_else(|| real_git.to_owned())
     };
-    let git_dir = resolved_git
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .unwrap_or(std::path::Path::new("/usr/bin"));
-    let minimal_path = std::env::join_paths([git_dir, scratch_dir])
-        .unwrap_or_else(|_| git_dir.as_os_str().to_owned());
 
-    // Use run_bounded for timeout + output cap — a hanging helper on PATH must
-    // not block every managed git invocation indefinitely.
-    // The sentinel alias is injected via -c; no config file is written.
+    // Probe-only private directory: contains only a controlled `git` symlink
+    // to the exact binary under test.  Used for BOTH PATH and GIT_EXEC_PATH
+    // so that git's external-command search never finds an adjacent helper
+    // (including any `git-_probe_` placed beside the real git binary).
+    let probe_dir_holder = match tempfile::tempdir() {
+        Ok(d) => d,
+        Err(_) => return SubsectionSupport::ProbeFailure,
+    };
+    let probe_dir = probe_dir_holder.path();
+    let git_link = probe_dir.join("git");
+    if std::os::unix::fs::symlink(&resolved_git, &git_link).is_err() {
+        return SubsectionSupport::ProbeFailure;
+    }
+
+    // Scratch working directory — not inside any repo, not in the probe dir
+    // (which only holds the git symlink).
+    let scratch_dir_holder = match tempfile::tempdir() {
+        Ok(d) => d,
+        Err(_) => return SubsectionSupport::ProbeFailure,
+    };
+    let scratch_dir = scratch_dir_holder.path();
+
+    // Run the probe against the controlled git symlink using run_bounded for
+    // timeout + output cap.
     let result = {
-        let mut cmd = std::process::Command::new(real_git);
+        let mut cmd = std::process::Command::new(&git_link);
         cmd.args(["-c", "alias._probe_.command=version", "_probe_"]);
         // Scrub all ambient config channels.
         cmd.env("GIT_CONFIG_NOSYSTEM", "1");
@@ -585,19 +591,34 @@ fn git_supports_subsection_alias(real_git: &Path) -> SubsectionSupport {
         cmd.env_remove("GIT_DIR");
         cmd.env_remove("GIT_WORK_TREE");
         cmd.env_remove("GIT_NAMESPACE");
-        // Restrict PATH and unset GIT_EXEC_PATH.
-        cmd.env("PATH", &minimal_path);
-        cmd.env_remove("GIT_EXEC_PATH");
-        // Run from the scratch directory (not inside any git repo).
+        // Scrub inline-config env so no ambient -c values bleed in.
+        cmd.env_remove("GIT_CONFIG_COUNT");
+        for i in 0..=9 {
+            cmd.env_remove(format!("GIT_CONFIG_KEY_{i}"));
+            cmd.env_remove(format!("GIT_CONFIG_VALUE_{i}"));
+        }
+        cmd.env_remove("GIT_CONFIG_PARAMETERS");
+        // Probe-only PATH and GIT_EXEC_PATH: only the controlled symlink dir.
+        // Both must point to the same probe dir so git's exec-path search
+        // (which uses GIT_EXEC_PATH before PATH) also finds only our symlink.
+        let probe_path = probe_dir.as_os_str().to_owned();
+        cmd.env("PATH", &probe_path);
+        cmd.env("GIT_EXEC_PATH", probe_dir);
+        // Run from scratch (not inside any git repo).
         cmd.current_dir(scratch_dir);
         run_bounded(&mut cmd, PROBE_TIMEOUT)
     };
-    // scratch_dir_holder is dropped here, cleaning up the temp dir.
+    // Temp dirs are dropped here, cleaning up the probe dir and scratch dir.
 
     match result {
-        Some(out) if out.stdout.starts_with(b"git version") => SubsectionSupport::Supported,
-        Some(_) => SubsectionSupport::Unsupported,
-        None => SubsectionSupport::ProbeFailure,
+        // Supported: exit 0 AND output starts with "git version".
+        Some(ref out) if out.status.success() && out.stdout.starts_with(b"git version") => {
+            SubsectionSupport::Supported
+        }
+        // Unsupported: old git's recognized unknown-command refusal exits 1.
+        Some(ref out) if out.status.code() == Some(1) => SubsectionSupport::Unsupported,
+        // Any other outcome: fail closed.
+        _ => SubsectionSupport::ProbeFailure,
     }
 }
 
@@ -624,7 +645,7 @@ fn git_supports_subsection_alias(real_git: &Path) -> SubsectionSupport {
 /// **Algorithm (mirrors `alias.c` callback):**
 ///
 /// On a **supporting** binary: enumerate `git config -z --get-regexp '^alias\.'`
-/// (NUL-framed: `key\0value\0` per record) so multi-line values are preserved
+/// (NUL-framed: `key\nvalue\0` per record) so multi-line values are preserved
 /// intact without newline ambiguity.  Parse each key structurally and match
 /// against `name` using the correct case rule for each form; retain the **last**
 /// matching record's full value.
@@ -635,6 +656,30 @@ fn git_supports_subsection_alias(real_git: &Path) -> SubsectionSupport {
 ///
 /// Returns `None` when no matching alias exists (the name is a real command).
 /// Returns `Err` when the probe state prevents safe resolution (fail closed).
+fn could_match_name(rest: &str, name: &str) -> bool {
+    // Mirror the matching logic in resolve_alias for use in the valueless-record
+    // guard.  Returns true if `rest` (the part after "alias." in the config key)
+    // would match `name` under any of the three alias forms.
+    match rest.rfind('.') {
+        Some(dot_pos) => {
+            let sub = &rest[..dot_pos];
+            let var = &rest[dot_pos + 1..];
+            if var == "command" {
+                if sub.is_empty() {
+                    "command".eq_ignore_ascii_case(name)
+                } else {
+                    sub == name
+                }
+            } else if sub.is_empty() {
+                var.eq_ignore_ascii_case(name)
+            } else {
+                false
+            }
+        }
+        None => rest.eq_ignore_ascii_case(name),
+    }
+}
+
 fn resolve_alias(
     real_git: &Path,
     ctx: &[String],
@@ -645,7 +690,7 @@ fn resolve_alias(
         SubsectionSupport::Supported => {
             // Enumerate the entire alias namespace with NUL framing so
             // multi-line values are not truncated.  Each record is:
-            //   <key> NUL <value> NUL
+            //   <key> LF <value> NUL
             // where <key> is lowercase section + preserved-case subsection +
             // lowercase variable.
             let args: Vec<String> = {
@@ -659,9 +704,14 @@ fn resolve_alias(
             };
             let raw_args: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
             let out = capture_raw(real_git, &raw_args).ok_or(())?;
-            // Non-zero exit (exit 1) means no alias entries at all.
+            // exit 1 means no alias entries at all — return None.
+            // Any other non-zero exit is an unexpected failure; fail closed.
             if !out.status.success() {
-                return Ok(None);
+                return if out.status.code() == Some(1) {
+                    Ok(None)
+                } else {
+                    Err(())
+                };
             }
             // Walk NUL-delimited records: key LF value NUL (git config -z format).
             // Each record is: <key>\n<value>\0
@@ -672,9 +722,10 @@ fn resolve_alias(
             let mut pos = 0usize;
             while pos < bytes.len() {
                 // Each record ends at the next NUL byte.
+                // A missing NUL means truncated output — fail closed.
                 let rec_end = match bytes[pos..].iter().position(|&b| b == 0) {
                     Some(i) => pos + i,
-                    None => break,
+                    None => return Err(()),
                 };
                 let record = match std::str::from_utf8(&bytes[pos..rec_end]) {
                     Ok(r) => r,
@@ -686,9 +737,23 @@ fn resolve_alias(
                 pos = rec_end + 1;
 
                 // Within the record, the first LF separates key from value.
+                // A record without LF is valueless (alias.pub\0) — if it
+                // matches `name`, refuse rather than silently skip (which would
+                // resurrect an earlier definition).
                 let (key, value) = match record.find('\n') {
                     Some(nl) => (&record[..nl], &record[nl + 1..]),
-                    None => continue, // malformed record without LF; skip
+                    None => {
+                        // Valueless record: check if it would match name.
+                        // If so, fail closed — do not resurrect a prior value.
+                        let rest = match record.strip_prefix("alias.") {
+                            Some(r) => r,
+                            None => continue,
+                        };
+                        if could_match_name(rest, name) {
+                            return Err(());
+                        }
+                        continue;
+                    }
                 };
 
                 // Structural parse of the key.
@@ -700,44 +765,55 @@ fn resolve_alias(
                 };
 
                 // Determine which alias form this key represents and whether
-                // it matches `name`.  Order matters: check empty-subsection
-                // (rest starts with '.') before the general dot check, because
-                // ".pub".find('.') = Some(0) and would be misclassified.
-                let matches_name = if let Some(after_dot) = rest.strip_prefix('.') {
-                    // alias..<name> form: empty-subsection, plain semantics.
-                    // Git prints the key as "alias..<name>" (two dots).
-                    // Case-insensitive compare, like plain aliases.
-                    after_dot.eq_ignore_ascii_case(name)
-                } else if let Some(dot_pos) = rest.rfind('.') {
-                    // Has at least one dot that is not at position 0.
-                    let var = &rest[dot_pos + 1..];
-                    if var == "command" {
-                        // alias.<subsection>.command → subsection alias.
-                        // The subsection is everything before the last ".command".
+                // it matches `name`.
+                //
+                // Split at the LAST dot to determine (subsection/variable):
+                //   - If var == "command" and sub non-empty: subsection alias.
+                //     The subsection may itself start with a dot (e.g.
+                //     alias..pub.command has sub=".pub"), so this correctly
+                //     handles keys the old strip_prefix('.') check misclassified.
+                //   - If var == "command" and sub is empty (rest = ".command"):
+                //     empty-subsection plain alias named "command".
+                //   - If var != "command" and rest has no dot: plain alias.
+                //   - If var != "command" and sub is empty (rest = ".<name>"):
+                //     empty-subsection plain alias.
+                //   - Otherwise: dotted plain alias name — skip.
+                let matches_name = match rest.rfind('.') {
+                    Some(dot_pos) => {
                         let sub = &rest[..dot_pos];
-                        // Subsection comparison is CASE-SENSITIVE.
-                        // An empty subsection here is "alias..command" which is
-                        // a plain alias named "command" (empty-subsection form),
-                        // handled correctly by the eq_ignore_ascii_case below.
-                        if sub.is_empty() {
-                            "command".eq_ignore_ascii_case(name)
+                        let var = &rest[dot_pos + 1..];
+                        if var == "command" {
+                            // alias.<sub>.command form.
+                            // sub may be empty ("alias..command" → plain "command")
+                            // or non-empty and possibly leading-dot ("alias..pub.command" → sub=".pub").
+                            if sub.is_empty() {
+                                "command".eq_ignore_ascii_case(name)
+                            } else {
+                                // Subsection comparison is CASE-SENSITIVE.
+                                // Preserves leading dots in sub (e.g. ".pub" == ".pub").
+                                sub == name
+                            }
+                        } else if sub.is_empty() {
+                            // alias..<var> form: empty-subsection plain alias.
+                            // Case-insensitive compare, like plain aliases.
+                            var.eq_ignore_ascii_case(name)
                         } else {
-                            sub == name
+                            // Dotted plain alias (alias.pub.other with var != "command") — skip.
+                            false
                         }
-                    } else {
-                        // alias.<plain.name> — a plain alias whose name contains
-                        // dots is printed with dots preserved.  Example:
-                        // alias.pub.other for section=alias, var=pub.other.
-                        // This doesn't match any of the three standard alias
-                        // forms we care about when var != "command"; skip.
-                        false
                     }
-                } else {
-                    // alias.<name> plain form (no dots in rest) — case-insensitive.
-                    rest.eq_ignore_ascii_case(name)
+                    None => {
+                        // alias.<name> plain form (no dots in rest) — case-insensitive.
+                        rest.eq_ignore_ascii_case(name)
+                    }
                 };
 
-                if matches_name && !value.is_empty() {
+                if matches_name {
+                    // Empty value: refuse rather than silently skip (which would
+                    // resurrect an earlier valid definition).
+                    if value.is_empty() {
+                        return Err(());
+                    }
                     last_match = Some(value.to_string());
                 }
             }
@@ -7121,7 +7197,7 @@ mod tests {
             return;
         }
         // Additional probe: does this binary dispatch alias..pub=version ?
-        let empty_probe = std::process::Command::new(&real_git())
+        let empty_probe = std::process::Command::new(real_git())
             .args(["-c", "alias..pub=version", "pub"])
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .output();
