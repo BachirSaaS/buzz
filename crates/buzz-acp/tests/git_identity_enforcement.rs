@@ -45,21 +45,36 @@ fn real_git_dir() -> PathBuf {
 /// Isolated capability probe: returns `true` iff the installed git binary
 /// dispatches `alias.<name>.command` form aliases.
 ///
-/// Mirrors the production `git_supports_subsection_alias` isolation model:
-///   - Scratch working directory (not inside any repo)
-///   - PATH restricted to the git binary's directory + scratch dir
+/// Matches the production `git_supports_subsection_alias` isolation model:
+///   - Probe-only private tempdir with a controlled `git` symlink to the real
+///     binary (prevents sibling helpers from intercepting the probe)
+///   - Both PATH and GIT_EXEC_PATH set to the private dir only
 ///   - GIT_CONFIG_NOSYSTEM, scratch HOME, XDG_CONFIG_HOME/GIT_DIR removed
-///   - GIT_EXEC_PATH removed
-///
-/// Using the same isolation in test skip-gates prevents a `git-_probe_` helper
-/// on the ambient PATH from flipping the capability verdict for every test.
+///   - Verdict requires exit 0 AND stdout starting with "git version";
+///     exit 1 with empty stdout → Unsupported; anything else → false (fail closed)
 fn isolated_subsection_probe() -> bool {
     let git_dir = real_git_dir();
     let git_binary = git_dir.join("git");
-    let scratch = tempfile::tempdir().unwrap();
-    let minimal_path = std::env::join_paths([git_dir.as_path(), scratch.path()])
-        .unwrap_or_else(|_| git_dir.as_os_str().to_owned());
-    let out = Command::new(&git_binary)
+    let git_binary = git_binary
+        .canonicalize()
+        .unwrap_or_else(|_| git_binary.clone());
+
+    // Private probe dir: only contains the controlled git symlink.
+    let probe_dir = match tempfile::tempdir() {
+        Ok(d) => d,
+        Err(_) => return false,
+    };
+    let git_link = probe_dir.path().join("git");
+    if std::os::unix::fs::symlink(&git_binary, &git_link).is_err() {
+        return false;
+    }
+
+    let scratch = match tempfile::tempdir() {
+        Ok(d) => d,
+        Err(_) => return false,
+    };
+    let probe_path = probe_dir.path().as_os_str().to_owned();
+    let out = Command::new(&git_link)
         .args(["-c", "alias._probe_.command=version", "_probe_"])
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("HOME", scratch.path())
@@ -69,12 +84,16 @@ fn isolated_subsection_probe() -> bool {
         .env_remove("GIT_DIR")
         .env_remove("GIT_WORK_TREE")
         .env_remove("GIT_NAMESPACE")
-        .env("PATH", &minimal_path)
-        .env_remove("GIT_EXEC_PATH")
+        .env_remove("GIT_CONFIG_COUNT")
+        .env_remove("GIT_CONFIG_PARAMETERS")
+        .env("PATH", &probe_path)
+        .env("GIT_EXEC_PATH", probe_dir.path())
+        .env("LC_ALL", "C")
         .current_dir(scratch.path())
         .output()
         .unwrap_or_else(|_| panic!("failed to spawn git for subsection probe"));
-    out.stdout.starts_with(b"git version")
+    // Match production verdict: Supported = exit 0 + "git version" stdout.
+    out.status.success() && out.stdout.starts_with(b"git version")
 }
 
 /// Isolated empty-subsection dispatch probe: returns `true` iff the installed
@@ -82,10 +101,25 @@ fn isolated_subsection_probe() -> bool {
 fn isolated_empty_subsection_probe() -> bool {
     let git_dir = real_git_dir();
     let git_binary = git_dir.join("git");
-    let scratch = tempfile::tempdir().unwrap();
-    let minimal_path = std::env::join_paths([git_dir.as_path(), scratch.path()])
-        .unwrap_or_else(|_| git_dir.as_os_str().to_owned());
-    let out = Command::new(&git_binary)
+    let git_binary = git_binary
+        .canonicalize()
+        .unwrap_or_else(|_| git_binary.clone());
+
+    let probe_dir = match tempfile::tempdir() {
+        Ok(d) => d,
+        Err(_) => return false,
+    };
+    let git_link = probe_dir.path().join("git");
+    if std::os::unix::fs::symlink(&git_binary, &git_link).is_err() {
+        return false;
+    }
+
+    let scratch = match tempfile::tempdir() {
+        Ok(d) => d,
+        Err(_) => return false,
+    };
+    let probe_path = probe_dir.path().as_os_str().to_owned();
+    let out = Command::new(&git_link)
         .args(["-c", "alias..pub=version", "pub"])
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("HOME", scratch.path())
@@ -95,12 +129,15 @@ fn isolated_empty_subsection_probe() -> bool {
         .env_remove("GIT_DIR")
         .env_remove("GIT_WORK_TREE")
         .env_remove("GIT_NAMESPACE")
-        .env("PATH", &minimal_path)
-        .env_remove("GIT_EXEC_PATH")
+        .env_remove("GIT_CONFIG_COUNT")
+        .env_remove("GIT_CONFIG_PARAMETERS")
+        .env("PATH", &probe_path)
+        .env("GIT_EXEC_PATH", probe_dir.path())
+        .env("LC_ALL", "C")
         .current_dir(scratch.path())
         .output()
         .unwrap_or_else(|_| panic!("failed to spawn git for empty-subsection probe"));
-    out.stdout.starts_with(b"git version")
+    out.status.success() && out.stdout.starts_with(b"git version")
 }
 
 /// A git repo with one human-authored commit and human-named local config.
@@ -2399,8 +2436,13 @@ fn wrapper_refuses_push_plain_last_wins_on_both_binaries() {
     };
 
     let Some(alt_dir) = alt_git_dir else {
-        eprintln!("skip second-binary leg: no second git binary found on this host");
-        return;
+        // No second git binary on this host.  Panic with a skip message so the
+        // absent leg is visible as a FAILED test rather than silently passing —
+        // single-binary hosts do not exercise this test's second-binary assertions.
+        panic!(
+            "skip: no second git binary found on this host; \
+             this test requires two git installations (e.g. Homebrew + Apple git)"
+        );
     };
     let alt_git = alt_dir.join("git");
     let alt_ver = Command::new(&alt_git)
@@ -2409,25 +2451,36 @@ fn wrapper_refuses_push_plain_last_wins_on_both_binaries() {
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .unwrap_or_else(|_| "unknown".to_string());
 
-    // Determine the alt binary's capability by probing it directly (not via
-    // global PATH mutation, which would race with parallel tests).
+    // Determine the alt binary's capability by probing it directly.
+    // Uses the same private-dir isolation as the production probe so a
+    // sibling helper cannot flip the verdict.
     let alt_supports_subsection = {
+        let alt_git_abs = alt_git.canonicalize().unwrap_or_else(|_| alt_git.clone());
+        let probe_dir = tempfile::tempdir().unwrap();
+        let git_link = probe_dir.path().join("git");
+        std::os::unix::fs::symlink(&alt_git_abs, &git_link).unwrap();
         let scratch = tempfile::tempdir().unwrap();
-        let minimal_path = std::env::join_paths([alt_dir.as_path(), scratch.path()])
-            .unwrap_or_else(|_| alt_dir.as_os_str().to_owned());
-        let out = Command::new(&alt_git)
+        let probe_path = probe_dir.path().as_os_str().to_owned();
+        let out = Command::new(&git_link)
             .args(["-c", "alias._probe_.command=version", "_probe_"])
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .env("HOME", scratch.path())
             .env_remove("XDG_CONFIG_HOME")
             .env_remove("GIT_CONFIG_GLOBAL")
+            .env_remove("GIT_CONFIG_SYSTEM")
             .env_remove("GIT_DIR")
-            .env("PATH", &minimal_path)
-            .env_remove("GIT_EXEC_PATH")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_NAMESPACE")
+            .env_remove("GIT_CONFIG_COUNT")
+            .env_remove("GIT_CONFIG_PARAMETERS")
+            .env("PATH", &probe_path)
+            .env("GIT_EXEC_PATH", probe_dir.path())
+            .env("LC_ALL", "C")
             .current_dir(scratch.path())
             .output()
             .unwrap_or_else(|_| panic!("failed to spawn alt git for probe"));
-        out.stdout.starts_with(b"git version")
+        // Match production verdict: Supported = exit 0 + "git version" stdout.
+        out.status.success() && out.stdout.starts_with(b"git version")
     };
     eprintln!(
         "alternate binary ({alt_ver} @ {}): {} subsection aliases",
@@ -2520,4 +2573,199 @@ fn wrapper_refuses_push_plain_last_wins_on_both_binaries() {
     });
 
     result.unwrap();
+}
+
+/// Regression: empty-value-then-valid ordering — last-wins allows the valid expansion.
+///
+/// `git -c alias.pub= -c alias.pub=version pub` executes `git version` on both
+/// real git binaries (exit 0).  The wrapper must also allow this invocation
+/// (the push gate refuses it for identity reasons, not alias-resolution reasons).
+///
+/// Self-gate: skips on binaries that don't support plain aliases (all do).
+#[test]
+fn wrapper_allows_empty_then_valid_alias_override() {
+    // Both git binaries accept this ordering.  Verify the wrapper's resolver
+    // does not prematurely bail on the first empty record.
+    let (_shim, path, _email, _keydir) = signed_shim_env();
+
+    let repo = human_repo();
+    let remote = tempfile::tempdir().unwrap();
+    assert!(Command::new("git")
+        .args(["init", "-q", "--bare", remote.path().to_str().unwrap()])
+        .status()
+        .unwrap()
+        .success());
+    wrapper(
+        &path,
+        repo.path(),
+        &["remote", "add", "origin", remote.path().to_str().unwrap()],
+    );
+
+    // Write empty first, valid second — last-wins means "push" is effective.
+    wrapper(&path, repo.path(), &["config", "alias.pub", ""]);
+    wrapper(
+        &path,
+        repo.path(),
+        &["config", "--add", "alias.pub", "push"],
+    );
+
+    let out = wrapper(&path, repo.path(), &["pub", "origin", "main"]);
+    // The push gate fires (author-identity check) — the alias WAS resolved.
+    assert!(
+        !out.status.success(),
+        "wrapper must refuse (author gate), not fail on alias resolution; stderr={}",
+        String::from_utf8_lossy(&out.stderr),
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("not authored by your agent identity"),
+        "expected author-gate refusal after resolving empty-then-valid alias; stderr={}",
+        String::from_utf8_lossy(&out.stderr),
+    );
+    // Destination must be empty — the push was refused before anything landed.
+    let refs = Command::new("git")
+        .args(["-C", remote.path().to_str().unwrap(), "for-each-ref"])
+        .output()
+        .unwrap();
+    assert!(
+        refs.stdout.is_empty(),
+        "remote must be empty after refused push; refs={}",
+        String::from_utf8_lossy(&refs.stdout),
+    );
+}
+
+/// Regression: valid-then-empty ordering — last-wins means empty wins, which
+/// must be refused by the wrapper (fail closed on empty final expansion).
+///
+/// `git -c alias.pub=version -c alias.pub= pub` fails on both real git binaries
+/// ("'' is not a git command").  The wrapper must refuse this too.
+///
+/// Self-gate: skips on binaries that don't support plain aliases (all do).
+#[test]
+fn wrapper_refuses_valid_then_empty_alias_override() {
+    let (_shim, path, _email, _keydir) = signed_shim_env();
+
+    let repo = human_repo();
+    let remote = tempfile::tempdir().unwrap();
+    assert!(Command::new("git")
+        .args(["init", "-q", "--bare", remote.path().to_str().unwrap()])
+        .status()
+        .unwrap()
+        .success());
+    wrapper(
+        &path,
+        repo.path(),
+        &["remote", "add", "origin", remote.path().to_str().unwrap()],
+    );
+
+    // Write valid first, empty second — last-wins means empty is effective.
+    wrapper(&path, repo.path(), &["config", "alias.pub", "push"]);
+    wrapper(&path, repo.path(), &["config", "--add", "alias.pub", ""]);
+
+    let out = wrapper(&path, repo.path(), &["pub", "origin", "main"]);
+    assert!(
+        !out.status.success(),
+        "wrapper must refuse empty final alias expansion; stderr={}",
+        String::from_utf8_lossy(&out.stderr),
+    );
+    // The remote must be untouched — refused before any push.
+    let refs = Command::new("git")
+        .args(["-C", remote.path().to_str().unwrap(), "for-each-ref"])
+        .output()
+        .unwrap();
+    assert!(
+        refs.stdout.is_empty(),
+        "remote must be empty after refused empty-final alias; refs={}",
+        String::from_utf8_lossy(&refs.stdout),
+    );
+}
+
+/// Regression: probe classifier — exit 1 with version-looking stdout must NOT
+/// classify as Unsupported; it must result in ProbeFailure (fail closed).
+///
+/// This test verifies the installed wrapper treats such a probe result as
+/// ProbeFailure by constructing a PATH where the selected `git` binary is a
+/// helper that exits 1 but prints "git version sentinel" to stdout.
+#[test]
+fn wrapper_treats_exit1_with_stdout_as_probe_failure_not_unsupported() {
+    // Build a fake "git" that exits 1 and prints "git version exit1" to stdout.
+    let fake_dir = tempfile::tempdir().unwrap();
+    let fake_git = fake_dir.path().join("git");
+    {
+        use std::io::Write;
+        let mut f = std::fs::File::create(&fake_git).unwrap();
+        write!(f, "#!/bin/sh\nprintf 'git version exit1\\n'\nexit 1\n").unwrap();
+    }
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(&fake_git).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&fake_git, perms).unwrap();
+    }
+
+    // Build a shim PATH: shim_dir → fake_dir (fake git) → rest.
+    // find_real_git() will skip shim_dir (itself) and pick up fake_dir/git.
+    // The production probe for fake_dir/git will get exit 1 + "git version"
+    // stdout — this must yield ProbeFailure, causing the wrapper to refuse
+    // with "alias capability probe failed".
+    use nostr::ToBech32;
+    let keys = nostr::Keys::generate();
+    let nsec = keys.secret_key().to_bech32().unwrap();
+    let keydir = tempfile::tempdir().unwrap();
+    let id = buzz_git_identity::write_keyfile(keydir.path(), &nsec).expect("write keyfile");
+    let shim = tempfile::tempdir().unwrap();
+    for name in ["git", "git-sign-nostr"] {
+        std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_buzz-acp"), shim.path().join(name)).unwrap();
+    }
+    let entries = buzz_git_identity::identity_signing_entries(&id);
+    buzz_git_identity::write_identity_manifest(shim.path(), &entries).unwrap();
+
+    // PATH: shim_dir : fake_dir : (original minus real-git dir)
+    let real_dir = real_git_dir();
+    let original_path = std::env::var_os("PATH").unwrap_or_default();
+    let filtered: Vec<PathBuf> = std::env::split_paths(&original_path)
+        .filter(|d| d.canonicalize().ok() != real_dir.canonicalize().ok())
+        .collect();
+    let path = std::env::join_paths(
+        std::iter::once(shim.path())
+            .chain(std::iter::once(fake_dir.path()))
+            .chain(filtered.iter().map(|d| d.as_path())),
+    )
+    .unwrap()
+    .into_string()
+    .unwrap();
+
+    let repo = human_repo();
+    let remote = tempfile::tempdir().unwrap();
+    assert!(Command::new("git")
+        .args(["init", "-q", "--bare", remote.path().to_str().unwrap()])
+        .status()
+        .unwrap()
+        .success());
+    wrapper(
+        &path,
+        repo.path(),
+        &["remote", "add", "origin", remote.path().to_str().unwrap()],
+    );
+    wrapper(&path, repo.path(), &["config", "alias.pub.command", "push"]);
+
+    let out = wrapper(&path, repo.path(), &["pub", "origin", "main"]);
+    assert!(
+        !out.status.success(),
+        "wrapper must refuse when probe yields exit-1+stdout; stderr={}",
+        String::from_utf8_lossy(&out.stderr),
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("alias capability probe failed"),
+        "expected ProbeFailure message for exit-1+stdout probe; stderr={}",
+        String::from_utf8_lossy(&out.stderr),
+    );
+    let refs = Command::new("git")
+        .args(["-C", remote.path().to_str().unwrap(), "for-each-ref"])
+        .output()
+        .unwrap();
+    assert!(
+        refs.stdout.is_empty(),
+        "remote must be empty after probe-failure refusal; refs={}",
+        String::from_utf8_lossy(&refs.stdout),
+    );
 }

@@ -528,11 +528,12 @@ enum SubsectionSupport {
 ///   3. Bounds the child process: timeout + output cap via [`run_bounded`].
 ///
 /// Verdict classification:
-///   - `Supported`: exit 0 AND output starts with "git version".
-///   - `Unsupported`: exit 1 AND output does NOT start with "git version"
-///     (old git's recognized unknown-command refusal).
+///   - `Supported`: exit 0 AND stdout starts with "git version".
+///   - `Unsupported`: exit 1 AND stdout is empty — old git's recognized
+///     unknown-command refusal (error message goes to stderr only).
+///     Exit 1 with stdout content is treated as `ProbeFailure` (fail closed).
 ///   - `ProbeFailure`: any other outcome (I/O error, timeout, unexpected exit,
-///     wrong output on success).  Callers fail closed.
+///     exit-1 with stdout, wrong output on exit 0).  Callers fail closed.
 ///
 /// Do NOT apply this isolation to normal push execution — real pushes need
 /// `git-receive-pack` and other git helpers on `GIT_EXEC_PATH`.
@@ -564,10 +565,30 @@ fn git_supports_subsection_alias(real_git: &Path) -> SubsectionSupport {
         Err(_) => return SubsectionSupport::ProbeFailure,
     };
     let probe_dir = probe_dir_holder.path();
-    let git_link = probe_dir.join("git");
-    if std::os::unix::fs::symlink(&resolved_git, &git_link).is_err() {
-        return SubsectionSupport::ProbeFailure;
-    }
+
+    // Place a controlled copy/symlink of the selected git binary in the probe
+    // dir under the platform-canonical name so the probe command can invoke it
+    // as "git" and so GIT_EXEC_PATH points to only this one binary.
+    //
+    // Unix: a symlink is cheap and avoids duplicating a large binary.
+    // Windows: symlinks require elevated privileges; copy instead.  Use the
+    // correct Windows executable name so the probe can find it.
+    #[cfg(unix)]
+    let git_link = {
+        let link = probe_dir.join("git");
+        if std::os::unix::fs::symlink(&resolved_git, &link).is_err() {
+            return SubsectionSupport::ProbeFailure;
+        }
+        link
+    };
+    #[cfg(windows)]
+    let git_link = {
+        let link = probe_dir.join("git.exe");
+        if std::fs::copy(&resolved_git, &link).is_err() {
+            return SubsectionSupport::ProbeFailure;
+        }
+        link
+    };
 
     // Scratch working directory — not inside any repo, not in the probe dir
     // (which only holds the git symlink).
@@ -604,6 +625,9 @@ fn git_supports_subsection_alias(real_git: &Path) -> SubsectionSupport {
         let probe_path = probe_dir.as_os_str().to_owned();
         cmd.env("PATH", &probe_path);
         cmd.env("GIT_EXEC_PATH", probe_dir);
+        // Stable locale so old-git's unknown-command message is ASCII and
+        // comparisons are locale-independent.
+        cmd.env("LC_ALL", "C");
         // Run from scratch (not inside any git repo).
         cmd.current_dir(scratch_dir);
         run_bounded(&mut cmd, PROBE_TIMEOUT)
@@ -615,8 +639,12 @@ fn git_supports_subsection_alias(real_git: &Path) -> SubsectionSupport {
         Some(ref out) if out.status.success() && out.stdout.starts_with(b"git version") => {
             SubsectionSupport::Supported
         }
-        // Unsupported: old git's recognized unknown-command refusal exits 1.
-        Some(ref out) if out.status.code() == Some(1) => SubsectionSupport::Unsupported,
+        // Unsupported: old git's recognized unknown-command refusal exits 1
+        // with nothing on stdout (the message goes to stderr).  Any exit 1
+        // with stdout content is a suspicious/unexpected response → fail closed.
+        Some(ref out) if out.status.code() == Some(1) && out.stdout.is_empty() => {
+            SubsectionSupport::Unsupported
+        }
         // Any other outcome: fail closed.
         _ => SubsectionSupport::ProbeFailure,
     }
@@ -718,7 +746,18 @@ fn resolve_alias(
             // The NUL terminates the record; the LF separates key from value.
             // Values may contain embedded newlines (that's the purpose of -z).
             let bytes = &out.stdout;
-            let mut last_match: Option<String> = None;
+            // `last_match` tracks the last matching alias definition in
+            // last-wins order, mirroring git's own alias resolver:
+            //   - `None`        — no matching key seen yet
+            //   - `Some(None)`  — last matching key had an empty value
+            //   - `Some(Some(v))` — last matching key had non-empty value `v`
+            //
+            // An empty EFFECTIVE FINAL expansion is refused (fail closed).
+            // An empty value that is later overridden by a valid one is allowed:
+            //   `alias.pub=` then `alias.pub=version` → "version" wins (git
+            //   executes this).  `alias.pub=version` then `alias.pub=` → ""
+            //   wins and git rejects it ("'' is not a git command").
+            let mut last_match: Option<Option<String>> = None;
             let mut pos = 0usize;
             while pos < bytes.len() {
                 // Each record ends at the next NUL byte.
@@ -809,15 +848,27 @@ fn resolve_alias(
                 };
 
                 if matches_name {
-                    // Empty value: refuse rather than silently skip (which would
-                    // resurrect an earlier valid definition).
+                    // Record this definition (last-wins).  An empty value is
+                    // tracked but not immediately rejected — a later definition
+                    // may override it (git allows: alias.pub= then alias.pub=version).
+                    // The empty-final check happens after the loop.
                     if value.is_empty() {
-                        return Err(());
+                        last_match = Some(None);
+                    } else {
+                        last_match = Some(Some(value.to_string()));
                     }
-                    last_match = Some(value.to_string());
                 }
             }
-            Ok(last_match)
+            // After visiting all records: check the effective final definition.
+            // Some(None) means the last matching record had an empty value —
+            // refuse (fail closed), mirroring git's own behavior.
+            // Some(Some(v)) means a non-empty expansion — allow.
+            // None means no matching alias was found.
+            match last_match {
+                Some(None) => Err(()),
+                Some(Some(v)) => Ok(Some(v)),
+                None => Ok(None),
+            }
         }
         SubsectionSupport::Unsupported => {
             // Non-supporting binary: plain form only.  git itself does the
