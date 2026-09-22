@@ -218,6 +218,15 @@ const SidebarProvider = React.forwardRef<
       return () => window.removeEventListener("keydown", handleKeyDown);
     }, [toggleSidebar]);
 
+    React.useEffect(() => {
+      if (!isResizing) return;
+
+      document.documentElement.dataset.sidebarResizing = "true";
+      return () => {
+        delete document.documentElement.dataset.sidebarResizing;
+      };
+    }, [isResizing]);
+
     // Expose semantic state so Tailwind descendants can style both modes.
     const state = open ? "expanded" : "collapsed";
     const contextValue = React.useMemo<SidebarContextProps>(
@@ -425,6 +434,7 @@ const SidebarRail = React.forwardRef<
   (
     {
       className,
+      onDoubleClick,
       onPointerCancel,
       onPointerDown,
       onPointerMove,
@@ -471,92 +481,106 @@ const SidebarRail = React.forwardRef<
     );
 
     return (
-      <button
-        ref={ref}
-        data-sidebar="rail"
-        aria-label="Resize sidebar"
-        tabIndex={-1}
-        disabled={isRailDisabled || state !== "expanded"}
-        onPointerCancel={(event) => {
-          onPointerCancel?.(event);
-          finishResize(event);
-        }}
-        onPointerDown={(event) => {
-          onPointerDown?.(event);
-          if (
-            isRailDisabled ||
-            event.defaultPrevented ||
-            event.button !== 0 ||
-            state !== "expanded"
-          ) {
-            return;
-          }
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            ref={ref}
+            data-sidebar="rail"
+            aria-label="Resize sidebar"
+            aria-description="Drag to resize. Double-click to reset."
+            tabIndex={-1}
+            disabled={isRailDisabled || state !== "expanded"}
+            onDoubleClick={(event) => {
+              onDoubleClick?.(event);
+              if (event.defaultPrevented) return;
+              setSidebarWidth(SIDEBAR_WIDTH_DEFAULT);
+              performSidebarDefaultHaptic();
+            }}
+            onPointerCancel={(event) => {
+              onPointerCancel?.(event);
+              finishResize(event);
+            }}
+            onPointerDown={(event) => {
+              onPointerDown?.(event);
+              if (
+                isRailDisabled ||
+                event.defaultPrevented ||
+                event.button !== 0 ||
+                state !== "expanded"
+              ) {
+                return;
+              }
 
-          const side =
-            event.currentTarget.closest("[data-side='right']") !== null
-              ? "right"
-              : "left";
-          resizeStateRef.current = {
-            currentWidth: sidebarWidth,
-            hasDragged: false,
-            hasReachedDefaultWidth: isSidebarWidthNearDefault(sidebarWidth),
-            pointerId: event.pointerId,
-            previousCursor: document.documentElement.style.cursor,
-            previousUserSelect: document.body.style.userSelect,
-            side,
-            startWidth: sidebarWidth,
-            startX: event.clientX,
-          };
-          event.currentTarget.setPointerCapture(event.pointerId);
-          document.documentElement.style.cursor = "col-resize";
-          document.body.style.userSelect = "none";
-          setIsResizing(true);
-        }}
-        onPointerMove={(event) => {
-          onPointerMove?.(event);
-          const resizeState = resizeStateRef.current;
-          if (!resizeState || resizeState.pointerId !== event.pointerId) {
-            return;
-          }
+              event.preventDefault();
+              const side =
+                event.currentTarget.closest("[data-side='right']") !== null
+                  ? "right"
+                  : "left";
+              resizeStateRef.current = {
+                currentWidth: sidebarWidth,
+                hasDragged: false,
+                hasReachedDefaultWidth: isSidebarWidthNearDefault(sidebarWidth),
+                pointerId: event.pointerId,
+                previousCursor: document.documentElement.style.cursor,
+                previousUserSelect: document.body.style.userSelect,
+                side,
+                startWidth: sidebarWidth,
+                startX: event.clientX,
+              };
+              event.currentTarget.setPointerCapture(event.pointerId);
+              document.documentElement.style.cursor = "col-resize";
+              document.body.style.userSelect = "none";
+              setIsResizing(true);
+            }}
+            onPointerMove={(event) => {
+              onPointerMove?.(event);
+              const resizeState = resizeStateRef.current;
+              if (!resizeState || resizeState.pointerId !== event.pointerId) {
+                return;
+              }
 
-          const rawDelta = event.clientX - resizeState.startX;
-          const delta = resizeState.side === "left" ? rawDelta : -rawDelta;
-          if (!resizeState.hasDragged && Math.abs(delta) < 3) {
-            return;
-          }
+              const rawDelta = event.clientX - resizeState.startX;
+              const delta = resizeState.side === "left" ? rawDelta : -rawDelta;
+              if (!resizeState.hasDragged && Math.abs(delta) < 3) {
+                return;
+              }
 
-          resizeState.hasDragged = true;
-          event.preventDefault();
-          const nextWidth = magnetizeSidebarWidth(
-            resizeState.startWidth + delta,
-          );
-          const reachedDefaultWidth = hasReachedSidebarDefaultWidth(
-            resizeState.currentWidth,
-            nextWidth,
-          );
+              resizeState.hasDragged = true;
+              event.preventDefault();
+              const nextWidth = magnetizeSidebarWidth(
+                resizeState.startWidth + delta,
+              );
+              const reachedDefaultWidth = hasReachedSidebarDefaultWidth(
+                resizeState.currentWidth,
+                nextWidth,
+              );
 
-          if (reachedDefaultWidth && !resizeState.hasReachedDefaultWidth) {
-            performSidebarDefaultHaptic();
-          }
+              if (reachedDefaultWidth && !resizeState.hasReachedDefaultWidth) {
+                performSidebarDefaultHaptic();
+              }
 
-          resizeState.hasReachedDefaultWidth = reachedDefaultWidth;
-          resizeState.currentWidth = nextWidth;
-          setSidebarWidth(nextWidth);
-        }}
-        onPointerUp={(event) => {
-          onPointerUp?.(event);
-          finishResize(event);
-        }}
-        title="Drag to resize sidebar"
-        className={cn(
-          "absolute inset-y-0 z-20 hidden w-4 -translate-x-1/2 transition-all ease-linear group-data-[side=left]:-right-4 group-data-[side=right]:left-0 sm:flex",
-          "cursor-col-resize",
-          "after:absolute after:bottom-0 after:left-1/2 after:top-6 after:z-10 after:w-px after:-translate-x-1/2 after:bg-transparent after:content-['']",
-          "disabled:pointer-events-none disabled:hidden",
-          className,
-        )}
-        {...props}
-      />
+              resizeState.hasReachedDefaultWidth = reachedDefaultWidth;
+              resizeState.currentWidth = nextWidth;
+              setSidebarWidth(nextWidth);
+            }}
+            onPointerUp={(event) => {
+              onPointerUp?.(event);
+              finishResize(event);
+            }}
+            className={cn(
+              "absolute inset-y-0 z-20 hidden w-4 -translate-x-1/2 transition-all ease-linear group-data-[side=left]:-right-4 group-data-[side=right]:left-0 sm:flex",
+              "cursor-col-resize",
+              "after:absolute after:left-1/2 after:top-1/2 after:z-10 after:h-[7.5%] after:w-[3px] after:-translate-x-1/2 after:-translate-y-1/2 after:rounded-full after:bg-sidebar-ring after:opacity-0 after:transition-opacity after:duration-150 after:ease-out after:content-[''] hover:after:opacity-100 group-data-[resizing=true]:after:opacity-100 motion-reduce:after:transition-none",
+              "disabled:pointer-events-none disabled:hidden",
+              className,
+            )}
+            {...props}
+          />
+        </TooltipTrigger>
+        <TooltipContent side="right">
+          Drag to resize · Double-click to reset
+        </TooltipContent>
+      </Tooltip>
     );
   },
 );

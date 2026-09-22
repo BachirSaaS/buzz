@@ -3,16 +3,12 @@
 }
 
 .buzz-sidebar-scrollbar:hover {
-  scrollbar-color: var(
-      --buzz-sidebar-scrollbar-thumb,
-      hsl(var(--sidebar-border) / 0.8)
-    )
-    transparent;
+  scrollbar-color: hsl(var(--foreground) / 0.2) transparent;
 }
 
 .buzz-sidebar-scrollbar::-webkit-scrollbar {
-  height: 10px;
-  width: 10px;
+  height: 8px;
+  width: 8px;
 }
 
 .buzz-sidebar-scrollbar::-webkit-scrollbar-track {
@@ -20,17 +16,35 @@
 }
 
 .buzz-sidebar-scrollbar::-webkit-scrollbar-thumb {
-  background-clip: content-box;
+  background-clip: padding-box;
   background-color: transparent;
-  border: 3px solid transparent;
+  border: 2px solid transparent;
   border-radius: 999px;
 }
 
 .buzz-sidebar-scrollbar:hover::-webkit-scrollbar-thumb {
-  background-color: var(
-    --buzz-sidebar-scrollbar-thumb,
-    hsl(var(--sidebar-border) / 0.8)
-  );
+  background-color: hsl(var(--foreground) / 0.2);
+}
+
+[data-buzz-conversation-scroll] {
+  scrollbar-color: hsl(var(--foreground) / 0.2) transparent;
+  scrollbar-width: thin;
+}
+
+[data-buzz-conversation-scroll]::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+
+[data-buzz-conversation-scroll]::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+[data-buzz-conversation-scroll]::-webkit-scrollbar-thumb {
+  background-clip: padding-box;
+  background-color: hsl(var(--foreground) / 0.2);
+  border: 2px solid transparent;
+  border-radius: 999px;
 }
 
 /* Channel activity keeps its chrome outside the scrolling surface. The slim,

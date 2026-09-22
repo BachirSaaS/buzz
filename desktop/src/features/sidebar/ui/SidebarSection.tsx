@@ -297,7 +297,6 @@ export function ChannelMenuButton({
       data-testid={`channel-${channel.name}`}
       isActive={isActive}
       onClick={() => onSelectChannel(channel.id)}
-      tooltip={resolvedLabel}
       type="button"
     >
       <SidebarChannelIcon

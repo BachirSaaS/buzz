@@ -71,6 +71,19 @@ async function dragSidebarRail(page: Page, deltaX: number) {
   await page.mouse.move(startX, startY);
   await page.mouse.down();
   await page.mouse.move(startX + deltaX, startY, { steps: 8 });
+  await expect
+    .poll(() =>
+      page.evaluate(
+        ({ x, y }) => {
+          const hoveredElement = document.elementFromPoint(x, y);
+          return hoveredElement
+            ? getComputedStyle(hoveredElement).cursor
+            : null;
+        },
+        { x: startX + deltaX, y: startY },
+      ),
+    )
+    .toBe("col-resize");
   await page.mouse.up();
 }
 
@@ -96,6 +109,11 @@ test("sidebar rows separate hover, selected, and reorder states", async ({
     "background-color",
     establishedActiveBackground,
   );
+
+  await hoverRow.hover();
+  await page.waitForTimeout(600);
+  await expect(page.getByRole("tooltip", { name: "random" })).toHaveCount(0);
+
   // The spacing and motion experiment must preserve the production selected
   // row typography.
   await expect(selectedRow).toHaveCSS("font-weight", "400");
@@ -675,6 +693,33 @@ test("resizes, persists, and snaps to the default sidebar width", async ({
   await expect
     .poll(() => storedSidebarWidth(page))
     .toBe(String(DEFAULT_SIDEBAR_WIDTH));
+
+  await dragSidebarRail(page, 64);
+  await page.getByRole("button", { name: "Resize sidebar" }).dblclick();
+  await expect.poll(() => sidebarWidth(page)).toBe(DEFAULT_SIDEBAR_WIDTH);
+  await expect
+    .poll(() => storedSidebarWidth(page))
+    .toBe(String(DEFAULT_SIDEBAR_WIDTH));
+  expect(await page.evaluate(() => window.getSelection()?.toString())).toBe("");
+});
+
+test("reveals the sidebar resize affordance and help after pointer dwell", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const rail = page.getByRole("button", { name: "Resize sidebar" });
+
+  await rail.hover();
+  await expect(rail).toHaveCSS("cursor", "col-resize");
+  await expect(
+    page.getByRole("tooltip", {
+      name: "Drag to resize · Double-click to reset",
+    }),
+  ).toBeVisible();
+  await expect(
+    rail,
+    "the full-height resize target remains available",
+  ).toHaveCSS("height", /\d+px/);
 });
 
 test("shows a sidebar update card when an update is ready", async ({

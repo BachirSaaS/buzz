@@ -1,4 +1,4 @@
-import { useCustomEmoji } from "@/features/custom-emoji/hooks";
+import { useCustomEmojiQuery } from "@/features/custom-emoji/hooks";
 import { cn } from "@/shared/lib/cn";
 import { emojiDisplayName } from "@/shared/lib/emojiName";
 import { rewriteRelayUrl } from "@/shared/lib/mediaUrl";
@@ -36,7 +36,7 @@ export function StatusEmoji({
   decorative = false,
   showTitle = true,
 }: StatusEmojiProps) {
-  const customEmoji = useCustomEmoji();
+  const { data: customEmoji = [], isPending } = useCustomEmojiQuery();
 
   if (!value) return null;
 
@@ -59,6 +59,7 @@ export function StatusEmoji({
         />
       );
     }
+    if (isPending) return null;
   }
 
   // Native glyph, or an unknown shortcode we can't resolve — render as text.

@@ -141,6 +141,12 @@
     overscroll-behavior: none;
   }
 
+  html[data-sidebar-resizing="true"],
+  html[data-sidebar-resizing="true"] * {
+    /* biome-ignore lint/complexity/noImportantStyles: an active drag must override descendant cursor utilities */
+    cursor: col-resize !important;
+  }
+
   mark {
     background-color: transparent;
     color: inherit;
