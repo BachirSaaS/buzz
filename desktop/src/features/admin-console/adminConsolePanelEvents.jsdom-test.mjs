@@ -227,6 +227,63 @@ function mountPanel({
   return { container, doRender, unmount };
 }
 
+// makeOpenReportFixtures — build a standard open-report list/detail pair and register
+// the matching admin_list_reports / admin_get_report / admin_list_feedback handlers.
+// Returns {openItem, openDetail} for tests that need to reference the fixtures directly.
+// `itemOverrides` may patch any list-item fields (e.g. targetKind/target/id).
+function makeOpenReportFixtures(id, itemOverrides = {}) {
+  const openItem = {
+    id,
+    communityId: "comm-1",
+    communityHost: "alpha.example.com",
+    reportEventId: "aa",
+    reporterPubkey: "bb",
+    targetKind: "event",
+    target: "cc",
+    reportType: "spam",
+    status: "open",
+    createdAt: "2024-07-01T00:00:00Z",
+    ...itemOverrides,
+  };
+  const openDetail = {
+    ...openItem,
+    channelId: null,
+    note: null,
+    resolvedBy: null,
+    resolvedAt: null,
+    actionId: null,
+    message: null,
+  };
+  setIpcHandler("admin_list_reports", () => Promise.resolve([openItem]));
+  setIpcHandler("admin_get_report", () => Promise.resolve(openDetail));
+  setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
+  return { openItem, openDetail };
+}
+
+// mountStaffingPanel — convenience wrapper for tests that mount AdminConsolePanel
+// in staffing-tab operator mode with standard empty-reports list handlers.
+// Mutation handlers (admin_put_operator / admin_delete_operator) are set by the
+// individual test BEFORE calling this helper; list handlers are set here.
+function mountStaffingPanel(
+  origin,
+  pubkey,
+  operators = [],
+  { onSelfMutation } = {},
+) {
+  setIpcHandler("admin_list_reports", () => Promise.resolve([]));
+  setIpcHandler("admin_list_operators", () =>
+    Promise.resolve(operators.map((op) => ({ ...op }))),
+  );
+  return mountPanel({
+    origin,
+    pubkey,
+    canMutate: true,
+    role: "operator",
+    initialTab: "staffing",
+    ...(onSelfMutation !== undefined ? { onSelfMutation } : {}),
+  });
+}
+
 async function settle(ms = 20) {
   await act(async () => {
     await new Promise((r) => setTimeout(r, ms));
@@ -3599,24 +3656,14 @@ test("staffing-remove-cancel: trash click opens dialog; cancel does not invoke d
   const opPubkey = "bb".repeat(32);
 
   const deleteCalls = [];
-  setIpcHandler("admin_list_reports", () => Promise.resolve([]));
-  setIpcHandler("admin_list_operators", () =>
-    Promise.resolve([
-      { pubkey: opPubkey, effectiveRole: "moderator", sources: ["db"] },
-    ]),
-  );
   setIpcHandler("admin_delete_operator", (args) => {
     deleteCalls.push(args?.pubkey ?? "?");
     return Promise.resolve();
   });
 
-  const { container, doRender, unmount } = mountPanel({
-    origin,
-    pubkey,
-    canMutate: true,
-    role: "operator",
-    initialTab: "staffing",
-  });
+  const { container, doRender, unmount } = mountStaffingPanel(origin, pubkey, [
+    { pubkey: opPubkey, effectiveRole: "moderator", sources: ["db"] },
+  ]);
   await doRender();
   await settle(30);
 
@@ -3686,24 +3733,14 @@ test("staffing-remove-confirm: confirming dialog invokes deleteAdminOperator exa
   const opPubkey = "dd".repeat(32);
 
   const deleteCalls = [];
-  setIpcHandler("admin_list_reports", () => Promise.resolve([]));
-  setIpcHandler("admin_list_operators", () =>
-    Promise.resolve([
-      { pubkey: opPubkey, effectiveRole: "moderator", sources: ["db"] },
-    ]),
-  );
   setIpcHandler("admin_delete_operator", (args) => {
     deleteCalls.push(args?.pubkey ?? "?");
     return Promise.resolve();
   });
 
-  const { container, doRender, unmount } = mountPanel({
-    origin,
-    pubkey,
-    canMutate: true,
-    role: "operator",
-    initialTab: "staffing",
-  });
+  const { container, doRender, unmount } = mountStaffingPanel(origin, pubkey, [
+    { pubkey: opPubkey, effectiveRole: "moderator", sources: ["db"] },
+  ]);
   await doRender();
   await settle(30);
 
@@ -3755,24 +3792,14 @@ test("staffing-remove-self-warning: self-removal dialog shows the distinct self-
   const pubkey = "ee".repeat(32);
 
   const deleteCalls = [];
-  setIpcHandler("admin_list_reports", () => Promise.resolve([]));
-  setIpcHandler("admin_list_operators", () =>
-    Promise.resolve([
-      { pubkey: pubkey, effectiveRole: "operator", sources: ["db"] },
-    ]),
-  );
   setIpcHandler("admin_delete_operator", (args) => {
     deleteCalls.push(args?.pubkey ?? "?");
     return Promise.resolve();
   });
 
-  const { container, doRender, unmount } = mountPanel({
-    origin,
-    pubkey,
-    canMutate: true,
-    role: "operator",
-    initialTab: "staffing",
-  });
+  const { container, doRender, unmount } = mountStaffingPanel(origin, pubkey, [
+    { pubkey: pubkey, effectiveRole: "operator", sources: ["db"] },
+  ]);
   await doRender();
   await settle(30);
 
@@ -4061,31 +4088,7 @@ test("resolve-frozen-payload-whole: ambiguous failure locks controls and retry s
   const origin = "https://admin.example.com";
   const pubkey = "e1".repeat(32);
 
-  const openItem = {
-    id: "00000000-0000-0000-0000-000000000e01",
-    communityId: "comm-1",
-    communityHost: "alpha.example.com",
-    reportEventId: "aa",
-    reporterPubkey: "bb",
-    targetKind: "event",
-    target: "cc",
-    reportType: "spam",
-    status: "open",
-    createdAt: "2024-07-01T00:00:00Z",
-  };
-  const openDetail = {
-    ...openItem,
-    channelId: null,
-    note: null,
-    resolvedBy: null,
-    resolvedAt: null,
-    actionId: null,
-    message: null,
-  };
-
-  setIpcHandler("admin_list_reports", () => Promise.resolve([openItem]));
-  setIpcHandler("admin_get_report", () => Promise.resolve(openDetail));
-  setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
+  makeOpenReportFixtures("00000000-0000-0000-0000-000000000e01");
 
   const capturedBodies = [];
   setIpcHandler("admin_resolve_report", (args) => {
@@ -4202,31 +4205,7 @@ test("resolve-toast-from-response-ban: form/response disagree — toast uses rel
   const origin = "https://admin.example.com";
   const pubkey = "e2".repeat(32);
 
-  const openItem = {
-    id: "00000000-0000-0000-0000-000000000e02",
-    communityId: "comm-1",
-    communityHost: "alpha.example.com",
-    reportEventId: "aa",
-    reporterPubkey: "bb",
-    targetKind: "event",
-    target: "cc",
-    reportType: "spam",
-    status: "open",
-    createdAt: "2024-07-01T00:00:00Z",
-  };
-  const openDetail = {
-    ...openItem,
-    channelId: null,
-    note: null,
-    resolvedBy: null,
-    resolvedAt: null,
-    actionId: null,
-    message: null,
-  };
-
-  setIpcHandler("admin_list_reports", () => Promise.resolve([openItem]));
-  setIpcHandler("admin_get_report", () => Promise.resolve(openDetail));
-  setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
+  makeOpenReportFixtures("00000000-0000-0000-0000-000000000e02");
 
   // Relay returns ban regardless of what the form sent — idempotent first-ban.
   setIpcHandler("admin_resolve_report", () =>
@@ -4311,31 +4290,10 @@ test("resolve-toast-from-response-escalated: retry path — form has dismiss, re
   const origin = "https://admin.example.com";
   const pubkey = "e3".repeat(32);
 
-  const openItem = {
-    id: "00000000-0000-0000-0000-000000000e03",
-    communityId: "comm-1",
-    communityHost: "alpha.example.com",
-    reportEventId: "aa",
-    reporterPubkey: "bb",
+  makeOpenReportFixtures("00000000-0000-0000-0000-000000000e03", {
     targetKind: "pubkey",
     target: "ff",
-    reportType: "spam",
-    status: "open",
-    createdAt: "2024-07-01T00:00:00Z",
-  };
-  const openDetail = {
-    ...openItem,
-    channelId: null,
-    note: null,
-    resolvedBy: null,
-    resolvedAt: null,
-    actionId: null,
-    message: null,
-  };
-
-  setIpcHandler("admin_list_reports", () => Promise.resolve([openItem]));
-  setIpcHandler("admin_get_report", () => Promise.resolve(openDetail));
-  setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
+  });
 
   // First attempt: transport error — ambiguous, locks controls and freezes
   // the dismiss payload.
@@ -4433,31 +4391,7 @@ test("resolve-definitive-4xx-unlocks-controls: non-409 4xx clears snapshot; corr
   const origin = "https://admin.example.com";
   const pubkey = "e4".repeat(32);
 
-  const openItem = {
-    id: "00000000-0000-0000-0000-000000000e04",
-    communityId: "comm-1",
-    communityHost: "alpha.example.com",
-    reportEventId: "aa",
-    reporterPubkey: "bb",
-    targetKind: "event",
-    target: "cc",
-    reportType: "spam",
-    status: "open",
-    createdAt: "2024-07-01T00:00:00Z",
-  };
-  const openDetail = {
-    ...openItem,
-    channelId: null,
-    note: null,
-    resolvedBy: null,
-    resolvedAt: null,
-    actionId: null,
-    message: null,
-  };
-
-  setIpcHandler("admin_list_reports", () => Promise.resolve([openItem]));
-  setIpcHandler("admin_get_report", () => Promise.resolve(openDetail));
-  setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
+  makeOpenReportFixtures("00000000-0000-0000-0000-000000000e04");
 
   const capturedBodiesE4 = [];
   let callCountE4 = 0;
@@ -4622,31 +4556,9 @@ for (const { name, desc, reject: makeReject } of RESOLVE_FREEZE_CASES) {
     const origin = "https://admin.example.com";
     const pubkey = `e5${name.slice(0, 6).replace(/-/g, "0")}`.padEnd(64, "5");
 
-    const openItem = {
-      id: `00000000-0000-0000-0000-${name.replace(/-/g, "").slice(0, 12).padStart(12, "0")}`,
-      communityId: "comm-1",
-      communityHost: "alpha.example.com",
-      reportEventId: "aa",
-      reporterPubkey: "bb",
-      targetKind: "event",
-      target: "cc",
-      reportType: "spam",
-      status: "open",
-      createdAt: "2024-07-01T00:00:00Z",
-    };
-    const openDetail = {
-      ...openItem,
-      channelId: null,
-      note: null,
-      resolvedBy: null,
-      resolvedAt: null,
-      actionId: null,
-      message: null,
-    };
-
-    setIpcHandler("admin_list_reports", () => Promise.resolve([openItem]));
-    setIpcHandler("admin_get_report", () => Promise.resolve(openDetail));
-    setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
+    makeOpenReportFixtures(
+      `00000000-0000-0000-0000-${name.replace(/-/g, "").slice(0, 12).padStart(12, "0")}`,
+    );
 
     const capturedFreezeBodies = [];
     setIpcHandler("admin_resolve_report", (args) => {
@@ -4800,8 +4712,6 @@ test("staffing-add-duplicate-guard: submitting an existing key produces zero PUT
       sources: ["db"],
     },
   ];
-  setIpcHandler("admin_list_reports", () => Promise.resolve([]));
-  setIpcHandler("admin_list_operators", () => Promise.resolve([...roster]));
   setIpcHandler("admin_put_operator", (args) => {
     putCalls.push({ pubkey: args?.pubkey, role: args?.body?.role });
     const newEntry = {
@@ -4813,13 +4723,11 @@ test("staffing-add-duplicate-guard: submitting an existing key produces zero PUT
     return Promise.resolve(newEntry);
   });
 
-  const { container, doRender, unmount } = mountPanel({
+  const { container, doRender, unmount } = mountStaffingPanel(
     origin,
     pubkey,
-    canMutate: true,
-    role: "operator",
-    initialTab: "staffing",
-  });
+    roster,
+  );
   await doRender();
   await settle(30);
 
@@ -5060,20 +4968,10 @@ test("staffing-display-name: resolved profile name renders in place of raw pubke
     }
     return Promise.resolve({ profiles, missing: [] });
   });
-  setIpcHandler("admin_list_reports", () => Promise.resolve([]));
-  setIpcHandler("admin_list_operators", () =>
-    Promise.resolve([
-      { pubkey: opPubkey, effectiveRole: "moderator", sources: ["db"] },
-    ]),
-  );
 
-  const { container, doRender, unmount } = mountPanel({
-    origin,
-    pubkey,
-    canMutate: true,
-    role: "operator",
-    initialTab: "staffing",
-  });
+  const { container, doRender, unmount } = mountStaffingPanel(origin, pubkey, [
+    { pubkey: opPubkey, effectiveRole: "moderator", sources: ["db"] },
+  ]);
   await doRender();
   // admin_list_operators resolves first, populating listedPubkeys, which enables
   // useUsersBatchQuery. A second settle cycle lets React Query fire get_users_batch
@@ -5120,8 +5018,8 @@ test("staffing-role-change-success: role selector change calls putAdminOperator 
   const opPubkey = "f6".repeat(32);
 
   const putCalls = [];
-  setIpcHandler("admin_list_reports", () => Promise.resolve([]));
   let currentRole = "moderator";
+  setIpcHandler("admin_list_reports", () => Promise.resolve([]));
   setIpcHandler("admin_list_operators", () =>
     Promise.resolve([
       { pubkey: opPubkey, effectiveRole: currentRole, sources: ["db"] },
@@ -5218,13 +5116,6 @@ test("staffing-role-change-409: a 409 conflict from putAdminOperator surfaces th
   const pubkey = "07".repeat(32);
   const opPubkey = "18".repeat(32);
 
-  setIpcHandler("admin_list_reports", () => Promise.resolve([]));
-  setIpcHandler("admin_list_operators", () =>
-    Promise.resolve([
-      { pubkey: opPubkey, effectiveRole: "moderator", sources: ["db"] },
-    ]),
-  );
-
   let putResult = () =>
     mutationReject(
       'admin API error: {"error":{"code":"conflict","message":"pubkey is backed by config (RELAY_OPERATOR_PUBKEYS or owner fallback) — immutable through the API"}}',
@@ -5232,13 +5123,9 @@ test("staffing-role-change-409: a 409 conflict from putAdminOperator surfaces th
     );
   setIpcHandler("admin_put_operator", () => putResult());
 
-  const { container, doRender, unmount } = mountPanel({
-    origin,
-    pubkey,
-    canMutate: true,
-    role: "operator",
-    initialTab: "staffing",
-  });
+  const { container, doRender, unmount } = mountStaffingPanel(origin, pubkey, [
+    { pubkey: opPubkey, effectiveRole: "moderator", sources: ["db"] },
+  ]);
   await doRender();
   await settle(30);
 
@@ -5329,17 +5216,9 @@ test("staffing-add-409: a typed 409 from putAdminOperator surfaces the relay err
       'admin API error: {"error":{"code":"conflict","message":"pubkey is backed by config (RELAY_OPERATOR_PUBKEYS or owner fallback) — immutable through the API"}}',
       409,
     );
-  setIpcHandler("admin_list_reports", () => Promise.resolve([]));
-  setIpcHandler("admin_list_operators", () => Promise.resolve([]));
   setIpcHandler("admin_put_operator", () => putResult());
 
-  const { container, doRender, unmount } = mountPanel({
-    origin,
-    pubkey,
-    canMutate: true,
-    role: "operator",
-    initialTab: "staffing",
-  });
+  const { container, doRender, unmount } = mountStaffingPanel(origin, pubkey);
   await doRender();
   await settle(30);
 
@@ -5453,21 +5332,11 @@ test("staffing-remove-409: a typed 409 from deleteAdminOperator surfaces the rel
       'admin API error: {"error":{"code":"conflict","message":"pubkey is backed by config (RELAY_OPERATOR_PUBKEYS or owner fallback) — immutable through the API"}}',
       409,
     );
-  setIpcHandler("admin_list_reports", () => Promise.resolve([]));
-  setIpcHandler("admin_list_operators", () =>
-    Promise.resolve([
-      { pubkey: opPubkey, effectiveRole: "moderator", sources: ["db"] },
-    ]),
-  );
   setIpcHandler("admin_delete_operator", () => deleteResult());
 
-  const { container, doRender, unmount } = mountPanel({
-    origin,
-    pubkey,
-    canMutate: true,
-    role: "operator",
-    initialTab: "staffing",
-  });
+  const { container, doRender, unmount } = mountStaffingPanel(origin, pubkey, [
+    { pubkey: opPubkey, effectiveRole: "moderator", sources: ["db"] },
+  ]);
   await doRender();
   await settle(30);
 
@@ -5568,24 +5437,18 @@ test("staffing-self-removal-fires-onSelfMutation: confirming removal of own pubk
 
   let onSelfMutationCalls = 0;
 
-  setIpcHandler("admin_list_reports", () => Promise.resolve([]));
-  setIpcHandler("admin_list_operators", () =>
-    Promise.resolve([
-      { pubkey: pubkey, effectiveRole: "operator", sources: ["db"] },
-    ]),
-  );
   setIpcHandler("admin_delete_operator", () => Promise.resolve());
 
-  const { container, doRender, unmount } = mountPanel({
+  const { container, doRender, unmount } = mountStaffingPanel(
     origin,
     pubkey,
-    canMutate: true,
-    role: "operator",
-    initialTab: "staffing",
-    onSelfMutation: () => {
-      onSelfMutationCalls += 1;
+    [{ pubkey: pubkey, effectiveRole: "operator", sources: ["db"] }],
+    {
+      onSelfMutation: () => {
+        onSelfMutationCalls += 1;
+      },
     },
-  });
+  );
   await doRender();
   await settle(30);
 
