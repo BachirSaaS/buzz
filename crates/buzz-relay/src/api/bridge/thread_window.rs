@@ -87,17 +87,21 @@ fn append(events: &mut Vec<Value>, budget: &mut Budget, event: &nostr::Event) ->
 /// Authorize the entire batch against one writer access set, then refresh it
 /// once before releasing any output. A later window must never suppress only
 /// its own rows while releasing an earlier window built before revocation.
-pub(super) async fn query_batch<'a>(
+pub(crate) async fn query_batch<'a>(
     state: &AppState,
     tenant: &TenantContext,
     reader: &nostr::PublicKey,
     requests: impl IntoIterator<Item = &'a Request>,
+    allowed_channels: Option<&[uuid::Uuid]>,
 ) -> Result<Vec<Value>, Error> {
-    let accessible = state
+    let mut accessible = state
         .db
         .get_accessible_channel_ids(tenant.community(), &reader.to_bytes())
         .await
         .map_err(|e| database_error("access", e))?;
+    if let Some(allowed) = allowed_channels {
+        accessible.retain(|channel| allowed.contains(channel));
+    }
     let mut budget = Budget::default();
     let mut events = Vec::new();
     for request in requests {
@@ -105,11 +109,14 @@ pub(super) async fn query_batch<'a>(
             events.extend(query(state, tenant, reader, request, &accessible, &mut budget).await?);
         }
     }
-    let current = state
+    let mut current = state
         .db
         .get_accessible_channel_ids(tenant.community(), &reader.to_bytes())
         .await
         .map_err(|e| database_error("final access", e))?;
+    if let Some(allowed) = allowed_channels {
+        current.retain(|channel| allowed.contains(channel));
+    }
     // Grants can expose auxiliary events omitted from the original closure;
     // revocations can invalidate earlier windows or their cross-channel aux.
     if accessible.iter().collect::<HashSet<_>>() != current.iter().collect::<HashSet<_>>() {

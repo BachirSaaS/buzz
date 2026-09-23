@@ -6,7 +6,7 @@ Channel and Thread Windows
 
 `draft` `optional` `relay`
 
-**Depends on**: NIP-01 (basic event format, filters), NIP-11 (relay information document), NIP-29 (relay-based groups), NIP-98 (HTTP auth)
+**Depends on**: NIP-01 (basic event format, filters), NIP-11 (relay information document), NIP-29 (relay-based groups), NIP-42 (WebSocket auth), NIP-98 (HTTP auth)
 
 ## Abstract
 
@@ -39,7 +39,7 @@ This NIP does not change ingest, storage, or fan-out. Rows returned in a window 
 
 This NIP does not define around-target retrieval or cross-page snapshot isolation. It defines protocol compatibility and fallback rules, but the Buzz thread-mode implementation ships no client opt-in or fallback implementation. Thread mode starts at the newest reply and continues toward older replies.
 
-This NIP does not require WebSocket REQ support. A relay MAY serve window filters only on an HTTP query surface and ignore the extension fields on REQ (see §Degradation).
+A relay MAY serve window filters on HTTP, WebSocket REQ, or both. A client uses the bounds overlay—not transport selection—to determine whether the extension was honored (see §Degradation).
 
 ## Terminology
 
@@ -218,8 +218,9 @@ legacy thread continuation fields and MUST NOT be reused as such.
 ## Thread Mode
 
 `thread_window: true` requests a newest-first page of replies to one root. It is
-served through Buzz's NIP-98-authenticated `POST /query`; channel mode,
-`kind:39006`, and the legacy oldest-first thread path are unchanged. The response
+served through Buzz's NIP-98-authenticated `POST /query` and NIP-42-authenticated
+WebSocket `REQ`; channel mode, `kind:39006`, and the legacy oldest-first thread
+path are unchanged. The response
 is a flat array of reply events, optional auxiliary events, and exactly one
 relay-signed `kind:39007` bounds event. This specification adds no endpoint,
 subscription, or around-target query.
@@ -342,7 +343,7 @@ client opt-in or fallback implementation.
 
 The channel-mode extension fields in this NIP are *additional* keys on a standard filter, and clients and relays that do not implement it need no changes:
 
-- **Extension-unaware relay**: a tolerant filter parser (one that ignores unknown keys, as common NIP-01 implementations do) serves the filter as a plain `kinds` + `#h` query — a complete, correct, standard event stream. A strict parser may instead reject the filter outright. Both are safe: neither produces a wrong-but-plausible top-level timeline. A client MUST treat *either* signal — a response with no valid `kind:39006`, or an error/unsupported-filter response — as a downgrade, and fall back by reissuing a clean standard filter with all extension keys removed and assembling threads client-side. (Buzz's own WebSocket REQ path is such a tolerant parser: the filter deserializer drops the extension fields, so a window filter on REQ serves the standard query.)
+- **Extension-unaware relay**: a tolerant filter parser (one that ignores unknown keys, as common NIP-01 implementations do) serves the filter as a plain `kinds` + `#h` query — a complete, correct, standard event stream. A strict parser may instead reject the filter outright. Both are safe: neither produces a wrong-but-plausible top-level timeline. A client MUST treat *either* signal — a response with no valid `kind:39006`, or an error/unsupported-filter response — as a downgrade, and fall back by reissuing a clean standard filter with all extension keys removed and assembling threads client-side. (A relay may implement the extension on one query transport but not another; clients detect support independently on each transport.)
 - **Extension-unaware client**: never sends `top_level`, never sees an overlay kind, and observes a completely standard relay.
 
 A relay implementing this NIP MAY advertise it in its NIP-11 relay information document; the discovery mechanism is out of scope for this NIP. A client needs no advertisement to probe safely: send one head window request and apply the downgrade rule above — the presence of a valid `kind:39006` is the capability signal.
@@ -377,6 +378,7 @@ A channel-mode client with neither an authenticated transport nor a verifiable r
 - **NIP-01**: Supplies the filter grammar this NIP extends and the parameterized-replaceable semantics overlays lean on. (Degradation safety comes from this NIP's explicit downgrade-and-retry rule, not from assuming universal unknown-field tolerance.)
 - **NIP-29**: Supplies the channel model (`h` tags, group-scoped reads) windows are scoped by.
 - **NIP-50** and relay-side search: sibling precedent — a relay-computed view requested through extended filter fields, invisible to relays that do not implement it.
+- **NIP-42**: Authenticates the WebSocket REQ surface Buzz serves thread windows on.
 - **NIP-98**: Authenticates the HTTP query surface Buzz serves windows on.
 - **NIP-11**: Names the relay identity that signs overlays and the natural place to advertise support.
 

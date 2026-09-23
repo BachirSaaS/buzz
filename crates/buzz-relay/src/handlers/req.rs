@@ -15,7 +15,8 @@ use buzz_core::tenant::TenantContext;
 use buzz_db::EventQuery;
 use buzz_pubsub::EventTopic;
 use hex;
-use nostr::Filter;
+use nostr::{Filter, PublicKey};
+use serde_json::Value;
 
 use buzz_auth::Scope;
 
@@ -52,6 +53,7 @@ const _: () = assert!(FILTER_QUERY_CONCURRENCY >= 2 && FILTER_QUERY_CONCURRENCY 
 pub async fn handle_req(
     sub_id: String,
     filters: Vec<Filter>,
+    raw_filters: Vec<Value>,
     before_ids: Vec<Option<Vec<u8>>>,
     conn: Arc<ConnectionState>,
     state: Arc<AppState>,
@@ -93,6 +95,69 @@ pub async fn handle_req(
             }
         }
     };
+
+    let thread_windows = match crate::api::bridge::thread_window::parse(&raw_filters) {
+        Ok(windows) => windows,
+        Err((status, body)) => {
+            close_thread_window_error(&conn, &sub_id, status, &body);
+            return;
+        }
+    };
+    if thread_windows.iter().any(Option::is_some) {
+        if thread_windows.iter().any(Option::is_none) {
+            conn.send(RelayMessage::closed(
+                &sub_id,
+                "invalid: thread_window cannot mix with other query modes",
+            ));
+            return;
+        }
+        let reader = match PublicKey::from_slice(&pubkey_bytes) {
+            Ok(reader) => reader,
+            Err(error) => {
+                warn!(conn_id = %conn_id, %error, "Authenticated reader key became invalid");
+                conn.send(RelayMessage::closed(
+                    &sub_id,
+                    "error: invalid authenticated reader",
+                ));
+                return;
+            }
+        };
+        // A finite REQ replaces any live subscription with the same id before
+        // its first row can be sent. Release its fan-out topic as CLOSE does.
+        conn.subscriptions.lock().await.remove(&sub_id);
+        if let Some(replaced) = state.sub_registry.remove_subscription(conn_id, &sub_id) {
+            release_subscription_topics(&state, &conn.tenant, &replaced.scope).await;
+        }
+        let result = tokio::time::timeout(
+            crate::api::bridge::thread_window::DEADLINE,
+            serve_thread_windows(
+                &sub_id,
+                thread_windows.iter().flatten(),
+                token_channel_ids.as_deref(),
+                &reader,
+                &conn,
+                &state,
+            ),
+        )
+        .await;
+        match result {
+            Ok(Ok(true)) => {
+                conn.send(RelayMessage::eose(&sub_id));
+            }
+            Ok(Ok(false)) => {
+                // A failed enqueue is not a complete page. Do not send EOSE:
+                // the client must retry rather than accept truncated bounds.
+            }
+            Ok(Err((status, body))) => close_thread_window_error(&conn, &sub_id, status, &body),
+            Err(_) => {
+                conn.send(RelayMessage::closed(
+                    &sub_id,
+                    "error: thread window deadline exceeded",
+                ));
+            }
+        }
+        return;
+    }
 
     let channel_id = extract_channel_id_from_filters(&filters);
     let requested_channel_ids = match extract_channel_ids_from_filters_limited(&filters) {
@@ -491,6 +556,49 @@ pub async fn handle_req(
         count = total_sent,
         "EOSE sent after historical delivery"
     );
+}
+
+async fn serve_thread_windows<'a>(
+    sub_id: &str,
+    requests: impl Iterator<Item = &'a buzz_core::thread_window::Request>,
+    allowed_channels: Option<&[uuid::Uuid]>,
+    reader: &PublicKey,
+    conn: &ConnectionState,
+    state: &AppState,
+) -> Result<bool, crate::api::bridge::thread_window::Error> {
+    let events = crate::api::bridge::thread_window::query_batch(
+        state,
+        &conn.tenant,
+        reader,
+        requests,
+        allowed_channels,
+    )
+    .await?;
+    for event in events {
+        if !conn.send(serde_json::json!(["EVENT", sub_id, event]).to_string()) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+fn close_thread_window_error(
+    conn: &ConnectionState,
+    sub_id: &str,
+    status: axum::http::StatusCode,
+    body: &axum::Json<Value>,
+) {
+    let detail = body
+        .0
+        .get("error")
+        .and_then(Value::as_str)
+        .unwrap_or("thread window failed");
+    let prefix = if status.is_client_error() {
+        "invalid"
+    } else {
+        "error"
+    };
+    conn.send(RelayMessage::closed(sub_id, &format!("{prefix}: {detail}")));
 }
 
 /// FTS candidate hits fetched per page. Pages are always full regardless of

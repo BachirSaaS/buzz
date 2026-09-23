@@ -1232,7 +1232,13 @@ async fn query_events_authed(
         }
         return tokio::time::timeout(
             thread_window::DEADLINE,
-            thread_window::query_batch(state, tenant, &pubkey, thread_windows.iter().flatten()),
+            thread_window::query_batch(
+                state,
+                tenant,
+                &pubkey,
+                thread_windows.iter().flatten(),
+                None,
+            ),
         )
         .await
         .map_err(|_| {

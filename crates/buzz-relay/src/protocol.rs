@@ -22,6 +22,8 @@ pub enum ClientMessage {
         sub_id: String,
         /// The filters that determine which events are delivered.
         filters: Vec<Filter>,
+        /// Raw filters retained because `nostr::Filter` drops extension fields.
+        raw_filters: Vec<Value>,
         /// Optional per-filter composite cursor tiebreaks from raw extension fields.
         before_ids: Vec<Option<Vec<u8>>>,
     },
@@ -108,6 +110,12 @@ impl ClientMessage {
                 let before_ids = filter_values
                     .iter()
                     .map(|value| {
+                        // Thread-mode cursor validation belongs to the REQ handler,
+                        // where invalid input can terminate this subscription with
+                        // CLOSED rather than leaving a bare NOTICE.
+                        if value.get("thread_window").is_some_and(|v| v == true) {
+                            return Ok(None);
+                        }
                         let Some(raw) = value.get("before_id") else {
                             return Ok(None);
                         };
@@ -137,6 +145,7 @@ impl ClientMessage {
                 Ok(ClientMessage::Req {
                     sub_id,
                     filters,
+                    raw_filters: filter_values.to_vec(),
                     before_ids,
                 })
             }
@@ -336,6 +345,38 @@ mod tests {
             } => {
                 assert_eq!(sub_id, "sub2");
                 assert_eq!(filters.len(), 2);
+            }
+            _ => panic!("expected Req"),
+        }
+    }
+
+    #[test]
+    fn parse_req_preserves_thread_window_extension_fields() {
+        let raw = serde_json::json!([
+            "REQ",
+            "thread-window",
+            {
+                "thread_window": true,
+                "#h": [uuid::Uuid::nil()],
+                "#e": ["ab".repeat(32)],
+                "kinds": [9],
+                "depth_limit": 42,
+                "include_aux": true,
+            }
+        ])
+        .to_string();
+
+        match ClientMessage::parse(&raw).unwrap() {
+            ClientMessage::Req {
+                filters,
+                raw_filters,
+                ..
+            } => {
+                assert_eq!(filters.len(), 1);
+                assert_eq!(raw_filters.len(), 1);
+                assert_eq!(raw_filters[0]["thread_window"], true);
+                assert_eq!(raw_filters[0]["depth_limit"], 42);
+                assert_eq!(raw_filters[0]["include_aux"], true);
             }
             _ => panic!("expected Req"),
         }
