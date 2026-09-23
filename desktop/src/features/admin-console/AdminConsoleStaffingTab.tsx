@@ -14,7 +14,7 @@
  * bans and timeouts for the currently active community.
  */
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { nip19 } from "nostr-tools";
 import { LoaderCircle, Trash2 } from "lucide-react";
 import { Button } from "@/shared/ui/button";
@@ -235,9 +235,19 @@ function RestrictionsSection({
     items: AdminMemberRestrictionDto[];
     nextCursor: string | null;
   } | null>(null);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [moreError, setMoreError] = useState<string | null>(null);
+  // Busy/error for the in-flight extra page, fenced by the same generation:
+  // a page request that settles after a reload must not touch the new list.
+  const [moreRequest, setMoreRequest] = useState<{
+    gen: number;
+    busy: boolean;
+    error: string | null;
+  } | null>(null);
+  const loadGenRef = useRef(loadGen);
+  useEffect(() => {
+    loadGenRef.current = loadGen;
+  }, [loadGen]);
   const extra = more?.gen === loadGen ? more : null;
+  const moreStatus = moreRequest?.gen === loadGen ? moreRequest : null;
   const items =
     listState.status === "ok"
       ? [...listState.data.items, ...(extra?.items ?? [])]
@@ -251,19 +261,20 @@ function RestrictionsSection({
 
   const handleLoadMore = async () => {
     if (!nextCursor) return;
-    setLoadingMore(true);
-    setMoreError(null);
+    const gen = loadGen;
+    setMoreRequest({ gen, busy: true, error: null });
     try {
       const page = await listAdminRestrictions(origin, communityId, nextCursor);
+      if (loadGenRef.current !== gen) return;
       setMore({
-        gen: loadGen,
+        gen,
         items: [...(extra?.items ?? []), ...page.items],
         nextCursor: page.nextCursor,
       });
+      setMoreRequest({ gen, busy: false, error: null });
     } catch (e) {
-      setMoreError(adminErrorMessage(e));
-    } finally {
-      setLoadingMore(false);
+      if (loadGenRef.current !== gen) return;
+      setMoreRequest({ gen, busy: false, error: adminErrorMessage(e) });
     }
   };
 
@@ -423,17 +434,17 @@ function RestrictionsSection({
           })}
         </ul>
       )}
-      {moreError && <ErrorMessage message={moreError} />}
+      {moreStatus?.error && <ErrorMessage message={moreStatus.error} />}
       {nextCursor && (
         <Button
           data-testid="restrictions-load-more"
-          disabled={loadingMore}
+          disabled={moreStatus?.busy ?? false}
           onClick={() => void handleLoadMore()}
           size="sm"
           type="button"
           variant="outline"
         >
-          {loadingMore ? (
+          {moreStatus?.busy ? (
             <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
           ) : (
             "Load more"

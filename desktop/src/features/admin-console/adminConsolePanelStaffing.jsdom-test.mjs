@@ -1536,3 +1536,65 @@ test("restrictions-load-more: second page is fetched with the cursor and appende
     await unmount();
   }
 });
+
+test("restrictions-load-more-stale-error: a failed old page does not survive a successful lift/reload", async () => {
+  const origin = "https://review-lift-fence.example.com",
+    pubkey = "ab".repeat(32),
+    pk = "cd".repeat(32);
+  let rejectPage,
+    lifted = false;
+  const pending = new Promise((_, j) => {
+    rejectPage = j;
+  });
+  setIpcHandler("admin_list_restrictions", (args) =>
+    args.cursor
+      ? pending
+      : Promise.resolve({
+          items: lifted ? [] : [makeBanRecord(pk)],
+          nextCursor: lifted ? null : "next",
+        }),
+  );
+  setIpcHandler("admin_lift_ban", () => {
+    lifted = true;
+    return Promise.resolve();
+  });
+  const m = mountStaffingPanel(origin, pubkey, [], {
+    communityId: CM_COMMUNITY_ID,
+  });
+  try {
+    await m.doRender();
+    await settle(30);
+    await act(async () =>
+      fireEvent.click(
+        m.container.querySelector("[data-testid='restrictions-load-more']"),
+      ),
+    );
+    await act(async () =>
+      fireEvent.click(
+        m.container.querySelector(
+          `[data-testid='restrictions-lift-ban-btn-${pk}']`,
+        ),
+      ),
+    );
+    await act(async () =>
+      fireEvent.click(
+        document.body.querySelector(
+          "[data-testid='restrictions-lift-ban-confirm']",
+        ),
+      ),
+    );
+    await settle(30);
+    await act(async () => rejectPage(new Error("OBSOLETE_PAGE_FAILED")));
+    await settle(30);
+    assert.ok(
+      m.container.querySelector("[data-testid='restrictions-empty']"),
+      "successful fresh list is displayed",
+    );
+    assert.ok(
+      !m.container.textContent.includes("OBSOLETE_PAGE_FAILED"),
+      "old page error must not contaminate refreshed list",
+    );
+  } finally {
+    await m.unmount();
+  }
+});
