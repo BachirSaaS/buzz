@@ -1,17 +1,9 @@
 /**
- * Tests for the stale-at-open reader recovery added to all four sidebar hooks:
- *   useChannelSections, useChannelSortPreference, useChannelStars, useChannelMutes
+ * Stale-reader recovery (`useStaleReaderRecovery`) through the four real
+ * sidebar hooks and their sync managers, with an in-memory relay/Tauri stub.
  *
- * Covered seams:
- *  1. Bootstrap-fail → retry cadence applies remote (sections)
- *  2. Bootstrap-fail → retry cadence applies remote (sort)
- *  3. Bootstrap-fail → retry cadence applies merged remote (stars)
- *  4. Bootstrap-fail → retry cadence applies merged remote (mutes)
- *  5. Visibility-change to "visible" triggers an immediate retry (sections)
- *  6a. Pending whole-blob edit skips apply on the current tick (sections)
- *  6b. Pending per-entry edit skips apply on the current tick (stars)
- *  7. Unmount cancels the in-flight retry (sections)
- *  8. Equal-second tie-break: lower event ID wins (sections applyRemote guard)
+ * Every test runs on mocked `setTimeout`, so recovery ticks and publish
+ * debounces fire only when a test advances the clock.
  */
 
 import assert from "node:assert/strict";
@@ -19,1626 +11,608 @@ import { after, before, test } from "node:test";
 
 import { JSDOM } from "jsdom";
 
-// Shared JSDOM instance for all tests in this file.
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   url: "http://localhost",
 });
+const RELAY = "wss://relay.example";
 
-before(() => {
+let act;
+let cleanup;
+let renderHook;
+let relayClient;
+let sections;
+let sort;
+let stars;
+let mutes;
+
+before(async () => {
   Object.assign(globalThis, {
     document: dom.window.document,
     HTMLElement: dom.window.HTMLElement,
     IS_REACT_ACT_ENVIRONMENT: true,
     window: dom.window,
   });
+  ({ act, cleanup, renderHook } = await import("@testing-library/react"));
+  ({ relayClient } = await import("@/shared/api/relayClient"));
+  sections = {
+    ...(await import("./useChannelSections.ts")),
+    ...(await import("./channelSectionsStorage.ts")),
+    ...(await import("./channelSectionsSync.ts")),
+  };
+  sort = {
+    ...(await import("./useChannelSortPreference.ts")),
+    ...(await import("./channelSortPreference.ts")),
+    ...(await import("./channelSortSync.ts")),
+  };
+  stars = {
+    ...(await import("./useChannelStars.ts")),
+    ...(await import("./channelStarsStorage.ts")),
+  };
+  mutes = {
+    ...(await import("./useChannelMutes.ts")),
+    ...(await import("./channelMutesStorage.ts")),
+  };
 });
 
 after(() => dom.window.close());
 
 // ---------------------------------------------------------------------------
-// Tauri mock helper
+// Shared fixture
 // ---------------------------------------------------------------------------
-function installTauri(pubkey) {
-  const orig = globalThis.window?.__TAURI_INTERNALS__;
-  if (typeof globalThis.window === "undefined") globalThis.window = {};
-  globalThis.window.__TAURI_INTERNALS__ = {
-    invoke: (cmd, args) => {
-      if (cmd === "nip44_decrypt_from_self")
-        return Promise.resolve(args?.ciphertext ?? "{}");
-      if (cmd === "nip44_encrypt_to_self") return Promise.resolve("ct");
-      if (cmd === "sign_event")
-        return Promise.resolve(
-          JSON.stringify({
-            id: "eid",
-            pubkey,
-            content: "ct",
-            created_at: 0,
-            kind: 0,
-            tags: [],
-            sig: "s",
-          }),
-        );
-      return Promise.reject(new Error(`unmocked: ${cmd}`));
-    },
-  };
-  return () => {
-    if (orig !== undefined) globalThis.window.__TAURI_INTERNALS__ = orig;
-    else delete globalThis.window.__TAURI_INTERNALS__;
+
+function deferred() {
+  let resolve;
+  const promise = new Promise((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
+/** Relay event whose "ciphertext" is the JSON payload (decrypt is identity). */
+function relayEvent(pubkey, dTag, createdAt, payload, id) {
+  return {
+    id: id ?? `eid-${dTag}-${createdAt}`,
+    pubkey,
+    created_at: createdAt,
+    kind: 30078,
+    content: JSON.stringify(payload),
+    tags: [["d", dTag]],
+    sig: "sig",
   };
 }
 
-// ---------------------------------------------------------------------------
-// Tauri mock that hangs on encrypt (keeps pendingStore non-null)
-// ---------------------------------------------------------------------------
-function installHangingTauri(pubkey) {
-  const orig = globalThis.window?.__TAURI_INTERNALS__;
-  if (typeof globalThis.window === "undefined") globalThis.window = {};
-  globalThis.window.__TAURI_INTERNALS__ = {
-    invoke: (cmd, args) => {
-      if (cmd === "nip44_decrypt_from_self")
-        return Promise.resolve(args?.ciphertext ?? "{}");
-      // Hang — keeps pendingStore non-null indefinitely.
-      if (cmd === "nip44_encrypt_to_self") return new Promise(() => {});
-      if (cmd === "sign_event")
-        return Promise.resolve(
-          JSON.stringify({
-            id: "eid",
-            pubkey,
-            content: "ct",
-            created_at: 0,
-            kind: 0,
-            tags: [],
-            sig: "s",
-          }),
-        );
-      return Promise.reject(new Error(`unmocked: ${cmd}`));
-    },
-  };
-  return () => {
-    if (orig !== undefined) globalThis.window.__TAURI_INTERNALS__ = orig;
-    else delete globalThis.window.__TAURI_INTERNALS__;
-  };
-}
-
-// ---------------------------------------------------------------------------
-// 1. Sections: bootstrap-fail then retry applies remote
-// ---------------------------------------------------------------------------
-test("useChannelSections retry applies remote after bootstrap fetch failure", async () => {
-  const { cleanup, renderHook, waitFor } = await import(
-    "@testing-library/react"
-  );
-  const { relayClient } = await import("@/shared/api/relayClient");
-  const { storageKey } = await import("./channelSectionsStorage.ts");
-  const { useChannelSections } = await import("./useChannelSections.ts");
-
-  const restoreTauri = installTauri("pk-sec");
-
-  let fetchCallCount = 0;
-  const remotePayload = JSON.stringify({
-    version: 1,
-    sections: [{ id: "s1", name: "Remote", order: 0 }],
-    assignments: {},
-  });
-  // First call (bootstrap): fail. Subsequent calls (retry): succeed.
-  const origFetch = relayClient.fetchEvents;
-  relayClient.fetchEvents = async () => {
-    fetchCallCount++;
-    if (fetchCallCount === 1) throw new Error("network error");
-    return [
-      {
-        id: "eid-remote",
-        pubkey: "pk-sec",
-        created_at: 1000,
-        kind: 30078,
-        content: remotePayload,
-        tags: [["d", "channel-sections"]],
-        sig: "sig",
-      },
-    ];
-  };
-  const origSubscribeLive = relayClient.subscribeLive;
-  relayClient.subscribeLive = async () => async () => {};
-  const origSubscribeToReconnects = relayClient.subscribeToReconnects;
-  relayClient.subscribeToReconnects = () => () => {};
-
-  const pubkey = "pk-sec";
-  const relayUrl = "wss://relay.example";
-
-  try {
-    const { result, unmount } = renderHook(() =>
-      useChannelSections(pubkey, relayUrl),
-    );
-
-    // The retry effect fires its first tick immediately on mount.
-    // Bootstrap fails (call 1), retry fires immediately (call 2, no timer wait).
-    await waitFor(() => assert.ok(fetchCallCount >= 2), { timeout: 2000 });
-    await waitFor(
-      () =>
-        assert.ok(
-          result.current.sections.some((s) => s.name === "Remote"),
-          "remote section not applied after retry",
-        ),
-      { timeout: 2000 },
-    );
-    unmount();
-  } finally {
-    cleanup();
-    restoreTauri();
-    relayClient.fetchEvents = origFetch;
-    relayClient.subscribeLive = origSubscribeLive;
-    relayClient.subscribeToReconnects = origSubscribeToReconnects;
-    try {
-      globalThis.window.localStorage.removeItem(storageKey(pubkey, relayUrl));
-    } catch {}
-  }
-});
-
-// ---------------------------------------------------------------------------
-// 2. Sort: bootstrap-fail then retry applies remote
-// ---------------------------------------------------------------------------
-test("useChannelSortPreference retry applies remote after bootstrap fetch failure", async () => {
-  const { cleanup, renderHook, waitFor } = await import(
-    "@testing-library/react"
-  );
-  const { relayClient } = await import("@/shared/api/relayClient");
-  const { useChannelSortPreference } = await import(
-    "./useChannelSortPreference.ts"
-  );
-
-  const restoreTauri = installTauri("pk-sort");
-
-  let fetchCallCount = 0;
-  const remotePayload = JSON.stringify({
-    version: 1,
-    groups: { starred: "recent" },
-  });
-  const origFetch = relayClient.fetchEvents;
-  relayClient.fetchEvents = async () => {
-    fetchCallCount++;
-    if (fetchCallCount === 1) throw new Error("network error");
-    return [
-      {
-        id: "eid-sort",
-        pubkey: "pk-sort",
-        created_at: 1000,
-        kind: 30078,
-        content: remotePayload,
-        tags: [["d", "channel-sort"]],
-        sig: "sig",
-      },
-    ];
-  };
-  const origSubscribeLive = relayClient.subscribeLive;
-  relayClient.subscribeLive = async () => async () => {};
-  const origSubscribeToReconnects = relayClient.subscribeToReconnects;
-  relayClient.subscribeToReconnects = () => () => {};
-
-  const pubkey = "pk-sort";
-  const relayUrl = "wss://relay.example";
-
-  try {
-    const { result, unmount } = renderHook(() =>
-      useChannelSortPreference(pubkey, relayUrl),
-    );
-
-    await waitFor(() => assert.ok(fetchCallCount >= 2), { timeout: 2000 });
-    await waitFor(
-      () =>
-        assert.equal(
-          result.current.sortModeFor("starred"),
-          "recent",
-          "remote sort mode not applied after retry",
-        ),
-      { timeout: 2000 },
-    );
-    unmount();
-  } finally {
-    cleanup();
-    restoreTauri();
-    relayClient.fetchEvents = origFetch;
-    relayClient.subscribeLive = origSubscribeLive;
-    relayClient.subscribeToReconnects = origSubscribeToReconnects;
-  }
-});
-
-// ---------------------------------------------------------------------------
-// 3. Stars: bootstrap-fail then retry merges remote
-// ---------------------------------------------------------------------------
-test("useChannelStars retry merges remote after bootstrap fetch failure", async () => {
-  const { cleanup, renderHook, waitFor } = await import(
-    "@testing-library/react"
-  );
-  const { relayClient } = await import("@/shared/api/relayClient");
-  const { storageKey } = await import("./channelStarsStorage.ts");
-  const { useChannelStars } = await import("./useChannelStars.ts");
-
-  const restoreTauri = installTauri("pk-stars");
-
-  let fetchCallCount = 0;
-  const remotePayload = JSON.stringify({
-    version: 1,
-    channels: { "chan-remote": { starred: true, updatedAt: 2000 } },
-  });
-  const origFetch = relayClient.fetchEvents;
-  relayClient.fetchEvents = async () => {
-    fetchCallCount++;
-    if (fetchCallCount === 1) throw new Error("network error");
-    return [
-      {
-        id: "eid-stars",
-        pubkey: "pk-stars",
-        created_at: 1000,
-        kind: 30078,
-        content: remotePayload,
-        tags: [["d", "channel-stars"]],
-        sig: "sig",
-      },
-    ];
-  };
-  const origSubscribeLive = relayClient.subscribeLive;
-  relayClient.subscribeLive = async () => async () => {};
-  const origSubscribeToReconnects = relayClient.subscribeToReconnects;
-  relayClient.subscribeToReconnects = () => () => {};
-
-  const pubkey = "pk-stars";
-  const relayUrl = "wss://relay.example";
-  // Seed local: chan-local starred.
-  globalThis.window.localStorage.setItem(
-    storageKey(pubkey),
-    JSON.stringify({
-      version: 1,
-      channels: { "chan-local": { starred: true, updatedAt: 1000 } },
-    }),
-  );
-
-  try {
-    const { result, unmount } = renderHook(() =>
-      useChannelStars(pubkey, relayUrl),
-    );
-
-    await waitFor(() => assert.ok(fetchCallCount >= 2), { timeout: 2000 });
-    // After merge: both chan-local (pre-seeded) and chan-remote (relay) should
-    // be starred — mergeStores combines rather than replacing.
-    await waitFor(
-      () => {
-        assert.ok(
-          result.current.starredChannelIds.has("chan-remote"),
-          "chan-remote not in starred set after retry merge",
-        );
-        assert.ok(
-          result.current.starredChannelIds.has("chan-local"),
-          "chan-local lost after retry merge",
-        );
-      },
-      { timeout: 2000 },
-    );
-    unmount();
-  } finally {
-    cleanup();
-    restoreTauri();
-    relayClient.fetchEvents = origFetch;
-    relayClient.subscribeLive = origSubscribeLive;
-    relayClient.subscribeToReconnects = origSubscribeToReconnects;
-    try {
-      globalThis.window.localStorage.removeItem(storageKey(pubkey));
-    } catch {}
-  }
-});
-
-// ---------------------------------------------------------------------------
-// 4. Mutes: bootstrap-fail then retry merges remote
-// ---------------------------------------------------------------------------
-test("useChannelMutes retry merges remote after bootstrap fetch failure", async () => {
-  const { cleanup, renderHook, waitFor } = await import(
-    "@testing-library/react"
-  );
-  const { relayClient } = await import("@/shared/api/relayClient");
-  const { storageKey } = await import("./channelMutesStorage.ts");
-  const { useChannelMutes } = await import("./useChannelMutes.ts");
-
-  const restoreTauri = installTauri("pk-mutes");
-
-  let fetchCallCount = 0;
-  const remotePayload = JSON.stringify({
-    version: 1,
-    channels: { "chan-remote": { muted: true, updatedAt: 2000 } },
-  });
-  const origFetch = relayClient.fetchEvents;
-  relayClient.fetchEvents = async () => {
-    fetchCallCount++;
-    if (fetchCallCount === 1) throw new Error("network error");
-    return [
-      {
-        id: "eid-mutes",
-        pubkey: "pk-mutes",
-        created_at: 1000,
-        kind: 30078,
-        content: remotePayload,
-        tags: [["d", "channel-mutes"]],
-        sig: "sig",
-      },
-    ];
-  };
-  const origSubscribeLive = relayClient.subscribeLive;
-  relayClient.subscribeLive = async () => async () => {};
-  const origSubscribeToReconnects = relayClient.subscribeToReconnects;
-  relayClient.subscribeToReconnects = () => () => {};
-
-  const pubkey = "pk-mutes";
-  const relayUrl = "wss://relay.example";
-  globalThis.window.localStorage.setItem(
-    storageKey(pubkey),
-    JSON.stringify({
-      version: 1,
-      channels: { "chan-local": { muted: true, updatedAt: 1000 } },
-    }),
-  );
-
-  try {
-    const { result, unmount } = renderHook(() =>
-      useChannelMutes(pubkey, relayUrl),
-    );
-
-    await waitFor(() => assert.ok(fetchCallCount >= 2), { timeout: 2000 });
-    await waitFor(
-      () => {
-        assert.ok(
-          result.current.mutedChannelIds.has("chan-remote"),
-          "chan-remote not in muted set after retry merge",
-        );
-        assert.ok(
-          result.current.mutedChannelIds.has("chan-local"),
-          "chan-local lost after retry merge",
-        );
-      },
-      { timeout: 2000 },
-    );
-    unmount();
-  } finally {
-    cleanup();
-    restoreTauri();
-    relayClient.fetchEvents = origFetch;
-    relayClient.subscribeLive = origSubscribeLive;
-    relayClient.subscribeToReconnects = origSubscribeToReconnects;
-    try {
-      globalThis.window.localStorage.removeItem(storageKey(pubkey));
-    } catch {}
-  }
-});
-
-// ---------------------------------------------------------------------------
-// 5. Visibility-change to "visible" triggers an immediate retry (sections)
-// ---------------------------------------------------------------------------
-test("useChannelSections visibility-change to visible triggers immediate retry", async () => {
-  const { cleanup, renderHook, waitFor } = await import(
-    "@testing-library/react"
-  );
-  const { relayClient } = await import("@/shared/api/relayClient");
-  const { useChannelSections } = await import("./useChannelSections.ts");
-
-  const restoreTauri = installTauri("pk-vis");
-
-  let fetchCallCount = 0;
-  const remotePayload = JSON.stringify({
-    version: 1,
-    sections: [{ id: "s-vis", name: "Visible", order: 0 }],
-    assignments: {},
-  });
-  const origFetch = relayClient.fetchEvents;
-  relayClient.fetchEvents = async () => {
-    fetchCallCount++;
-    return [
-      {
-        id: `eid-vis-${fetchCallCount}`,
-        pubkey: "pk-vis",
-        created_at: 1000 + fetchCallCount,
-        kind: 30078,
-        content: remotePayload,
-        tags: [["d", "channel-sections"]],
-        sig: "sig",
-      },
-    ];
-  };
-  const origSubscribeLive = relayClient.subscribeLive;
-  relayClient.subscribeLive = async () => async () => {};
-  const origSubscribeToReconnects = relayClient.subscribeToReconnects;
-  relayClient.subscribeToReconnects = () => () => {};
-
-  const pubkey = "pk-vis";
-  const relayUrl = "wss://relay.example";
-
-  try {
-    const { unmount } = renderHook(() => useChannelSections(pubkey, relayUrl));
-
-    // Wait for the initial tick to complete.
-    await waitFor(() => assert.ok(fetchCallCount >= 1), { timeout: 2000 });
-    const countAfterInitial = fetchCallCount;
-
-    // Simulate a visibility-change to "visible". The retry effect listens on
-    // `document` (the JSDOM document, wired up in the before() hook).
-    Object.defineProperty(dom.window.document, "visibilityState", {
-      value: "visible",
-      writable: true,
-      configurable: true,
-    });
-    dom.window.document.dispatchEvent(new dom.window.Event("visibilitychange"));
-
-    // A new fetch should fire immediately without waiting for the next timer.
-    await waitFor(
-      () =>
-        assert.ok(
-          fetchCallCount > countAfterInitial,
-          "visibility-change did not trigger a new fetch",
-        ),
-      { timeout: 2000 },
-    );
-    unmount();
-  } finally {
-    cleanup();
-    restoreTauri();
-    relayClient.fetchEvents = origFetch;
-    relayClient.subscribeLive = origSubscribeLive;
-    relayClient.subscribeToReconnects = origSubscribeToReconnects;
-  }
-});
-
-// ---------------------------------------------------------------------------
-// 6a. Pending whole-blob edit defers apply on the current tick (sections)
-//
-// Strategy: make fetchEvents hang on the first call so the retry tick is
-// in-flight when we trigger the local edit.  createSection sets pendingStore
-// immediately (inside publishSections, before the debounce timer fires).
-// When we then resolve the hanging fetch, applyRemote is skipped because
-// getPendingStore() is non-null.
-// ---------------------------------------------------------------------------
-test("useChannelSections retry skips apply when a pending publish is in flight", async () => {
-  const { act, cleanup, renderHook, waitFor } = await import(
-    "@testing-library/react"
-  );
-  const { relayClient } = await import("@/shared/api/relayClient");
-  const { useChannelSections } = await import("./useChannelSections.ts");
-
-  // fetchEvents hangs until manually resolved so we can set the pending store
-  // mid-flight.  The remote payload would normally overwrite local state.
-  const remotePayload = JSON.stringify({
-    version: 1,
-    sections: [{ id: "s-skip", name: "ShouldNotAppear", order: 0 }],
-    assignments: {},
-  });
-  let resolveFetch = null;
-  const origFetch = relayClient.fetchEvents;
-  relayClient.fetchEvents = () =>
-    new Promise((res) => {
-      resolveFetch = res;
-    });
-  const origSubscribeLive = relayClient.subscribeLive;
-  relayClient.subscribeLive = async () => async () => {};
-  const origSubscribeToReconnects = relayClient.subscribeToReconnects;
-  relayClient.subscribeToReconnects = () => () => {};
-
-  // Tauri: make nip44_encrypt_to_self hang so the pending store is never
-  // cleared after the debounce timer fires.
-  const restoreTauri = installHangingTauri("pk-skip");
-
-  const pubkey = "pk-skip";
-  const relayUrl = "wss://relay.example";
-
-  try {
-    const { result, unmount } = renderHook(() =>
-      useChannelSections(pubkey, relayUrl),
-    );
-
-    // Wait for the retry tick to start (fetchEvents is hanging, resolveFetch set).
-    await waitFor(() => assert.ok(resolveFetch !== null), { timeout: 2000 });
-
-    // Now trigger a local edit — publishSections sets pendingStore immediately.
-    await act(async () => {
-      result.current.createSection("PendingSection");
-    });
-
-    // Resolve the hanging fetch with the remote payload.
-    resolveFetch([
-      {
-        id: "eid-skip",
-        pubkey: "pk-skip",
-        created_at: 5000,
-        kind: 30078,
-        content: remotePayload,
-        tags: [["d", "channel-sections"]],
-        sig: "sig",
-      },
-    ]);
-
-    // Give React a tick to process the resolution.
-    await new Promise((r) => setTimeout(r, 50));
-
-    // The remote "ShouldNotAppear" section must NOT have been applied because
-    // the pending edit guard deferred it.
-    assert.ok(
-      !result.current.sections.some((s) => s.name === "ShouldNotAppear"),
-      "remote apply was not deferred while pending edit was in flight",
-    );
-    unmount();
-  } finally {
-    cleanup();
-    restoreTauri();
-    relayClient.fetchEvents = origFetch;
-    relayClient.subscribeLive = origSubscribeLive;
-    relayClient.subscribeToReconnects = origSubscribeToReconnects;
-  }
-});
-
-// ---------------------------------------------------------------------------
-// 6b. Pending per-entry edit defers apply on the current tick (stars)
-// ---------------------------------------------------------------------------
-test("useChannelStars retry skips apply when a pending publish is in flight", async () => {
-  const { act, cleanup, renderHook } = await import("@testing-library/react");
-  const { relayClient } = await import("@/shared/api/relayClient");
-  const { useChannelStars } = await import("./useChannelStars.ts");
-
-  const remotePayload = JSON.stringify({
-    version: 1,
-    channels: { "chan-remote-only": { starred: true, updatedAt: 3000 } },
-  });
-  const origFetch = relayClient.fetchEvents;
-  relayClient.fetchEvents = async () => [
-    {
-      id: "eid-stars-skip",
-      pubkey: "pk-stars-skip",
-      created_at: 1000,
-      kind: 30078,
-      content: remotePayload,
-      tags: [["d", "channel-stars"]],
-      sig: "sig",
-    },
-  ];
-  const origSubscribeLive = relayClient.subscribeLive;
-  relayClient.subscribeLive = async () => async () => {};
-  const origSubscribeToReconnects = relayClient.subscribeToReconnects;
-  relayClient.subscribeToReconnects = () => () => {};
-
-  const restoreTauri = installHangingTauri("pk-stars-skip");
-
-  const pubkey = "pk-stars-skip";
-  const relayUrl = "wss://relay.example";
-
-  try {
-    const { result, unmount } = renderHook(() =>
-      useChannelStars(pubkey, relayUrl),
-    );
-
-    // Create a local pending star edit.
-    await act(async () => {
-      result.current.starChannel("chan-local-pending");
-    });
-
-    // Give the retry tick time to run.
-    await new Promise((r) => setTimeout(r, 100));
-
-    // The local pending star must survive.
-    assert.ok(
-      result.current.starredChannelIds.has("chan-local-pending"),
-      "local pending star was lost",
-    );
-    unmount();
-  } finally {
-    cleanup();
-    restoreTauri();
-    relayClient.fetchEvents = origFetch;
-    relayClient.subscribeLive = origSubscribeLive;
-    relayClient.subscribeToReconnects = origSubscribeToReconnects;
-  }
-});
-
-// ---------------------------------------------------------------------------
-// 7. Unmount cancels the in-flight retry (sections)
-// ---------------------------------------------------------------------------
-test("useChannelSections unmount prevents stale retry from applying state", async () => {
-  const { cleanup, renderHook, waitFor } = await import(
-    "@testing-library/react"
-  );
-  const { relayClient } = await import("@/shared/api/relayClient");
-  const { useChannelSections } = await import("./useChannelSections.ts");
-
-  const restoreTauri = installTauri("pk-cancel");
-
-  // fetchEvents hangs until manually resolved so we can unmount mid-flight.
-  let resolveHanging = null;
-  const origFetch = relayClient.fetchEvents;
-  relayClient.fetchEvents = async () =>
-    new Promise((res) => {
-      resolveHanging = res;
-    });
-  const origSubscribeLive = relayClient.subscribeLive;
-  relayClient.subscribeLive = async () => async () => {};
-  const origSubscribeToReconnects = relayClient.subscribeToReconnects;
-  relayClient.subscribeToReconnects = () => () => {};
-
-  const pubkey = "pk-cancel";
-  const relayUrl = "wss://relay.example";
-
-  try {
-    const { result, unmount } = renderHook(() =>
-      useChannelSections(pubkey, relayUrl),
-    );
-
-    // Wait until the retry tick is in-flight (fetchEvents is hanging).
-    await waitFor(() => assert.ok(resolveHanging !== null), { timeout: 2000 });
-
-    // Unmount while the fetch is pending — sets the cancelled flag.
-    unmount();
-
-    // Resolve the fetch with a remote payload after unmount.
-    const remotePayload = JSON.stringify({
-      version: 1,
-      sections: [{ id: "s-ghost", name: "Ghost", order: 0 }],
-      assignments: {},
-    });
-    resolveHanging([
-      {
-        id: "eid-ghost",
-        pubkey: "pk-cancel",
-        created_at: 9000,
-        kind: 30078,
-        content: remotePayload,
-        tags: [["d", "channel-sections"]],
-        sig: "sig",
-      },
-    ]);
-
-    // Give React a tick to process the resolution.
-    await new Promise((r) => setTimeout(r, 50));
-
-    // The cancelled flag must have prevented setStore from being called.
-    assert.ok(
-      !result.current.sections.some((s) => s.name === "Ghost"),
-      "post-unmount fetch result was applied despite cancelled flag",
-    );
-  } finally {
-    cleanup();
-    restoreTauri();
-    relayClient.fetchEvents = origFetch;
-    relayClient.subscribeLive = origSubscribeLive;
-    relayClient.subscribeToReconnects = origSubscribeToReconnects;
-  }
-});
-
-// ---------------------------------------------------------------------------
-// 8. Equal-second tie-break: lower event ID wins (sections applyRemote guard)
-//
-// The relay's canonical order is created_at DESC, id ASC — at equal second the
-// lower event ID is retained.  applyRemote must reject an incoming event whose
-// ID is >= the already-applied ID so the hook converges to the canonical head.
-// ---------------------------------------------------------------------------
-test("useChannelSections applyRemote retains lower event ID at equal second", async () => {
-  const { cleanup, renderHook, waitFor } = await import(
-    "@testing-library/react"
-  );
-  const { relayClient } = await import("@/shared/api/relayClient");
-  const { useChannelSections } = await import("./useChannelSections.ts");
-
-  const restoreTauri = installTauri("pk-tb");
-
-  const TS = 1_700_000_000;
-  const LOW_ID = "aaa-lower-id";
-  const HIGH_ID = "zzz-higher-id";
-
-  const makePayload = (sectionName) =>
-    JSON.stringify({
-      version: 1,
-      sections: [{ id: "s-tb", name: sectionName, order: 0 }],
-      assignments: {},
-    });
-
-  // Step 1 (bootstrap): LOW_ID event — the canonical retained head.
-  // Step 2+ (retry): HIGH_ID event — a non-canonical duplicate at equal second.
-  let fetchCallCount = 0;
-  const origFetch = relayClient.fetchEvents;
-  relayClient.fetchEvents = async () => {
-    fetchCallCount++;
-    const id = fetchCallCount === 1 ? LOW_ID : HIGH_ID;
-    const name = fetchCallCount === 1 ? "LowSection" : "HighSection";
-    return [
-      {
-        id,
-        pubkey: "pk-tb",
-        created_at: TS,
-        kind: 30078,
-        content: makePayload(name),
-        tags: [["d", "channel-sections"]],
-        sig: "sig",
-      },
-    ];
-  };
-  const origSubscribeLive = relayClient.subscribeLive;
-  relayClient.subscribeLive = async () => async () => {};
-  const origSubscribeToReconnects = relayClient.subscribeToReconnects;
-  relayClient.subscribeToReconnects = () => () => {};
-
-  const pubkey = "pk-tb";
-  const relayUrl = "wss://relay.example";
-
-  try {
-    const { result, unmount } = renderHook(() =>
-      useChannelSections(pubkey, relayUrl),
-    );
-
-    // Wait for bootstrap (LOW_ID) to apply.
-    await waitFor(
-      () =>
-        assert.ok(
-          result.current.sections.some((s) => s.name === "LowSection"),
-          "bootstrap LOW_ID not applied",
-        ),
-      { timeout: 2000 },
-    );
-
-    // Wait for at least one retry fetch (HIGH_ID) to run.
-    await waitFor(() => assert.ok(fetchCallCount >= 2), { timeout: 2000 });
-
-    // HIGH_ID (>= LOW_ID at equal second) must be rejected; LowSection persists.
-    assert.ok(
-      result.current.sections.some((s) => s.name === "LowSection"),
-      "LowSection was overwritten by HighSection — tie-break is wrong",
-    );
-    assert.ok(
-      !result.current.sections.some((s) => s.name === "HighSection"),
-      "HighSection was applied — tie-break is wrong",
-    );
-    unmount();
-  } finally {
-    cleanup();
-    restoreTauri();
-    relayClient.fetchEvents = origFetch;
-    relayClient.subscribeLive = origSubscribeLive;
-    relayClient.subscribeToReconnects = origSubscribeToReconnects;
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Drain helper: flushes async microtasks + one round of setImmediate callbacks.
-// Used after t.mock.timers.tick() because waitFor polls via setTimeout, which
-// is intercepted by the mock and deadlocks when mock timers are enabled.
-// ---------------------------------------------------------------------------
-async function drainAsync(n = 8) {
-  for (let i = 0; i < n; i++) {
-    await new Promise((r) => setImmediate(r));
-  }
-}
-
-// ---------------------------------------------------------------------------
-// 9. Backoff timer cadence: failure → success → later missed head, capped ticks
-//
-// The retry effect must: advance through 5 → 10 → 30 → 60 s steps, apply a
-// found result, then keep scheduling at 60 s for a later missed head.
-// Two full 60 s cycles are verified so the capped-step logic is unambiguous.
-// ---------------------------------------------------------------------------
-test("useChannelSections retry advances backoff and applies success then continues polling", async (t) => {
-  const { cleanup, renderHook } = await import("@testing-library/react");
-  const { relayClient } = await import("@/shared/api/relayClient");
-  const { useChannelSections } = await import("./useChannelSections.ts");
-
+/**
+ * Installs the relay/Tauri stub.  `relay.fetch(n)` answers the n-th
+ * `fetchEvents` call (return events, a promise, or throw).  Successful
+ * publications land in `relay.published`; `relay.encryptGate` holds every
+ * publish at encryption while it is an unresolved promise.  Live delivery
+ * and reconnects are inert, so no echo ever reaches the hooks.
+ */
+function setup(t, pubkey, fetch = () => []) {
   t.mock.timers.enable({ apis: ["setTimeout"] });
-  const restoreTauri = installTauri("pk-backoff");
-
-  let fetchCallCount = 0;
-  const remotePayload = (name) =>
-    JSON.stringify({
-      version: 1,
-      sections: [{ id: "s1", name, order: 0 }],
-      assignments: {},
-    });
-  const origFetch = relayClient.fetchEvents;
-  relayClient.fetchEvents = async () => {
-    fetchCallCount++;
-    // Calls 1–2: fail (bootstrap + first retry tick). Call 3+: succeed.
-    if (fetchCallCount <= 2) throw new Error("network error");
-    return [
-      {
-        id: `eid-${fetchCallCount}`,
-        pubkey: "pk-backoff",
-        created_at: 1000 + fetchCallCount,
-        kind: 30078,
-        content: remotePayload(`Section-${fetchCallCount}`),
-        tags: [["d", "channel-sections"]],
-        sig: "sig",
-      },
-    ];
+  const saved = { ...relayClient };
+  const savedTauri = window.__TAURI_INTERNALS__;
+  const relay = {
+    fetches: 0,
+    fetch,
+    publish: async () => {},
+    published: [],
+    encryptGate: null,
+    payload: (i = -1) => JSON.parse(relay.published.at(i).content),
   };
-  const origSubscribeLive = relayClient.subscribeLive;
-  relayClient.subscribeLive = async () => async () => {};
-  const origSubscribeToReconnects = relayClient.subscribeToReconnects;
-  relayClient.subscribeToReconnects = () => () => {};
-
-  const pubkey = "pk-backoff";
-  const relayUrl = "wss://relay.example";
-
-  try {
-    const { result, unmount } = renderHook(() =>
-      useChannelSections(pubkey, relayUrl),
-    );
-
-    // Initial tick fires immediately: bootstrap (call 1) throws, retry (call 2)
-    // also throws. Both are async — drain microtasks to let them complete.
-    await drainAsync();
-    assert.ok(
-      fetchCallCount >= 2,
-      `expected ≥2 fetches after mount, got ${fetchCallCount}`,
-    );
-
-    // Advance 5 s: step 0 fires, call 3 succeeds → Section-3 applied.
-    t.mock.timers.tick(5_000);
-    await drainAsync();
-    assert.ok(
-      result.current.sections.some((s) => s.name === "Section-3"),
-      "5-s tick did not apply remote",
-    );
-
-    // Advance 10 s: step 1 fires → Section-4.
-    t.mock.timers.tick(10_000);
-    await drainAsync();
-    const countAfter10s = fetchCallCount;
-    assert.ok(countAfter10s >= 4, "10-s tick did not fire another fetch");
-
-    // Advance 30 s: step 2 fires → another fetch.
-    t.mock.timers.tick(30_000);
-    await drainAsync();
-    const countAfter30s = fetchCallCount;
-    assert.ok(
-      countAfter30s > countAfter10s,
-      "30-s tick did not fire another fetch",
-    );
-
-    // First 60 s capped cycle.
-    const countBefore60a = fetchCallCount;
-    t.mock.timers.tick(60_000);
-    await drainAsync();
-    const countAfter60a = fetchCallCount;
-    assert.ok(
-      countAfter60a > countBefore60a,
-      "first 60-s capped cycle did not fire",
-    );
-
-    // Second 60 s capped cycle — confirms steady-state is 60 s, not decaying.
-    const countBefore60b = fetchCallCount;
-    t.mock.timers.tick(60_000);
-    await drainAsync();
-    const countAfter60b = fetchCallCount;
-    assert.ok(
-      countAfter60b > countBefore60b,
-      "second 60-s capped cycle did not fire",
-    );
-
-    // A later missed head (returned by the second 60 s tick) must reach the UI
-    // and the cache — the section name uses fetchCallCount so each tick returns
-    // a distinct payload with a strictly higher created_at.
-    assert.ok(
-      result.current.sections.some((s) => s.name.startsWith("Section-")),
-      "no remote section visible after two 60-s capped cycles",
-    );
-
-    unmount();
-  } finally {
-    cleanup();
-    t.mock.timers.reset();
-    restoreTauri();
-    relayClient.fetchEvents = origFetch;
-    relayClient.subscribeLive = origSubscribeLive;
-    relayClient.subscribeToReconnects = origSubscribeToReconnects;
-  }
-});
-
-// ---------------------------------------------------------------------------
-// 10. Single-flight: a held fetch blocks a visibility-triggered tick
-// ---------------------------------------------------------------------------
-test("useChannelSections single-flight: visibility tick does not start a second fetch while one is in flight", async (_t) => {
-  const { cleanup, renderHook, waitFor } = await import(
-    "@testing-library/react"
-  );
-  const { relayClient } = await import("@/shared/api/relayClient");
-  const { useChannelSections } = await import("./useChannelSections.ts");
-
-  // Only mock Date here so visibility/rendering still progresses; setTimeout
-  // left unmocked so waitFor can poll normally for the initial fetch.
-  const restoreTauri = installTauri("pk-sf");
-
-  let fetchCallCount = 0;
-  let resolveHanging = null;
-  const origFetch = relayClient.fetchEvents;
-  relayClient.fetchEvents = () => {
-    fetchCallCount++;
-    return new Promise((res) => {
-      resolveHanging = res;
-    });
+  relayClient.fetchEvents = async () => relay.fetch(++relay.fetches);
+  relayClient.publishEvent = async (event) => {
+    await relay.publish(event);
+    relay.published.push(event);
   };
-  const origSubscribeLive = relayClient.subscribeLive;
   relayClient.subscribeLive = async () => async () => {};
-  const origSubscribeToReconnects = relayClient.subscribeToReconnects;
   relayClient.subscribeToReconnects = () => () => {};
-
-  const pubkey = "pk-sf";
-  const relayUrl = "wss://relay.example";
-
-  try {
-    renderHook(() => useChannelSections(pubkey, relayUrl));
-
-    // Wait for first fetch to start (hook fires tick immediately on mount).
-    await waitFor(() => assert.ok(fetchCallCount >= 1), { timeout: 2000 });
-    const countWithFetch = fetchCallCount;
-
-    // Dispatch visibility change while fetch is in flight.
-    Object.defineProperty(dom.window.document, "visibilityState", {
-      value: "visible",
-      writable: true,
-      configurable: true,
-    });
-    dom.window.document.dispatchEvent(new dom.window.Event("visibilitychange"));
-
-    // Drain — give the handler a chance to run (it should bail on inFlight).
-    await drainAsync();
-
-    // Single-flight: no second fetch should have started.
-    assert.equal(
-      fetchCallCount,
-      countWithFetch,
-      "visibility triggered a second in-flight fetch",
-    );
-
-    // Resolve the hanging fetch.
-    resolveHanging([]);
-  } finally {
-    cleanup();
-    restoreTauri();
-    relayClient.fetchEvents = origFetch;
-    relayClient.subscribeLive = origSubscribeLive;
-    relayClient.subscribeToReconnects = origSubscribeToReconnects;
-  }
-});
-
-// ---------------------------------------------------------------------------
-// 11. Pending survival + recovery resumes after pending clears
-//
-// While a local edit is pending, retry skips apply.  Once pending clears
-// (simulate successful publish by resolving encrypt + sign), the NEXT tick
-// applies the remote.
-// ---------------------------------------------------------------------------
-test("useChannelSections recovery resumes after pending edit clears", async (t) => {
-  const { act, cleanup, renderHook } = await import("@testing-library/react");
-  const { relayClient } = await import("@/shared/api/relayClient");
-  const { useChannelSections } = await import("./useChannelSections.ts");
-
-  t.mock.timers.enable({ apis: ["setTimeout"] });
-
-  const remotePayload = JSON.stringify({
-    version: 1,
-    sections: [{ id: "s-resume", name: "ResumeSection", order: 0 }],
-    assignments: {},
-  });
-
-  // First fetch (initial tick on mount): hang until we release it so we can
-  // create the local edit before the remote response lands.
-  let releaseInitialFetch = null;
-  let fetchCallCount = 0;
-  const origFetch = relayClient.fetchEvents;
-  relayClient.fetchEvents = async () => {
-    fetchCallCount++;
-    if (fetchCallCount === 1) {
-      // Bootstrap: fail immediately (not via timer).
-      throw new Error("bootstrap fail");
-    }
-    if (fetchCallCount === 2) {
-      // First retry tick (fires immediately on mount): hang until released.
-      return new Promise((res) => {
-        releaseInitialFetch = res;
-      });
-    }
-    // Subsequent ticks: return the remote payload normally.
-    return [
-      {
-        id: `eid-r-${fetchCallCount}`,
-        pubkey: "pk-resume",
-        created_at: 1000 + fetchCallCount,
-        kind: 30078,
-        content: remotePayload,
-        tags: [["d", "channel-sections"]],
-        sig: "sig",
-      },
-    ];
-  };
-  const origSubscribeLive = relayClient.subscribeLive;
-  relayClient.subscribeLive = async () => async () => {};
-  const origSubscribeToReconnects = relayClient.subscribeToReconnects;
-  relayClient.subscribeToReconnects = () => () => {};
-  // publishEvent must succeed so pendingStore is cleared after the publish.
-  const origPublishEvent = relayClient.publishEvent;
-  relayClient.publishEvent = async () => {};
-
-  // Tauri: encrypt hangs initially (keeps pending), then resolves on demand.
-  let resolveEncrypt = null;
-  const origTauri = globalThis.window?.__TAURI_INTERNALS__;
-  if (typeof globalThis.window === "undefined") globalThis.window = {};
-  globalThis.window.__TAURI_INTERNALS__ = {
-    invoke: (cmd, args) => {
-      if (cmd === "nip44_decrypt_from_self")
-        return Promise.resolve(args?.ciphertext ?? "{}");
-      if (cmd === "nip44_encrypt_to_self")
-        return new Promise((res) => {
-          resolveEncrypt = res;
+  window.__TAURI_INTERNALS__ = {
+    invoke: async (cmd, args) => {
+      if (cmd === "nip44_decrypt_from_self") return args.ciphertext;
+      if (cmd === "nip44_encrypt_to_self") {
+        await relay.encryptGate;
+        return args.plaintext;
+      }
+      if (cmd === "sign_event")
+        return JSON.stringify({
+          id: `eid-pub-${relay.published.length}`,
+          pubkey,
+          content: args.content,
+          created_at: args.createdAt,
+          kind: args.kind,
+          tags: args.tags,
+          sig: "s",
         });
-      if (cmd === "sign_event")
-        return Promise.resolve(
-          JSON.stringify({
-            id: "eid-pub",
-            pubkey: "pk-resume",
-            content: "ct",
-            created_at: 0,
-            kind: 0,
-            tags: [],
-            sig: "s",
-          }),
-        );
-      return Promise.reject(new Error(`unmocked: ${cmd}`));
+      throw new Error(`unmocked: ${cmd}`);
     },
   };
-
-  const pubkey = "pk-resume";
-  const relayUrl = "wss://relay.example";
-
-  try {
-    const { result, unmount } = renderHook(() =>
-      useChannelSections(pubkey, relayUrl),
-    );
-
-    // Drain so bootstrap (call 1) throws and retry tick (call 2) starts and hangs.
-    await drainAsync();
-    assert.ok(
-      releaseInitialFetch !== null,
-      "retry tick did not start on mount",
-    );
-
-    // Create a local edit — sets pendingStore.
-    await act(async () => {
-      result.current.createSection("PendingEdit");
-    });
-
-    // Release the hanging fetch with the remote payload; the pending guard
-    // inside the updater must prevent it from being applied.
-    releaseInitialFetch([
-      {
-        id: "eid-r-2",
-        pubkey: "pk-resume",
-        created_at: 1002,
-        kind: 30078,
-        content: remotePayload,
-        tags: [["d", "channel-sections"]],
-        sig: "sig",
-      },
-    ]);
-    await drainAsync();
-    assert.ok(
-      !result.current.sections.some((s) => s.name === "ResumeSection"),
-      "remote applied while pending was set",
-    );
-
-    // Advance past the backoff step so a new tick fires (call 3+).
-    t.mock.timers.tick(5_000);
-    await drainAsync();
-    assert.ok(
-      !result.current.sections.some((s) => s.name === "ResumeSection"),
-      "remote applied on backoff tick while pending still set",
-    );
-
-    // Resolve encrypt so the debounce publish completes and clears pending.
-    // Debounce timer (2 s) needs to fire first.
-    t.mock.timers.tick(2_000);
-    resolveEncrypt("ct");
-    await drainAsync();
-
-    // Advance to the next retry tick; pending is now clear → remote applied.
-    t.mock.timers.tick(10_000);
-    await drainAsync();
-    assert.ok(
-      result.current.sections.some((s) => s.name === "ResumeSection"),
-      "remote not applied after pending cleared",
-    );
-
-    unmount();
-  } finally {
+  t.after(() => {
     cleanup();
-    t.mock.timers.reset();
-    if (origTauri !== undefined)
-      globalThis.window.__TAURI_INTERNALS__ = origTauri;
-    else delete globalThis.window.__TAURI_INTERNALS__;
-    relayClient.fetchEvents = origFetch;
-    relayClient.publishEvent = origPublishEvent;
-    relayClient.subscribeLive = origSubscribeLive;
-    relayClient.subscribeToReconnects = origSubscribeToReconnects;
-  }
-});
-
-// ---------------------------------------------------------------------------
-// 12. Lifecycle fencing: still-mounted relay switch cancels stale recovery
-//
-// When the hook stays mounted but relayUrl changes (relay A → relay B), the
-// old recovery effect must be cancelled before its in-flight fetch resolves.
-// Stars and mutes are the critical lanes: their applyRemote does not capture
-// relayUrl so the relay-lifetime fix is in useStaleReaderRecovery explicitly.
-//
-// Assert: holding relay-A's fetch, switching to relay B, then releasing A
-// does NOT apply A's entry to UI or cache.  A subsequent B fetch does apply.
-// ---------------------------------------------------------------------------
-test("useChannelStars relay switch cancels stale relay-A recovery fetch", async (_t) => {
-  const { cleanup, renderHook, waitFor } = await import(
-    "@testing-library/react"
-  );
-  const { relayClient } = await import("@/shared/api/relayClient");
-  const { storageKey } = await import("./channelStarsStorage.ts");
-  const { useChannelStars } = await import("./useChannelStars.ts");
-
-  // NOTE: do NOT enable mock timers here — waitFor() polls via setTimeout and
-  // deadlocks with mocked timers (see comment above drainAsync).  Relay-B
-  // returns immediately from fetchEvents so no timer advancement is needed.
-  const restoreTauri = installTauri("pk-relay-switch");
-
-  const relayA = "wss://relay-a.example";
-  const relayB = "wss://relay-b.example";
-
-  // Relay-A payload: contains star-A entry that must NOT appear after switch.
-  const payloadA = JSON.stringify({
-    version: 1,
-    channels: { "chan-relay-a": { starred: true, updatedAt: 5000 } },
+    Object.assign(relayClient, saved);
+    window.__TAURI_INTERNALS__ = savedTauri;
+    window.localStorage.clear();
   });
-  // Relay-B payload: contains star-B entry (available after switch).
-  const payloadB = JSON.stringify({
-    version: 1,
-    channels: { "chan-relay-b": { starred: true, updatedAt: 1000 } },
-  });
+  return relay;
+}
 
-  let resolveRelayA = null;
-  let currentRelay = relayA;
-  const origFetch = relayClient.fetchEvents;
-  relayClient.fetchEvents = () => {
-    if (currentRelay === relayA) {
-      // Relay-A fetch: hang until released.
-      return new Promise((res) => {
-        resolveRelayA = res;
-      });
-    }
-    // Relay-B fetch: return immediately.
-    return Promise.resolve([
-      {
-        id: "eid-b",
-        pubkey: "pk-relay-switch",
-        created_at: 1000,
-        kind: 30078,
-        content: payloadB,
-        tags: [["d", "channel-stars"]],
-        sig: "sig",
-      },
-    ]);
+/** Records the sync manager a hook constructs, via its `bootstrap` call. */
+function captureManager(t, Manager) {
+  const orig = Manager.prototype.bootstrap;
+  const spy = { current: null };
+  Manager.prototype.bootstrap = function (...args) {
+    spy.current = this;
+    return orig.apply(this, args);
   };
-  const origSubscribeLive = relayClient.subscribeLive;
-  relayClient.subscribeLive = async () => async () => {};
-  const origSubscribeToReconnects = relayClient.subscribeToReconnects;
-  relayClient.subscribeToReconnects = () => () => {};
+  t.after(() => {
+    Manager.prototype.bootstrap = orig;
+  });
+  return spy;
+}
 
-  const pubkey = "pk-relay-switch";
-  let relayUrl = relayA;
+async function flush(turns = 8) {
+  await act(async () => {
+    for (let i = 0; i < turns; i++) await new Promise((r) => setImmediate(r));
+  });
+}
 
-  try {
-    const { result, rerender, unmount } = renderHook(() =>
-      useChannelStars(pubkey, relayUrl),
-    );
-
-    // Wait for relay-A's recovery tick to start (fetch is hanging).
-    await drainAsync();
-    assert.ok(resolveRelayA !== null, "relay-A recovery tick did not start");
-
-    // Switch to relay B — relay change must cancel relay-A's recovery effect.
-    currentRelay = relayB;
-    relayUrl = relayB;
-    rerender();
-
-    // Relay-B's first tick fires immediately — drain so it can complete.
-    await drainAsync();
-
-    // Wait for B's entry to appear (proves the new relay's fetch ran).
-    await waitFor(
-      () =>
-        assert.ok(
-          result.current.starredChannelIds.has("chan-relay-b"),
-          "relay-B star not applied after relay switch",
-        ),
-      { timeout: 2000 },
-    );
-
-    // Now release relay-A's held fetch with its own (newer!) payload.  If
-    // the old recovery effect was not cancelled, chan-relay-a would appear.
-    resolveRelayA([
-      {
-        id: "eid-a",
-        pubkey: "pk-relay-switch",
-        created_at: 5000,
-        kind: 30078,
-        content: payloadA,
-        tags: [["d", "channel-stars"]],
-        sig: "sig",
-      },
-    ]);
-    await drainAsync();
-
-    // Relay-A's stale entry must NOT be in the UI.
-    assert.ok(
-      !result.current.starredChannelIds.has("chan-relay-a"),
-      "stale relay-A entry applied after relay switch — relay-lifetime fix broken",
-    );
-
-    // Relay-A's stale entry must NOT be in the relay-B cache.
-    const bCache = globalThis.window.localStorage.getItem(storageKey(pubkey));
-    if (bCache) {
-      const parsed = JSON.parse(bCache);
-      assert.ok(
-        !parsed?.channels?.["chan-relay-a"],
-        "stale relay-A entry written to cache after relay switch",
-      );
-    }
-
-    unmount();
-  } finally {
-    cleanup();
-    restoreTauri();
-    relayClient.fetchEvents = origFetch;
-    relayClient.subscribeLive = origSubscribeLive;
-    relayClient.subscribeToReconnects = origSubscribeToReconnects;
-    try {
-      globalThis.window.localStorage.removeItem(storageKey(pubkey));
-    } catch {}
+/** Completion oracle: flushes until `pred` holds, else fails with `message`. */
+async function until(pred, message) {
+  for (let i = 0; i < 100; i++) {
+    if (pred()) return;
+    await flush(1);
   }
+  assert.fail(message);
+}
+
+async function tick(t, ms) {
+  await act(async () => t.mock.timers.tick(ms));
+}
+
+const sectionNames = (store) => store.sections.map((s) => s.name);
+const sectionsPayload = (name) => ({
+  version: 1,
+  sections: [{ id: `s-${name}`, name, order: 0 }],
+  assignments: {},
 });
 
 // ---------------------------------------------------------------------------
-// C1. Causal regression: queued local-edit updater executes after remote
-//     updater is queued — pending guard inside updater prevents cancellation
-//
-// Setup: hang fetch so the remote updater is *queued* inside the state setter
-// but not yet executed by React.  Before React flushes, trigger a local edit
-// that sets pendingStore.  When React executes both queued updaters the remote
-// one must bail because pending is true at that instant.  Assert the local
-// edit survives in the store.
+// Bootstrap failure → the immediate recovery tick applies the relay head
 // ---------------------------------------------------------------------------
-test("useChannelSections pending guard inside updater prevents cancelling a queued local edit", async (_t) => {
-  const { act, cleanup, renderHook, waitFor } = await import(
-    "@testing-library/react"
-  );
-  const { relayClient } = await import("@/shared/api/relayClient");
-  const { useChannelSections } = await import("./useChannelSections.ts");
 
-  // Tauri: encrypt hangs → pendingStore stays non-null until we release it.
-  const restoreTauri = installHangingTauri("pk-c1");
-
-  // fetchEvents hangs until we resolve so we can race the queued updater.
-  let resolveRemote = null;
-  const remotePayload = JSON.stringify({
-    version: 1,
-    sections: [{ id: "s-remote", name: "RemoteSection", order: 0 }],
-    assignments: {},
-  });
-  const origFetch = relayClient.fetchEvents;
-  relayClient.fetchEvents = () =>
-    new Promise((res) => {
-      resolveRemote = res;
-    });
-  const origSubscribeLive = relayClient.subscribeLive;
-  relayClient.subscribeLive = async () => async () => {};
-  const origSubscribeToReconnects = relayClient.subscribeToReconnects;
-  relayClient.subscribeToReconnects = () => () => {};
-
-  const pubkey = "pk-c1";
-  const relayUrl = "wss://relay.example";
-
-  try {
-    const { result, unmount } = renderHook(() =>
-      useChannelSections(pubkey, relayUrl),
-    );
-
-    // Wait for the retry tick to be in-flight (fetch is hanging).
-    await waitFor(() => assert.ok(resolveRemote !== null), { timeout: 2000 });
-
-    // 1. Resolve the remote fetch — this queues the remote state updater
-    //    synchronously inside the Promise microtask queue.  React has NOT yet
-    //    executed the updater (it's batched in the next render flush).
-    resolveRemote([
-      {
-        id: "eid-remote-c1",
-        pubkey: "pk-c1",
-        created_at: 5000,
-        kind: 30078,
-        content: remotePayload,
-        tags: [["d", "channel-sections"]],
-        sig: "sig",
-      },
-    ]);
-
-    // 2. Before React flushes, trigger a local edit that sets pendingStore.
-    //    act() flushes synchronously AFTER the callback, so both updaters
-    //    land in the same render pass and the pending guard fires at apply
-    //    time.
-    await act(async () => {
-      result.current.createSection("LocalSection");
-    });
-
-    // The local section must still be in the store.
-    assert.ok(
-      result.current.sections.some((s) => s.name === "LocalSection"),
-      "local section was lost — pending guard in updater failed",
-    );
-    // The remote section must NOT have replaced the local one.
-    assert.ok(
-      !result.current.sections.some((s) => s.name === "RemoteSection"),
-      "remote applied despite pending guard",
-    );
-
-    unmount();
-  } finally {
-    cleanup();
-    restoreTauri();
-    relayClient.fetchEvents = origFetch;
-    relayClient.subscribeLive = origSubscribeLive;
-    relayClient.subscribeToReconnects = origSubscribeToReconnects;
-  }
-});
-
-// ---------------------------------------------------------------------------
-// C2. Causal regression: delayed read completing after local publish clears
-//     pending — mutation revision discards the stale response
-//
-// Three fetches occur in sequence for sections: bootstrap (call 1, may fail),
-// recovery tick (call 2, hangs — this is the "stale" fetch), and
-// fetchOwnBlobBeforePublish (call 3, fired by the debounce timer).  We hold
-// the recovery fetch across the full publish cycle, release it only after
-// pending has cleared and the revision has advanced, then assert the stale
-// response is rejected.
-// ---------------------------------------------------------------------------
-test("useChannelSections mutation revision discards a stale remote response after local publish", async (t) => {
-  const { act, cleanup, renderHook } = await import("@testing-library/react");
-  const { relayClient } = await import("@/shared/api/relayClient");
-  const { useChannelSections } = await import("./useChannelSections.ts");
-
-  t.mock.timers.enable({ apis: ["setTimeout"] });
-
-  // Remote payload that must NOT overwrite a successfully published local edit.
-  const stalePayload = JSON.stringify({
-    version: 1,
-    sections: [{ id: "s-stale", name: "StaleRemote", order: 0 }],
-    assignments: {},
-  });
-  // The pre-publish fetch (call 3) can return empty — we don't need it to
-  // merge anything; it just unblocks doPublish.
-  let resolveRecovery = null;
-  let fetchCallCount = 0;
-  const origFetch = relayClient.fetchEvents;
-  relayClient.fetchEvents = () => {
-    fetchCallCount++;
-    if (fetchCallCount === 1) {
-      // Bootstrap: fail immediately.
-      return Promise.reject(new Error("bootstrap fail"));
-    }
-    if (fetchCallCount === 2) {
-      // Recovery tick (the "stale" in-flight fetch): hang until we release it.
-      return new Promise((res) => {
-        resolveRecovery = res;
-      });
-    }
-    // Call 3+: fetchOwnBlobBeforePublish and subsequent retries return empty.
-    return Promise.resolve([]);
-  };
-  const origSubscribeLive = relayClient.subscribeLive;
-  relayClient.subscribeLive = async () => async () => {};
-  const origSubscribeToReconnects = relayClient.subscribeToReconnects;
-  relayClient.subscribeToReconnects = () => () => {};
-
-  // publishEvent must succeed so pendingStore clears after the publish.
-  const origPublishEvent = relayClient.publishEvent;
-  relayClient.publishEvent = async () => {};
-
-  // Tauri: sign_event must preserve the requested created_at so doPublish
-  // advances lastRemoteCreatedAt to the real timestamp (not 0).
-  const origTauri = globalThis.window?.__TAURI_INTERNALS__;
-  if (typeof globalThis.window === "undefined") globalThis.window = {};
-  globalThis.window.__TAURI_INTERNALS__ = {
-    invoke: (cmd, args) => {
-      if (cmd === "nip44_decrypt_from_self")
-        return Promise.resolve(args?.ciphertext ?? "{}");
-      if (cmd === "nip44_encrypt_to_self") return Promise.resolve("ct");
-      if (cmd === "sign_event")
-        return Promise.resolve(
-          JSON.stringify({
-            id: "eid-pub-c2",
-            pubkey: "pk-c2",
-            content: "ct",
-            // Preserve the requested created_at so watermark advances correctly.
-            created_at: args?.createdAt ?? Math.floor(Date.now() / 1000),
-            kind: args?.kind ?? 30078,
-            tags: args?.tags ?? [],
-            sig: "s",
-          }),
-        );
-      return Promise.reject(new Error(`unmocked: ${cmd}`));
+const bootstrapLanes = [
+  {
+    name: "useChannelSections",
+    dTag: "channel-sections",
+    payload: sectionsPayload("Remote"),
+    render: (pk) => sections.useChannelSections(pk, RELAY),
+    applied: (r) => sectionNames(r.current).includes("Remote"),
+  },
+  {
+    name: "useChannelSortPreference",
+    dTag: "channel-sort",
+    payload: { version: 1, groups: { starred: "recent" } },
+    render: (pk) => sort.useChannelSortPreference(pk, RELAY),
+    applied: (r) => r.current.sortModeFor("starred") === "recent",
+  },
+  ...[
+    [
+      () => stars,
+      "useChannelStars",
+      "channel-stars",
+      "starred",
+      "starredChannelIds",
+    ],
+    [
+      () => mutes,
+      "useChannelMutes",
+      "channel-mutes",
+      "muted",
+      "mutedChannelIds",
+    ],
+  ].map(([lane, name, dTag, flag, ids]) => ({
+    name,
+    dTag,
+    seed: (pk) =>
+      window.localStorage.setItem(
+        lane().storageKey(pk),
+        JSON.stringify({
+          version: 1,
+          channels: { "chan-local": { [flag]: true, updatedAt: 1000 } },
+        }),
+      ),
+    payload: {
+      version: 1,
+      channels: { "chan-remote": { [flag]: true, updatedAt: 2000 } },
     },
-  };
+    render: (pk) => lane()[name](pk, RELAY),
+    // Per-entry lanes merge: the remote entry joins the seeded local one.
+    applied: (r) =>
+      r.current[ids].has("chan-remote") && r.current[ids].has("chan-local"),
+  })),
+];
 
-  const pubkey = "pk-c2";
-  const relayUrl = "wss://relay.example";
+for (const lane of bootstrapLanes) {
+  test(`${lane.name} recovery applies the relay head after bootstrap fails`, async (t) => {
+    const pk = `pk-boot-${lane.dTag}`;
+    const relay = setup(t, pk, (n) => {
+      if (n === 1) throw new Error("bootstrap fail");
+      return [relayEvent(pk, lane.dTag, 1000, lane.payload)];
+    });
+    lane.seed?.(pk);
+    const { result } = renderHook(() => lane.render(pk));
+    await until(() => lane.applied(result), "remote not applied by recovery");
+    assert.equal(relay.fetches, 2, "bootstrap plus one immediate recovery");
+  });
+}
 
-  try {
-    const { result, unmount } = renderHook(() =>
-      useChannelSections(pubkey, relayUrl),
-    );
-
-    // Drain bootstrap failure + recovery tick start (call 2 hangs).
-    await drainAsync();
-    assert.ok(resolveRecovery !== null, "recovery tick did not start on mount");
-
-    // Trigger a local edit.
-    await act(async () => {
-      result.current.createSection("LocalPublished");
+// ---------------------------------------------------------------------------
+// Visibility retry is immediate but single-flight
+// ---------------------------------------------------------------------------
+test("visibility retries immediately but never overlaps an in-flight read", async (t) => {
+  const held = deferred();
+  const relay = setup(t, "pk-vis", (n) => (n === 2 ? held.promise : []));
+  renderHook(() => sections.useChannelSections("pk-vis", RELAY));
+  const becomeVisible = () =>
+    act(async () => {
+      Object.defineProperty(document, "visibilityState", {
+        value: "visible",
+        configurable: true,
+      });
+      document.dispatchEvent(new dom.window.Event("visibilitychange"));
     });
 
-    // Advance the 2 s debounce — fires fetchOwnBlobBeforePublish (call 3) then
-    // doPublish.  Both are async; drain lets them complete.
-    t.mock.timers.tick(2_000);
-    await drainAsync();
+  await until(() => relay.fetches === 2, "recovery read did not start");
+  await becomeVisible();
+  await flush();
+  assert.equal(relay.fetches, 2, "visibility overlapped an in-flight read");
 
-    // Verify publish succeeded: pending must be cleared, local section present.
-    // Drain extra microtask cycles to let the async publish chain complete.
-    await drainAsync(16);
-
-    assert.ok(
-      result.current.sections.some((s) => s.name === "LocalPublished"),
-      "local published section not in store before releasing stale fetch",
-    );
-
-    // Now release the stale recovery response (started before the local edit,
-    // so its revision snapshot predates the localRevision increment).
-    resolveRecovery([
-      {
-        id: "eid-stale",
-        pubkey: "pk-c2",
-        created_at: 3000,
-        kind: 30078,
-        content: stalePayload,
-        tags: [["d", "channel-sections"]],
-        sig: "sig",
-      },
-    ]);
-
-    await drainAsync();
-
-    // The stale remote must have been discarded (revision changed).
-    assert.ok(
-      !result.current.sections.some((s) => s.name === "StaleRemote"),
-      "stale remote overwrote a successfully published local edit",
-    );
-    assert.ok(
-      result.current.sections.some((s) => s.name === "LocalPublished"),
-      "locally published section was lost",
-    );
-
-    unmount();
-  } finally {
-    cleanup();
-    t.mock.timers.reset();
-    if (origTauri !== undefined)
-      globalThis.window.__TAURI_INTERNALS__ = origTauri;
-    else delete globalThis.window.__TAURI_INTERNALS__;
-    relayClient.fetchEvents = origFetch;
-    relayClient.publishEvent = origPublishEvent;
-    relayClient.subscribeLive = origSubscribeLive;
-    relayClient.subscribeToReconnects = origSubscribeToReconnects;
-  }
+  held.resolve([]);
+  await flush();
+  await becomeVisible();
+  await until(() => relay.fetches === 3, "visibility did not retry");
 });
 
 // ---------------------------------------------------------------------------
-// C3. Causal regression: one-shot cache-write failure leaves the head
-//     retryable — the same head is accepted on the next successful write
+// Backoff: 5 → 10 → 30 → 60 → 60 s, each later head reaches UI and cache
 // ---------------------------------------------------------------------------
-test("useChannelSections one-shot cache-write failure leaves the same head retryable", async (t) => {
-  const { cleanup, renderHook } = await import("@testing-library/react");
-  const { relayClient } = await import("@/shared/api/relayClient");
-  const { useChannelSections } = await import("./useChannelSections.ts");
-
-  t.mock.timers.enable({ apis: ["setTimeout"] });
-  const restoreTauri = installTauri("pk-c3");
-
-  const TS = 9_000;
-  const remotePayload = JSON.stringify({
-    version: 1,
-    sections: [{ id: "s-c3", name: "ShouldPersist", order: 0 }],
-    assignments: {},
-  });
-  let fetchCallCount = 0;
-  const origFetch = relayClient.fetchEvents;
-  relayClient.fetchEvents = async () => {
-    fetchCallCount++;
-    if (fetchCallCount === 1) throw new Error("bootstrap fail");
-    // All subsequent fetches return the same head.
+test("recovery follows the backoff schedule and adopts each later head", async (t) => {
+  const pk = "pk-backoff";
+  const relay = setup(t, pk, (n) => {
+    if (n <= 2) throw new Error("relay down");
     return [
-      {
-        id: "eid-c3",
-        pubkey: "pk-c3",
-        created_at: TS,
-        kind: 30078,
-        content: remotePayload,
-        tags: [["d", "channel-sections"]],
-        sig: "sig",
-      },
+      relayEvent(pk, "channel-sections", 1000 + n, sectionsPayload(`H${n}`)),
     ];
-  };
-  const origSubscribeLive = relayClient.subscribeLive;
-  relayClient.subscribeLive = async () => async () => {};
-  const origSubscribeToReconnects = relayClient.subscribeToReconnects;
-  relayClient.subscribeToReconnects = () => () => {};
+  });
+  const { result } = renderHook(() => sections.useChannelSections(pk, RELAY));
+  await until(() => relay.fetches === 2, "mount reads did not run");
+  await flush();
 
-  // Make writes to the sections key fail once (quota exceeded), then restore.
-  // Other writes (e.g. watermark) are allowed through so bootstrap proceeds
-  // normally; only the write that would apply the remote section data fails.
-  // Import storageKey to get the exact key format (encodes relay URL).
-  const { storageKey: sectionsStorageKey } = await import(
-    "./channelSectionsStorage.ts"
+  for (const [delay, n] of [
+    [5_000, 3],
+    [10_000, 4],
+    [30_000, 5],
+    [60_000, 6],
+    [60_000, 7],
+  ]) {
+    await tick(t, delay - 1);
+    assert.equal(relay.fetches, n - 1, `read before the ${delay} ms deadline`);
+    await tick(t, 1);
+    await until(
+      () =>
+        sectionNames(result.current).join() === `H${n}` &&
+        sectionNames(sections.readChannelSectionsStore(pk, RELAY)).join() ===
+          `H${n}`,
+      `head H${n} not adopted into UI and cache at ${delay} ms`,
+    );
+    assert.equal(relay.fetches, n, `exactly one read at the ${delay} ms step`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Pending edit at tick start: a read started while an edit is pending could
+// return the pre-edit blob after the edit publishes and pending clears, when
+// neither apply-time guard can reject it.  The tick must skip the read and
+// keep polling, so a later head is still adopted.
+// ---------------------------------------------------------------------------
+
+const pendingLanes = [
+  {
+    name: "useChannelSections",
+    dTag: "channel-sections",
+    Manager: () => sections.ChannelSectionSyncManager,
+    render: (pk) => sections.useChannelSections(pk, RELAY),
+    edit: (r) => r.current.createSection("Local"),
+    stale: sectionsPayload("Stale"),
+    later: sectionsPayload("Later"),
+    ui: (r) => ({ sections: r.current.sections }),
+    cache: (pk) => sections.readChannelSectionsStore(pk, RELAY),
+    isLocal: (s) => sectionNames(s).join() === "Local",
+    isLater: (s) => sectionNames(s).join() === "Later",
+  },
+  {
+    name: "useChannelSortPreference",
+    dTag: "channel-sort",
+    Manager: () => sort.ChannelSortSyncManager,
+    render: (pk) => sort.useChannelSortPreference(pk, RELAY),
+    edit: (r) => r.current.setSortModeFor("channels", "recent"),
+    stale: { version: 1, groups: { starred: "recent" } },
+    later: { version: 1, groups: { dms: "recent" } },
+    ui: (r) => ({
+      groups: Object.fromEntries(
+        ["starred", "channels", "dms"]
+          .map((g) => [g, r.current.sortModeFor(g)])
+          .filter(([, mode]) => mode !== "alpha"),
+      ),
+    }),
+    cache: (pk) => sort.readChannelSortStore(pk, RELAY),
+    isLocal: (s) => JSON.stringify(s.groups) === '{"channels":"recent"}',
+    isLater: (s) => JSON.stringify(s.groups) === '{"dms":"recent"}',
+  },
+];
+
+for (const lane of pendingLanes) {
+  test(`${lane.name} skips a recovery read that starts while an edit is pending`, async (t) => {
+    const pk = `pk-pending-${lane.dTag}`;
+    const staleRead = deferred();
+    const encrypt = deferred();
+    const manager = captureManager(t, lane.Manager());
+    const relay = setup(t, pk, (n) => {
+      if (n <= 2) throw new Error("relay down");
+      return []; // pre-publish own-blob read
+    });
+    relay.encryptGate = encrypt.promise;
+    const { result } = renderHook(() => lane.render(pk));
+    await until(() => relay.fetches === 2, "mount reads did not run");
+    await flush();
+
+    await act(async () => lane.edit(result));
+    await tick(t, 2_000); // debounce → pre-publish read, then held encrypt
+    await until(() => relay.fetches === 3, "publish did not start");
+    relay.fetch = () => staleRead.promise;
+
+    await tick(t, 3_000); // 5 s recovery tick while the edit is pending
+    await flush();
+    encrypt.resolve();
+    await until(
+      () => relay.published.length === 1 && !manager.current.getPendingStore(),
+      "local edit was not published",
+    );
+    staleRead.resolve([relayEvent(pk, lane.dTag, 3000, lane.stale)]);
+    await flush();
+
+    assert.ok(lane.isLocal(lane.ui(result)), "stale read replaced the edit");
+    assert.ok(lane.isLocal(lane.cache(pk)), "stale read replaced the cache");
+    assert.ok(lane.isLocal(relay.payload()), "published payload lost edit");
+    assert.equal(relay.fetches, 3, "recovery read while an edit was pending");
+
+    const laterAt = relay.published[0].created_at + 1;
+    relay.fetch = () => [relayEvent(pk, lane.dTag, laterAt, lane.later)];
+    await tick(t, 10_000);
+    await until(
+      () => lane.isLater(lane.ui(result)) && lane.isLater(lane.cache(pk)),
+      "recovery stopped polling after the skipped tick",
+    );
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Apply-time pending guard: the local updater is still held when the remote
+// response is queued, so a response-time pending check would pass.
+// ---------------------------------------------------------------------------
+test("remote response queued behind a held local updater does not replace the edit", async (t) => {
+  const pk = "pk-held";
+  const recovery = deferred();
+  const manager = captureManager(t, sections.ChannelSectionSyncManager);
+  const relay = setup(t, pk, (n) => {
+    if (n === 1) throw new Error("bootstrap fail");
+    return n === 2 ? recovery.promise : [];
+  });
+  const { result } = renderHook(() => sections.useChannelSections(pk, RELAY));
+  await until(() => relay.fetches === 2, "recovery read did not start");
+
+  await act(async () => {
+    // A queued (non-identical) value update makes React defer rather than
+    // eagerly run the next updater, so createSection's updater stays held.
+    const key = sections.storageKey(pk, RELAY);
+    window.localStorage.setItem(key, JSON.stringify(sectionsPayload("Cached")));
+    window.dispatchEvent(new dom.window.StorageEvent("storage", { key }));
+    result.current.createSection("Local");
+    recovery.resolve([
+      relayEvent(pk, "channel-sections", 3000, sectionsPayload("Stale")),
+    ]);
+    for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r));
+    assert.equal(manager.current.getPendingStore(), null, "updater not held");
+    assert.ok(
+      !sectionNames(sections.readChannelSectionsStore(pk, RELAY)).includes(
+        "Local",
+      ),
+      "local updater ran before the remote response was queued",
+    );
+  });
+
+  await tick(t, 2_000);
+  await until(
+    () => relay.published.length === 1 && !manager.current.getPendingStore(),
+    "local edit was not published",
   );
-  let writeFailCount = 0;
-  // Patch via the Storage prototype so the intercept is visible to all modules
-  // that access window.localStorage (patching the instance property is not
-  // picked up by JSDOM's internal Storage dispatch).
-  const StorageProto = Object.getPrototypeOf(dom.window.localStorage);
-  const origSetItem = StorageProto.setItem;
+  const local = "Cached,Local";
+  assert.equal(sectionNames(relay.payload()).join(), local);
+  assert.equal(sectionNames(result.current).join(), local);
+  assert.equal(
+    sectionNames(sections.readChannelSectionsStore(pk, RELAY)).join(),
+    local,
+  );
+});
 
-  const pubkey = "pk-c3";
-  const relayUrl = "wss://relay.example";
+// ---------------------------------------------------------------------------
+// Revision guard: a read that started before the edit and lands after its
+// publication succeeded (pending already clear) is discarded.
+// ---------------------------------------------------------------------------
+test("read started before an edit is discarded after the edit publishes", async (t) => {
+  const pk = "pk-revision";
+  const recovery = deferred();
+  const manager = captureManager(t, sections.ChannelSectionSyncManager);
+  const relay = setup(t, pk, (n) => {
+    if (n === 1) throw new Error("bootstrap fail");
+    return n === 2 ? recovery.promise : [];
+  });
+  const { result } = renderHook(() => sections.useChannelSections(pk, RELAY));
+  await until(() => relay.fetches === 2, "recovery read did not start");
 
-  const targetKey = sectionsStorageKey(pubkey, relayUrl);
-  StorageProto.setItem = function (key, value) {
-    if (key === targetKey && writeFailCount < 1) {
-      writeFailCount++;
+  await act(async () => result.current.createSection("Local"));
+  await tick(t, 2_000);
+  await until(
+    () => relay.published.length === 1 && !manager.current.getPendingStore(),
+    "local edit was not published",
+  );
+  assert.equal(sectionNames(relay.payload()).join(), "Local");
+
+  await act(async () =>
+    recovery.resolve([
+      relayEvent(pk, "channel-sections", 3000, sectionsPayload("Stale")),
+    ]),
+  );
+  await flush();
+  assert.equal(sectionNames(result.current).join(), "Local");
+  assert.equal(
+    sectionNames(sections.readChannelSectionsStore(pk, RELAY)).join(),
+    "Local",
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Unmount cancels an in-flight recovery read
+// ---------------------------------------------------------------------------
+test("unmount prevents an in-flight recovery read from writing the cache", async (t) => {
+  const pk = "pk-unmount";
+  const recovery = deferred();
+  const relay = setup(t, pk, (n) => (n === 2 ? recovery.promise : []));
+  const { unmount } = renderHook(() => sections.useChannelSections(pk, RELAY));
+  await until(() => relay.fetches === 2, "recovery read did not start");
+
+  unmount();
+  recovery.resolve([
+    relayEvent(pk, "channel-sections", 9000, sectionsPayload("Ghost")),
+  ]);
+  await flush();
+  assert.deepEqual(
+    sectionNames(sections.readChannelSectionsStore(pk, RELAY)),
+    [],
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Equal-second tie-break: the lower event ID is the canonical head
+// ---------------------------------------------------------------------------
+test("recovery keeps the lower event ID at an equal created_at", async (t) => {
+  const pk = "pk-tiebreak";
+  const relay = setup(t, pk, (n) => [
+    n === 1
+      ? relayEvent(pk, "channel-sections", 1000, sectionsPayload("Low"), "aaa")
+      : relayEvent(
+          pk,
+          "channel-sections",
+          1000,
+          sectionsPayload("High"),
+          "zzz",
+        ),
+  ]);
+  const { result } = renderHook(() => sections.useChannelSections(pk, RELAY));
+  await until(() => relay.fetches === 2, "mount reads did not run");
+  await flush();
+  assert.equal(sectionNames(result.current).join(), "Low");
+});
+
+// ---------------------------------------------------------------------------
+// A failed cache write leaves the same head retryable
+// ---------------------------------------------------------------------------
+test("a one-shot cache-write failure leaves the same head retryable", async (t) => {
+  const pk = "pk-quota";
+  const relay = setup(t, pk, (n) => {
+    if (n === 1) throw new Error("bootstrap fail");
+    return [relayEvent(pk, "channel-sections", 9000, sectionsPayload("Kept"))];
+  });
+  const target = sections.storageKey(pk, RELAY);
+  const proto = Object.getPrototypeOf(window.localStorage);
+  const origSetItem = proto.setItem;
+  let failures = 0;
+  proto.setItem = function (key, value) {
+    if (key === target && failures++ === 0)
       throw new DOMException("QuotaExceededError");
-    }
     return origSetItem.call(this, key, value);
   };
+  t.after(() => {
+    proto.setItem = origSetItem;
+  });
 
-  try {
-    const { result, unmount } = renderHook(() =>
-      useChannelSections(pubkey, relayUrl),
-    );
+  const { result } = renderHook(() => sections.useChannelSections(pk, RELAY));
+  await until(() => relay.fetches === 2, "recovery read did not run");
+  await flush();
+  assert.deepEqual(sectionNames(result.current), []);
 
-    // First retry tick fires immediately: bootstrap (call 1) fails, retry tick
-    // (call 2) returns the head but localStorage.setItem throws → head NOT advanced.
-    await drainAsync();
-    assert.ok(
-      fetchCallCount >= 2,
-      `expected ≥2 fetches after mount, got ${fetchCallCount}`,
-    );
-    // The write failed so the section should not appear yet.
-    assert.ok(
-      !result.current.sections.some((s) => s.name === "ShouldPersist"),
-      "section appeared despite write failure",
-    );
-
-    // Advance to next tick; write now succeeds → same head is retried and applied.
-    t.mock.timers.tick(5_000);
-    await drainAsync();
-    assert.ok(
-      result.current.sections.some((s) => s.name === "ShouldPersist"),
-      "section not applied after write recovered",
-    );
-
-    unmount();
-  } finally {
-    cleanup();
-    t.mock.timers.reset();
-    StorageProto.setItem = origSetItem;
-    restoreTauri();
-    relayClient.fetchEvents = origFetch;
-    relayClient.subscribeLive = origSubscribeLive;
-    relayClient.subscribeToReconnects = origSubscribeToReconnects;
-  }
+  await tick(t, 5_000);
+  await until(
+    () => sectionNames(result.current).join() === "Kept",
+    "same head not retried after the write recovered",
+  );
 });
+
+// ---------------------------------------------------------------------------
+// Still-mounted relay switch (A → B): A's held reads never reach UI or cache,
+// and the recovery loop restarts on B.  Stars and mutes matter because their
+// `applyRemote` does not capture relayUrl.
+// ---------------------------------------------------------------------------
+for (const [lane, name, dTag, flag, ids] of [
+  [
+    () => stars,
+    "useChannelStars",
+    "channel-stars",
+    "starred",
+    "starredChannelIds",
+  ],
+  [() => mutes, "useChannelMutes", "channel-mutes", "muted", "mutedChannelIds"],
+]) {
+  test(`${name} relay switch rejects relay-A reads and recovers on relay B`, async (t) => {
+    const pk = `pk-switch-${dTag}`;
+    const relayA = "wss://relay-a.example";
+    const payload = (chan) => ({
+      version: 1,
+      channels: { [chan]: { [flag]: true, updatedAt: 1000 } },
+    });
+    const heldA = [];
+    let bHead = relayEvent(pk, dTag, 1000, payload("chan-b"));
+    let relayUrl = relayA;
+    const relay = setup(t, pk, () => {
+      if (relayUrl !== relayA) return [bHead];
+      const held = deferred();
+      heldA.push(held);
+      return held.promise;
+    });
+    const { result, rerender } = renderHook(() => lane()[name](pk, relayUrl));
+    await until(() => heldA.length === 2, "relay-A reads did not start");
+
+    relayUrl = RELAY;
+    rerender();
+    await until(() => result.current[ids].has("chan-b"), "B not applied");
+
+    // A's held responses are newer than B, so only the lifetime fence can
+    // reject them.
+    for (const held of heldA)
+      held.resolve([relayEvent(pk, dTag, 5000, payload("chan-a"))]);
+    await flush();
+    const cached = () =>
+      JSON.parse(window.localStorage.getItem(lane().storageKey(pk))).channels;
+    assert.ok(!result.current[ids].has("chan-a"), "relay-A entry in UI");
+    assert.ok(cached()["chan-b"] && !cached()["chan-a"], "relay-A in cache");
+
+    const fetchesOnB = relay.fetches;
+    bHead = relayEvent(pk, dTag, 2000, payload("chan-b-later"));
+    await tick(t, 5_000);
+    await until(
+      () => result.current[ids].has("chan-b-later") && cached()["chan-b-later"],
+      "recovery loop did not restart on relay B",
+    );
+    assert.equal(relay.fetches, fetchesOnB + 1, "one B recovery read at 5 s");
+  });
+}

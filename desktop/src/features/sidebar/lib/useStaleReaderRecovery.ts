@@ -93,7 +93,9 @@ export function useStaleReaderRecovery<T, S>({
       // detect a mutation that landed while the request was in flight.
       const revisionAtFetch = getRevision();
       try {
-        const result = await fetch();
+        // A read started while an edit is pending can return the pre-edit
+        // blob after the edit publishes and pending clears; skip it.
+        const result = hasPending() ? undefined : await fetch();
         if (!cancelled && result?.status === "found") {
           const remoteUpdater = makeUpdater(result.data);
           // Apply inside a state updater so hasPending() and the cancelled /
