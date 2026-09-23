@@ -1227,7 +1227,8 @@ fn harness_user_mode_installs_only_relay_credentials() {
     let (status, logs) = run_harness(
         work.path(),
         Some("user"),
-        r#"helper=$(command -v git-credential-nostr)
+        r#"absent() { if git config "$1"; then echo "$1 is set" >&2; exit 1; fi; }
+helper=$(command -v git-credential-nostr)
 dir=$(dirname "$helper")
 test "$(git config --get-urlmatch credential.helper https://relay.test/git/o/r)" = nostr
 test -n "$(git config nostr.keyfile)"
@@ -1235,10 +1236,10 @@ test ! -e "$dir/git"
 test ! -e "$dir/git-sign-nostr"
 test ! -e "$dir/.git-identity"
 test "$(dirname "$(command -v git)")" != "$dir"
-! git config user.name
-! git config user.email
-! git config user.signingkey
-! git config commit.gpgSign"#,
+absent user.name
+absent user.email
+absent user.signingkey
+absent commit.gpgSign"#,
         None,
         &[],
     );
@@ -1255,13 +1256,14 @@ fn harness_user_mode_drops_inherited_identity_and_signing() {
     let (status, logs) = run_harness(
         work.path(),
         Some("user"),
-        r#"! git config user.name
-! git config user.email
-! git config user.signingkey
-! git config gpg.format
-! git config gpg.x509.program
-! git config commit.gpgSign
-! git config tag.gpgSign
+        r#"absent() { if git config "$1"; then echo "$1 is set" >&2; exit 1; fi; }
+absent user.name
+absent user.email
+absent user.signingkey
+absent gpg.format
+absent gpg.x509.program
+absent commit.gpgSign
+absent tag.gpgSign
 test "$(git config core.abbrev)" = 12"#,
         None,
         &[
