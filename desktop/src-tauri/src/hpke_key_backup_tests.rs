@@ -179,7 +179,7 @@ fn wrong_recipient_cannot_open() {
 }
 
 #[test]
-fn field_bounds_and_length_framing_are_unambiguous() {
+fn enrollment_rejects_invalid_context_fields() {
     let (public_key, _) = test_recipient();
     assert!(
         HpkeBackupEnrollment::new("", "service", "owner", test_backup_id(), &public_key.0).is_err()
@@ -200,17 +200,37 @@ fn field_bounds_and_length_framing_are_unambiguous() {
         &public_key.0
     )
     .is_err());
+}
 
-    let left =
-        HpkeBackupEnrollment::new("a|b", "c", "owner", test_backup_id(), &public_key.0).unwrap();
-    let right =
-        HpkeBackupEnrollment::new("a", "b|c", "owner", test_backup_id(), &public_key.0).unwrap();
-    let left = seal_nostr_secret(&test_secret(), &left).unwrap();
-    let right = seal_nostr_secret(&test_secret(), &right).unwrap();
-    assert_ne!(
-        left.associated_data().unwrap(),
-        right.associated_data().unwrap()
-    );
+#[test]
+fn aad_length_framing_prevents_field_boundary_collisions() {
+    let (public_key, private_key) = test_recipient();
+    let secret = test_secret();
+
+    for (left, right) in [
+        (["ab", "c", "owner"], ["a", "bc", "owner"]),
+        (["key", "ab", "c"], ["key", "a", "bc"]),
+    ] {
+        assert_eq!(left.concat(), right.concat());
+        let enrollment =
+            HpkeBackupEnrollment::new(left[0], left[1], left[2], test_backup_id(), &public_key.0)
+                .unwrap();
+        let envelope = seal_nostr_secret(&secret, &enrollment).unwrap();
+        assert_eq!(
+            open_envelope(&envelope, &private_key).unwrap(),
+            secret.as_secret_bytes()
+        );
+
+        let mut reassigned = envelope.clone();
+        reassigned.recipient_key_id = right[0].into();
+        reassigned.service_namespace = right[1].into();
+        reassigned.owner_id = right[2].into();
+        assert_ne!(
+            envelope.associated_data().unwrap(),
+            reassigned.associated_data().unwrap()
+        );
+        assert!(open_envelope(&reassigned, &private_key).is_err());
+    }
 }
 
 #[test]
