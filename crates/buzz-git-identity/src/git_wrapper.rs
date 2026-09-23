@@ -2754,7 +2754,10 @@ const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 /// is the typical caller for normal git probes (it also calls `scrub_env`);
 /// `git_supports_subsection_alias` calls this directly with its custom-isolated
 /// command.
-fn run_bounded(
+///
+/// Exported so the enforcement tests' isolated probes share this lifecycle.
+#[doc(hidden)]
+pub fn run_bounded(
     cmd: &mut std::process::Command,
     timeout: std::time::Duration,
 ) -> Option<std::process::Output> {
@@ -5926,6 +5929,29 @@ mod tests {
             start.elapsed() < std::time::Duration::from_secs(8),
             "must return well before the timeout; elapsed={:?}",
             start.elapsed()
+        );
+        // The pipe-holding sleeper must be torn down, not left running.
+        let pid: libc::pid_t = std::fs::read_to_string(&pid_path)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        let reap_deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        let gone = loop {
+            // SAFETY: signal 0 only checks existence; `pid` is the sleeper we spawned.
+            if unsafe { libc::kill(pid, 0) } != 0
+                && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+            {
+                break true;
+            }
+            if std::time::Instant::now() >= reap_deadline {
+                break false;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        };
+        assert!(
+            gone,
+            "descendant sleeper {pid} must be killed when the runner returns"
         );
     }
 

@@ -88,92 +88,6 @@ enum ProbeVerdict {
 /// Probe timeout — same order of magnitude as the production `PROBE_TIMEOUT`.
 const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
-/// Per-stream probe output cap (bytes); `git version X.Y.Z\n` is ~20 bytes.
-const PROBE_OUTPUT_CAP: usize = 64 * 1024;
-
-/// Run `cmd` with a timeout + per-stream output cap, draining each pipe on its
-/// own reader thread.
-///
-/// Sets stdin=null, stdout+stderr=piped, then waits up to `timeout`.
-/// Returns `None` on spawn failure, timeout, or output overflow.
-fn run_probe_bounded(
-    cmd: &mut Command,
-    timeout: std::time::Duration,
-) -> Option<std::process::Output> {
-    use std::io::Read;
-    use std::process::Stdio;
-
-    cmd.stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-
-    let mut child = cmd.spawn().ok()?;
-    let mut stdout_pipe = child.stdout.take()?;
-    let mut stderr_pipe = child.stderr.take()?;
-
-    // Collect stdout and stderr in threads so neither pipe fills up and
-    // deadlocks while the main thread waits.
-    let stdout_thread = std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        let mut tmp = [0u8; 4096];
-        loop {
-            match stdout_pipe.read(&mut tmp) {
-                Ok(0) | Err(_) => break,
-                Ok(n) => {
-                    buf.extend_from_slice(&tmp[..n]);
-                    if buf.len() > PROBE_OUTPUT_CAP {
-                        return None;
-                    }
-                }
-            }
-        }
-        Some(buf)
-    });
-    let stderr_thread = std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        let mut tmp = [0u8; 4096];
-        loop {
-            match stderr_pipe.read(&mut tmp) {
-                Ok(0) | Err(_) => break,
-                Ok(n) => {
-                    buf.extend_from_slice(&tmp[..n]);
-                    if buf.len() > PROBE_OUTPUT_CAP {
-                        return None;
-                    }
-                }
-            }
-        }
-        Some(buf)
-    });
-
-    let deadline = std::time::Instant::now() + timeout;
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                let stdout = stdout_thread.join().ok().flatten()?;
-                let stderr = stderr_thread.join().ok().flatten()?;
-                return Some(std::process::Output {
-                    status,
-                    stdout,
-                    stderr,
-                });
-            }
-            Ok(None) => {
-                if std::time::Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return None;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(10));
-            }
-            Err(_) => {
-                let _ = child.kill();
-                return None;
-            }
-        }
-    }
-}
-
 /// Classify a raw probe `Output` for alias `sentinel` using the same rules as
 /// the production `git_supports_subsection_alias` classifier.
 fn classify_probe_output(out: &std::process::Output, sentinel: &str) -> ProbeVerdict {
@@ -198,7 +112,8 @@ fn classify_probe_output(out: &std::process::Output, sentinel: &str) -> ProbeVer
 ///   - Both PATH and GIT_EXEC_PATH set to the private dir only
 ///   - GIT_CONFIG_NOSYSTEM, scratch HOME, XDG_CONFIG_HOME/GIT_DIR removed
 ///   - LC_ALL=C so the unknown-command diagnostic is ASCII-stable
-///   - Bounded execution (timeout + output cap) via `run_probe_bounded`
+///   - Bounded execution via production `run_bounded`: timeout + output cap
+///     over the whole process group, including pipe draining and teardown
 ///
 /// Callers `panic!` on `Failure` — setup, spawn, timeout, and unclassifiable
 /// output indicate a broken test environment, not a capability answer.
@@ -239,7 +154,7 @@ fn run_isolated_probe_for(git_binary: &Path, config: &str, sentinel: &str) -> Pr
         Err(_) => return ProbeVerdict::Failure,
     };
     let probe_path = probe_dir.path().as_os_str().to_owned();
-    let out = match run_probe_bounded(
+    let out = match buzz_git_identity::git_wrapper::run_bounded(
         Command::new(&git_link)
             .args(["-c", config, sentinel])
             .env("GIT_CONFIG_NOSYSTEM", "1")
@@ -271,7 +186,11 @@ fn probe_helpers_report_timeout_and_unrecognized_exit1_as_failure() {
     let mut sleeper = Command::new("sh");
     sleeper.args(["-c", "sleep 30"]);
     assert!(
-        run_probe_bounded(&mut sleeper, std::time::Duration::from_millis(200)).is_none(),
+        buzz_git_identity::git_wrapper::run_bounded(
+            &mut sleeper,
+            std::time::Duration::from_millis(200)
+        )
+        .is_none(),
         "a probe exceeding its deadline must yield no output"
     );
 
@@ -1596,7 +1515,7 @@ fn wrapper_refuses_push_via_builtin_shadowing_alias() {
 /// storage); `resolve_alias` enumerates all matching entries in traversal order
 /// via `config --get-regexp`; the last definition wins.
 ///
-/// **Self-gate:** skips on binaries where the dispatch probe returns false —
+/// **Self-gate:** skips on binaries where the dispatch probe returns `Unsupported` —
 /// those binaries don't execute `.command` aliases.
 #[test]
 fn wrapper_refuses_push_via_subsection_command_alias() {
@@ -2664,6 +2583,11 @@ fn wrapper_refuses_push_plain_last_wins_alt_binary() {
     assert!(
         alt_supports_subsection != ProbeVerdict::Failure,
         "alt-git subsection probe failed (setup/spawn/timeout/unclassifiable)"
+    );
+    assert_ne!(
+        alt_supports_subsection,
+        isolated_subsection_probe(),
+        "prerequisite: two git installations with DIFFERENT subsection-alias capability"
     );
     eprintln!(
         "alternate binary ({alt_ver} @ {}): {} subsection aliases",
