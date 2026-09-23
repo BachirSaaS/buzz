@@ -992,6 +992,7 @@ pub async fn admin_save_attachment(
 // ── Origin storage commands ───────────────────────────────────────────────
 
 /// Core storage logic for `get_admin_origin`, parameterised by data directory
+/// and resolved pubkey hex; the file is scoped to the state's active relay host.
 ///
 /// Reads the per-pubkey-per-relay JSON file, reparses the stored origin through
 /// `AdminOrigin::parse()`, and returns the canonical string. Returns `None`
@@ -1000,11 +1001,9 @@ pub async fn admin_save_attachment(
 pub(crate) fn get_admin_origin_core(
     data_dir: &std::path::Path,
     pubkey_hex: &str,
-    relay_slug: &str,
+    state: &crate::app_state::AppState,
 ) -> Result<Option<String>, String> {
-    let path = data_dir.join(format!(
-        "admin-console-origin-{pubkey_hex}-{relay_slug}.json"
-    ));
+    let path = admin_origin_path(data_dir, pubkey_hex, state);
     if !path.exists() {
         return Ok(None);
     }
@@ -1036,21 +1035,19 @@ pub(crate) fn get_admin_origin_core(
     }
 }
 
-/// Core storage logic for `set_admin_origin`, parameterised by data directory,
-/// resolved pubkey hex, and relay slug. No `tauri::State` — testable with `tempdir`.
+/// Core storage logic for `set_admin_origin`, parameterised by data directory
+/// and resolved pubkey hex; the file is scoped to the state's active relay host.
 ///
 /// Validates and persists `raw_origin`. Pass `None` to clear. Returns the
 /// canonical origin string on success, or `None` on clear.
 pub(crate) fn set_admin_origin_core(
     data_dir: &std::path::Path,
     pubkey_hex: &str,
-    relay_slug: &str,
+    state: &crate::app_state::AppState,
     raw_origin: Option<String>,
 ) -> Result<Option<String>, String> {
     use crate::managed_agents::storage::atomic_write_json_restricted;
-    let path = data_dir.join(format!(
-        "admin-console-origin-{pubkey_hex}-{relay_slug}.json"
-    ));
+    let path = admin_origin_path(data_dir, pubkey_hex, state);
     match raw_origin {
         None => {
             if path.exists() {
@@ -1100,14 +1097,13 @@ pub fn get_admin_origin(
             );
         }
     }
-    let relay_slug = relay_host_slug(&state);
     use tauri::Manager as _;
     let dir = app
         .path()
         .app_data_dir()
         .map_err(|e| format!("failed to resolve app data dir: {e}"))?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("failed to create app data dir: {e}"))?;
-    get_admin_origin_core(&dir, &pubkey, &relay_slug)
+    get_admin_origin_core(&dir, &pubkey, &state)
 }
 
 /// Validate and persist the admin console origin for the active pubkey and
@@ -1137,14 +1133,13 @@ pub fn set_admin_origin(
             );
         }
     }
-    let relay_slug = relay_host_slug(&state);
     use tauri::Manager as _;
     let dir = app
         .path()
         .app_data_dir()
         .map_err(|e| format!("failed to resolve app data dir: {e}"))?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("failed to create app data dir: {e}"))?;
-    set_admin_origin_core(&dir, &pubkey, &relay_slug, raw_origin)
+    set_admin_origin_core(&dir, &pubkey, &state, raw_origin)
 }
 
 /// On-disk shape for the persisted admin console origin.
@@ -1165,6 +1160,19 @@ fn validate_pubkey_hex(hex: String) -> Result<String, String> {
     } else {
         Err("signing key produced an unexpected pubkey format; cannot scope storage".to_string())
     }
+}
+
+/// Origin file for `(pubkey, active relay host)`. Origins saved under the
+/// pre-per-relay name (`admin-console-origin-{pubkey}.json`) are not migrated.
+fn admin_origin_path(
+    data_dir: &std::path::Path,
+    pubkey_hex: &str,
+    state: &crate::app_state::AppState,
+) -> std::path::PathBuf {
+    let relay_slug = relay_host_slug(state);
+    data_dir.join(format!(
+        "admin-console-origin-{pubkey_hex}-{relay_slug}.json"
+    ))
 }
 
 /// Derive a safe filename slug from the connected relay's host.

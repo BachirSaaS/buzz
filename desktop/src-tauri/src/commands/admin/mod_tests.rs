@@ -172,20 +172,32 @@ fn is_coherent_disabled_accepts_only_canonical_disabled() {
 
 const TEST_RELAY: &str = "relay.example.com";
 
+/// App state whose active relay is `url`, exercising the production
+/// relay-host scoping of the origin file.
+fn relay_state(url: &str) -> crate::app_state::AppState {
+    let state = crate::app_state::build_app_state();
+    *state.relay_url_override.lock().unwrap() = Some(url.to_string());
+    state
+}
+
+fn test_relay() -> crate::app_state::AppState {
+    relay_state("wss://relay.example.com")
+}
+
 #[test]
 fn storage_round_trip_returns_canonical_origin() {
     let dir = tempfile::tempdir().unwrap();
     let pubkey = "a".repeat(64);
     let origin = "https://admin.example.com";
     let canonical =
-        set_admin_origin_core(dir.path(), &pubkey, TEST_RELAY, Some(origin.to_string()))
+        set_admin_origin_core(dir.path(), &pubkey, &test_relay(), Some(origin.to_string()))
             .unwrap()
             .unwrap();
     assert!(
         canonical.starts_with("https://admin.example.com"),
         "canonical origin must start with the input origin: {canonical}"
     );
-    let read_back = get_admin_origin_core(dir.path(), &pubkey, TEST_RELAY)
+    let read_back = get_admin_origin_core(dir.path(), &pubkey, &test_relay())
         .unwrap()
         .unwrap();
     assert_eq!(
@@ -202,22 +214,22 @@ fn storage_two_identities_are_isolated() {
     set_admin_origin_core(
         dir.path(),
         &pubkey_a,
-        TEST_RELAY,
+        &test_relay(),
         Some("https://admin-a.example.com".to_string()),
     )
     .unwrap();
     set_admin_origin_core(
         dir.path(),
         &pubkey_b,
-        TEST_RELAY,
+        &test_relay(),
         Some("https://admin-b.example.com".to_string()),
     )
     .unwrap();
 
-    let a = get_admin_origin_core(dir.path(), &pubkey_a, TEST_RELAY)
+    let a = get_admin_origin_core(dir.path(), &pubkey_a, &test_relay())
         .unwrap()
         .unwrap();
-    let b = get_admin_origin_core(dir.path(), &pubkey_b, TEST_RELAY)
+    let b = get_admin_origin_core(dir.path(), &pubkey_b, &test_relay())
         .unwrap()
         .unwrap();
     assert!(
@@ -247,24 +259,32 @@ fn storage_two_relays_are_isolated() {
     set_admin_origin_core(
         dir.path(),
         &pubkey,
-        "prod.example.com",
+        &relay_state("wss://prod.example.com"),
         Some("https://admin-prod.example.com".to_string()),
     )
     .unwrap();
     set_admin_origin_core(
         dir.path(),
         &pubkey,
-        "staging.example.com",
+        &relay_state("wss://staging.example.com:8443"),
         Some("https://admin-staging.example.com".to_string()),
     )
     .unwrap();
 
-    let prod = get_admin_origin_core(dir.path(), &pubkey, "prod.example.com")
-        .unwrap()
-        .unwrap();
-    let staging = get_admin_origin_core(dir.path(), &pubkey, "staging.example.com")
-        .unwrap()
-        .unwrap();
+    let prod = get_admin_origin_core(
+        dir.path(),
+        &pubkey,
+        &relay_state("https://prod.example.com"),
+    )
+    .unwrap()
+    .unwrap();
+    let staging = get_admin_origin_core(
+        dir.path(),
+        &pubkey,
+        &relay_state("wss://Staging.Example.com/ws"),
+    )
+    .unwrap()
+    .unwrap();
     assert!(
         prod.contains("admin-prod"),
         "prod relay must read its own origin: {prod}"
@@ -282,7 +302,9 @@ fn storage_two_relays_are_isolated() {
         "staging relay must not read prod origin"
     );
     // prod's file must not exist under the staging slug.
-    let absent = get_admin_origin_core(dir.path(), &pubkey, "other.example.com").unwrap();
+    let absent =
+        get_admin_origin_core(dir.path(), &pubkey, &relay_state("wss://other.example.com"))
+            .unwrap();
     assert_eq!(absent, None, "unknown relay slug must return None");
 }
 
@@ -297,7 +319,7 @@ fn storage_malformed_json_is_quarantined_and_returns_error() {
     std::fs::write(&path, b"not valid json").unwrap();
     assert!(path.exists(), "corrupt file must exist before read");
 
-    let result = get_admin_origin_core(dir.path(), &pubkey, TEST_RELAY);
+    let result = get_admin_origin_core(dir.path(), &pubkey, &test_relay());
     assert!(
         result.is_err(),
         "malformed JSON must return Err: {result:?}"
@@ -322,7 +344,7 @@ fn storage_forbidden_path_bearing_origin_is_quarantined_and_returns_error() {
     std::fs::write(&path, serde_json::to_vec(&payload).unwrap()).unwrap();
     assert!(path.exists(), "seeded file must exist before read");
 
-    let result = get_admin_origin_core(dir.path(), &pubkey, TEST_RELAY);
+    let result = get_admin_origin_core(dir.path(), &pubkey, &test_relay());
     assert!(
         result.is_err(),
         "origin with path must return Err on reparse: {result:?}"
@@ -340,7 +362,7 @@ fn storage_clear_removes_file() {
     set_admin_origin_core(
         dir.path(),
         &pubkey,
-        TEST_RELAY,
+        &test_relay(),
         Some("https://admin.example.com".to_string()),
     )
     .unwrap();
@@ -349,7 +371,7 @@ fn storage_clear_removes_file() {
         .join(format!("admin-console-origin-{pubkey}-{TEST_RELAY}.json"));
     assert!(path.exists(), "file must exist after set");
 
-    let result = set_admin_origin_core(dir.path(), &pubkey, TEST_RELAY, None).unwrap();
+    let result = set_admin_origin_core(dir.path(), &pubkey, &test_relay(), None).unwrap();
     assert_eq!(result, None, "clear must return None");
     assert!(!path.exists(), "clear must remove the file");
 }
@@ -358,7 +380,7 @@ fn storage_clear_removes_file() {
 fn storage_no_file_returns_none() {
     let dir = tempfile::tempdir().unwrap();
     let pubkey = "f".repeat(64);
-    let result = get_admin_origin_core(dir.path(), &pubkey, TEST_RELAY).unwrap();
+    let result = get_admin_origin_core(dir.path(), &pubkey, &test_relay()).unwrap();
     assert_eq!(result, None, "absent file must return None");
 }
 
@@ -387,80 +409,27 @@ fn validate_pubkey_hex_cases() {
 
 // ── relay_host_slug ───────────────────────────────────────────────────────
 
-// relay_host_slug is not directly testable without AppState, so we inline
-// the slug-derivation logic here. These tests cover the string-manipulation
-// rules independently of the state plumbing.
-
-fn slug_from_base(base: &str) -> String {
-    let host = base
-        .trim_start_matches("https://")
-        .trim_start_matches("http://")
-        .split('/')
-        .next()
-        .unwrap_or("")
-        .split(':')
-        .next()
-        .unwrap_or("");
-    if host.is_empty() {
-        return "default".to_string();
-    }
-    let slug: String = host
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' || c == '.' {
-                c.to_ascii_lowercase()
-            } else {
-                '-'
-            }
-        })
-        .collect();
-    slug.trim_matches('-').to_string()
+fn slug(url: &str) -> String {
+    relay_host_slug(&relay_state(url))
 }
 
 #[test]
-fn relay_host_slug_strips_scheme_and_port() {
-    assert_eq!(
-        slug_from_base("https://relay.example.com"),
-        "relay.example.com"
-    );
-    assert_eq!(
-        slug_from_base("https://relay.example.com:443"),
-        "relay.example.com"
-    );
-    assert_eq!(
-        slug_from_base("http://staging.example.com:8080"),
-        "staging.example.com"
-    );
-}
-
-#[test]
-fn relay_host_slug_strips_path() {
-    assert_eq!(
-        slug_from_base("https://relay.example.com/some/path"),
-        "relay.example.com"
-    );
+fn relay_host_slug_strips_scheme_port_and_path() {
+    assert_eq!(slug("wss://relay.example.com"), "relay.example.com");
+    assert_eq!(slug("wss://relay.example.com:443/ws"), "relay.example.com");
+    assert_eq!(slug("ws://staging.example.com:8080"), "staging.example.com");
 }
 
 #[test]
 fn relay_host_slug_normalises_to_lowercase() {
-    assert_eq!(
-        slug_from_base("https://Relay.EXAMPLE.COM"),
-        "relay.example.com"
-    );
-}
-
-#[test]
-fn relay_host_slug_empty_yields_default() {
-    assert_eq!(slug_from_base(""), "default");
+    assert_eq!(slug("wss://Relay.EXAMPLE.COM"), "relay.example.com");
 }
 
 #[test]
 fn relay_host_slug_two_relays_produce_distinct_slugs() {
-    let prod = slug_from_base("https://relay.prod.example.com");
-    let staging = slug_from_base("https://relay.staging.example.com");
     assert_ne!(
-        prod, staging,
-        "prod and staging must produce distinct slugs"
+        slug("wss://relay.prod.example.com"),
+        slug("wss://relay.staging.example.com")
     );
 }
 
