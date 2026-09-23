@@ -28,7 +28,7 @@ use crate::state::AppState;
 ///
 /// Used as the first-phase extractor for `upload_blob`. Blossom auth
 /// extraction is deliberately NOT done here so it can run inside the
-/// NIP-FI admission closure, ensuring that in active modes a missing or
+/// NIP-FI admission closure, ensuring that in Enforce mode a missing or
 /// malformed Authorization header is mapped to the correct NIP-FI denial
 /// bytes (MissingEvidence/EvidenceRejected) rather than legacy
 /// `MediaError` JSON 401/403.  [FI-TRACE-AUTHORITY-UNIFORM]
@@ -255,7 +255,7 @@ pub async fn upload_blob(
     use axum::response::IntoResponse as _;
 
     // NIP-FI admission with Blossom extraction as the NIP-98 closure.
-    // In active modes: extraction failure → NIP-FI denial bytes (MissingEvidence/
+    // In Enforce mode: extraction failure → NIP-FI denial bytes (MissingEvidence/
     // EvidenceRejected).  In Off mode: MediaError propagates unchanged [FI-INV-15].
     //
     // The closure must verify the auth event against the tenant host BEFORE
@@ -700,7 +700,7 @@ pub async fn get_blob(
 ) -> Result<Response, MediaError> {
     validate_media_path(&sha256_ext)?;
     // Row zero: bind tenant. Blossom auth extraction and NIP-FI admission follow
-    // so that in active modes a missing/malformed Authorization header produces
+    // so that in Enforce mode a missing/malformed Authorization header produces
     // NIP-FI denial bytes (not legacy MediaError JSON). [FI-TRACE-AUTHORITY-UNIFORM]
     let tenant = bind_media_read_tenant(&state, &req_headers).await?;
     let sha256 = sha256_ext
@@ -711,7 +711,7 @@ pub async fn get_blob(
     let tenant_host = tenant.host().to_owned();
     let headers_clone = req_headers.clone();
     // NIP-FI admission with Blossom extraction as the NIP-98 closure.
-    // In active modes: extraction failure → NIP-FI denial bytes (MissingEvidence/
+    // In Enforce mode: extraction failure → NIP-FI denial bytes (MissingEvidence/
     // EvidenceRejected).  In Off mode: MediaError propagates unchanged [FI-INV-15].
     use crate::nip_fi_http::admit_nip_fi_http_on_state;
     let admission = match admit_nip_fi_http_on_state(&state, &req_headers, move || {
@@ -990,7 +990,7 @@ pub async fn head_blob(
 ) -> Result<Response, MediaError> {
     validate_media_path(&sha256_ext)?;
     // Row zero: bind tenant. Blossom auth extraction and NIP-FI admission follow
-    // so that in active modes a missing/malformed Authorization header produces
+    // so that in Enforce mode a missing/malformed Authorization header produces
     // NIP-FI denial bytes (not legacy MediaError JSON). [FI-TRACE-AUTHORITY-UNIFORM]
     let tenant = bind_media_read_tenant(&state, &headers).await?;
     let sha256 = sha256_ext

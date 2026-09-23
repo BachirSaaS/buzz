@@ -94,9 +94,10 @@ impl axum::extract::FromRequestParts<Arc<AppState>> for GitAuth {
         // regardless of whether the Host resolves to a known community.  No
         // database work for syntactically bad requests in Off mode.
         //
-        // Active modes (Enforce, DenyProtected): the header syntax is validated
+        // Enforce: the header syntax is validated
         // inside the NIP-FI admission closure below, where proof failures are
-        // mapped to NIP-FI denial bytes.  Tenant lookup still happens before
+        // mapped to NIP-FI denial bytes.  (DenyProtected returns 503 at the
+        // start of admission without running the closure.)  Tenant lookup still happens before
         // admission (immediately after this block) because the signed `u` tag
         // must be verified against the tenant-bound host, not a process-global
         // domain.
@@ -132,7 +133,7 @@ impl axum::extract::FromRequestParts<Arc<AppState>> for GitAuth {
         // NIP-FI admission: the NIP-98 extraction closure runs inside
         // `admit_nip_fi_http_on_state` so all proof failures (missing header,
         // invalid base64, bad signature) are mapped to NIP-FI denial bytes in
-        // active modes, and cardinality is enforced uniformly.  Off mode
+        // Enforce mode, and cardinality is enforced uniformly.  Off mode
         // preserves legacy Git 401 responses per [FI-INV-15]; Off-mode header
         // syntax was already validated above so the closure cannot fail on the
         // syntax cases.
@@ -157,7 +158,7 @@ impl axum::extract::FromRequestParts<Arc<AppState>> for GitAuth {
             move || -> Result<crate::nip_fi_http::Nip98Proof<(nostr::Event, u64)>, Response> {
                 // In Off mode `parse_git_auth_header` already ran above and
                 // succeeded, so re-parsing here is purely for the return value.
-                // In active modes it runs for the first time inside this closure
+                // In Enforce mode it runs for the first time inside this closure
                 // (on the auth-rejection path the NIP-FI layer maps the error).
                 let (event_json, method_for_verify) =
                     parse_git_auth_header_full(&headers_clone, &method_str)?;
@@ -4283,7 +4284,7 @@ mod off_mode_precedence_tests {
         //
         // Proves the same missing-auth behavior holds for mapped hosts.
         // Compatibility control: the Off-mode early-exit (`transport.rs:101-104`)
-        // and the active-mode NIP-FI closure both route through
+        // and the Enforce-mode NIP-FI closure both route through
         // `parse_git_auth_header_full()`, which produces the same 401 + challenge.
         //
         // Falsifying mutation: replace `parse_git_auth_header` with always-pass
@@ -4309,7 +4310,7 @@ mod off_mode_precedence_tests {
                 status,
                 axum::http::StatusCode::UNAUTHORIZED,
                 "Off mode + mapped host + missing auth must yield 401 from Off-mode early-exit \
-                 (compatibility control: same response via NIP-FI closure in active modes). \
+                 (compatibility control: same response via NIP-FI closure in Enforce mode). \
                  Falsifying mutation: skip parse_git_auth_header for missing auth → different error."
             );
             assert_eq!(
@@ -4332,7 +4333,7 @@ mod off_mode_precedence_tests {
         // Proves the bad-base64 check holds for mapped hosts.
         // `parse_git_auth_header_full()` handles bad base64 and returns 401 (no
         // WWW-Authenticate).  This is a compatibility assertion: both the Off-mode
-        // early-exit and the active-mode NIP-FI closure call the same function, so
+        // early-exit and the Enforce-mode NIP-FI closure call the same function, so
         // the same 401 body is produced in both modes.
         //
         // Falsifying mutation: remove `parse_git_auth_header` error for bad base64
@@ -4567,7 +4568,7 @@ mod off_mode_precedence_tests {
         // For each route:
         //   - missing assertion → 401 MissingEvidence (exact body + CT + challenge)
         //   - EvidenceRejected (invalid base64 Nostr token) → 401 (NIP-FI maps it)
-        //   - duplicate Authorization headers → 403 cardinality in active modes
+        //   - duplicate Authorization headers → 403 cardinality in Enforce mode
         //
         // Falsifying mutation: remove `admit_nip_fi_http_on_state` from
         // `GitAuth::from_request_parts` → NIP-98 validates the token, no assertion

@@ -42,15 +42,18 @@ use crate::state::AppState;
 //
 // The handler-level admission authority is `admit_nip_fi_http_on_state` in
 // `nip_fi_http.rs`.  Protected handlers call it with a NIP-98 extraction
-// closure; it runs NIP-98 extraction → assertion verify → pairing → deny-map
-// and returns a `NipFiAdmission`, which only that function can construct.
-// The private constructor does not force a handler to make the call.
+// closure and it delegates to `admit_nip_fi_http`, which runs NIP-98
+// extraction → assertion verify → pairing → deny-map (Enforce) and alone
+// constructs a `NipFiAdmission`.  The private constructor does not force a
+// handler to make the call.
 //
-// What is guaranteed: this guard verifies the assertion on every non-exempt
-// route.  Key pairing (`asserted_key == proven_pubkey`) and the deny map run
-// only in handlers that call `admit_nip_fi_http_on_state`.  A handler that
-// omits the call and does its own NIP-98 still gets the assertion check, but
-// no pairing and no deny check.
+// What is guaranteed: in Enforce, this guard rejects a missing or invalid
+// assertion on every non-exempt route; in DenyProtected it returns 503
+// without verifying; in Off it is transparent.  Key pairing
+// (`asserted_key == proven_pubkey`) and the deny map run only in handlers
+// that call `admit_nip_fi_http_on_state`.  In Enforce, a handler that omits
+// the call and does its own NIP-98 is still subject to the assertion guard,
+// but a request with a valid assertion passes without pairing or a deny check.
 //
 // ## Adding a new route
 //
@@ -1630,8 +1633,8 @@ mod tests {
     //
     // The key property: a non-exempt path with no assertion header must be
     // denied in Enforce mode, even if the handler does NOT call
-    // `admit_nip_fi_http_on_state`.  This is the belt — a handler cannot
-    // silently bypass NIP-FI by omitting its gate (the guard catches it).
+    // `admit_nip_fi_http_on_state`.  This is the belt — a handler that omits
+    // its gate cannot bypass the missing/invalid-assertion rejection.
     // Key pairing and the deny map are NOT covered by this guard: they run
     // only in handlers that call `admit_nip_fi_http_on_state`.
     //

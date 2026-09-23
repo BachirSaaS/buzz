@@ -102,7 +102,7 @@ pub(crate) fn verify_bridge_auth_with_options(
     // Try NIP-98 first (Authorization: Nostr <base64>)
     //
     // Cardinality is enforced at the NIP-FI admission boundary
-    // (`admit_nip_fi_http`) for active (non-Off) modes. Off-mode passes
+    // (`admit_nip_fi_http`) for Enforce mode. Off-mode passes
     // through legacy first-value behavior per [FI-INV-15].
 
     if let Some(auth_str) = headers
@@ -188,7 +188,8 @@ pub(crate) fn verify_bridge_auth_with_options(
 /// Callers outside `bridge.rs` MUST use this instead of calling the private
 /// verifier directly. The pubkey in the closure's result is only accessible
 /// through the `NipFiAdmission` produced by `admit_nip_fi_http_on_state` —
-/// it cannot be projected without executing the full admission sequence.
+/// it cannot be projected without completing the mode-appropriate admission
+/// path (pairing and deny-map run only in Enforce).
 ///
 /// [FI-TRACE-AUTHORITY-UNIFORM]
 // Response<Body> is intentionally large (axum's design); see nip_fi_http.rs allow blocks.
@@ -6383,14 +6384,14 @@ mod postgres_tests {
         rt.block_on(state.db.ensure_configured_community(&host))
             .expect("ensure community");
 
-        // DenyProtected mode has nip_fi_active=true, which forces require_auth_token
-        // || nip_fi_active = true in verify_bridge_auth.  The NIP-98 event MUST be
-        // signed for the community's actual URL (https://{host}/query), not the
-        // config relay_url, because nip98_expected_url uses the tenant host.
+        // The request carries a valid NIP-98 event signed for the community's
+        // actual URL (https://{host}/query), so the 503 cannot be attributed to
+        // a proof failure.
         //
-        // After verify_bridge_auth succeeds, admit_nip_fi_http_on_state fires with
-        // DenyProtected mode and returns 503 unconditionally — the assertion verifier
-        // is never consulted.
+        // In DenyProtected the router's `nip_fi_assertion_guard` returns 503 for
+        // this non-exempt route before the handler runs; `admit_nip_fi_http`
+        // would also return 503 as its first step, before NIP-98 or the
+        // assertion verifier.  Neither path runs NIP-98 first.
         let keys = Keys::generate();
         let url = format!("https://{host}/query");
         let auth_headers = make_nip98_headers(&keys, &url, "POST", b"[]");
@@ -6688,7 +6689,7 @@ mod postgres_tests {
     // Negative control: without a valid assertion the middleware 401s first and
     // the cardinality gate is never reached — the old test exercised the wrong path.
     //
-    // Falsifying mutation: remove the cardinality gate in active modes → the
+    // Falsifying mutation: remove the cardinality gate in Enforce mode → the
     // two-header request passes cardinality, NIP-98 proceeds with keys2/url2
     // matching → pairing succeeds → handler returns 200 [] (same as single-header
     // positive control) → body "evidence rejected\n" assertion fires.
@@ -6844,7 +6845,7 @@ mod postgres_tests {
             axum::http::StatusCode::FORBIDDEN,
             "Off mode: duplicate Authorization headers MUST NOT produce 403 EvidenceRejected \
              from the cardinality gate [FI-INV-15]. Off mode must preserve first-value legacy \
-             behavior — cardinality denial is an active-mode-only contract. \
+             behavior — cardinality denial is an Enforce-only contract. \
              Falsifying mutation: add cardinality check in Off mode → 403 → assertion fires."
         );
         assert_eq!(

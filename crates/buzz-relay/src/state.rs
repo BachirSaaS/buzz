@@ -1396,8 +1396,9 @@ impl AuditShutdownHandle {
 
 /// Construct the NIP-FI assertion verifier + JWKS source from `config.nip_fi`.
 ///
-/// Returns `(None, None)` when the mode is `Off`. In `Enforce` or
-/// `DenyProtected` mode, constructs a `ProductionJwksSource` (shared via `Arc`)
+/// Returns `(None, None)` when the mode is `Off` or `DenyProtected` (the
+/// verifier is never consulted there; admission always returns 503). In
+/// `Enforce` mode, constructs a `ProductionJwksSource` (shared via `Arc`)
 /// and a `FederatedAssertionVerifier` over a clone of that `Arc`.
 /// The source starts empty; HTTP admission returns `authorization_unavailable`
 /// (503) until the startup warm in `main.rs` succeeds. [FI-TRACE-DEPENDENCY-FAIL-CLOSED]

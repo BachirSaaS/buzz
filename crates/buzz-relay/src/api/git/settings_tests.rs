@@ -713,7 +713,7 @@ mod postgres_tests {
     //
     // A POST NIP-98 token without a payload tag is present but invalid
     // (settings POST requires a hash-bound body per NIP-FI.md:619-637).
-    // In active mode, present-but-failing NIP-98 → EvidenceRejected (403).
+    // In Enforce mode, present-but-failing NIP-98 → EvidenceRejected (403).
     //
     // Falsifying mutation: set `require_payload = false` in `authenticate()`
     // for POST → payload-tag check skipped → NIP-98 succeeds → non-403 status.

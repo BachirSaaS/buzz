@@ -18,8 +18,10 @@
 //!
 //! [`NipFiAdmission`] has a private constructor.  The only way to produce
 //! one is via [`admit_nip_fi_http`].  This does not force a handler to call
-//! it: a handler that skips the call and does its own NIP-98 still passes the
-//! router's assertion guard, but gets no key pairing and no deny-map check.
+//! it.  In Enforce, a handler that skips the call and does its own NIP-98 is
+//! still subject to the router's assertion guard, but a request with a valid
+//! assertion passes without key pairing or a deny-map check.  (Off skips the
+//! guard entirely; DenyProtected denies without verifying.)
 //!
 //! ## Carrier / precedence
 //!
@@ -138,13 +140,18 @@ impl<X> Nip98Proof<X> {
     }
 }
 
-/// Proof that the full NIP-FI admission sequence completed for one HTTP request.
+/// Proof that the mode-appropriate NIP-FI admission path completed for one
+/// HTTP request.
 ///
 /// Construction is private to [`admit_nip_fi_http`].  **No other code path
-/// produces this type.**  A handler signature that requires `NipFiAdmission`
-/// as input can therefore not be reached without executing the full sequence:
+/// produces this type.**  A value means the path for the configured mode ran:
 ///
-///   NIP-98 extraction → assertion extraction → verify → pair → deny-map → admit
+///   Off:     NIP-98 extraction → admit (`assertion: None`, no pairing)
+///   Enforce: NIP-98 extraction → assertion extraction → verify → pair →
+///            deny-map → admit
+///
+/// DenyProtected never produces one.  Key pairing is guaranteed only in
+/// Enforce.
 ///
 /// `X` is caller-supplied side-data returned by the NIP-98 extraction closure
 /// (e.g. replay-detection fields).  Use `()` when no side-data is needed.
@@ -153,7 +160,8 @@ impl<X> Nip98Proof<X> {
 /// type via `admit_nip_fi_http`; there is no other source.
 #[must_use]
 pub(crate) struct NipFiAdmission<X = ()> {
-    /// The pubkey proven by NIP-98 and confirmed by assertion pairing.
+    /// The pubkey proven by NIP-98 (and, in Enforce, confirmed by assertion
+    /// pairing).
     ///
     /// Private: obtain via [`NipFiAdmission::proven_pubkey`].
     /// Only set from within [`admit_nip_fi_http`].
@@ -174,12 +182,12 @@ impl<X> fmt::Debug for NipFiAdmission<X> {
 }
 
 impl<X> NipFiAdmission<X> {
-    /// The pubkey proven by both NIP-98 and assertion pairing.
+    /// The pubkey proven by NIP-98 (and, in Enforce, by assertion pairing).
     ///
     /// This is the only way to obtain an authoritative pubkey for downstream
     /// authorization checks.  It is equal to the NIP-98 `pubkey` (what the
-    /// request proved) and to the assertion's `nostr_pubkey` (what the
-    /// federation identity bound).
+    /// request proved); in Enforce it also equals the assertion's
+    /// `nostr_pubkey` (what the federation identity bound).
     pub(crate) fn proven_pubkey(&self) -> &PublicKey {
         &self.proven_pubkey
     }
@@ -212,7 +220,7 @@ impl<X> NipFiAdmission<X> {
 ///
 /// 1. DenyProtected mode: unconditional 503, before the `Authorization`
 ///    cardinality check, the NIP-98 closure, or the verifier run.
-/// 2. Active modes: reject more than one `Authorization` field (403).
+/// 2. Enforce mode: reject more than one `Authorization` field (403).
 /// 3. Run `extract_nip98` — the caller's NIP-98 extraction closure.  Returns
 ///    `(proven_pubkey, X)` on success, or a `Response` to emit on failure.
 ///    Off mode returns `Ok(NipFiAdmission { proven_pubkey, assertion: None,
@@ -224,7 +232,7 @@ impl<X> NipFiAdmission<X> {
 /// 7. Check deny map for `(iss, proven_pubkey)`.  [FI-INV-14]
 /// 8. Return `Ok(NipFiAdmission { proven_pubkey, assertion: Some(...), extra: X })`.
 ///
-/// ## NIP-98 failure remapping in active modes
+/// ## NIP-98 failure remapping in Enforce mode
 ///
 /// When the NIP-98 closure fails in Enforce mode, the closure typically returns
 /// a legacy JSON 401/403 (`api_error`).  NIP-FI.md §Admission procedure step 3
@@ -239,9 +247,10 @@ impl<X> NipFiAdmission<X> {
 ///
 /// [`NipFiAdmission`] has a private constructor, so the only source of a
 /// `NipFiAdmission` value is this function.  It does not force a handler to
-/// call this function: a handler that skips it and runs its own NIP-98 still
-/// passes the router's assertion guard (which verifies the assertion on every
-/// non-exempt route) but gets no key pairing and no deny-map check.
+/// call this function.  In Enforce, a handler that skips it and runs its own
+/// NIP-98 is still subject to the router's assertion guard, but a request with
+/// a valid assertion passes without key pairing or a deny-map check.  Off skips
+/// the guard entirely; DenyProtected denies without verifying.
 ///
 /// ## Off-mode semantics
 ///
@@ -273,7 +282,7 @@ where
         return Err(http_denial(DenialClass::AuthorizationUnavailable));
     }
 
-    // Step 2 — cardinality gate: active (non-Off) modes require exactly one Authorization
+    // Step 2 — cardinality gate: Enforce mode requires exactly one Authorization
     // field per NIP-FI.md:695-700.  Off mode preserves legacy first-value behavior
     // (`.get()` silently takes the first) so no regression for Off deployments.
     //
@@ -455,8 +464,9 @@ pub(crate) fn http_denial(class: DenialClass) -> Response<Body> {
 /// &AlwaysAdmitStubDenyMap`; S4 can replace the stub without touching call
 /// sites by changing this wrapper.
 ///
-/// This is the single entry-point every NIP-FI-protected surface calls.
-/// There is no other way to produce a [`NipFiAdmission`].
+/// This is the single entry-point every NIP-FI-protected surface calls.  It
+/// delegates to [`admit_nip_fi_http`], which alone constructs a
+/// [`NipFiAdmission`].
 ///
 /// [FI-TRACE-AUTHORITY-UNIFORM]
 // Response<Body> is intentionally large (axum's design); see admit_nip_fi_http.
@@ -717,7 +727,7 @@ mod tests {
         assert_eq!(resp.status(), deny_status);
     }
 
-    // ── F3: NIP-98 failure remapping in active modes ─────────────────────────
+    // ── F3: NIP-98 failure remapping in Enforce mode ─────────────────────────
     //
     // In Enforce mode, NIP-98 closure failure MUST produce NIP-FI DenialClass
     // responses (not legacy JSON).  The class depends on whether the
@@ -848,12 +858,16 @@ mod tests {
     // ── admit_nip_fi_http — deny_protected ───────────────────────────────────
 
     // DenyProtected → Err(503 authorization unavailable) for every request
-    // shape, without running the NIP-98 closure or the verifier.
+    // shape, without running the NIP-98 closure or the verifier.  Every case
+    // carries a syntactically valid assertion bearer so the verifier would be
+    // reachable if the mode check moved below token extraction.
     //
     // Mutation evidence: moving the DenyProtected check below the cardinality
-    // gate makes the duplicate case return 403 (status assertion fails);
-    // moving it below the closure makes the failed-closure case return 403 and
-    // the closure counter non-zero.
+    // gate makes the duplicate case return 403 (status assertion fails).
+    // Moving it below the closure makes the closure counter non-zero; moving
+    // it below the closure *and* the error remap also turns the failed-closure
+    // cases into 401/403.  Moving it below verification makes the verifier
+    // counter non-zero on the successful-closure case.
     #[test]
     fn deny_protected_returns_503_before_nip98_or_verifier() {
         use std::cell::Cell;
@@ -873,11 +887,19 @@ mod tests {
         let auth = |headers: &mut HeaderMap, value: &'static str| {
             headers.append("authorization", HeaderValue::from_static(value));
         };
-        let mut duplicate = HeaderMap::new();
+        let with_bearer = || {
+            let mut headers = HeaderMap::new();
+            headers.insert(
+                CLIENT_ATTACHED_HEADER,
+                HeaderValue::from_static("Bearer header.payload.signature"),
+            );
+            headers
+        };
+        let mut duplicate = with_bearer();
         auth(&mut duplicate, "Nostr first");
         auth(&mut duplicate, "Nostr second");
-        let missing = HeaderMap::new();
-        let mut present = HeaderMap::new();
+        let missing = with_bearer();
+        let mut present = with_bearer();
         auth(&mut present, "Nostr invalid");
 
         // (case, headers, closure succeeds)
@@ -1075,7 +1097,7 @@ mod tests {
     // ── R3 regression: Authorization cardinality ─────────────────────────────
     //
     // Thufir R3 / Carl F2: duplicate Authorization headers must be rejected in
-    // active (non-Off) modes, and must be ACCEPTED in Off mode (FI-INV-15:
+    // Enforce mode, and must be ACCEPTED in Off mode (FI-INV-15:
     // Off behavior must match pre-NIP-FI base, which used `.get()` first-value).
     //
     // The cardinality gate is now in `admit_nip_fi_http`, not in
@@ -1103,7 +1125,7 @@ mod tests {
         // extraction fails (invalid token), and admission maps the failure to
         // 403 EvidenceRejected (header is present).  Status is the same (403)
         // but the body is different — the gate produces the standard
-        // `evidence rejected\n` bytes; NIP-98 failure in active mode also
+        // `evidence rejected\n` bytes; NIP-98 failure in Enforce mode also
         // produces `evidence rejected\n`.  To distinguish, we verify the body
         // comes from cardinality (gate fires before closure) rather than from
         // the NIP-98 path: the closure must NEVER be called.
