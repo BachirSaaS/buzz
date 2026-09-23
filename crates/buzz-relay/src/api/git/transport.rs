@@ -5001,9 +5001,10 @@ mod off_mode_precedence_tests {
                     // 403 EvidenceRejected — same result as Case 2 (dup without assertion),
                     // proving the assertion does not gate the cardinality check.
                     //
-                    // Falsifying mutation: disable cardinality for requests with valid assertions
-                    // → dup proof passes → NIP-98 extracted from first value → key pairing →
-                    // handler reached → 404 (not 403).
+                    // `nip98_token` is signed by `keys` while `same_key_assertion` names
+                    // `test_keys_outer`, so disabling cardinality predicts key pairing
+                    // denial: 403 `authorization denied\n`.  The exact
+                    // `evidence rejected\n` body below distinguishes that mutation.
                     let (dup_proof_status, _dup_proof_headers, dup_proof_body) = send_pack_request(
                         Arc::clone(&state),
                         route,
@@ -5021,8 +5022,7 @@ mod off_mode_precedence_tests {
                         dup_proof_status,
                         axum::http::StatusCode::FORBIDDEN,
                         "{route}: duplicate proof + valid assertion MUST deny 403 cardinality. \
-                     Falsifying mutation: disable cardinality for asserted requests → \
-                     dup proof passes → 404 (not 403)."
+                     Disabling cardinality → key pairing 403 'authorization denied\\n'."
                     );
                     assert_eq!(
                         dup_proof_body.as_ref(),
@@ -5043,7 +5043,7 @@ mod off_mode_precedence_tests {
                 // returns 404 "repository not found" — not a NIP-FI code.
                 //
                 // Falsifying mutation: replace the pairing check with always-deny →
-                // 403 EvidenceRejected → body check fires.
+                // 403 `authorization denied\n` → status/body checks fire.
                 //
                 // Also covers `info/refs` (GET) with the same assertion; the route
                 // shares `GitAuth::from_request_parts` and `authorize_git_read`.
@@ -5122,24 +5122,27 @@ mod off_mode_precedence_tests {
                         );
                     }
 
-                    // ── git-receive-pack (POST): same-key admission → non-NIP-FI ─
+                    // ── git-receive-pack (POST): same-key admission → git busy 503 ─
                     //
-                    // receive-pack calls hydrate_for_write which CREATES an empty
-                    // bare repo if none exists — it does NOT call authorize_git_read
-                    // and does NOT return 404 for an absent repo.  After admission,
-                    // git receive-pack runs against the empty workspace with an empty
-                    // body, then finalize_push attempts CAS writes to the git store.
-                    // Without a configured git store the response is a storage error
-                    // (5xx), not a NIP-FI denial.
-                    //
-                    // Witness: the body is NOT a NIP-FI denial string.  If key-pairing
-                    // always-denied, body would be `authorization denied\n`; if
-                    // verifier injected wrong, body would be `authorization unavailable\n`.
-                    //
-                    // Falsifying mutation: key-pairing always-deny → 403 and body
-                    // is `authorization denied\n` → assert_ne! fires.
+                    // Every `git_semaphore` permit is held, so an admitted request
+                    // stops at `receive_pack` → `acquire_git_permit`, which returns
+                    // exactly 503, `Retry-After: 5`, body `git service busy`, no
+                    // Content-Type, no challenge — before hydration, the
+                    // subprocess, or finalize.  Any NIP-FI denial (401
+                    // `authentication required\n`, 403 `evidence rejected\n` /
+                    // `authorization denied\n`, 503 `authorization unavailable\n`)
+                    // happens in `GitAuth` before the handler and cannot produce
+                    // these bytes.
                     {
-                        let (s_rp, _h_rp, b_rp) = send_pack_request(
+                        let held: Vec<_> = std::iter::from_fn(|| {
+                            Arc::clone(&state.git_semaphore).try_acquire_owned().ok()
+                        })
+                        .collect();
+                        assert!(
+                            !held.is_empty(),
+                            "fixture must hold at least one git permit"
+                        );
+                        let (s_rp, h_rp, b_rp) = send_pack_request(
                             Arc::clone(&state),
                             "git-receive-pack",
                             vec![
@@ -5151,33 +5154,39 @@ mod off_mode_precedence_tests {
                             ],
                         )
                         .await;
-                        // NIP-FI MUST have admitted (any non-NIP-FI response proves admission).
-                        assert_ne!(
+                        drop(held);
+                        assert_eq!(
                             s_rp,
-                            axum::http::StatusCode::UNAUTHORIZED,
-                            "git-receive-pack: same-key admission MUST pass NIP-FI (not 401). \
-                             401 = MissingEvidence; verifier injection or key pairing failed. \
-                             Body: {b_rp:?}"
+                            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                            "git-receive-pack: admitted request MUST reach acquire_git_permit \
+                             → 503 busy. Body: {b_rp:?}"
                         );
-                        assert_ne!(
-                            b_rp.as_ref(),
-                            b"authorization denied\n",
-                            "git-receive-pack: body MUST NOT be 'authorization denied\\n'. \
-                             Falsifying mutation: key-pairing always-deny → 403 with this body."
+                        assert_eq!(
+                            h_rp.get("retry-after").and_then(|v| v.to_str().ok()),
+                            Some("5"),
+                            "git-receive-pack: busy 503 carries Retry-After: 5"
                         );
-                        assert_ne!(
+                        assert!(
+                            h_rp.get("content-type").is_none(),
+                            "git-receive-pack: busy 503 carries no Content-Type"
+                        );
+                        assert!(
+                            h_rp.get("www-authenticate").is_none(),
+                            "git-receive-pack: busy 503 carries no challenge"
+                        );
+                        assert_eq!(
                             b_rp.as_ref(),
-                            b"authorization unavailable\n",
-                            "git-receive-pack: body MUST NOT be 'authorization unavailable\\n'. \
-                             This indicates the verifier was not injected correctly."
+                            b"git service busy",
+                            "git-receive-pack: exact busy body from acquire_git_permit"
                         );
                     }
 
                     // ── info/refs (GET): shares GitAuth + authorize_git_read ──────
                     //
-                    // Same matrix as pack routes; info/refs uses a GET request with
-                    // ?service=git-upload-pack.  The route shares `GitAuth::from_request_parts`
-                    // and `authorize_git_read`, so the same denial contract holds.
+                    // info/refs is a GET with ?service=git-upload-pack sharing
+                    // `GitAuth::from_request_parts` and `authorize_git_read`: missing
+                    // assertion, missing / malformed / duplicate proof with a valid
+                    // assertion, and the same-key positive.
                     {
                         let uri =
                             format!("/git/{OWNER_HEX}/myrepo/info/refs?service=git-upload-pack");
@@ -5240,6 +5249,57 @@ mod off_mode_precedence_tests {
                         b"authentication required\n",
                         "info/refs: missing-proof 401 body must be 'authentication required\\n'."
                     );
+
+                        // ── info/refs Cases 6/7: malformed / duplicate proof +
+                        //    valid same-key assertion → 403 `evidence rejected\n` ─
+                        for (authorization, case) in [
+                            (
+                                vec!["Nostr !!!not-valid-base64!!!".to_string()],
+                                "malformed proof",
+                            ),
+                            (
+                                vec![admitted_nip98_token.clone(), admitted_nip98_token.clone()],
+                                "duplicate proof",
+                            ),
+                        ] {
+                            let mut builder = axum::http::Request::builder()
+                                .method("GET")
+                                .uri(&uri)
+                                .header("host", &host)
+                                .header(
+                                    buzz_auth::CLIENT_ATTACHED_HEADER,
+                                    format!("Bearer {same_key_assertion}"),
+                                );
+                            for value in &authorization {
+                                builder = builder.header("authorization", value);
+                            }
+                            let resp = git_router(Arc::clone(&state))
+                                .oneshot(builder.body(axum::body::Body::empty()).expect("build"))
+                                .await
+                                .expect("router oneshot");
+                            let st = resp.status();
+                            let hd = resp.headers().clone();
+                            let bd = to_bytes(resp.into_body(), 4096).await.unwrap_or_default();
+                            assert_eq!(
+                                st,
+                                axum::http::StatusCode::FORBIDDEN,
+                                "info/refs {case}: MUST deny 403. Body: {bd:?}"
+                            );
+                            assert_eq!(
+                                hd.get("content-type").and_then(|v| v.to_str().ok()),
+                                Some("text/plain; charset=utf-8"),
+                                "info/refs {case}: 403 Content-Type"
+                            );
+                            assert!(
+                                hd.get("www-authenticate").is_none(),
+                                "info/refs {case}: 403 carries no challenge"
+                            );
+                            assert_eq!(
+                                bd.as_ref(),
+                                b"evidence rejected\n",
+                                "info/refs {case}: exact EvidenceRejected body"
+                            );
+                        }
 
                         // ── info/refs Case 4 (same-key positive) → 404 ───────────
                         let (s4, _, b4) = {

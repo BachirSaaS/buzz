@@ -2299,7 +2299,17 @@ mod external_infra {
         );
 
         // ── Step 6: digest changed after successful owner POST ────────────────
-        let digest_after_ok = f.snapshot().await.digest;
+        let after_ok = f.snapshot().await;
+        assert_eq!(
+            after_ok.manifest.head, "refs/heads/main",
+            "Owner POST MUST persist HEAD = refs/heads/main"
+        );
+        assert_eq!(
+            after_ok.manifest.parent.as_ref(),
+            Some(&digest_before),
+            "Owner POST MUST link the new manifest to the pre-POST digest"
+        );
+        let digest_after_ok = after_ok.digest;
         assert_ne!(
             digest_after_ok, digest_before,
             "Digest MUST change after successful owner POST (branch updated to 'main'). \

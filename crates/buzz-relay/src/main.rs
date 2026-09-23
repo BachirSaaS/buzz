@@ -3145,17 +3145,18 @@ mod composition_tests {
         tokio::task::yield_now().await;
 
         // ── Advance to T=122 ────────────────────────────────────────────────
-        // Timer fires at T=121 (last=T=61, next=T=61+60=T=121 ≤ T=122).
-        // Source: T=121 > hard_deadline=T=90 → snapshot cleared → fetch response[2]=fail
-        // → None. Callback returns false. callback_returned_false=true. callback_count=1.
-        // (Timer fires at T=121 during the advance to T=122; source clock = T=121.)
+        // Timer is due at T=121 (last=T=61, next=T=61+60=T=121 ≤ T=122), but
+        // `tokio::time::advance` jumps to T=122 before the task runs, so the
+        // callback observes T=122 > hard_deadline=T=90 → snapshot cleared →
+        // fetch response[2]=fail → None. Callback returns false.
+        // callback_returned_false=true. callback_count=1.
         //
         // Falsifying mutation: extend deadline to T=61+90=T=151 on failure.
-        // At T=121: T=121 < T=151 → snapshot NOT cleared; age_secs=121-61=60 >= 60
+        // At T=122: T=122 < T=151 → snapshot NOT cleared; age_secs=122-61=61 >= 60
         // → stale → fetch response[2]=fail → snapshot not cleared (still live) → Some.
         // Callback returns true → callback_returned_false stays false → assertion fires.
         tokio::time::advance(Duration::from_secs(61)).await; // T=61 → T=122
-                                                             // Bounded yield: let the spawned timer task run its T=121 callback.
+                                                             // Bounded yield: let the spawned timer task run its callback (observed at T=122).
                                                              // At most 10_000 yields; if the callback never fires this diagnostic fails
                                                              // rather than hanging forever.  A virtual tokio::time::timeout would also
                                                              // create a fake timer that never fires while the clock is paused — hence
@@ -3176,10 +3177,10 @@ mod composition_tests {
         // Claim 3 via timer: callback_returned_false proves the timer observed None.
         assert!(
             callback_returned_false.load(Ordering::SeqCst),
-            "composition B: timer callback at T=121 MUST return false (source returns None \
+            "composition B: timer callback at T=122 MUST return false (source returns None \
              when snapshot is past hard_deadline=T=90 and fetch keeps failing). \
              Falsifying mutation: extend deadline on failure (T=61+90=T=151) → \
-             snapshot still live at T=121 → callback returns true → this assertion fires."
+             snapshot still live at T=122 → callback returns true → this assertion fires."
         );
 
         cancel.cancel();
@@ -3263,16 +3264,17 @@ mod composition_tests {
     //   T=0:  warm (paths 1+2) consumes responses[0]=ok, [1]=fail.
     //         Snapshot for issuer_ok: fetched_at=T0, hard_deadline=T90.
     //         All subsequent fetcher calls return NetworkError (queue exhausted).
-    //   T=61: advance Tokio → timer fires at T=60 (still live: T60 < T90, but
-    //         stale age=60 → fetch → NetworkError → live snapshot returned, last=T60).
+    //   T=61: advance Tokio → timer due at T=60 runs at T=61 (still live: T61 < T90,
+    //         stale age=61 → fetch → NetworkError → live snapshot returned; post-fetch
+    //         last=T61).
     //         Path 3 direct call at T=61: same result → fetch-fail warn! ✓.
-    //   T=121 (T=61+60): advance Tokio → timer fires at T=120 (second fire:
-    //         last=T60, next_due=T120). Source clock at T=120: now=T120 > deadline=T90
+    //   T=121 (T=61+60): advance Tokio → timer fires at T=121 (second fire:
+    //         last=T61, next_due=T121). Source clock at T=121: now=T121 > deadline=T90
     //         → snapshot cleared → fetch fails → None → callback returns false →
     //         path-4 warn! ✓. Wait for callback count >= 2 then cancel.
     //
     // Falsifying mutation (path 4): bridge now_fn to a fixed clock at T=61 →
-    // at timer-fire T=120, source sees T=61 < T=90 → snapshot live → callback
+    // at timer-fire T=121, source sees T=61 < T=90 → snapshot live → callback
     // returns true → no warn! → path-4 assertion fails.
     //
     // Uses `#[test]` + manual runtime so `with_default` wraps all async execution.
@@ -3378,14 +3380,15 @@ mod composition_tests {
                 );
 
                 // Count callback completions so we know when path 4 has fired.
-                // Callback 1 (at T=60): snapshot live → true (no warn!).
-                // Callback 2 (at T=120): snapshot past deadline → false → path-4 warn!.
+                // Callback 1 (at T=61): snapshot live → true (no warn!).
+                // Callback 2 (at T=121): snapshot past deadline → false → path-4 warn!.
                 let callback_count =
                     Arc::new(std::sync::atomic::AtomicUsize::new(0));
                 let callback_count_task = Arc::clone(&callback_count);
 
                 // Spawn timer loop at T=0. `last = Instant::now() = T0`.
-                // First callback due at T=60; second at T=120 (post-fetch last=T60+60).
+                // First callback due at T=60 (runs at T=61); second at T=121 (post-fetch
+                // last=T61).
                 let cancel = tokio_util::sync::CancellationToken::new();
                 let cancel_task = cancel.clone();
                 let source_task = Arc::clone(&source);
@@ -3446,9 +3449,8 @@ mod composition_tests {
 
                 // Path 4: timer loop no-snapshot warn!.
                 // Advance from T=61 to T=121 (60 more seconds).
-                // Timer fires at T=120 (last=T60, next_due=T60+60=T120), but
-                // `tokio::time::advance` resolves the timer at T=121 (the post-
-                // advance clock).  Source clock via now_fn = T=121 >= hard_deadline=T=90:
+                // Timer fires at T=121 (post-fetch last=T61, next_due=T61+60=T121).
+                // Source clock via now_fn = T=121 >= hard_deadline=T=90:
                 //   → snapshot cleared
                 //   → fetch fails (NetworkError) → None
                 //   → callback 2 returns false

@@ -5412,7 +5412,7 @@ mod postgres_tests {
         let headers = same_key_nip98_and_assertion_headers(&keys, &url, "GET", b"");
 
         let (status, resp_headers, body) = rt.block_on(oneshot_request_full(
-            state, "GET", &path, &host, headers, b"",
+            state, "GET", path, &host, headers, b"",
         ));
 
         // Admission passes — the caller is NOT a moderator so moderation returns
@@ -5597,7 +5597,7 @@ mod postgres_tests {
         );
 
         let (status, _resp_headers, body) = rt.block_on(oneshot_request_full(
-            state, "GET", &path, &host, headers, b"",
+            state, "GET", path, &host, headers, b"",
         ));
 
         assert_eq!(
