@@ -9292,6 +9292,17 @@ mod build_mcp_servers_tests {
             ("gpg.X509.program", "distinct-subsection"),
             ("core.abbrev", "12"),
         ];
+        let parent = tempfile::tempdir().unwrap();
+        std::fs::write(parent.path().join(".git-identity"), "").unwrap();
+        let original_path = std::env::var_os("PATH").unwrap_or_default();
+        std::env::set_var(
+            "PATH",
+            std::env::join_paths(
+                std::iter::once(parent.path().to_path_buf())
+                    .chain(std::env::split_paths(&original_path)),
+            )
+            .unwrap(),
+        );
         std::env::set_var("BUZZ_GIT_IDENTITY", "user");
         std::env::set_var("GIT_CONFIG_COUNT", inherited.len().to_string());
         for (i, (key, value)) in inherited.iter().enumerate() {
@@ -9304,6 +9315,7 @@ mod build_mcp_servers_tests {
             &config.relay_url,
             &std::env::current_exe().unwrap(),
         );
+        std::env::set_var("PATH", &original_path);
         std::env::remove_var("BUZZ_GIT_IDENTITY");
         std::env::remove_var("GIT_CONFIG_COUNT");
         for i in 0..inherited.len() {
@@ -9348,6 +9360,11 @@ mod build_mcp_servers_tests {
         assert!(
             entries.iter().any(|(key, _)| key == "nostr.keyfile"),
             "{entries:?}"
+        );
+        let path = value_of("PATH").unwrap();
+        assert!(
+            !std::env::split_paths(&path).any(|entry| entry == parent.path()),
+            "parent install dir forwarded: {path}"
         );
     }
 

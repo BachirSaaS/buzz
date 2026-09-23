@@ -1102,6 +1102,7 @@ fn run_harness(
     probe: &str,
     tmpdir: Option<&Path>,
     inherited: &[(&str, &str)],
+    path_prefix: Option<&Path>,
 ) -> (std::process::ExitStatus, String) {
     use std::os::unix::fs::PermissionsExt;
     use std::time::{Duration, Instant};
@@ -1117,8 +1118,12 @@ fn run_harness(
     std::fs::set_permissions(&adapter, std::fs::Permissions::from_mode(0o700)).unwrap();
     let log = std::fs::File::create(work.join("harness.log")).unwrap();
     let mut cmd = hermetic_command(env!("CARGO_BIN_EXE_buzz-acp"));
+    let path = std::env::join_paths(path_prefix.map(Path::to_path_buf).into_iter().chain(
+        std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()),
+    ))
+    .unwrap();
     cmd.env_clear()
-        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+        .env("PATH", path)
         .env("PROBE_DIR", work)
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .env("GIT_CONFIG_NOSYSTEM", "1")
@@ -1200,6 +1205,7 @@ fi
 cd .."#,
         None,
         &[],
+        None,
     );
     assert!(work.path().join("done").exists(), "probe failed: {logs}");
     assert!(status.success(), "harness shutdown failed: {logs}");
@@ -1227,7 +1233,8 @@ fn harness_user_mode_installs_only_relay_credentials() {
     let (status, logs) = run_harness(
         work.path(),
         Some("user"),
-        r#"absent() { if git config "$1"; then echo "$1 is set" >&2; exit 1; fi; }
+        r#"case "$(command -v git)" in */parent-install/*) echo "git resolves to the parent wrapper" >&2; exit 1;; esac
+absent() { if git config "$1"; then echo "$1 is set" >&2; exit 1; fi; }
 helper=$(command -v git-credential-nostr)
 dir=$(dirname "$helper")
 test "$(git config --get-urlmatch credential.helper https://relay.test/git/o/r)" = nostr
@@ -1242,6 +1249,7 @@ absent user.signingkey
 absent commit.gpgSign"#,
         None,
         &[],
+        None,
     );
     assert!(work.path().join("done").exists(), "probe failed: {logs}");
     assert!(status.success(), "harness shutdown failed: {logs}");
@@ -1276,10 +1284,21 @@ fn harness_user_mode_drops_inherited_identity_and_signing() {
     )
     .unwrap();
     let include = include_file.to_str().unwrap().to_owned();
+    // A parent harness's install dir ahead of real git on the inherited PATH.
+    let parent = work.path().join("parent-install");
+    std::fs::create_dir(&parent).unwrap();
+    std::fs::write(parent.join(".git-identity"), "").unwrap();
+    std::fs::write(parent.join("git"), "#!/bin/sh\necho parent-wrapper\n").unwrap();
+    std::fs::set_permissions(
+        parent.join("git"),
+        std::os::unix::fs::PermissionsExt::from_mode(0o755),
+    )
+    .unwrap();
     let (status, logs) = run_harness(
         work.path(),
         Some("user"),
-        r#"absent() { if git config "$1"; then echo "$1 is set" >&2; exit 1; fi; }
+        r#"case "$(command -v git)" in */parent-install/*) echo "git resolves to the parent wrapper" >&2; exit 1;; esac
+absent() { if git config "$1"; then echo "$1 is set" >&2; exit 1; fi; }
 operator() { case "$(git var "$1")" in "Operator <operator@example.invalid> "*) ;; *) echo "$1 is not the operator" >&2; exit 1;; esac; }
 operator GIT_AUTHOR_IDENT
 operator GIT_COMMITTER_IDENT
@@ -1308,6 +1327,7 @@ test "$(git config gpg.X509.program)" = distinct-subsection"#,
             ("INCLUDEIF.gitdir:/.PATH", &include),
             ("core.abbrev", "12"),
         ],
+        Some(&parent),
     );
     assert!(work.path().join("done").exists(), "probe failed: {logs}");
     assert!(status.success(), "harness shutdown failed: {logs}");
@@ -1317,7 +1337,7 @@ test "$(git config gpg.X509.program)" = distinct-subsection"#,
 #[test]
 fn harness_invalid_mode_fails_startup() {
     let work = tempfile::tempdir().unwrap();
-    let (status, logs) = run_harness(work.path(), Some("usr"), "true", None, &[]);
+    let (status, logs) = run_harness(work.path(), Some("usr"), "true", None, &[], None);
     assert!(!status.success(), "invalid mode must fail startup: {logs}");
     assert!(!work.path().join("done").exists(), "adapter ran: {logs}");
     assert!(
@@ -1332,7 +1352,7 @@ fn harness_invalid_mode_fails_startup() {
 fn harness_git_install_failure_fails_startup() {
     let work = tempfile::tempdir().unwrap();
     let missing = work.path().join("missing-tmp");
-    let (status, logs) = run_harness(work.path(), None, "true", Some(&missing), &[]);
+    let (status, logs) = run_harness(work.path(), None, "true", Some(&missing), &[], None);
     assert!(
         !status.success(),
         "install failure must fail startup: {logs}"

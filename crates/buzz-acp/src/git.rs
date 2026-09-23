@@ -83,10 +83,18 @@ impl GitEnvironment {
             });
         }
         let mut env = build_git_env(relay, &managed, inherited);
+        // A `user`-mode child must not resolve `git` to a parent harness's
+        // wrapper, whose install dir carries the identity manifest.
         let mut paths = vec![dir.path().to_path_buf()];
-        paths.extend(std::env::split_paths(
-            &std::env::var_os("PATH").unwrap_or_default(),
-        ));
+        paths.extend(
+            std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()).filter(|entry| {
+                agent
+                    || !entry
+                        .join(buzz_git_identity::IDENTITY_MANIFEST_NAME)
+                        .symlink_metadata()
+                        .is_ok()
+            }),
+        );
         env.push((
             "PATH".into(),
             std::env::join_paths(paths)?
