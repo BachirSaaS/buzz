@@ -26,6 +26,18 @@ management lists suppress the archived row. Replaying the same UUID converges
 to its current stage; a different UUID conflicts with the existing one-active-
 request invariant until that request is aborted.
 
+The privileged one-shot `buzz-admin deletions drain` process gives already-
+approved work priority. When none is ready, it may claim only an authenticated
+owner-origin `submitted` request under the same durable generation lease used
+for execution, inventory it with lease-loss cancellation, and atomically freeze
+the inventory plus a digest-bound `owner_automatic` approval. The mediating
+operator remains the approval actor; the owner acknowledgement is pre-inventory
+intent, not a claim that the owner reviewed the digest. The retained lease then
+enters the unchanged approved-request executor. Operator-origin requests never
+auto-progress and still require explicit inventory and approval. Privileged
+abort is available at the reversible submitted/inventoried boundary for
+operator recovery; owner admission has no cancellation or grace period.
+
 Ownership is mutable only while a community is active. Archiving freezes the
 current owner. Normal transfer and deployment-root legacy convergence take the
 same community-row lock as owner-deletion admission, then reject archived,
@@ -743,6 +755,10 @@ Postgres/Redis clients and S3 client; it does not call relay HTTP. Durable
 requests, leases, retry timing, and checkpoints in Postgres are the handoff and
 execution authority, so Kubernetes uses `Forbid` concurrency and zero Job
 retries rather than introducing a second retry system.
+The same drain first claims runnable approved work and, only when none exists,
+may prepare one owner-origin submission. Inventory, automatic approval, and
+execution share one generation lease and the existing retry/block/checkpoint
+records; there is no preparation worker, command, queue, or retry authority.
 
 ---
 
