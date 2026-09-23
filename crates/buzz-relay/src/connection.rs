@@ -1472,6 +1472,7 @@ pub(crate) mod tests {
             AuthOutcome::AllowlistDenied,
             AuthOutcome::RelayMembershipCheckError,
             AuthOutcome::NotRelayMember,
+            AuthOutcome::PairingMismatch,
         ] {
             crate::metrics::record_auth_attempt_started();
             let (denied, _rx) = test_conn_with_auth(pending_state());

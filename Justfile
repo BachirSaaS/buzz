@@ -473,6 +473,53 @@ test-unit:
         # abnormal-stream-close fanout, and never-ready-sink writer witnesses —
         # are all selected by audio::join::tests and audio::handler::tests.
         # DB-backed audio join tests use #[ignore] and run in the postgres lane.
+        # NIP-FI (S3) relay witnesses: the wholly-new nip_fi_config and
+        # nip_fi_upgrade modules, plus the exact NIP-FI tests added to mixed
+        # modules (audio::room, connection, handlers::*, router, state). They
+        # ran in NO lane before, the same gap as above. Mixed modules are listed
+        # by exact name so main's unselected tests (several wait out the ~30s
+        # sqlx acquire timeout) stay out; the NIP-FI stub-pool helpers use a
+        # 100ms acquire timeout. NIP-FI tests that need Postgres live in
+        # postgres_tests and run in the PostgreSQL lane.
+        cargo nextest run -p buzz-relay --lib -E '
+                test(/^nip_fi_(config|upgrade)::/)
+                + test(=audio::room::tests::b1_pending_peer_removed_before_commit_emits_no_delta)
+                + test(=audio::room::tests::b2_commit_peer_emits_exactly_one_joined_delta_and_marks_visible)
+                + test(=audio::room::tests::b3_commit_peer_revision_is_monotone_between_concurrent_events)
+                + test(=audio::room::tests::f7a_pending_peer_excluded_from_snapshot_until_committed)
+                + test(=connection::tests::b2_cancelled_connection_event_frame_not_dispatched)
+                + test(=connection::tests::b3_expiry_denial_precedes_close_through_send_loop)
+                + test(=connection::tests::b3_root_pairing_denial_precedes_close_through_send_loop)
+                + test(=connection::tests::cancellation_during_select_with_fi_denial_routes_through_bounded_path)
+                + test(=connection::tests::cancelled_never_ready_sink_with_queued_fi_denial_exits_within_timeout)
+                + test(=connection::tests::deadline_exp_is_earliest_selects_exp)
+                + test(=connection::tests::deadline_max_connection_lifetime_is_earliest_selects_partition)
+                + test(=connection::tests::deadline_no_lifetime_returns_upstream_only)
+                + test(=connection::tests::expiry_notice_queued_on_ctrl_before_cancel)
+                + test(=connection::tests::f3_root_outer_wrapper_delivers_denial_on_bootstrap_cancellation)
+                + test(=connection::tests::f3_root_pre_built_expired_gate_terminates_connection)
+                + test(=handlers::auth::tests::b2_pre_cancelled_connection_never_becomes_authenticated)
+                + test(=handlers::auth::tests::handle_auth_pairing_mismatch_runs_full_root_denial_path)
+                + test(=handlers::event::tests::p1b_agent_observer_event_barrier_expiry_blocks_fanout_and_ack)
+                + test(=handlers::req::tests::p1a_huddle_liveness_req_barrier_expiry_blocks_query_and_emission)
+                + test(=router::tests::b4_connection_upgrade_only_no_upgrade_header_not_gated)
+                + test(=router::tests::b4_upgrade_only_no_connection_header_not_gated)
+                + test(=router::tests::nip_fi_enforce_audio_denies_missing_assertion_401)
+                + test(=router::tests::nip_fi_enforce_audio_denies_token_when_no_verifier_503)
+                + test(=router::tests::nip_fi_enforce_nip11_content_negotiation_serves_200_not_401)
+                + test(=router::tests::nip_fi_enforce_plain_get_not_gated_401_or_503)
+                + test(=router::tests::nip_fi_enforce_root_denies_missing_assertion_401)
+                + test(=router::tests::nip_fi_enforce_root_denies_token_when_no_verifier_503)
+                + test(=router::tests::nip_fi_enforce_ws_upgrade_with_html_accept_is_gated_401)
+                + test(=router::tests::nip_fi_off_audio_ignores_malformed_header)
+                + test(=router::tests::nip_fi_off_audio_passes_without_header)
+                + test(=router::tests::nip_fi_off_root_ignores_malformed_header)
+                + test(=router::tests::nip_fi_off_root_passes_without_header)
+                + test(=state::tests::f3_cancellation_during_check_terminates_socket_without_waiting_for_check)'
+        # buzz-relay binary tests (JWKS refresh cadence and supervisor recovery,
+        # env-filter and identity config). All are infra-free; the one
+        # Postgres-backed case is #[ignore]d.
+        cargo nextest run -p buzz-relay --bin buzz-relay
         # ACP author-gate and queue tests protect the trust boundary between
         # relay events and agent prompts. They are infra-free; ignored lifecycle
         # tests remain excluded and run in their dedicated integration lanes.

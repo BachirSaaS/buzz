@@ -362,8 +362,7 @@ mod tests {
     //      → handler proceeds, no CLOSED sent at all → `try_recv()` returns `Err`
     //      → assertion panics.
 
-    #[tokio::test]
-    async fn w4_b2_count_barrier_expiry_mid_flight_blocks_count_query() {
+    async fn w4_b2_count_barrier_expiry_mid_flight_blocks_count_query_body() {
         use nostr::Keys;
         use std::collections::HashMap;
         use std::sync::Arc;
@@ -453,6 +452,14 @@ mod tests {
                 );
             }
             other => panic!("W4: expected Text CLOSED frame, got {other:?}"),
+        }
+    }
+
+    mod postgres_tests {
+        #[tokio::test]
+        #[ignore = "requires Postgres"]
+        async fn w4_b2_count_barrier_expiry_mid_flight_blocks_count_query() {
+            super::w4_b2_count_barrier_expiry_mid_flight_blocks_count_query_body().await;
         }
     }
 }

@@ -2623,8 +2623,7 @@ mod tests {
     //   C) Change gate to `off_mode` → `acquire_effect()` succeeds after cancel
     //      → subscription IS inserted → `subs.is_empty()` assertion panics.
 
-    #[tokio::test]
-    async fn w3_b2_req_barrier_expiry_mid_flight_blocks_subscription_registration() {
+    async fn w3_b2_req_barrier_expiry_mid_flight_blocks_subscription_registration_body() {
         use nostr::{Filter, Keys};
         use std::collections::HashMap;
         use std::sync::Arc;
@@ -2877,6 +2876,15 @@ mod tests {
                 );
             }
             other => panic!("P1-a: expected Text CLOSED frame, got {other:?}"),
+        }
+    }
+
+    mod postgres_tests {
+        #[tokio::test]
+        #[ignore = "requires Postgres"]
+        async fn w3_b2_req_barrier_expiry_mid_flight_blocks_subscription_registration() {
+            super::w3_b2_req_barrier_expiry_mid_flight_blocks_subscription_registration_body()
+                .await;
         }
     }
 }

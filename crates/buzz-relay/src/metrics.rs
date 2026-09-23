@@ -1068,9 +1068,14 @@ mod contract_tests {
                     || line.starts_with("buzz_ws_authenticated_connections_active ")
             })
             .collect::<Vec<_>>();
-        // 1 challenge + 11 outcomes + 2 post-terminal states + 1 active gauge +, for each outcome,
-        // 11 histogram buckets (including +Inf), sum, and count.
-        assert_eq!(raw_series.len(), 158, "unexpected raw scrape:\n{scrape}");
+        // 1 challenge + one series per outcome + 2 post-terminal states + 1 active gauge +, for
+        // each outcome, 11 histogram buckets (including +Inf), sum, and count.
+        let n = super::AuthOutcome::ALL.len();
+        assert_eq!(
+            raw_series.len(),
+            1 + n + 2 + 1 + n * 13,
+            "unexpected raw scrape:\n{scrape}"
+        );
 
         for line in raw_series {
             let keys = label_keys(line);

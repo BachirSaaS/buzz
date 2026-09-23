@@ -1566,7 +1566,12 @@ mod tests {
             max_connection_lifetime_secs: 3600,
         };
 
-        let pool = sqlx::PgPool::connect_lazy(&config.database_url).expect("lazy pg pool");
+        // 100ms acquire timeout: the stub pool must fail fast instead of
+        // waiting out sqlx's 30s default, keeping the unit lane quick.
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .acquire_timeout(std::time::Duration::from_millis(100))
+            .connect_lazy(&config.database_url)
+            .expect("lazy pg pool");
         let db = buzz_db::Db::from_pool(pool.clone());
         let redis_pool = deadpool_redis::Config::from_url(&config.redis_url)
             .create_pool(Some(deadpool_redis::Runtime::Tokio1))
