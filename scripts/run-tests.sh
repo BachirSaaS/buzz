@@ -164,6 +164,21 @@ run_unit_tests() {
 
   run_test_step "buzz-relay storage snapshot tests" \
     cargo test -p buzz-relay --lib storage_sweep::tests:: -- --nocapture
+
+  # Mirror the four audio/FI suites from `just test-unit`'s nextest expression.
+  # These are infra-free (no DB, no Redis); the `#[ignore]`-gated DB witnesses
+  # are excluded by cargo test's default filter. Keep in step with Justfile:461.
+  run_test_step "buzz-relay audio join tests" \
+    cargo test -p buzz-relay --lib audio::join::tests:: -- --nocapture
+
+  run_test_step "buzz-relay audio handler tests" \
+    cargo test -p buzz-relay --lib audio::handler::tests:: -- --nocapture
+
+  run_test_step "buzz-relay NIP-FI gate tests" \
+    cargo test -p buzz-relay --lib nip_fi_gate::tests:: -- --nocapture
+
+  run_test_step "buzz-relay NIP-FI session tests" \
+    cargo test -p buzz-relay --lib nip_fi_session::tests:: -- --nocapture
 }
 
 # ---- DB / integration tests (infra required) --------------------------------

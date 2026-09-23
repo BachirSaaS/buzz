@@ -2584,7 +2584,12 @@ mod tests {
             })
             .await
             .unwrap();
-        let _registered = client.recv_frame().await.unwrap().unwrap();
+        let _registered =
+            tokio::time::timeout(std::time::Duration::from_secs(5), client.recv_frame())
+                .await
+                .expect("abnormal-close: PeerRegistered must arrive within 5 s")
+                .unwrap()
+                .unwrap();
 
         // Fix-B contract: RegisterPeer places the peer in pending_registered —
         // no `joined` is broadcast until CommitConfirmed arrives.
@@ -2618,10 +2623,14 @@ mod tests {
         let remote_index = joined["peer_index"].as_u64().unwrap();
 
         drop(client);
-        served.await.unwrap().unwrap();
-        let left = local_ctrl_rx
-            .recv()
+        tokio::time::timeout(std::time::Duration::from_secs(5), served)
             .await
+            .expect("abnormal-close: served task must complete within 5 s")
+            .unwrap()
+            .unwrap();
+        let left = tokio::time::timeout(std::time::Duration::from_secs(5), local_ctrl_rx.recv())
+            .await
+            .expect("abnormal-close: leave fanout must arrive within 5 s")
             .expect("abnormal-close leave fanout");
         let super::super::room::PeerCtrl::Json(left) = left else {
             panic!("expected left JSON");
@@ -2672,11 +2681,20 @@ mod tests {
             })
             .await
             .unwrap();
-        let _registered = client.recv_frame().await.unwrap().unwrap();
+        let _registered =
+            tokio::time::timeout(std::time::Duration::from_secs(5), client.recv_frame())
+                .await
+                .expect("pending-close: PeerRegistered must arrive within 5 s")
+                .unwrap()
+                .unwrap();
 
         // Close the stream without sending CommitConfirmed.
         drop(client);
-        served.await.unwrap().unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(5), served)
+            .await
+            .expect("pending-close: served task must complete within 5 s")
+            .unwrap()
+            .unwrap();
 
         // The pending slot must be silently removed: no joined, no left.
         assert!(
