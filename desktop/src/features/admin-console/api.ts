@@ -556,17 +556,20 @@ export type AdminRestrictionsPage = {
 };
 
 /**
- * List active bans and timeouts for a community.
+ * List one page of active bans and timeouts for a community. Pass the prior
+ * page's `nextCursor` to continue.
  *
- * GET /api/admin/v1/members/restrictions?communityId={id}
+ * GET /api/admin/v1/members/restrictions?communityId={id}[&cursor={token}]
  */
 export async function listAdminRestrictions(
   origin: string,
   communityId: string,
+  cursor: string | null = null,
 ): Promise<AdminRestrictionsPage> {
   return invokeTauri<AdminRestrictionsPage>("admin_list_restrictions", {
     origin,
     communityId,
+    cursor,
   });
 }
 

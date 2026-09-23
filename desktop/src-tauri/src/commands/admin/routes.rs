@@ -160,6 +160,8 @@ pub struct AdminQuery {
     /// `Some("all")` requests every status; `None` omits the parameter and
     /// uses the relay's escalated-only default.
     pub scope: Option<String>,
+    /// Opaque continuation token from a prior page's `nextCursor`.
+    pub cursor: Option<String>,
 }
 
 impl AdminQuery {
@@ -190,6 +192,9 @@ impl AdminQuery {
         }
         if let Some(v) = &self.scope {
             parts.push(format!("scope={}", urlencoded(v)));
+        }
+        if let Some(v) = &self.cursor {
+            parts.push(format!("cursor={}", urlencoded(v)));
         }
         parts.join("&")
     }
@@ -371,6 +376,16 @@ mod tests {
         };
         let qs = q.to_query_string();
         assert_eq!(qs, "scope=all", "scope=all must serialize; got: {qs}");
+    }
+
+    #[test]
+    fn query_cursor_is_percent_encoded() {
+        let q = AdminQuery {
+            community_id: Some("c".to_string()),
+            cursor: Some("a+b/=".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(q.to_query_string(), "communityId=c&cursor=a%2Bb%2F%3D");
     }
 
     #[test]

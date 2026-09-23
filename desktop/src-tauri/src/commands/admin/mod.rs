@@ -462,6 +462,7 @@ pub async fn admin_list_reports(
         before: query.before,
         limit: query.limit,
         scope: query.scope,
+        cursor: None,
     };
     let url = origin.route_url(&routes::AdminRoute::ReportsList, &q);
     let bytes = fetch_admin_json(&url, SUCCESS_JSON_CAP, &state).await?;
@@ -764,22 +765,21 @@ pub async fn admin_fetch_feedback_attachment(
 
 // ── Member restrictions ───────────────────────────────────────────────────
 
-/// List active bans and timeouts — GET /api/admin/v1/members/restrictions?communityId={uuid}.
+/// List active bans and timeouts — GET /api/admin/v1/members/restrictions?communityId={uuid}[&cursor={token}].
 ///
-/// Returns `{ items: [...], nextCursor: string|null }`. The client always
-/// requests page size 200 (the relay's default) and the UI does not paginate
-/// beyond the first page — more than 200 simultaneous restrictions would
-/// require a dedicated pagination affordance that is out of scope for the
-/// fix round.
+/// Returns `{ items: [...], nextCursor: string|null }`. Pass the previous
+/// page's `nextCursor` as `cursor` to fetch the next page (relay page size 200).
 #[tauri::command]
 pub async fn admin_list_restrictions(
     origin: String,
     community_id: String,
+    cursor: Option<String>,
     state: tauri::State<'_, crate::app_state::AppState>,
 ) -> Result<serde_json::Value, String> {
     let origin = origin::AdminOrigin::parse(&origin)?;
     let q = routes::AdminQuery {
         community_id: Some(community_id),
+        cursor,
         ..Default::default()
     };
     let url = origin.route_url(&routes::AdminRoute::MemberRestrictionsList, &q);

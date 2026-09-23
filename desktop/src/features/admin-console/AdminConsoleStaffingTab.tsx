@@ -227,7 +227,45 @@ function RestrictionsSection({
     }
   };
 
-  const items = listState.status === "ok" ? listState.data.items : [];
+  // Pages past the first, tied to the load generation so any reload (e.g.
+  // after a lift) drops them and restarts from page one.
+  const loadGen = generation + listGen;
+  const [more, setMore] = useState<{
+    gen: number;
+    items: AdminMemberRestrictionDto[];
+    nextCursor: string | null;
+  } | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [moreError, setMoreError] = useState<string | null>(null);
+  const extra = more?.gen === loadGen ? more : null;
+  const items =
+    listState.status === "ok"
+      ? [...listState.data.items, ...(extra?.items ?? [])]
+      : [];
+  const nextCursor =
+    listState.status === "ok"
+      ? extra
+        ? extra.nextCursor
+        : listState.data.nextCursor
+      : null;
+
+  const handleLoadMore = async () => {
+    if (!nextCursor) return;
+    setLoadingMore(true);
+    setMoreError(null);
+    try {
+      const page = await listAdminRestrictions(origin, communityId, nextCursor);
+      setMore({
+        gen: loadGen,
+        items: [...(extra?.items ?? []), ...page.items],
+        nextCursor: page.nextCursor,
+      });
+    } catch (e) {
+      setMoreError(adminErrorMessage(e));
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   return (
     <div className="space-y-2" data-testid="restrictions-section">
@@ -384,6 +422,23 @@ function RestrictionsSection({
             );
           })}
         </ul>
+      )}
+      {moreError && <ErrorMessage message={moreError} />}
+      {nextCursor && (
+        <Button
+          data-testid="restrictions-load-more"
+          disabled={loadingMore}
+          onClick={() => void handleLoadMore()}
+          size="sm"
+          type="button"
+          variant="outline"
+        >
+          {loadingMore ? (
+            <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            "Load more"
+          )}
+        </Button>
       )}
     </div>
   );

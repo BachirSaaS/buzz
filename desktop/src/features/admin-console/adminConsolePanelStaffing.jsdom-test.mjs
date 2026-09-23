@@ -1481,3 +1481,58 @@ test("restrictions-lift-409-treated-as-success: a 409 (already gone) refreshes t
     await unmount();
   }
 });
+
+test("restrictions-load-more: second page is fetched with the cursor and appended", async () => {
+  const origin = "https://admin-restrictions-pages.example.com";
+  const pubkey = "c3".repeat(32);
+  const firstPubkey = "d4".repeat(32);
+  const secondPubkey = "e5".repeat(32);
+  const cursors = [];
+
+  setIpcHandler("admin_list_restrictions", (args) => {
+    cursors.push(args?.cursor ?? null);
+    return Promise.resolve(
+      args?.cursor === "page-2"
+        ? { items: [makeBanRecord(secondPubkey)], nextCursor: null }
+        : { items: [makeBanRecord(firstPubkey)], nextCursor: "page-2" },
+    );
+  });
+
+  const { container, doRender, unmount } = mountStaffingPanel(
+    origin,
+    pubkey,
+    [],
+    { communityId: CM_COMMUNITY_ID },
+  );
+  await doRender();
+  await settle(50);
+
+  try {
+    const row = (pk) =>
+      container.querySelector(`[data-testid='restriction-row-${pk}']`);
+    const loadMore = () =>
+      container.querySelector("[data-testid='restrictions-load-more']");
+    assert.ok(row(firstPubkey), "first page row must render");
+    assert.equal(row(secondPubkey), null, "second page is not loaded yet");
+    assert.ok(loadMore(), "Load more must show while nextCursor is set");
+
+    await act(async () => {
+      fireEvent.click(loadMore());
+    });
+    await settle(50);
+
+    assert.equal(cursors.at(-1), "page-2", "Load more forwards nextCursor");
+    assert.equal(cursors.filter((c) => c !== null).length, 1);
+    assert.ok(row(firstPubkey), "first page row stays");
+    assert.ok(row(secondPubkey), "second page row is appended");
+    assert.ok(
+      container.querySelector(
+        `[data-testid='restrictions-lift-ban-btn-${secondPubkey}']`,
+      ),
+      "a second-page member can be lifted",
+    );
+    assert.equal(loadMore(), null, "Load more hides on the last page");
+  } finally {
+    await unmount();
+  }
+});
