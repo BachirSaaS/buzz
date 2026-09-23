@@ -21,18 +21,11 @@ pub(crate) async fn execute(
         return Outcome::Cancelled;
     }
     let deadline = tokio::time::Instant::now() + duration;
-    let mut acp = match AcpClient::spawn_with_env(
+    let mut acp = match AcpClient::spawn(
         &startup.command,
         &startup.args,
         &startup.extra_env,
         startup.has_generated_codex_config,
-        &[
-            (
-                "BUZZ_PRIVATE_KEY".into(),
-                ctx.agent_keys.secret_key().to_secret_hex(),
-            ),
-            ("BUZZ_RELAY_URL".into(), ctx.relay_url.clone()),
-        ],
     )
     .await
     {

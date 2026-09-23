@@ -1,8 +1,8 @@
 # Local task runner
 
 `buzz-acp run` runs one prepared task in one fresh agent process and ACP session,
-then exits. It replaces the experimental isolated-turn socket interface. It does
-not need a running conversational `buzz-acp` instance.
+then exits. Scripts and automation can use it without starting a conversational
+`buzz-acp` service or sending a chat message.
 
 ```sh
 buzz-acp run --task ./task.json
@@ -63,7 +63,10 @@ verify the document's author. File/stdin input does not need a signature.
 - Apply model, supported effort and permission settings through the existing
   session setup. Unsupported settings retain the existing adapter fallback
   behavior. Pass configured identity and relay to the child and MCP tools; keep
-  the inherited authorization and other launch environment.
+  the inherited authorization and other launch environment. The shared runtime
+  prepares Git identity, scoped credentials, and signing helpers for both task
+  and conversational sessions. Temporary key material lives until adapter
+  cleanup is complete.
 - Submit one prepared task, allowing multiple model/tool exchanges. There is no
   initial-message turn, heartbeat turn, conversation history, automatic channel
   context, or second task. Context must be supplied or fetched with tools.
@@ -114,17 +117,21 @@ Failures include a stable, sanitized `error` code when available, such as
 A killed host or broken stdout can leave no terminal record. A record is not a
 persistent result ledger. Launching the same task twice can execute it twice.
 
-## Future work and separate migration
+## Future work
 
 URL input and task-server retrieval are **not implemented**. URL-shaped sources
 are rejected, not fetched. A future design can GET a supplied URL and validate
 the same task document, with explicit authentication, size/time bounds, and
 redirect rules. This project adds no HTTP task endpoint or job queue.
 
-Janet migration is separate. Its existing prototype socket deployment is not
-updated by building this command. Migrate its caller to one subprocess invocation
-per task; do not use socket dispatch and subprocess launch as uncertain fallbacks
-for one another. The new binary contains no socket listener.
+## Shared runtime ownership
+
+`runtime::AgentRuntime` prepares shared capabilities and owns their lifetime.
+Both entry points obtain adapter configuration and prompt context from it;
+add new shared capabilities there rather than in either entry point. Session
+creation, tool configuration, model/effort/permissions, and legacy prompt
+framing use the existing pool code. Mode-specific code owns task input and
+terminal output or conversational intake and scheduling, not agent equipment.
 
 ## Build and verification
 

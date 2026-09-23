@@ -2,7 +2,7 @@
 use crate::{
     config::{CliArgs, Config},
     isolated_execution::{self, Outcome},
-    PoolStartup,
+    runtime::{AgentRuntime, SessionMode},
 };
 use clap::Parser;
 use serde::{Deserialize, Serialize};
@@ -185,6 +185,17 @@ pub(crate) async fn run() -> i32 {
         signal_task.abort();
         return emit(terminal, 2);
     }
+    // Keep signing material alive until execution has drained and reaped the adapter.
+    let runtime = match AgentRuntime::prepare(config) {
+        Ok(environment) => environment,
+        Err(_) => {
+            terminal.status = "failed";
+            terminal.error = Some("runtime_setup_failed");
+            signal_task.abort();
+            return emit(terminal, 1);
+        }
+    };
+    let config = runtime.config();
     let rest = crate::relay::RestClient {
         http: reqwest::Client::new(),
         base_url: crate::relay::relay_ws_to_http(&config.relay_url),
@@ -193,14 +204,14 @@ pub(crate) async fn run() -> i32 {
             .ok()
             .filter(|s| !s.is_empty()),
     };
-    let ctx = match crate::prompt_context(&config, rest, Default::default(), true) {
+    let ctx = match runtime.prompt_context(rest, Default::default(), SessionMode::Task) {
         Ok(ctx) => ctx,
         Err(_) => {
             terminal.error = Some("invalid_working_directory");
             return emit(terminal, 2);
         }
     };
-    let startup = PoolStartup::single_from_config(&config);
+    let startup = runtime.startup(None);
     let duration = Duration::from_millis(
         task.max_duration_ms
             .min(config.max_turn_duration_secs.saturating_mul(1000)),

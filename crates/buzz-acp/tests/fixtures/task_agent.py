@@ -8,7 +8,8 @@ import time
 mode = os.environ.get("TASK_AGENT_MODE", "normal")
 log = open(os.environ["TASK_AGENT_LOG"], "a", buffering=1)
 log.write(json.dumps({"pid": os.getpid(), "relay": os.environ.get("BUZZ_RELAY_URL"),
-                      "key": os.environ.get("BUZZ_PRIVATE_KEY")}) + "\n")
+                      "key": os.environ.get("BUZZ_PRIVATE_KEY"),
+                      "gitKeyfile": subprocess.check_output(["git", "config", "nostr.keyfile"], text=True).strip()}) + "\n")
 if mode.startswith("descendant"):
     child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
     log.write(json.dumps({"descendant": child.pid}) + "\n")
