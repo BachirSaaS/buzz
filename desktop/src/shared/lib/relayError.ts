@@ -32,3 +32,16 @@ export function isRelayUnreachableError(error: unknown): boolean {
   }
   return false;
 }
+
+/**
+ * Returns true when a relay read hit a deadline: the desktop's own request
+ * timeout (`relay unreachable: request timed out`) or the relay's server-side
+ * statement deadline (`relay returned 503 …: query timed out`). Retrying
+ * either re-runs the same expensive query, so callers should not.
+ */
+export function isQueryDeadlineError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes("request timed out") || message.includes("query timed out")
+  );
+}

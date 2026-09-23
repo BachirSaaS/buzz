@@ -13,6 +13,7 @@ import { getChannelWindowEvents } from "@/shared/api/channelWindow";
 import { getEventById } from "@/shared/api/tauri";
 import type { ChannelPageCursor } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
+import { isQueryDeadlineError } from "@/shared/lib/relayError";
 import { Input } from "@/shared/ui/input";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
 import {
@@ -81,6 +82,9 @@ export function WorkflowMessagePicker({
       );
     },
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    // Window pages run the aux (e-tag) query; retrying a deadline re-runs it.
+    retry: (failureCount, error) =>
+      failureCount < 1 && !isQueryDeadlineError(error),
     staleTime: 30_000,
   });
   const searchQuery = useSearchMessagesQuery(deferredQuery, {

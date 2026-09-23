@@ -48,6 +48,7 @@ import { customEmojiQueryKey } from "@/features/custom-emoji/hooks";
 import { channelsQueryKey } from "@/features/channels/hooks";
 import { reactionEmojiUrl } from "@/shared/api/customEmoji";
 import type { CustomEmoji } from "@/shared/lib/remarkCustomEmoji";
+import { isQueryDeadlineError } from "@/shared/lib/relayError";
 import {
   addReaction,
   deleteMessage,
@@ -310,6 +311,10 @@ export function useChannelMessagesQuery(channel: Channel | null) {
         signal,
       );
     },
+    // Keep the global single retry, except after a query deadline: that
+    // would re-run the same slow window + aux query.
+    retry: (failureCount, error) =>
+      failureCount < 1 && !isQueryDeadlineError(error),
     staleTime: 5 * 60 * 1_000,
     gcTime: 60 * 60 * 1_000,
   });
