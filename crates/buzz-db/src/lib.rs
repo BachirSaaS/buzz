@@ -43,8 +43,8 @@ pub const DB_POOL_ACQUIRE_VALID_PAIRS: [(&str, &str); 11] =
 pub const DB_POOL_ACQUIRE_RAW_SERIES_PER_POD: usize =
     runtime::observability::POOL_ACQUIRE_RAW_SERIES_PER_POD;
 pub(crate) use runtime::{
-    insert_mentions_in_transaction, observability, route_proof, ReadSessionInner, RouteDecision,
-    RoutePredicate,
+    begin_community_event_write_transaction, insert_mentions_in_transaction, observability,
+    route_proof, ReadSessionInner, RouteDecision, RoutePredicate,
 };
 pub use store::{
     admin_moderation, allowlist, api_token, archived_identities, channel, channel_members,
