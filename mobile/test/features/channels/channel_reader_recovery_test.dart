@@ -186,6 +186,24 @@ void main() {
         );
       }
 
+      fakeAsyncTest('resume adopts a head the healthy socket missed', (clock) {
+        relay.stored.add(relay.event(lane.dTag, blob({'a': (true, t)}), t));
+        start(clock);
+        expect(subject.values(), {'a': true});
+        relay.stored.add(
+          relay.event(
+            lane.dTag,
+            blob({'a': (true, t), 'b': (true, t + 1)}),
+            t + 1,
+          ),
+        );
+        subject.refresh();
+        clock.flushMicrotasks();
+        expect(subject.values(), {'a': true, 'b': true});
+        expect(prefs.getString(prefs.getKeys().single), contains('"b"'));
+        expect(relay.reqsFor(lane.dTag, 'l-'), hasLength(1));
+      });
+
       fakeAsyncTest(
         'a read held across a local edit defers instead of overwriting it',
         (clock) {
