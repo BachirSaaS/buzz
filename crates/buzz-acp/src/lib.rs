@@ -2456,6 +2456,7 @@ pub fn run() -> Result<()> {
     {
         Some("git-credential-nostr") => std::process::exit(git_credential_nostr::run()),
         Some("git-sign-nostr") => std::process::exit(git_sign_nostr::run()),
+        Some("git") => std::process::exit(buzz_git_identity::git_wrapper::run()),
         _ => {}
     }
     config::propagate_legacy_env_vars();

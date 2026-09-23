@@ -16,10 +16,16 @@ impl GitEnvironment {
         relay_url: &str,
         executable: &Path,
     ) -> anyhow::Result<Self> {
+        // Read once, here: the wrapper never consults it, so an agent cannot
+        // `export` its way out of enforcement mid-session. An unrecognized value
+        // aborts startup rather than silently picking a mode.
+        let mode = buzz_git_identity::GitIdentityMode::from_env().map_err(anyhow::Error::msg)?;
+        let agent = mode == buzz_git_identity::GitIdentityMode::Agent;
         let dir = tempfile::Builder::new().prefix("buzz-acp-git-").tempdir()?;
         set_owner_only(dir.path())?;
-        for name in ["git-credential-nostr", "git-sign-nostr"] {
-            symlink(executable, &dir.path().join(name))?;
+        symlink(executable, &dir.path().join("git-credential-nostr"))?;
+        if agent {
+            symlink(executable, &dir.path().join("git-sign-nostr"))?;
         }
         let keyfile = dir.path().join(".nostr-key");
         let secret = Zeroizing::new(keys.secret_key().to_secret_hex());
@@ -43,14 +49,24 @@ impl GitEnvironment {
             .map_err(|_| anyhow::anyhow!("invalid Git relay URL"))?;
         relay.set_query(None);
         relay.set_fragment(None);
-        let inherited = inherited_config()?;
-        let display_name = std::env::var("BUZZ_ACP_DISPLAY_NAME").ok();
-        let mut env = build_git_env(
-            &info,
-            relay.as_str().trim_end_matches('/'),
-            display_name.as_deref(),
-            inherited,
-        );
+        let relay = relay.as_str().trim_end_matches('/');
+        // `user` mode keeps only relay auth; its commits carry the operator's
+        // own identity, so no attribution, signing or wrapper is installed.
+        let managed = if agent {
+            let display_name = std::env::var("BUZZ_ACP_DISPLAY_NAME").ok();
+            identity_entries(&info, relay, display_name.as_deref())
+        } else {
+            vec![("nostr.keyfile".into(), info.keyfile_path.clone())]
+        };
+        // The enforcement wrapper re-applies the manifest before exec and
+        // verifies pushes against it; the config block below is built from the
+        // same entries, so the two cannot disagree.
+        #[cfg(unix)]
+        if agent {
+            symlink(executable, &dir.path().join("git"))?;
+            buzz_git_identity::write_identity_manifest(dir.path(), &managed)?;
+        }
+        let mut env = build_git_env(relay, &managed, inherited_config()?);
         let mut paths = vec![dir.path().to_path_buf()];
         paths.extend(std::env::split_paths(
             &std::env::var_os("PATH").unwrap_or_default(),
@@ -212,20 +228,20 @@ fn sanitize_git_user_name(raw: &str) -> Option<String> {
     name.chars().any(|c| !is_git_crud(c)).then_some(name)
 }
 
-/// Compose a complete config block, including the caller's entries, for env-cleared MCP children.
-fn build_git_env(
+/// The agent's attribution and signing config, which is also the enforcement
+/// wrapper's manifest. The fixed signing values come from the contract the
+/// wrapper validates, so the written and checked sets share one definition.
+fn identity_entries(
     info: &KeyInfo,
     relay: &str,
     display_name: Option<&str>,
-    mut entries: Vec<(String, String)>,
 ) -> Vec<(String, String)> {
     let host = url::Url::parse(relay)
         .ok()
         .and_then(|url| url.host_str().map(str::to_owned))
         .filter(|host| !host.starts_with("localhost") && !host.starts_with("127."))
         .unwrap_or_else(|| "buzz".into());
-    let scope = format!("credential.{relay}/git");
-    entries.extend([
+    let mut entries = vec![
         (
             "user.name".into(),
             display_name
@@ -233,18 +249,34 @@ fn build_git_env(
                 .unwrap_or_else(|| info.npub.clone()),
         ),
         ("user.email".into(), format!("{}@{host}", info.pubkey_hex)),
+    ];
+    entries.extend(
+        buzz_git_identity::FIXED_SIGNING_ENTRIES
+            .iter()
+            .map(|&(key, value)| (key.into(), value.into())),
+    );
+    entries.extend([
+        ("user.signingkey".into(), info.pubkey_hex.clone()),
+        ("nostr.keyfile".into(), info.keyfile_path.clone()),
+    ]);
+    entries
+}
+
+/// Compose a complete config block, including the caller's entries, for env-cleared MCP children.
+fn build_git_env(
+    relay: &str,
+    managed: &[(String, String)],
+    mut entries: Vec<(String, String)>,
+) -> Vec<(String, String)> {
+    let scope = format!("credential.{relay}/git");
+    entries.extend([
         // Reset helpers only inside this relay's Git URL namespace. Unrelated
         // remotes retain their own helper chain and never receive this key.
         (format!("{scope}.helper"), String::new()),
         (format!("{scope}.helper"), "nostr".into()),
         (format!("{scope}.useHttpPath"), "true".into()),
-        ("nostr.keyfile".into(), info.keyfile_path.clone()),
-        ("gpg.format".into(), "x509".into()),
-        ("gpg.x509.program".into(), "git-sign-nostr".into()),
-        ("commit.gpgSign".into(), "true".into()),
-        ("tag.gpgSign".into(), "true".into()),
-        ("user.signingkey".into(), info.pubkey_hex.clone()),
     ]);
+    entries.extend_from_slice(managed);
     let mut env = vec![("GIT_CONFIG_COUNT".into(), entries.len().to_string())];
     for (i, (key, value)) in entries.into_iter().enumerate() {
         env.push((format!("GIT_CONFIG_KEY_{i}"), key));
@@ -291,8 +323,8 @@ fn symlink(src: &Path, dst: &Path) -> std::io::Result<()> {
 #[cfg(test)]
 mod git_user_name_tests {
     use super::{
-        build_git_env, is_git_crud, is_unicode_format, sanitize_git_user_name, KeyInfo,
-        MAX_GIT_USER_NAME_CHARS,
+        build_git_env, identity_entries, is_git_crud, is_unicode_format, sanitize_git_user_name,
+        KeyInfo, MAX_GIT_USER_NAME_CHARS,
     };
 
     const PUBKEY_HEX: &str = "dcfd242e557282d7a1e2cf2e6877522682f1e5c6156dc92ca7d90eaedd3b0f95";
@@ -304,6 +336,15 @@ mod git_user_name_tests {
             pubkey_hex: PUBKEY_HEX.into(),
             npub: NPUB.into(),
         }
+    }
+
+    fn git_env(display_name: Option<&str>) -> Vec<(String, String)> {
+        let relay = "https://localhost:3000";
+        build_git_env(
+            relay,
+            &identity_entries(&key_info(), relay, display_name),
+            vec![],
+        )
     }
 
     /// Read a git config value back out of the flat GIT_CONFIG_KEY_n/VALUE_n pairs.
@@ -551,12 +592,7 @@ mod git_user_name_tests {
 
     #[test]
     fn test_build_git_env_uses_display_name_and_leaves_email_on_the_pubkey() {
-        let env = build_git_env(
-            &key_info(),
-            "https://localhost:3000",
-            Some("Duncan"),
-            vec![],
-        );
+        let env = git_env(Some("Duncan"));
 
         assert_eq!(git_config(&env, "user.name").as_deref(), Some("Duncan"));
         // The pubkey — the thing NIP-98 auth, NIP-GS signing, and contributor
@@ -573,7 +609,7 @@ mod git_user_name_tests {
 
     #[test]
     fn test_build_git_env_falls_back_to_npub_when_display_name_unset() {
-        let env = build_git_env(&key_info(), "https://localhost:3000", None, vec![]);
+        let env = git_env(None);
 
         // Without a display name, attribution falls back to the npub.
         assert_eq!(git_config(&env, "user.name").as_deref(), Some(NPUB));
@@ -588,7 +624,7 @@ mod git_user_name_tests {
         // Crud-only and format-only names both reach git as the npub — one
         // would abort every commit, the other would render as blank.
         for raw in ["<>", "\u{200B}"] {
-            let env = build_git_env(&key_info(), "https://localhost:3000", Some(raw), vec![]);
+            let env = git_env(Some(raw));
             assert_eq!(
                 git_config(&env, "user.name").as_deref(),
                 Some(NPUB),
