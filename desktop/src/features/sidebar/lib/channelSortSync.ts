@@ -172,7 +172,7 @@ export class ChannelSortSyncManager {
       // before touching the relay.
       if (this.destroyed) return;
       if (this.isIdenticalToLastPublished(merged)) {
-        this.pendingStore = null;
+        if (this.pendingStore === store) this.pendingStore = null;
         return;
       }
       const payload = {
@@ -204,7 +204,7 @@ export class ChannelSortSyncManager {
       );
       this.recordRemoteHead(event.created_at);
       this.lastPublishedStore = merged;
-      this.pendingStore = null;
+      if (this.pendingStore === store) this.pendingStore = null;
     } catch (error) {
       console.warn("[channelSortSync] publish failed:", error);
     }

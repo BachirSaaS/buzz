@@ -52,6 +52,7 @@ before(async () => {
   mutes = {
     ...(await import("./useChannelMutes.ts")),
     ...(await import("./channelMutesStorage.ts")),
+    ...(await import("./channelMutesSync.ts")),
   };
 });
 
@@ -394,6 +395,120 @@ for (const lane of pendingLanes) {
       () => lane.isLater(lane.ui(result)) && lane.isLater(lane.cache(pk)),
       "recovery stopped polling after the skipped tick",
     );
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Pending ownership: edit A's ACK lands after edit B replaced pending.  A's
+// completion must not clear B's pending, or a recovery read before B's
+// debounce would treat B as published and apply A's head over it.
+// ---------------------------------------------------------------------------
+const perEntry = (lane, name, flag, ids, Manager, read) => ({
+  name,
+  dTag: `channel-${flag === "starred" ? "stars" : "mutes"}`,
+  Manager: () => lane()[Manager],
+  render: (pk) => lane()[name](pk, RELAY),
+  editA: (r) =>
+    r.current[flag === "starred" ? "starChannel" : "muteChannel"]("a"),
+  editB: (r) =>
+    r.current[flag === "starred" ? "starChannel" : "muteChannel"]("b"),
+  ui: (r) => ({
+    channels: Object.fromEntries(
+      [...r.current[ids]].map((id) => [id, { [flag]: true }]),
+    ),
+  }),
+  cache: (pk) => lane()[read](pk),
+  hasB: (s) => s.channels.b?.[flag] === true,
+});
+const ownershipLanes = [
+  ...pendingLanes.map((lane, i) => ({
+    ...lane,
+    editA: lane.edit,
+    editB: [
+      (r) => r.current.createSection("B"),
+      (r) => r.current.setSortModeFor("dms", "recent"),
+    ][i],
+    hasB: [
+      (s) => sectionNames(s).includes("B"),
+      (s) => s.groups.dms === "recent",
+    ][i],
+  })),
+  perEntry(
+    () => stars,
+    "useChannelStars",
+    "starred",
+    "starredChannelIds",
+    "ChannelStarSyncManager",
+    "readChannelStarsStore",
+  ),
+  perEntry(
+    () => mutes,
+    "useChannelMutes",
+    "muted",
+    "mutedChannelIds",
+    "ChannelMuteSyncManager",
+    "readChannelMutesStore",
+  ),
+];
+
+for (const lane of ownershipLanes) {
+  test(`${lane.name} keeps a newer edit pending when an older publish completes`, async (t) => {
+    const pk = `pk-own-${lane.dTag}`;
+    const ackA = deferred();
+    const manager = captureManager(t, lane.Manager());
+    const m = () => manager.current;
+    const pending = () =>
+      (
+        m().getPendingStore ??
+        m().getPendingStarStore ??
+        m().getPendingMuteStore
+      ).call(m());
+    const relay = setup(t, pk, (n) => {
+      if (n <= 2) throw new Error("relay down");
+      return []; // pre-publish own-blob reads
+    });
+    const { result } = renderHook(() => lane.render(pk));
+    await until(() => relay.fetches === 2, "mount reads did not run");
+    await flush();
+
+    relay.publish = () => ackA.promise;
+    await act(async () => lane.editA(result));
+    await tick(t, 2_000); // A's debounce → publishEvent, ACK held
+    await until(() => relay.fetches === 3, "A did not reach publish");
+    await flush();
+    relay.publish = async () => {};
+    await act(async () => lane.editB(result));
+    await act(async () => ackA.resolve());
+    await until(() => relay.published.length === 1, "A was not acknowledged");
+
+    const headA = relay.published[0];
+    relay.fetch = () => [headA];
+    await act(async () => {
+      Object.defineProperty(document, "visibilityState", {
+        value: "visible",
+        configurable: true,
+      });
+      document.dispatchEvent(new dom.window.Event("visibilitychange"));
+    });
+    await flush();
+    assert.ok(
+      pending() && lane.hasB(pending()),
+      "A's completion cleared B's pending",
+    );
+    assert.ok(lane.hasB(lane.ui(result)), "recovery replaced B in the UI");
+    assert.ok(lane.hasB(lane.cache(pk)), "recovery replaced B in the cache");
+
+    await tick(t, 2_000); // B's debounce
+    await until(
+      () => relay.published.length === 2 && !pending(),
+      "B did not publish",
+    );
+    assert.ok(lane.hasB(relay.payload()), "published payload lost B");
+
+    relay.fetch = () => [];
+    const reads = relay.fetches;
+    await tick(t, 60_000);
+    await until(() => relay.fetches > reads, "recovery stopped polling");
   });
 }
 
