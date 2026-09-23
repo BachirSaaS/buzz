@@ -14,6 +14,7 @@ import { Badge } from "@/shared/ui/badge";
 import { cn } from "@/shared/lib/cn";
 import {
   fetchAdminAttachmentBlobUrl,
+  saveAdminAttachment,
   getAdminFeedback,
   listAdminFeedback,
   patchAdminFeedback,
@@ -184,6 +185,7 @@ function AttachmentViewer({
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [error, setError] = useState<AdminAttachmentErrorCode | null>(null);
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const blobUrlRef = useRef<string | null>(null);
   // Per-load generation: incremented when a new load starts AND in cleanup so
   // that unmount or panelGeneration change invalidates any in-flight load.
@@ -269,6 +271,29 @@ function AttachmentViewer({
     }
   }, []); // Empty: fires once on mount; identity boundary and generation fence handle context changes.
 
+  // Save the attachment via the native save dialog — fetches fresh bytes
+  // from the relay and writes them to the user-chosen path. This path is
+  // used for non-image types where `<a download href={blob:}>` is a no-op
+  // in WKWebView.
+  const save = useCallback(async () => {
+    setSaving(true);
+    try {
+      await saveAdminAttachment(
+        origin,
+        feedbackId,
+        attachment.sha256,
+        attachment.mime,
+        attachment.size,
+      );
+    } catch (e) {
+      setError(
+        typeof e === "string" ? (e as AdminAttachmentErrorCode) : String(e),
+      );
+    } finally {
+      setSaving(false);
+    }
+  }, [origin, feedbackId, attachment.sha256, attachment.mime, attachment.size]);
+
   if (error) {
     const friendlyError: Record<string, string> = {
       admin_attachment_too_large: "Attachment exceeds the 10 MiB desktop cap.",
@@ -287,9 +312,8 @@ function AttachmentViewer({
   }
 
   if (!blobUrl) {
-    // For image/* types the load is triggered automatically on mount.
-    // Show only a spinner while in-flight; the "View attachment" button is
-    // for non-image MIME types where the user opts in to loading.
+    // For image/* types the load is triggered automatically on mount; show a
+    // spinner while in-flight.
     if (attachment.mime.startsWith("image/") || loading) {
       return (
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -298,18 +322,40 @@ function AttachmentViewer({
         </div>
       );
     }
+    // Non-image types: offer Save (independent re-fetch via native dialog) and
+    // View (in-memory blob preview, opt-in). Save is always available and
+    // does not require View to be clicked first.
     return (
-      <Button
-        className="gap-1.5"
-        disabled={loading}
-        onClick={() => void load()}
-        size="sm"
-        type="button"
-        variant="outline"
-      >
-        <Download className="h-3.5 w-3.5" />
-        {`View attachment (${attachment.mime})`}
-      </Button>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          className="gap-1.5"
+          disabled={saving}
+          onClick={() => void save()}
+          size="sm"
+          type="button"
+          variant="outline"
+        >
+          {saving ? (
+            <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <>
+              <Download className="h-3.5 w-3.5" />
+              {`Save attachment (${attachment.mime})`}
+            </>
+          )}
+        </Button>
+        <Button
+          className="gap-1.5"
+          disabled={loading}
+          onClick={() => void load()}
+          size="sm"
+          type="button"
+          variant="ghost"
+        >
+          <Download className="h-3.5 w-3.5" />
+          {`View attachment (${attachment.mime})`}
+        </Button>
+      </div>
     );
   }
 
@@ -323,15 +369,25 @@ function AttachmentViewer({
     );
   }
 
+  // blobUrl loaded for non-image: offer save-to-disk.
   return (
-    <a
-      className="flex items-center gap-1.5 text-xs text-primary underline"
-      download={`attachment-${attachment.sha256.slice(0, 8)}`}
-      href={blobUrl}
+    <Button
+      className="gap-1.5"
+      disabled={saving}
+      onClick={() => void save()}
+      size="sm"
+      type="button"
+      variant="outline"
     >
-      <Download className="h-3.5 w-3.5" />
-      Download attachment ({attachment.mime})
-    </a>
+      {saving ? (
+        <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+      ) : (
+        <>
+          <Download className="h-3.5 w-3.5" />
+          {`Save attachment (${attachment.mime})`}
+        </>
+      )}
+    </Button>
   );
 }
 

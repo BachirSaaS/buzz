@@ -658,3 +658,31 @@ export async function fetchAdminAttachmentBlobUrl(
   const blob = new Blob([buffer], { type: expectedMime });
   return URL.createObjectURL(blob);
 }
+
+/**
+ * Save a feedback attachment to a user-chosen path via the native save dialog.
+ *
+ * Fuses relay fetch + save-dialog into one Tauri command so non-image bytes
+ * are never stranded as an in-memory blob URL (WKWebView ignores `<a download>`
+ * on blob: URLs). Returns `true` when the file was written, `false` when the
+ * user cancelled.
+ *
+ * Uses the same validation parameters as `fetchAdminAttachmentBlobUrl`; call
+ * with the `sha256`, `mime`, and `size` values from the server-validated
+ * `imeta` attachment metadata.
+ */
+export async function saveAdminAttachment(
+  origin: string,
+  feedbackId: string,
+  sha256: string,
+  expectedMime: string,
+  expectedSize: number,
+): Promise<boolean> {
+  return invokeTauri<boolean>("admin_save_attachment", {
+    origin,
+    feedbackId,
+    sha256,
+    expectedMime,
+    expectedSize,
+  });
+}

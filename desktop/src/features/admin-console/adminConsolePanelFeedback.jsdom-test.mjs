@@ -704,3 +704,119 @@ test("feedback-status-readonly: read-only detail shows status badge, no status-c
     await unmount();
   }
 });
+
+// ── Item 5: non-image attachment uses native save dialog ──────────────────
+
+test("non-image-attachment-save-button: a non-image attachment shows a Save button and calls admin_save_attachment", async () => {
+  // Non-image attachments must use the native save-dialog path
+  // (admin_save_attachment Tauri command) rather than <a download href={blob:}>,
+  // which is a WKWebView no-op.
+
+  const origin = CM_ORIGIN;
+  const pubkey = CM_PUBKEY;
+  const sha256 = "a1b2c3d4e5f67890".repeat(4); // 64 hex chars
+  const imetaTag = [
+    "imeta",
+    `url https://${origin}/attachments/${sha256}`,
+    "m application/pdf",
+    `x ${sha256}`,
+    "size 2048",
+  ];
+
+  const { summary, detail } = makeFeedbackFixtures({
+    id: "00000000-0000-0000-0000-000000000fa1",
+    bodySummary: "Attachment test feedback",
+    body: "Attachment test feedback full body",
+  });
+  const detailWithAttachment = { ...detail, tags: [imetaTag] };
+
+  setIpcHandler("admin_list_reports", () => Promise.resolve([]));
+  setIpcHandler("admin_list_feedback", () => Promise.resolve([summary]));
+  setIpcHandler("admin_get_feedback", () =>
+    Promise.resolve(detailWithAttachment),
+  );
+
+  let saveArgs = null;
+  setIpcHandler("admin_save_attachment", (args) => {
+    saveArgs = args;
+    return Promise.resolve(true);
+  });
+
+  const { container, doRender, unmount } = mountPanel({ origin, pubkey });
+  try {
+    await doRender();
+    await settle(30);
+
+    // Open Feedback tab.
+    const feedbackTab = container.querySelector(
+      "[data-testid='admin-tab-feedback']",
+    );
+    assert.ok(feedbackTab, "Feedback tab must be present");
+    await act(async () => {
+      fireEvent.click(feedbackTab);
+      await new Promise((r) => setTimeout(r, 30));
+    });
+    await settle(30);
+
+    // Navigate to feedback detail.
+    const allButtons = Array.from(container.querySelectorAll("button"));
+    const itemBtn = allButtons.find(
+      (b) => !(b.getAttribute("data-testid") ?? "").startsWith("admin-tab"),
+    );
+    assert.ok(itemBtn, "feedback item button must exist");
+    await act(async () => {
+      fireEvent.click(itemBtn);
+      await new Promise((r) => setTimeout(r, 30));
+    });
+    await settle(30);
+
+    // The attachment section must be visible.
+    const attachmentSection = container.querySelector("h4");
+    assert.ok(
+      attachmentSection?.textContent?.includes("Attachment"),
+      `Attachments section must render; got: ${container.textContent?.slice(0, 200)}`,
+    );
+
+    // There must be a "Save attachment" button (not an <a> element).
+    const saveBtns = Array.from(container.querySelectorAll("button")).filter(
+      (b) => (b.textContent ?? "").includes("Save attachment"),
+    );
+    assert.ok(
+      saveBtns.length > 0,
+      `"Save attachment" button must render for a non-image attachment; got: ${container.textContent?.slice(0, 400)}`,
+    );
+
+    // No <a download> anchor must exist for non-image attachments.
+    const anchors = container.querySelectorAll("a[download]");
+    assert.equal(
+      anchors.length,
+      0,
+      "no <a download> anchor must exist — non-image attachments use the native save dialog",
+    );
+
+    // Click Save attachment — must call admin_save_attachment with correct params.
+    await act(async () => {
+      fireEvent.click(saveBtns[0]);
+      await new Promise((r) => setTimeout(r, 20));
+    });
+
+    assert.ok(saveArgs !== null, "admin_save_attachment must have been called");
+    assert.equal(
+      saveArgs.sha256,
+      sha256,
+      `save args must include the correct sha256; got: ${JSON.stringify(saveArgs)}`,
+    );
+    assert.equal(
+      saveArgs.expectedMime,
+      "application/pdf",
+      `save args must include the correct MIME type; got: ${JSON.stringify(saveArgs)}`,
+    );
+    assert.equal(
+      saveArgs.expectedSize,
+      2048,
+      `save args must include the correct size; got: ${JSON.stringify(saveArgs)}`,
+    );
+  } finally {
+    await unmount();
+  }
+});

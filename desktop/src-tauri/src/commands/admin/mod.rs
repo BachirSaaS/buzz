@@ -835,19 +835,176 @@ pub async fn admin_lift_timeout(
     Ok(())
 }
 
+/// Save a feedback attachment to a user-chosen path via the native save dialog.
+///
+/// Takes the same parameters as `admin_fetch_feedback_attachment` — the relay
+/// fetch and the save-dialog are fused into one command so non-image bytes are
+/// never left as an in-memory blob URL (a WKWebView no-op for `<a download>`).
+/// Returns `Ok(true)` when the file was written, `Ok(false)` when the user
+/// cancelled the dialog.
+#[tauri::command]
+pub async fn admin_save_attachment(
+    origin: String,
+    feedback_id: String,
+    sha256: String,
+    expected_mime: String,
+    expected_size: u64,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, crate::app_state::AppState>,
+) -> Result<bool, String> {
+    use crate::relay::build_nip98_auth_header_for_keys;
+
+    // Validate inputs before any network activity — mirrors admin_fetch_feedback_attachment.
+    let feedback_id = uuid::Uuid::parse_str(&feedback_id)
+        .map_err(|_| "admin_attachment_invalid_feedback_id".to_string())?;
+    let sha256_hash = routes::AttachmentHash::parse(&sha256)
+        .map_err(|_| "admin_attachment_invalid_hash".to_string())?;
+    if expected_size == 0 {
+        return Err("admin_attachment_invalid_size".to_string());
+    }
+    if expected_size > ATTACHMENT_CAP {
+        return Err("admin_attachment_too_large".to_string());
+    }
+    if expected_mime.is_empty() {
+        return Err("admin_attachment_invalid_mime".to_string());
+    }
+
+    let origin = origin::AdminOrigin::parse(&origin)?;
+    let url = origin.route_url(
+        &routes::AdminRoute::FeedbackAttachment {
+            id: feedback_id,
+            sha256: sha256_hash,
+        },
+        &routes::AdminQuery::default(),
+    );
+
+    let keys = state.signing_keys()?;
+    let http_client = client::ADMIN_CLIENT
+        .get()
+        .ok_or_else(|| "admin client not initialised".to_string())?;
+
+    let auth_header = build_nip98_auth_header_for_keys(&keys, &reqwest::Method::GET, &url, &[])
+        .map_err(|e| format!("nip98 build failed: {e}"))?;
+
+    let resp = http_client
+        .get(&url)
+        .header(reqwest::header::AUTHORIZATION, &auth_header)
+        .send()
+        .await
+        .map_err(|e| {
+            tracing::debug!(error = %e, "admin save_attachment fetch failed");
+            "admin_attachment_network_error".to_string()
+        })?;
+
+    // One retry on 401 with a fresh NIP-98 event.
+    let resp = if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
+        let auth_header2 =
+            build_nip98_auth_header_for_keys(&keys, &reqwest::Method::GET, &url, &[])
+                .map_err(|e| format!("nip98 build failed on retry: {e}"))?;
+        http_client
+            .get(&url)
+            .header(reqwest::header::AUTHORIZATION, auth_header2)
+            .send()
+            .await
+            .map_err(|_| "admin_attachment_network_error".to_string())?
+    } else {
+        resp
+    };
+
+    // Validate + collect bytes (same logic as finish_attachment_response but
+    // returning Vec<u8> directly, since we write to disk rather than IPC).
+    if resp.status().is_redirection() {
+        return Err("admin_attachment_redirect".to_string());
+    }
+    if !resp.status().is_success() {
+        return Err(format!(
+            "admin_attachment_relay_error_{}",
+            resp.status().as_u16()
+        ));
+    }
+
+    // Verify Content-Type.
+    let content_type = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    if content_type != expected_mime.trim().to_ascii_lowercase() {
+        return Err("admin_attachment_mime_mismatch".to_string());
+    }
+
+    // Content-Length preflight.
+    if let Some(cl) = resp.content_length() {
+        if cl > ATTACHMENT_CAP {
+            return Err("admin_attachment_too_large".to_string());
+        }
+        if cl != expected_size {
+            return Err("admin_attachment_size_mismatch".to_string());
+        }
+    }
+
+    // Stream with running byte counter.
+    use futures_util::StreamExt;
+    let mut bytes: Vec<u8> = Vec::new();
+    let mut stream = resp.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|_| "admin_attachment_stream_error".to_string())?;
+        if bytes.len() as u64 + chunk.len() as u64 > ATTACHMENT_CAP {
+            return Err("admin_attachment_too_large".to_string());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    if bytes.len() as u64 != expected_size {
+        return Err("admin_attachment_size_mismatch".to_string());
+    }
+
+    // Derive a suggested filename from the sha256 prefix and MIME subtype.
+    // e.g. "attachment-a1b2c3d4.png" for image/png.
+    let ext = expected_mime
+        .split('/')
+        .nth(1)
+        .unwrap_or("bin")
+        .split('+')
+        .next()
+        .unwrap_or("bin");
+    let suggested = format!("attachment-{}.{}", &sha256[..8], ext);
+    let filter_name = if expected_mime.starts_with("image/") {
+        "Images"
+    } else {
+        "All Files"
+    };
+
+    crate::commands::export_util::save_bytes_with_dialog(
+        &app,
+        &suggested,
+        filter_name,
+        &[ext],
+        &bytes,
+    )
+    .await
+}
+
 // ── Origin storage commands ───────────────────────────────────────────────
 
 /// Core storage logic for `get_admin_origin`, parameterised by data directory
 ///
-/// Reads the per-pubkey JSON file, reparses the stored origin through
+/// Reads the per-pubkey-per-relay JSON file, reparses the stored origin through
 /// `AdminOrigin::parse()`, and returns the canonical string. Returns `None`
 /// when no file exists. On malformed/invalid content, removes the file and
 /// returns `Err` so the caller can surface a visible setup error.
 pub(crate) fn get_admin_origin_core(
     data_dir: &std::path::Path,
     pubkey_hex: &str,
+    relay_slug: &str,
 ) -> Result<Option<String>, String> {
-    let path = data_dir.join(format!("admin-console-origin-{pubkey_hex}.json"));
+    let path = data_dir.join(format!(
+        "admin-console-origin-{pubkey_hex}-{relay_slug}.json"
+    ));
     if !path.exists() {
         return Ok(None);
     }

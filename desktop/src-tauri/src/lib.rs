@@ -883,6 +883,7 @@ pub fn run() {
             admin_list_feedback,
             admin_get_feedback,
             admin_fetch_feedback_attachment,
+            admin_save_attachment,
             admin_resolve_report,
             admin_reopen_report,
             admin_cancel_report,
