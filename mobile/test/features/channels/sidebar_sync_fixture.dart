@@ -25,6 +25,7 @@ class SidebarRelay {
   final _liveSubIds = <String, String>{};
   int historyFailures = 0;
   Completer<void>? holdHistory;
+  Completer<void>? holdOk;
   String? rejectLive;
   bool withholdEose = false;
 
@@ -70,7 +71,11 @@ class SidebarRelay {
       final event = NostrEvent.fromJson(message[1] as Map<String, dynamic>);
       published.add(event);
       stored.add(event);
-      scheduleMicrotask(() => _reply(['OK', event.id, true, '']));
+      final ok = ['OK', event.id, true, ''];
+      final hold = holdOk;
+      hold == null
+          ? scheduleMicrotask(() => _reply(ok))
+          : hold.future.then((_) => _reply(ok));
     }
     if (message.first != 'REQ') return;
     reqs.add(message);

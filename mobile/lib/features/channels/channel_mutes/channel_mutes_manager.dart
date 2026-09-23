@@ -279,8 +279,9 @@ class ChannelMutesManager {
       (createdAt == _lastRemoteCreatedAt &&
           id.compareTo(_lastRemoteEventId ?? '') < 0);
 
-  /// Returns false when a newer head could not be applied and persisted; the
-  /// cursor then stays put so the same head is retried.
+  /// Returns false only when a newer head could not be persisted; the cursor
+  /// then stays put so the same head is retried. An undecodable head is
+  /// skipped without holding startup open.
   Future<bool> _applyEvents(List<NostrEvent> events) async {
     var applied = true;
     for (final event in events) {
@@ -295,7 +296,6 @@ class ChannelMutesManager {
         _store = mergeStores(_store, ChannelMuteStore.fromJson(parsed));
       } catch (error) {
         debugPrint('[ChannelMutesManager] undecodable head: $error');
-        applied = false;
         continue;
       }
       if (!await _persist()) {

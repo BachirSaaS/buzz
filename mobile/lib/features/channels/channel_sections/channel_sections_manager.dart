@@ -469,8 +469,10 @@ class ChannelSectionsManager {
     // No-op suppression: skip if nothing changed
     if (_isIdenticalToLastPublished()) return;
 
+    final submitted = _store;
+    final revision = _localRevision;
     try {
-      final payload = jsonEncode(_store.toJson());
+      final payload = jsonEncode(submitted.toJson());
       final ciphertext = _crypto.encrypt(payload);
       final createdAt = max(currentUnixSeconds(), _lastRemoteCreatedAt + 1);
 
@@ -492,10 +494,17 @@ class ChannelSectionsManager {
       if (signedId != null && _isAfterCursor(createdAt, signedId!)) {
         _lastRemoteCreatedAt = createdAt;
         _lastRemoteEventId = signedId;
+        // A same-second loser merged during the await must not strand the
+        // device on content the relay did not keep.
+        if (revision == _localRevision && !identical(_store, submitted)) {
+          _store = submitted;
+          _persist();
+          if (!_disposed) _onChanged();
+        }
       }
       _lastPublishedStore = ChannelSectionStore(
-        sections: List.of(_store.sections),
-        assignments: Map.of(_store.assignments),
+        sections: List.of(submitted.sections),
+        assignments: Map.of(submitted.assignments),
       );
     } catch (error) {
       debugPrint('[ChannelSectionsManager] publish failed: $error');

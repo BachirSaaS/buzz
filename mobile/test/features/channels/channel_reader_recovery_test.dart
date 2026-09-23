@@ -271,6 +271,14 @@ void main() {
         );
       }
 
+      fakeAsyncTest('an undecodable head does not hold startup open', (clock) {
+        relay.stored.add(relay.event(lane.dTag, 'garbage', t));
+        start(clock);
+        clock.elapse(const Duration(seconds: 70));
+        expect(relay.reqsFor(lane.dTag, 'h-'), hasLength(1));
+        expect(relay.reqsFor(lane.dTag, 'l-'), hasLength(1));
+      });
+
       fakeAsyncTest('resume adopts a head the healthy socket missed', (clock) {
         relay.stored.add(relay.event(lane.dTag, blob({'a': (true, t)}), t));
         start(clock);
@@ -394,6 +402,33 @@ void wholeBlobLanes(SharedPreferences Function() prefs) {
         clock.elapse(const Duration(milliseconds: 20));
         expect(names(), [want]);
       }
+    });
+
+    fakeAsyncTest('a same-second loser merged during the OK wait is undone', (
+      clock,
+    ) {
+      relay.holdOk = Completer<void>();
+      start(clock).createSection('mine');
+      clock.elapse(const Duration(seconds: 5));
+      final own = relay.published.single;
+      final loser = relay.event(
+        'channel-sections',
+        blob('loser'),
+        own.createdAt,
+        id: ''.padLeft(64, 'f'),
+      );
+      relay
+        ..stored.add(loser)
+        ..emit(loser);
+      clock.elapse(const Duration(milliseconds: 20));
+      expect(names(), ['loser']);
+      relay.holdOk!.complete();
+      clock.flushMicrotasks();
+      relay.emit(own);
+      m.refreshFromRelay();
+      clock.elapse(const Duration(milliseconds: 20));
+      expect(names(), ['mine']);
+      expect(prefs().getString(prefs().getKeys().single), contains('"mine"'));
     });
   });
 
