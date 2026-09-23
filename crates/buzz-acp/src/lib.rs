@@ -9279,9 +9279,13 @@ mod build_mcp_servers_tests {
             ("user.name", "Inherited Agent"),
             ("USER.EMAIL", "inherited@example.invalid"),
             ("user.signingKey", "inherited-key"),
+            ("GPG.Format", "openpgp"),
+            ("GPG.x509.PROGRAM", "inherited-signer"),
             ("commit.gpgsign", "true"),
+            ("TAG.GPGSIGN", "true"),
             ("Include.Path", "/tmp/identity.inc"),
             ("INCLUDEIF.gitdir:/.PATH", "/tmp/identity.inc"),
+            ("gpg.X509.program", "distinct-subsection"),
             ("core.abbrev", "12"),
         ];
         std::env::set_var("BUZZ_GIT_IDENTITY", "user");
@@ -9305,27 +9309,42 @@ mod build_mcp_servers_tests {
         let git = git.unwrap();
         config.persona_env_vars.extend(git.env.iter().cloned());
         let servers = build_mcp_servers(&config);
-        let keys: Vec<String> = servers[0]
-            .env
-            .iter()
-            .filter(|entry| entry.name.starts_with("GIT_CONFIG_KEY_"))
-            .map(|entry| entry.value.to_ascii_lowercase())
+        let env = &servers[0].env;
+        let value_of = |name: &str| {
+            env.iter()
+                .find(|entry| entry.name == name)
+                .map(|entry| entry.value.clone())
+        };
+        let count: usize = value_of("GIT_CONFIG_COUNT").unwrap().parse().unwrap();
+        let entries: Vec<(String, String)> = (0..count)
+            .map(|i| {
+                (
+                    value_of(&format!("GIT_CONFIG_KEY_{i}")).unwrap(),
+                    value_of(&format!("GIT_CONFIG_VALUE_{i}")).unwrap(),
+                )
+            })
             .collect();
-        for dropped in [
-            "user.name",
-            "user.email",
-            "user.signingkey",
-            "commit.gpgsign",
-            "include.path",
-            "includeif.gitdir:/.path",
-        ] {
+        for (key, _) in &inherited[..9] {
             assert!(
-                !keys.iter().any(|key| key == dropped),
-                "{dropped} leaked: {keys:?}"
+                !entries.iter().any(|(forwarded, _)| forwarded == key),
+                "{key} leaked: {entries:?}"
             );
         }
-        assert!(keys.iter().any(|key| key == "core.abbrev"), "{keys:?}");
-        assert!(keys.iter().any(|key| key == "nostr.keyfile"), "{keys:?}");
+        for survivor in [
+            ("gpg.X509.program", "distinct-subsection"),
+            ("core.abbrev", "12"),
+        ] {
+            assert!(
+                entries
+                    .iter()
+                    .any(|(key, value)| (key.as_str(), value.as_str()) == survivor),
+                "{survivor:?} must survive unchanged: {entries:?}"
+            );
+        }
+        assert!(
+            entries.iter().any(|(key, _)| key == "nostr.keyfile"),
+            "{entries:?}"
+        );
     }
 
     #[test]

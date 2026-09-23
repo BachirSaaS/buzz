@@ -75,7 +75,7 @@ impl GitEnvironment {
                 !is_config_include(key)
                     && !managed_keys
                         .iter()
-                        .any(|(managed, _)| managed.eq_ignore_ascii_case(key))
+                        .any(|(managed, _)| same_config_key(managed, key))
             });
         }
         let mut env = build_git_env(relay, &managed, inherited);
@@ -120,16 +120,42 @@ fn inherited_config() -> anyhow::Result<Vec<(String, String)>> {
         .collect()
 }
 
+/// Split a Git config key into section, optional subsection and variable. The
+/// subsection is everything between the first and last dot, so it may itself
+/// contain dots.
+fn split_config_key(key: &str) -> Option<(&str, Option<&str>, &str)> {
+    let (section, rest) = key.split_once('.')?;
+    Some(match rest.rsplit_once('.') {
+        Some((subsection, variable)) => (section, Some(subsection), variable),
+        None => (section, None, rest),
+    })
+}
+
+/// Git's key equality: section and variable ignore ASCII case, the subsection
+/// does not.
+fn same_config_key(a: &str, b: &str) -> bool {
+    match (split_config_key(a), split_config_key(b)) {
+        (Some((a_section, a_sub, a_var)), Some((b_section, b_sub, b_var))) => {
+            a_section.eq_ignore_ascii_case(b_section)
+                && a_sub == b_sub
+                && a_var.eq_ignore_ascii_case(b_var)
+        }
+        _ => false,
+    }
+}
+
 /// `include.path` or `includeIf.<condition>.path`: an included file could set
-/// any identity key. Section and variable names are case-insensitive; the
-/// condition subsection may contain dots.
+/// any identity key.
 fn is_config_include(key: &str) -> bool {
-    let (Some((section, _)), Some((_, variable))) = (key.split_once('.'), key.rsplit_once('.'))
-    else {
-        return false;
-    };
-    variable.eq_ignore_ascii_case("path")
-        && (section.eq_ignore_ascii_case("include") || section.eq_ignore_ascii_case("includeIf"))
+    match split_config_key(key) {
+        Some((section, None, variable)) => {
+            section.eq_ignore_ascii_case("include") && variable.eq_ignore_ascii_case("path")
+        }
+        Some((section, Some(_), variable)) => {
+            section.eq_ignore_ascii_case("includeIf") && variable.eq_ignore_ascii_case("path")
+        }
+        None => false,
+    }
 }
 
 /// Write `data` to `path` with 0600 permissions set at creation time via

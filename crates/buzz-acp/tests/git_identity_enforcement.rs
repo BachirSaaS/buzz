@@ -1272,14 +1272,16 @@ absent gpg.format
 absent gpg.x509.program
 absent commit.gpgSign
 absent tag.gpgSign
-test "$(git config core.abbrev)" = 12"#,
+test "$(git config core.abbrev)" = 12
+test "$(git config gpg.X509.program)" = distinct-subsection"#,
         None,
         &[
             ("user.name", "Inherited Agent"),
             ("USER.EMAIL", "inherited@example.invalid"),
             ("user.signingKey", "inherited-key"),
             ("GPG.Format", "openpgp"),
-            ("gpg.x509.program", "inherited-signer"),
+            ("GPG.x509.PROGRAM", "inherited-signer"),
+            ("gpg.X509.program", "distinct-subsection"),
             ("commit.gpgsign", "true"),
             ("TAG.GPGSIGN", "true"),
             ("Include.Path", &include),
