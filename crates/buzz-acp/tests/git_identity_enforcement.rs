@@ -1091,96 +1091,176 @@ fn wrapper_refuses_push_of_commit_validly_signed_by_wrong_key() {
     );
 }
 
-/// I4: the spawn-path wiring — `AcpClient::spawn` → `install_git_identity` —
-/// must actually install the wrapper + manifest onto the agent-runtime child.
-///
-/// The tests above wire their own shim + `.git-identity` manifest, so they stay
-/// green even if the `install_git_identity(&mut cmd)?` call in `spawn` is
-/// deleted. This one drives the REAL `buzz-acp` binary through `buzz-acp models`
-/// (whose spawn path is the code under test) with a script agent that runs a
-/// bare `git commit` in a human-configured repo and records the resulting
-/// author. It passes only when the spawn path installed the wrapper `git` ahead
-/// of real git AND wrote a manifest naming the configured key's identity — so
-/// removing the `install_git_identity` call makes it go RED (the commit lands as
-/// the repo-local human, or fails).
-///
-/// `BUZZ_AUTH_TAG` is cleared so `git-sign-nostr` signs offline (no NIP-OA owner
-/// attestation to verify against a relay); signing itself needs no network.
-#[test]
-fn spawn_path_installs_identity_so_agent_commits_land_agent_authored() {
+/// Run the real `buzz-acp` harness with a script adapter and `BUZZ_GIT_IDENTITY`
+/// set to `mode` (unset for `None`). The adapter runs `probe` in `work`, writes
+/// `done`, and idles until the harness is terminated. Returns the harness exit
+/// status and its log. Isolated from operator Git config so any identity the
+/// probe sees came from the harness.
+fn run_harness(
+    work: &Path,
+    mode: Option<&str>,
+    probe: &str,
+    tmpdir: Option<&Path>,
+) -> (std::process::ExitStatus, String) {
     use std::os::unix::fs::PermissionsExt;
+    use std::time::{Duration, Instant};
 
-    // A configured agent key and its derived author email (the wrapper builds
-    // `<pubkey_hex>@<relay_host>` from BUZZ_RELAY_URL).
-    let keys = nostr::Keys::generate();
-    let nsec = keys.secret_key().to_bech32().unwrap();
-    let pubkey_hex = keys.public_key().to_hex();
-    let expected_email = format!("{pubkey_hex}@relay.test");
-
-    // A human-configured repo with a staged file, ready for one commit.
-    let work = tempfile::tempdir().unwrap();
-    let repo = work.path().join("repo");
-    std::fs::create_dir_all(&repo).unwrap();
-    let g = |args: &[&str]| {
-        assert!(hermetic_command("git")
-            .args(args)
-            .current_dir(&repo)
-            .env("GIT_CONFIG_GLOBAL", "/dev/null")
-            .env("GIT_CONFIG_SYSTEM", "/dev/null")
-            .status()
-            .unwrap()
-            .success());
-    };
-    g(&["init", "-q", "-b", "main"]);
-    g(&["config", "user.name", "Human Dev"]);
-    g(&["config", "user.email", "human@example.com"]);
-    std::fs::write(repo.join("f"), "hi").unwrap();
-    g(&["add", "f"]);
-
-    // Script "agent": commit in the repo using whatever `git` its PATH resolves
-    // (the wrapper, if the spawn path installed it), record the author, exit.
-    let out_file = work.path().join("author.txt");
-    let agent = work.path().join("agent.sh");
+    let adapter = work.join("adapter.sh");
     std::fs::write(
-        &agent,
+        &adapter,
         format!(
-            "#!/usr/bin/env bash\n\
-             cd {repo:?}\n\
-             git commit -m 'agent authored' >/dev/null 2>&1\n\
-             git show -s --format=%ae HEAD > {out:?} 2>/dev/null\n\
-             exit 0\n",
-            repo = repo,
-            out = out_file,
+            "#!/bin/sh\nset -eu\ncd \"$PROBE_DIR\"\n{probe}\nprintf done > done\nexec sleep 60\n"
         ),
     )
     .unwrap();
-    std::fs::set_permissions(&agent, std::fs::Permissions::from_mode(0o755)).unwrap();
-
-    // Drive the real binary. `models` spawns the agent (running install_git_identity),
-    // then fails init (the script exits) — expected; we assert on the side effect.
-    let output = hermetic_command(env!("CARGO_BIN_EXE_buzz-acp"))
+    std::fs::set_permissions(&adapter, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let log = std::fs::File::create(work.join("harness.log")).unwrap();
+    let mut cmd = hermetic_command(env!("CARGO_BIN_EXE_buzz-acp"));
+    cmd.env_clear()
+        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+        .env("PROBE_DIR", work)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
         .args([
-            "models",
+            "--private-key",
+            &nostr::Keys::generate().secret_key().to_secret_hex(),
+            "--relay-url",
+            "wss://relay.test",
             "--agent-command",
-            agent.to_str().unwrap(),
+            adapter.to_str().unwrap(),
             "--agent-args",
             "",
         ])
-        .env("BUZZ_PRIVATE_KEY", &nsec)
-        .env("BUZZ_RELAY_URL", "wss://relay.test")
-        .env_remove("NOSTR_PRIVATE_KEY")
-        .env_remove("BUZZ_AUTH_TAG")
-        .output()
-        .expect("run buzz-acp models");
+        .stdin(std::process::Stdio::null())
+        .stdout(log.try_clone().unwrap())
+        .stderr(log);
+    if let Some(mode) = mode {
+        cmd.env("BUZZ_GIT_IDENTITY", mode);
+    }
+    if let Some(tmpdir) = tmpdir {
+        cmd.env("TMPDIR", tmpdir);
+    }
+    let mut child = cmd.spawn().unwrap();
+    let pid = nix::unistd::Pid::from_raw(child.id() as i32);
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while !work.join("done").exists() && Instant::now() < deadline {
+        if child.try_wait().unwrap().is_some() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    // Always terminate the exact child so a failure leaves no harness behind.
+    nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGTERM).ok();
+    let exit_deadline = Instant::now() + Duration::from_secs(5);
+    while child.try_wait().unwrap().is_none() && Instant::now() < exit_deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    if child.try_wait().unwrap().is_none() {
+        child.kill().unwrap();
+    }
+    let status = child.wait().unwrap();
+    (
+        status,
+        std::fs::read_to_string(work.join("harness.log")).unwrap(),
+    )
+}
 
-    let author = std::fs::read_to_string(&out_file).unwrap_or_default();
-    assert_eq!(
-        author.trim(),
-        expected_email,
-        "spawn path must install the wrapper + manifest so the agent's commit is \
-         authored as the configured key's identity; got {author:?}. models stderr: {}",
-        String::from_utf8_lossy(&output.stderr),
+/// I4: the harness's `GitEnvironment` must put the enforcement wrapper ahead of
+/// real git in the adapter's native shell. The script configures a human
+/// identity in the repo; a bare commit must still land as the agent, and a
+/// `-c user.email=` override must be refused. Removing the wrapper symlink from
+/// the install turns this RED (the commit lands as the human, the override
+/// succeeds).
+#[test]
+fn harness_native_shell_commits_as_agent_and_refuses_identity_override() {
+    let work = tempfile::tempdir().unwrap();
+    let (status, logs) = run_harness(
+        work.path(),
+        None,
+        r#"git init -q -b main repo
+cd repo
+git config user.name 'Human Dev'
+git config user.email human@example.com
+git commit -q --allow-empty -m 'agent authored'
+git show -s --format=%ae HEAD > ../author
+git verify-commit HEAD
+if git -c user.email=human@example.com commit -q --allow-empty -m override 2> ../override-stderr; then
+  echo accepted > ../override
+else
+  echo refused > ../override
+fi
+cd .."#,
+        None,
     );
+    assert!(work.path().join("done").exists(), "probe failed: {logs}");
+    assert!(status.success(), "harness shutdown failed: {logs}");
+    let author = std::fs::read_to_string(work.path().join("author")).unwrap();
+    assert!(
+        author.trim().ends_with("@relay.test") && author.trim().len() == 64 + "@relay.test".len(),
+        "bare commit must be authored by the agent key, got {author:?}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(work.path().join("override"))
+            .unwrap()
+            .trim(),
+        "refused",
+        "stderr: {}",
+        std::fs::read_to_string(work.path().join("override-stderr")).unwrap_or_default()
+    );
+}
+
+/// `user` mode installs only relay credentials: the nostr helper answers for
+/// the relay, but there is no wrapper, no signer, no manifest and no injected
+/// identity, so git resolves the operator's own configuration.
+#[test]
+fn harness_user_mode_installs_only_relay_credentials() {
+    let work = tempfile::tempdir().unwrap();
+    let (status, logs) = run_harness(
+        work.path(),
+        Some("user"),
+        r#"helper=$(command -v git-credential-nostr)
+dir=$(dirname "$helper")
+test "$(git config --get-urlmatch credential.helper https://relay.test/git/o/r)" = nostr
+test -n "$(git config nostr.keyfile)"
+test ! -e "$dir/git"
+test ! -e "$dir/git-sign-nostr"
+test ! -e "$dir/.git-identity"
+test "$(dirname "$(command -v git)")" != "$dir"
+! git config user.name
+! git config user.email
+! git config user.signingkey
+! git config commit.gpgSign"#,
+        None,
+    );
+    assert!(work.path().join("done").exists(), "probe failed: {logs}");
+    assert!(status.success(), "harness shutdown failed: {logs}");
+}
+
+/// An unrecognized mode stops the harness before any adapter runs.
+#[test]
+fn harness_invalid_mode_fails_startup() {
+    let work = tempfile::tempdir().unwrap();
+    let (status, logs) = run_harness(work.path(), Some("usr"), "true", None);
+    assert!(!status.success(), "invalid mode must fail startup: {logs}");
+    assert!(!work.path().join("done").exists(), "adapter ran: {logs}");
+    assert!(
+        logs.contains("BUZZ_GIT_IDENTITY"),
+        "error must name the var: {logs}"
+    );
+}
+
+/// A configured key whose Git install fails stops the harness; the adapter
+/// never runs with the ambient identity.
+#[test]
+fn harness_git_install_failure_fails_startup() {
+    let work = tempfile::tempdir().unwrap();
+    let missing = work.path().join("missing-tmp");
+    let (status, logs) = run_harness(work.path(), None, "true", Some(&missing));
+    assert!(
+        !status.success(),
+        "install failure must fail startup: {logs}"
+    );
+    assert!(!work.path().join("done").exists(), "adapter ran: {logs}");
 }
 
 /// Wes (5055999359) P1 — real-wrapper regression: `--receive-pack` (custom
