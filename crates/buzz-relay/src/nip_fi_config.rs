@@ -408,19 +408,59 @@ mod tests {
         );
     }
 
+    /// A complete, valid Enforce issuer entry. Tests derive negative fixtures
+    /// from it by removing exactly one field.
+    fn valid_enforce_issuer() -> serde_json::Value {
+        serde_json::json!({
+            "issuer": "https://issuer.test",
+            "audiences": ["https://relay.test"],
+            "token_class": "nip-fi+jwt",
+            "algorithms": ["ES256"],
+            "skew_seconds": 30,
+            "maximum_assertion_age_seconds": 3600,
+            "jwks_uri": "https://issuer.test/.well-known/jwks.json",
+            "jwks_refresh_interval_seconds": 300,
+            "jwks_hard_deadline_seconds": 3600
+        })
+    }
+
     #[test]
     fn enforce_without_assertion_age_fails_closed() {
         let _guard = ENV_LOCK.lock().unwrap();
         let _env = EnvGuard::new(NIP_FI_VARS);
-
         std::env::set_var("BUZZ_NIP_FI_MODE", "enforce");
-        std::env::set_var("BUZZ_NIP_FI_ISSUERS", "[{}]"); // will parse but fail on age first
-        std::env::remove_var("BUZZ_NIP_FI_MAXIMUM_ASSERTION_AGE_SECS");
-        let err =
-            NipFiRelayConfig::from_env().expect_err("enforce without age must be a config error");
+        std::env::set_var("BUZZ_NIP_FI_MAX_CONNECTION_LIFETIME_SECS", "3600");
+
+        // Success control: the complete fixture is accepted.
+        let valid = valid_enforce_issuer();
+        std::env::set_var(
+            "BUZZ_NIP_FI_ISSUERS",
+            serde_json::json!([valid]).to_string(),
+        );
+        NipFiRelayConfig::from_env().expect("complete Enforce issuer config must be accepted");
+
+        // Same fixture minus only the per-issuer age bound.
+        let mut missing_age = valid_enforce_issuer();
+        missing_age
+            .as_object_mut()
+            .unwrap()
+            .remove("maximum_assertion_age_seconds");
+        std::env::set_var(
+            "BUZZ_NIP_FI_ISSUERS",
+            serde_json::json!([missing_age]).to_string(),
+        );
+        let err = NipFiRelayConfig::from_env()
+            .expect_err("Enforce issuer without maximum_assertion_age_seconds must fail closed");
+        // The parser deliberately reports only the serde error class (never
+        // the message) so config values cannot leak; with the control above
+        // passing, the one-field difference is what produced this rejection.
+        // It must be the deserialization rejection, not a later policy-build
+        // failure (which a defaulted age would hit instead).
         let msg = err.to_string();
-        // Error will be either JSON parse or missing age var — both non-empty.
-        assert!(!msg.is_empty());
+        assert!(
+            msg.contains("BUZZ_NIP_FI_ISSUERS is not valid JSON: Data"),
+            "missing maximum_assertion_age_seconds must be rejected at deserialization: {msg}"
+        );
     }
 
     #[test]

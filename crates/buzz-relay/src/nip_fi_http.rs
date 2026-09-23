@@ -666,20 +666,77 @@ mod tests {
         assert_eq!(body_bytes(resp), b"authorization unavailable\n");
     }
 
-    // Private-state conditions (AuthorizationDenied) are byte-identical.
-    // Key mismatch and denied pubkey both map to authorization_denied.
+    // Private-state conditions are byte-identical at the admission boundary:
+    // a key-pairing mismatch and a deny-map hit must produce the same status,
+    // headers and body, so a client cannot tell which private state denied it.
+    // A matching-key request with a non-denying map is admitted, proving the
+    // deny-map fixture is what produced the second denial.
     // [FI-TRACE-DENIAL-ORACLE]
     //
-    // Mutation evidence: if key_mismatch path emitted a different class, the
-    // assert_eq on body would diverge.
+    // Mutation evidence: changing the deny-map branch to any other denial
+    // class makes the status/body equality assertion fail.
     #[test]
     fn authorization_denied_rows_are_byte_identical() {
-        let a = body_bytes(http_denial(DenialClass::AuthorizationDenied));
-        // A second call produces the same bytes.
-        let b = body_bytes(http_denial(DenialClass::AuthorizationDenied));
+        use buzz_auth::VerifiedAssertion;
+
+        struct FixedKeyVerifier(PublicKey);
+        impl VerifyAssertion for FixedKeyVerifier {
+            fn verify_assertion(
+                &self,
+                _token: &str,
+            ) -> Result<VerifiedAssertion, buzz_auth::VerifierError> {
+                Ok(VerifiedAssertion::new_for_test(self.0))
+            }
+        }
+        struct FixedDenyMap(bool);
+        impl sealed::Sealed for FixedDenyMap {}
+        impl HttpDenyMap for FixedDenyMap {
+            fn is_denied(&self, _: &str, _: &PublicKey, _: DateTime<Utc>) -> bool {
+                self.0
+            }
+        }
+
+        let pubkey_a = any_pubkey();
+        let pubkey_b = any_pubkey();
+        let verifier = FixedKeyVerifier(pubkey_a);
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            CLIENT_ATTACHED_HEADER,
+            HeaderValue::from_static("Bearer any.valid.looking.token"),
+        );
+        let admit = |proven: PublicKey, deny_map: &FixedDenyMap| {
+            admit_nip_fi_http(
+                &headers,
+                || Ok(Nip98Proof::new(proven, ())),
+                Some(&verifier as &dyn VerifyAssertion),
+                NipFiMode::Enforce,
+                deny_map,
+            )
+        };
+        let snapshot = |resp: Response<Body>| {
+            let status = resp.status();
+            let headers = resp.headers().clone();
+            (status, headers, body_bytes(resp))
+        };
+
+        let Err(mismatch) = admit(pubkey_b, &FixedDenyMap(false)) else {
+            panic!("key mismatch must be denied");
+        };
+        let Err(denied) = admit(pubkey_a, &FixedDenyMap(true)) else {
+            panic!("deny-map hit must be denied");
+        };
+        let mismatch = snapshot(mismatch);
+        assert_eq!(mismatch.0, StatusCode::FORBIDDEN);
+        assert_eq!(mismatch.2, b"authorization denied\n");
         assert_eq!(
-            a, b,
-            "all AuthorizationDenied responses must be byte-identical"
+            mismatch,
+            snapshot(denied),
+            "key-mismatch and deny-map denials must be byte-identical (status, headers, body)"
+        );
+
+        assert!(
+            admit(pubkey_a, &FixedDenyMap(false)).is_ok(),
+            "matching keys with a non-denying map must be admitted"
         );
     }
 
