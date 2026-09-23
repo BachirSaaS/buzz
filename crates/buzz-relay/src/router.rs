@@ -40,16 +40,17 @@ use crate::state::AppState;
 // cryptographically valid signature — or it is denied before reaching the
 // handler.
 //
-// The structural admission authority is `admit_nip_fi_http_on_state` in
-// `nip_fi_http.rs`.  Every protected handler calls it via a NIP-98 extraction
+// The handler-level admission authority is `admit_nip_fi_http_on_state` in
+// `nip_fi_http.rs`.  Protected handlers call it with a NIP-98 extraction
 // closure; it runs NIP-98 extraction → assertion verify → pairing → deny-map
-// in a fixed sequence, and returns a `NipFiAdmission` whose private
-// constructor makes bypass impossible at the type level.
+// and returns a `NipFiAdmission`, which only that function can construct.
+// The private constructor does not force a handler to make the call.
 //
-// This guard is the belt; `admit_nip_fi_http_on_state` is the suspenders.
-// A forgotten-gate handler (one that omits `admit_nip_fi_http_on_state`)
-// cannot admit with an invalidly signed assertion because the guard verifies
-// the JWT signature first.
+// What is guaranteed: this guard verifies the assertion on every non-exempt
+// route.  Key pairing (`asserted_key == proven_pubkey`) and the deny map run
+// only in handlers that call `admit_nip_fi_http_on_state`.  A handler that
+// omits the call and does its own NIP-98 still gets the assertion check, but
+// no pairing and no deny check.
 //
 // ## Adding a new route
 //
@@ -1631,8 +1632,8 @@ mod tests {
     // denied in Enforce mode, even if the handler does NOT call
     // `admit_nip_fi_http_on_state`.  This is the belt — a handler cannot
     // silently bypass NIP-FI by omitting its gate (the guard catches it).
-    // The suspenders are `admit_nip_fi_http_on_state`'s type-level property:
-    // pairing and deny-map mandatory at the handler's call site.
+    // Key pairing and the deny map are NOT covered by this guard: they run
+    // only in handlers that call `admit_nip_fi_http_on_state`.
     //
     // ## Dummy-route failure-mode demonstration (for code review)
     //

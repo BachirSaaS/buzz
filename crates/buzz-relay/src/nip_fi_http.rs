@@ -17,9 +17,9 @@
 //! ## Structural authority
 //!
 //! [`NipFiAdmission`] has a private constructor.  The only way to produce
-//! one is via [`admit_nip_fi_http`].  Handler code that requires a
-//! `NipFiAdmission` to obtain `proven_pubkey` cannot be reached without
-//! executing the full admission sequence.
+//! one is via [`admit_nip_fi_http`].  This does not force a handler to call
+//! it: a handler that skips the call and does its own NIP-98 still passes the
+//! router's assertion guard, but gets no key pairing and no deny-map check.
 //!
 //! ## Carrier / precedence
 //!
@@ -210,14 +210,14 @@ impl<X> NipFiAdmission<X> {
 ///
 /// ## Sequence (per NIP-FI.md §Admission procedure)
 ///
-/// 1. Run `extract_nip98` — the caller's NIP-98 extraction closure.  Returns
+/// 1. DenyProtected mode: unconditional 503, before the `Authorization`
+///    cardinality check, the NIP-98 closure, or the verifier run.
+/// 2. Active modes: reject more than one `Authorization` field (403).
+/// 3. Run `extract_nip98` — the caller's NIP-98 extraction closure.  Returns
 ///    `(proven_pubkey, X)` on success, or a `Response` to emit on failure.
-///    Running NIP-98 first allows the closure to short-circuit (e.g. missing
-///    `Authorization` header) before the more expensive assertion verification.
-/// 2. Off mode: skip assertion steps; return `Ok(NipFiAdmission { proven_pubkey,
-///    assertion: None, extra: X })`.  Off-mode behavior is identical to
-///    pre-NIP-FI (no assertion requirement).  [FI-INV-15]
-/// 3. DenyProtected mode: unconditional 503 regardless of assertion presence.
+///    Off mode returns `Ok(NipFiAdmission { proven_pubkey, assertion: None,
+///    extra: X })` here; Off-mode behavior is identical to pre-NIP-FI (no
+///    assertion requirement).  [FI-INV-15]
 /// 4. Enforce mode: extract `Nostr-Federated-Identity: Bearer <JWS>`.
 /// 5. Verify assertion (signature, issuer, expiry, claims).
 /// 6. Assert `assertion.asserted_key == proven_pubkey`.  [FI-INV-05]
@@ -235,16 +235,17 @@ impl<X> NipFiAdmission<X> {
 /// In Off mode the legacy response is returned unchanged ([FI-INV-15]).
 /// [FI-TRACE-DENIAL-ORACLE]
 ///
-/// ## Bypass impossibility
+/// ## What the private constructor guarantees
 ///
-/// [`NipFiAdmission`] has a private constructor.  The only source of a
-/// `NipFiAdmission` value is this function.  A handler that skips this call
-/// has no `NipFiAdmission` and cannot obtain `proven_pubkey` through the
-/// NIP-FI admission channel.
+/// [`NipFiAdmission`] has a private constructor, so the only source of a
+/// `NipFiAdmission` value is this function.  It does not force a handler to
+/// call this function: a handler that skips it and runs its own NIP-98 still
+/// passes the router's assertion guard (which verifies the assertion on every
+/// non-exempt route) but gets no key pairing and no deny-map check.
 ///
 /// ## Off-mode semantics
 ///
-/// The NIP-98 closure is always called (steps 1–2).  In Off mode the closure
+/// In Off mode the NIP-98 closure is always called (step 3).  In Off mode the closure
 /// result still gates entry — if NIP-98 auth is required for non-NIP-FI
 /// reasons (e.g. `require_auth_token`), the closure encodes that.  NIP-FI
 /// layers (assertion/pairing/deny) are skipped entirely.
@@ -265,7 +266,14 @@ where
     D: HttpDenyMap,
     F: FnOnce() -> Result<Nip98Proof<X>, Response<Body>>,
 {
-    // Cardinality gate: active (non-Off) modes require exactly one Authorization
+    // Step 1 — DenyProtected mode: unconditional 503.  Checked first so no
+    // request shape (duplicate, missing, or invalid `Authorization`) can turn
+    // it into a 401/403, and so neither NIP-98 nor the verifier runs.
+    if matches!(mode, NipFiMode::DenyProtected) {
+        return Err(http_denial(DenialClass::AuthorizationUnavailable));
+    }
+
+    // Step 2 — cardinality gate: active (non-Off) modes require exactly one Authorization
     // field per NIP-FI.md:695-700.  Off mode preserves legacy first-value behavior
     // (`.get()` silently takes the first) so no regression for Off deployments.
     //
@@ -281,10 +289,10 @@ where
         }
     }
 
-    // Step 1: run NIP-98 extraction.  Always runs regardless of mode.
+    // Step 3: run NIP-98 extraction (Off and Enforce).
     let nip98_result = extract_nip98();
 
-    // Step 2 — Off mode: NIP-FI not required.  Return admission immediately.
+    // Off mode: NIP-FI not required.  Return admission immediately.
     // The NIP-98 closure already enforced whatever auth the surface required.
     // [FI-INV-15 exemption]
     if matches!(mode, NipFiMode::Off) {
@@ -300,7 +308,7 @@ where
         });
     }
 
-    // Active mode (Enforce or DenyProtected): NIP-98 closure failure MUST
+    // Enforce mode: NIP-98 closure failure MUST
     // produce a NIP-FI DenialClass response, not a legacy JSON error.
     // [NIP-FI.md §Admission procedure step 3; FI-TRACE-DENIAL-ORACLE]
     let Nip98Proof {
@@ -317,11 +325,6 @@ where
         };
         http_denial(class)
     })?;
-
-    // Step 3 — DenyProtected mode: unconditional 503.
-    if matches!(mode, NipFiMode::DenyProtected) {
-        return Err(http_denial(DenialClass::AuthorizationUnavailable));
-    }
 
     // Steps 4–8 — Enforce mode.
 
@@ -844,27 +847,89 @@ mod tests {
 
     // ── admit_nip_fi_http — deny_protected ───────────────────────────────────
 
-    // DenyProtected → Err(503 authorization_unavailable).
+    // DenyProtected → Err(503 authorization unavailable) for every request
+    // shape, without running the NIP-98 closure or the verifier.
     //
-    // Mutation evidence: returning Ok from deny_protected mode makes
-    // `unwrap_err()` panic.
+    // Mutation evidence: moving the DenyProtected check below the cardinality
+    // gate makes the duplicate case return 403 (status assertion fails);
+    // moving it below the closure makes the failed-closure case return 403 and
+    // the closure counter non-zero.
     #[test]
-    fn deny_protected_returns_503() {
-        let headers = HeaderMap::new();
-        let pubkey = any_pubkey();
-        let outcome = admit_nip_fi_http(
-            &headers,
-            || Ok(Nip98Proof::new(pubkey, ())),
-            None::<&dyn VerifyAssertion>,
-            NipFiMode::DenyProtected,
-            &AlwaysAdmitStubDenyMap,
-        );
-        match outcome {
-            Err(resp) => {
-                assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
-                assert_eq!(body_bytes(resp), b"authorization unavailable\n");
+    fn deny_protected_returns_503_before_nip98_or_verifier() {
+        use std::cell::Cell;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        struct CountingVerifier(AtomicUsize);
+        impl VerifyAssertion for CountingVerifier {
+            fn verify_assertion(
+                &self,
+                _token: &str,
+            ) -> Result<VerifiedAssertion, buzz_auth::VerifierError> {
+                self.0.fetch_add(1, Ordering::SeqCst);
+                Ok(VerifiedAssertion::new_for_test(any_pubkey()))
             }
-            _ => panic!("DenyProtected must deny with 503"),
+        }
+
+        let auth = |headers: &mut HeaderMap, value: &'static str| {
+            headers.append("authorization", HeaderValue::from_static(value));
+        };
+        let mut duplicate = HeaderMap::new();
+        auth(&mut duplicate, "Nostr first");
+        auth(&mut duplicate, "Nostr second");
+        let missing = HeaderMap::new();
+        let mut present = HeaderMap::new();
+        auth(&mut present, "Nostr invalid");
+
+        // (case, headers, closure succeeds)
+        let cases: [(&str, &HeaderMap, bool); 4] = [
+            ("duplicate Authorization", &duplicate, true),
+            ("missing Authorization", &missing, false),
+            ("failed NIP-98 closure", &present, false),
+            ("successful NIP-98 closure", &present, true),
+        ];
+        for (case, headers, closure_ok) in cases {
+            let closure_calls = Cell::new(0u32);
+            let verifier = CountingVerifier(AtomicUsize::new(0));
+            let outcome = admit_nip_fi_http::<_, (), _>(
+                headers,
+                || {
+                    closure_calls.set(closure_calls.get() + 1);
+                    if closure_ok {
+                        Ok(Nip98Proof::new(any_pubkey(), ()))
+                    } else {
+                        Err(Response::builder()
+                            .status(StatusCode::UNAUTHORIZED)
+                            .body(Body::from("legacy"))
+                            .unwrap())
+                    }
+                },
+                Some(&verifier as &dyn VerifyAssertion),
+                NipFiMode::DenyProtected,
+                &AlwaysAdmitStubDenyMap,
+            );
+            let Err(resp) = outcome else {
+                panic!("{case}: DenyProtected must deny with 503");
+            };
+            assert_eq!(
+                resp.status(),
+                StatusCode::SERVICE_UNAVAILABLE,
+                "{case}: DenyProtected status"
+            );
+            assert_eq!(
+                body_bytes(resp),
+                b"authorization unavailable\n",
+                "{case}: DenyProtected body"
+            );
+            assert_eq!(
+                closure_calls.get(),
+                0,
+                "{case}: NIP-98 closure must not run"
+            );
+            assert_eq!(
+                verifier.0.load(Ordering::SeqCst),
+                0,
+                "{case}: verifier must not run"
+            );
         }
     }
 
