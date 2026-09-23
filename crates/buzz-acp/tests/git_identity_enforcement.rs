@@ -2584,9 +2584,13 @@ fn wrapper_refuses_push_plain_last_wins_alt_binary() {
         alt_supports_subsection != ProbeVerdict::Failure,
         "alt-git subsection probe failed (setup/spawn/timeout/unclassifiable)"
     );
+    let primary_supports_subsection = isolated_subsection_probe();
+    assert!(
+        primary_supports_subsection != ProbeVerdict::Failure,
+        "primary-git subsection probe failed (setup/spawn/timeout/unclassifiable)"
+    );
     assert_ne!(
-        alt_supports_subsection,
-        isolated_subsection_probe(),
+        alt_supports_subsection, primary_supports_subsection,
         "prerequisite: two git installations with DIFFERENT subsection-alias capability"
     );
     eprintln!(

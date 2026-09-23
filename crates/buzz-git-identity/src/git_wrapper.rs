@@ -5936,23 +5936,48 @@ mod tests {
             .trim()
             .parse()
             .unwrap();
-        let reap_deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-        let gone = loop {
-            // SAFETY: signal 0 only checks existence; `pid` is the sleeper we spawned.
-            if unsafe { libc::kill(pid, 0) } != 0
-                && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
-            {
-                break true;
+        // The sleeper is reparented once the shell exits, so its reaping belongs
+        // to init or a subreaper on no fixed schedule. Termination is the
+        // property under test: accept an absent PID or a zombie, and fail on
+        // any live state.
+        let state_deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        let terminated = loop {
+            match process_state(pid) {
+                None => break true,
+                Some(state) if state.starts_with('Z') => break true,
+                Some(state) if std::time::Instant::now() >= state_deadline => {
+                    eprintln!("sleeper {pid} still in state {state:?}");
+                    break false;
+                }
+                Some(_) => std::thread::sleep(std::time::Duration::from_millis(20)),
             }
-            if std::time::Instant::now() >= reap_deadline {
-                break false;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(20));
         };
         assert!(
-            gone,
+            terminated,
             "descendant sleeper {pid} must be killed when the runner returns"
         );
+    }
+
+    /// The kernel run state of `pid` (`R`, `S`, `Z`, ...), or `None` once the
+    /// PID no longer exists.
+    #[cfg(target_os = "linux")]
+    fn process_state(pid: libc::pid_t) -> Option<String> {
+        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+        // `comm` is parenthesized and may contain spaces; the state follows it.
+        let state = stat.rsplit_once(')')?.1.split_whitespace().next()?;
+        Some(state.to_owned())
+    }
+
+    /// The `ps` process state of `pid` (`R`, `S`, `Z`, ...), or `None` once the
+    /// PID no longer exists.
+    #[cfg(all(unix, not(target_os = "linux")))]
+    fn process_state(pid: libc::pid_t) -> Option<String> {
+        let out = std::process::Command::new("ps")
+            .args(["-o", "stat=", "-p", &pid.to_string()])
+            .output()
+            .expect("ps must be available to inspect the sleeper");
+        let state = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+        (!state.is_empty()).then_some(state)
     }
 
     /// A child that backgrounds a grandchild calling `setsid()` (escaping the
