@@ -248,11 +248,7 @@ fn invalid_input_never_spawns() {
         command.args(["--task", source]);
         terminal(&wait(command.spawn().unwrap()), 2, "invalid");
     }
-    for bytes in [
-        b"{} {}".to_vec(),
-        b"{".to_vec(),
-        vec![b' '; 1024 * 1024 + 1],
-    ] {
+    for bytes in [b"{} {}".to_vec(), b"{".to_vec()] {
         let mut command = f.command();
         command.args(["--task", "-"]);
         let mut child = command.spawn().unwrap();
@@ -260,6 +256,90 @@ fn invalid_input_never_spawns() {
         terminal(&wait(child), 2, "invalid");
     }
     assert!(f.wire().is_empty());
+}
+
+#[test]
+fn oversized_file_and_stdin_report_task_too_large_before_spawn() {
+    let f = Fixture::new();
+    let bytes = vec![b' '; 1024 * 1024 + 1];
+    fs::write(f.dir.join("oversized.json"), &bytes).unwrap();
+    for stdin in [false, true] {
+        let mut command = f.command();
+        command.arg("--task").arg(if stdin {
+            PathBuf::from("-")
+        } else {
+            f.dir.join("oversized.json")
+        });
+        let mut child = command.spawn().unwrap();
+        if stdin {
+            child.stdin.take().unwrap().write_all(&bytes).unwrap();
+        }
+        let result = terminal(&wait(child), 2, "invalid");
+        assert_eq!(result["error"], "task_too_large");
+        assert_eq!(result["taskId"], Value::Null);
+        assert!(f.wire().is_empty());
+    }
+}
+
+#[test]
+fn blocked_configuration_reads_are_cancellable_and_bounded() {
+    use nix::{
+        sys::signal::{kill, Signal},
+        unistd::Pid,
+    };
+    use std::os::unix::fs::OpenOptionsExt;
+
+    for flag in ["--system-prompt-file", "--base-prompt-file"] {
+        for signal in [Some(Signal::SIGINT), Some(Signal::SIGTERM), None] {
+            let f = Fixture::new();
+            let fifo = f.dir.join("prompt.fifo");
+            assert!(Command::new("mkfifo")
+                .arg(&fifo)
+                .status()
+                .unwrap()
+                .success());
+            let started = Instant::now();
+            let child = f
+                .command()
+                .arg(flag)
+                .arg(&fifo)
+                .args(["--no-memory", "--task", "-"])
+                .spawn()
+                .unwrap();
+            // A successful nonblocking writer open proves Config has opened
+            // this FIFO for reading. Hold it without data, so read_to_string
+            // cannot finish. No sleep-based assumption about startup readiness.
+            let until = Instant::now() + Duration::from_secs(5);
+            let writer = loop {
+                match fs::OpenOptions::new()
+                    .write(true)
+                    .custom_flags(nix::libc::O_NONBLOCK)
+                    .open(&fifo)
+                {
+                    Ok(writer) => break writer,
+                    Err(error) if error.raw_os_error() == Some(nix::libc::ENXIO) => {
+                        assert!(Instant::now() < until, "configuration never opened FIFO");
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(error) => panic!("FIFO writer: {error}"),
+                }
+            };
+            if let Some(signal) = signal {
+                let signalled = Instant::now();
+                kill(Pid::from_raw(child.id() as i32), signal).unwrap();
+                let code = if signal == Signal::SIGINT { 130 } else { 143 };
+                let result = terminal(&wait(child), code, "cancelled");
+                assert_eq!(result["taskId"], Value::Null);
+                assert!(signalled.elapsed() < Duration::from_secs(3));
+            } else {
+                let result = terminal(&wait(child), 2, "invalid");
+                assert_eq!(result["error"], "configuration_timeout");
+                assert!(started.elapsed() < Duration::from_secs(15));
+            }
+            drop(writer);
+            assert!(f.wire().is_empty());
+        }
+    }
 }
 
 #[test]
@@ -384,61 +464,51 @@ fn signals_cancel_startup_turn_and_pending_stdin_without_hanging() {
     }
 }
 
-#[test]
-fn memory_is_loaded_before_session_and_opt_out_makes_no_request() {
-    use std::{
-        io::Read,
-        net::TcpListener,
-        sync::{
-            atomic::{AtomicUsize, Ordering},
-            Arc,
-        },
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn memory_is_loaded_before_session_and_opt_out_makes_no_request() {
+    use axum::{body::Bytes, http::HeaderMap, routing::post, Router};
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
     };
+
     for (body, expected) in [("[]", true), ("not-json", false)] {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        listener.set_nonblocking(true).unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("ws://{}", listener.local_addr().unwrap());
         let calls = Arc::new(AtomicUsize::new(0));
         let observed = calls.clone();
-        let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let stop = done.clone();
-        let server = std::thread::spawn(move || {
-            while !stop.load(Ordering::SeqCst) {
-                if let Ok((mut stream, _)) = listener.accept() {
-                    stream
-                        .set_read_timeout(Some(Duration::from_secs(2)))
-                        .unwrap();
-                    let mut request = Vec::new();
-                    let mut byte = [0];
-                    while !request.ends_with(b"\r\n\r\n") {
-                        stream.read_exact(&mut byte).unwrap();
-                        request.push(byte[0]);
+        let unexpected = Arc::new(AtomicUsize::new(0));
+        let rejected = unexpected.clone();
+        // Use the real HTTP parser rather than byte-wise timed socket reads.
+        // Idle connections and partial packets cannot block another request.
+        let app = Router::new()
+            .route(
+                "/query",
+                post(move |headers: HeaderMap, bytes: Bytes| {
+                    let observed = observed.clone();
+                    async move {
+                        assert!(headers["authorization"]
+                            .to_str()
+                            .unwrap()
+                            .starts_with("Nostr "));
+                        assert!(String::from_utf8(bytes.to_vec()).unwrap().contains("30174"));
+                        observed.fetch_add(1, Ordering::SeqCst);
+                        body
                     }
-                    let headers = String::from_utf8(request).unwrap();
-                    assert!(
-                        headers.starts_with("POST /query "),
-                        "unexpected service access: {headers}"
-                    );
-                    assert!(headers.to_lowercase().contains("authorization: nostr "));
-                    let len: usize = headers
-                        .lines()
-                        .find_map(|s| {
-                            s.to_lowercase()
-                                .strip_prefix("content-length: ")
-                                .map(str::to_owned)
-                        })
-                        .unwrap()
-                        .parse()
-                        .unwrap();
-                    let mut bytes = vec![0; len];
-                    stream.read_exact(&mut bytes).unwrap();
-                    assert!(String::from_utf8(bytes).unwrap().contains("30174"));
-                    observed.fetch_add(1, Ordering::SeqCst);
-                    write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();
-                } else {
-                    std::thread::sleep(Duration::from_millis(5));
-                }
-            }
+                }),
+            )
+            .fallback(move || {
+                rejected.fetch_add(1, Ordering::SeqCst);
+                async { axum::http::StatusCode::NOT_FOUND }
+            });
+        let (stop, stopped) = tokio::sync::oneshot::channel();
+        let mut server = tokio::spawn(async move {
+            axum::serve(listener, app)
+                .with_graceful_shutdown(async {
+                    let _ = stopped.await;
+                })
+                .await
+                .unwrap();
         });
         for disabled in [false, true] {
             let f = Fixture::new();
@@ -491,7 +561,19 @@ fn memory_is_loaded_before_session_and_opt_out_makes_no_request() {
                 expected && !disabled
             );
         }
-        done.store(true, Ordering::SeqCst);
-        server.join().unwrap();
+        assert_eq!(
+            unexpected.load(Ordering::SeqCst),
+            0,
+            "unexpected service access"
+        );
+        stop.send(()).unwrap();
+        match tokio::time::timeout(Duration::from_secs(2), &mut server).await {
+            Ok(result) => result.unwrap(),
+            Err(_) => {
+                server.abort();
+                let _ = server.await;
+                panic!("memory server did not drain");
+            }
+        }
     }
 }

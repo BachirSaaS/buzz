@@ -142,12 +142,8 @@ pub(crate) async fn run() -> i32 {
     args.launch.heartbeat_prompt = None;
     args.launch.heartbeat_prompt_file = None;
     args.launch.turn_liveness_secs = 0;
-    let config = match Config::from_args(args.launch) {
-        Ok(config) if config.max_turn_duration_secs > 0 => config,
-        _ => return emit(Terminal::new("invalid", Some("invalid_configuration")), 2),
-    };
     let (signal_tx, mut signal_rx) = tokio::sync::oneshot::channel();
-    // Register signal handlers before reading input or spawning the adapter.
+    // Register before configuration: launch prompt files can also block on I/O.
     #[cfg(unix)]
     let signals = (
         tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt()),
@@ -166,6 +162,27 @@ pub(crate) async fn run() -> i32 {
         let _ = tokio::signal::ctrl_c().await;
         let _ = signal_tx.send(130);
     });
+    // Config owns synchronous prompt-file reads. Keep them off the async worker
+    // so signals and the preparation bound remain live, including for FIFOs.
+    // This worker only builds configuration; it cannot spawn an agent or create
+    // runtime resources. On cancellation/timeout the CLI's bounded runtime
+    // shutdown and process exit also retire a still-blocked read.
+    let configuration = tokio::task::spawn_blocking(move || Config::from_args(args.launch));
+    let config = tokio::select! {
+        biased;
+        code = &mut signal_rx => return emit(Terminal::new("cancelled", None), code.unwrap_or(1)),
+        result = tokio::time::timeout(INPUT_TIMEOUT, configuration) => match result {
+            Ok(Ok(Ok(config))) if config.max_turn_duration_secs > 0 => config,
+            Err(_) => {
+                signal_task.abort();
+                return emit(Terminal::new("invalid", Some("configuration_timeout")), 2);
+            }
+            _ => {
+                signal_task.abort();
+                return emit(Terminal::new("invalid", Some("invalid_configuration")), 2);
+            }
+        },
+    };
     let task = tokio::select! {
         biased;
         code = &mut signal_rx => return emit(Terminal::new("cancelled", None), code.unwrap_or(1)),

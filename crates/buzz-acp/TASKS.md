@@ -80,6 +80,11 @@ verify the document's author. File/stdin input does not need a signature.
 - Do not automatically publish final text. Use task reporting instructions and
   tools. Do not retry the task after failure, timeout, or uncertain execution.
 
+Launch configuration preparation (including prompt-file reads) has a separate
+ten-second bound. A blocked configuration read reports `configuration_timeout`
+with exit 2; SIGINT/SIGTERM during that read reports `cancelled` with exit
+130/143 and a null `taskId`. No adapter is started during this phase.
+
 The execution deadline covers adapter startup, memory loading, session setup,
 and the task turn. SIGINT/SIGTERM cancel the invocation. If a prompt is active,
 allow up to five seconds for cooperative cancellation, then kill and reap the
