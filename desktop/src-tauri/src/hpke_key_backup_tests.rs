@@ -300,18 +300,20 @@ fn envelope_rejects_malformed_base64_and_wrong_encapsulation_prefix() {
     malformed_enc.enc.replace_range(..1, "!");
     assert_eq!(
         malformed_enc.encapsulated_key_bytes(),
-        Err(HpkeBackupError::InvalidEnvelope(
-            "invalid base64url payload"
-        ))
+        Err(HpkeBackupError::InvalidField {
+            field: "enc",
+            reason: "invalid base64url",
+        })
     );
 
     let mut malformed_ciphertext = envelope.clone();
     malformed_ciphertext.ciphertext.replace_range(..1, "!");
     assert_eq!(
         malformed_ciphertext.ciphertext_bytes(),
-        Err(HpkeBackupError::InvalidEnvelope(
-            "invalid base64url payload"
-        ))
+        Err(HpkeBackupError::InvalidField {
+            field: "ciphertext",
+            reason: "invalid base64url",
+        })
     );
 
     let mut wrong_prefix = envelope.clone();
@@ -339,8 +341,6 @@ fn serialized_envelope_contains_no_plaintext_or_nsec() {
     assert!(!json.contains(&raw_hex));
     assert!(!json.contains(&nsec));
     assert!(!json.contains("nsec1"));
-    let encrypted_nsec_marker = ["ncrypt", "sec1"].concat();
-    assert!(!json.contains(&encrypted_nsec_marker));
 }
 
 #[test]

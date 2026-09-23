@@ -57,7 +57,7 @@ const CIPHERTEXT_BASE64URL_LEN: usize = 64;
 /// Error values never contain secret-key bytes or plaintext.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HpkeBackupError {
-    /// A trusted-enrollment field did not satisfy the v1 wire contract.
+    /// An enrollment or envelope field did not satisfy the v1 wire contract.
     InvalidField {
         /// Name of the invalid field.
         field: &'static str,
@@ -369,7 +369,10 @@ fn decode_canonical_base64(
     }
     let decoded = URL_SAFE_NO_PAD
         .decode(value)
-        .map_err(|_| HpkeBackupError::InvalidEnvelope("invalid base64url payload"))?;
+        .map_err(|_| HpkeBackupError::InvalidField {
+            field,
+            reason: "invalid base64url",
+        })?;
     if decoded.len() != expected_decoded_len {
         return Err(HpkeBackupError::InvalidField {
             field,
