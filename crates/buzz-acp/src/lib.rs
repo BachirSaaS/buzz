@@ -8,6 +8,7 @@ mod acp;
 mod config;
 mod engram_fetch;
 mod filter;
+mod isolated_execution;
 mod observer;
 mod pool;
 mod pool_lifecycle;
@@ -15,6 +16,7 @@ mod prompt_framing;
 mod prompt_project;
 mod queue;
 mod relay;
+mod run_task;
 mod scope;
 mod setup_mode;
 mod usage;
@@ -2459,6 +2461,14 @@ pub fn run() -> Result<()> {
         _ => {}
     }
     config::propagate_legacy_env_vars();
+    if is_subcommand("run") {
+        let runtime = tokio::runtime::Runtime::new()?;
+        let code = runtime.block_on(run_task::run());
+        // stdin/file reads can leave a blocking worker pending (for example an
+        // open pipe). Bound runtime shutdown; process exit retires those workers.
+        runtime.shutdown_timeout(Duration::from_millis(100));
+        std::process::exit(code);
+    }
     tokio_main()
 }
 
@@ -2500,7 +2510,10 @@ async fn tokio_main() -> Result<()> {
         return run_authenticate(args).await;
     }
 
+    // Stdout is the ACP transport when buzz-acp is launched as an agent command.
+    // Keep every harness diagnostic on stderr so logging can never corrupt NDJSON.
     tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("buzz_acp=info")),
         )
@@ -2822,47 +2835,12 @@ async fn run_harness(
         );
     }
 
-    let base_prompt_content = config.base_prompt_content.take();
-    let cwd = current_working_directory()?;
-    let ctx = Arc::new(PromptContext {
-        mcp_servers: build_mcp_servers(&config),
-        initial_message: config.initial_message.clone(),
-        idle_timeout: Duration::from_secs(config.idle_timeout_secs),
-        max_turn_duration: Duration::from_secs(config.max_turn_duration_secs),
-        turn_liveness_interval: Duration::from_secs(config.turn_liveness_secs),
-        dedup_mode: config.dedup_mode,
-        system_prompt: config.system_prompt.clone(),
-        session_title: config.session_title.clone(),
-        team_instructions: config.team_instructions.clone(),
-        base_prompt: if config.no_base_prompt {
-            None
-        } else {
-            // Build standing context once under the configured policy, before
-            // any session/new. Both modern ACP and legacy first-turn framing
-            // consume this same assembled base (including custom base files).
-            Some(
-                config.session_policy.append_session_model(
-                    base_prompt_content
-                        .as_deref()
-                        .unwrap_or(include_str!("base_prompt.md")),
-                ),
-            )
-        },
-        heartbeat_prompt: config.heartbeat_prompt.clone(),
-        cwd,
-        rest_client: relay.rest_client(),
-        channel_info: pool::ChannelInfoResolver::new(channel_info_map, relay.rest_client()),
-        context_message_limit: config.context_message_limit,
-        max_turns_per_session: config.max_turns_per_session,
-        permission_mode: config.permission_mode,
-        agent_keys: config.keys.clone(),
-        agent_owner_pubkey: startup_owner
-            .as_deref()
-            .and_then(|hex| nostr::PublicKey::from_hex(hex).ok()),
-        memory_enabled: config.memory_enabled,
-        harness_name: crate::config::normalize_agent_command_identity(&config.agent_command),
-        relay_url: config.relay_url.clone(),
-    });
+    let ctx = Arc::new(prompt_context(
+        &config,
+        relay.rest_client(),
+        channel_info_map,
+        false,
+    )?);
 
     if !config.memory_enabled {
         tracing::info!(
@@ -5488,6 +5466,7 @@ async fn shutdown_agent_pool(pool: &mut AgentPool) {
     }
 }
 
+#[derive(Clone)]
 struct PoolStartup {
     agents: u32,
     command: String,
@@ -5500,6 +5479,12 @@ struct PoolStartup {
 }
 
 impl PoolStartup {
+    fn single_from_config(config: &Config) -> Self {
+        let mut startup = Self::from_config(config, None);
+        startup.agents = 1;
+        startup
+    }
+
     fn from_config(config: &Config, observer: Option<observer::ObserverHandle>) -> Self {
         Self {
             agents: config.agents,
@@ -5512,6 +5497,56 @@ impl PoolStartup {
             observer,
         }
     }
+}
+
+fn prompt_context(
+    config: &Config,
+    rest_client: relay::RestClient,
+    channels: HashMap<Uuid, relay::ChannelInfo>,
+    task_session: bool,
+) -> Result<PromptContext> {
+    let base_prompt_content = config.base_prompt_content.as_ref();
+    let cwd = current_working_directory()?;
+    Ok(PromptContext {
+        mcp_servers: build_mcp_servers(config),
+        initial_message: config.initial_message.clone(),
+        idle_timeout: Duration::from_secs(config.idle_timeout_secs),
+        max_turn_duration: Duration::from_secs(config.max_turn_duration_secs),
+        turn_liveness_interval: Duration::from_secs(config.turn_liveness_secs),
+        dedup_mode: config.dedup_mode,
+        system_prompt: config.system_prompt.clone(),
+        session_title: config.session_title.clone(),
+        team_instructions: config.team_instructions.clone(),
+        base_prompt: if config.no_base_prompt {
+            None
+        } else {
+            // Build standing context once under the configured policy, before
+            // any session/new. Both modern ACP and legacy first-turn framing
+            // consume this same assembled base (including custom base files).
+            let base = base_prompt_content
+                .map(String::as_str)
+                .unwrap_or(include_str!("base_prompt.md"));
+            Some(if task_session {
+                format!("{base}\n\n{}", include_str!("session_model_task.md"))
+            } else {
+                config.session_policy.append_session_model(base)
+            })
+        },
+        heartbeat_prompt: config.heartbeat_prompt.clone(),
+        cwd,
+        rest_client: rest_client.clone(),
+        channel_info: pool::ChannelInfoResolver::new(channels, rest_client),
+        context_message_limit: config.context_message_limit,
+        max_turns_per_session: config.max_turns_per_session,
+        permission_mode: config.permission_mode,
+        agent_keys: config.keys.clone(),
+        agent_owner_pubkey: resolve_agent_owner(config)
+            .as_deref()
+            .and_then(|hex| nostr::PublicKey::from_hex(hex).ok()),
+        memory_enabled: config.memory_enabled,
+        harness_name: crate::config::normalize_agent_command_identity(&config.agent_command),
+        relay_url: config.relay_url.clone(),
+    })
 }
 
 async fn initialize_agent_pool(
