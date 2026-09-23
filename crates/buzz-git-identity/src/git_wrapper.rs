@@ -5961,17 +5961,26 @@ mod tests {
     }
 
     /// The kernel run state of `pid` (`R`, `S`, `Z`, ...), or `None` once the
-    /// PID no longer exists.
+    /// PID no longer exists. Any other inspection failure panics, so it can
+    /// never pass as absence.
     #[cfg(target_os = "linux")]
     fn process_state(pid: libc::pid_t) -> Option<String> {
-        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+        let stat = match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+            Ok(stat) => stat,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return None,
+            Err(error) => panic!("cannot read /proc/{pid}/stat: {error}"),
+        };
         // `comm` is parenthesized and may contain spaces; the state follows it.
-        let state = stat.rsplit_once(')')?.1.split_whitespace().next()?;
+        let state = stat
+            .rsplit_once(')')
+            .and_then(|(_, rest)| rest.split_whitespace().next())
+            .unwrap_or_else(|| panic!("malformed /proc/{pid}/stat: {stat:?}"));
         Some(state.to_owned())
     }
 
     /// The `ps` process state of `pid` (`R`, `S`, `Z`, ...), or `None` once the
-    /// PID no longer exists.
+    /// PID no longer exists (`ps` exits 1 with no output). Any other `ps`
+    /// result panics, so it can never pass as absence.
     #[cfg(all(unix, not(target_os = "linux")))]
     fn process_state(pid: libc::pid_t) -> Option<String> {
         let out = std::process::Command::new("ps")
@@ -5979,7 +5988,15 @@ mod tests {
             .output()
             .expect("ps must be available to inspect the sleeper");
         let state = String::from_utf8_lossy(&out.stdout).trim().to_owned();
-        (!state.is_empty()).then_some(state)
+        match (out.status.code(), state.is_empty()) {
+            (Some(0), false) => Some(state),
+            (Some(1), true) if out.stderr.is_empty() => None,
+            _ => panic!(
+                "unexpected ps result for {pid}: {:?} stdout={state:?} stderr={:?}",
+                out.status,
+                String::from_utf8_lossy(&out.stderr)
+            ),
+        }
     }
 
     /// A child that backgrounds a grandchild calling `setsid()` (escaping the

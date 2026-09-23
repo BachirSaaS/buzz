@@ -93,9 +93,10 @@ pub(crate) fn is_reserved_env_key(key: &str) -> bool {
 /// `GIT_CONFIG_VALUE_<n>` pairs, `GIT_CONFIG_GLOBAL` / `_SYSTEM` / `_NOSYSTEM`,
 /// `GIT_CONFIG_PARAMETERS`) — is reserved.
 ///
-/// Buzz stages the relay git credential helper *and* the agent identity/signing
-/// config through these indexed vars (`runtime.rs` for custom harnesses,
-/// `buzz-acp`'s `GitEnvironment` otherwise). A user override is layered onto
+/// Buzz stages git config through these indexed vars: custom harnesses get
+/// only the relay credential helper (`runtime.rs`), while built-in harnesses
+/// get it plus the agent identity/signing config from `buzz-acp`'s
+/// `GitEnvironment`. A user override is layered onto
 /// the spawn command *after* the credential helper, so a single
 /// `GIT_CONFIG_COUNT=0` (or any index collision) silently orphans it, and other
 /// family members can redirect git's config resolution entirely. It is a
