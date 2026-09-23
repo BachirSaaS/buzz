@@ -113,13 +113,6 @@ impl HpkeSuiteIds {
 }
 
 /// Enrollment values authenticated into one backup envelope.
-///
-/// Construction validates encoding and size, but does **not** establish trust.
-/// A future caller must build this only from native configuration or a verified
-/// recovery-service registry. It must never accept the recipient key or these
-/// identifiers from a renderer, deep link, relay event, or other untrusted
-/// input. The recipient key is a 65-byte uncompressed SEC1 P-256 point, not an
-/// SPKI document; a future KMS registry must perform that conversion explicitly.
 #[derive(Clone, Debug)]
 pub struct HpkeBackupEnrollment {
     recipient_key_id: String,
