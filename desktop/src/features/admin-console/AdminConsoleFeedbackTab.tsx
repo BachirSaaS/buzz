@@ -274,13 +274,16 @@ function AttachmentViewer({
   const save = useCallback(async () => {
     setSaving(true);
     try {
-      await saveAdminAttachment(
+      const saved = await saveAdminAttachment(
         origin,
         feedbackId,
         attachment.sha256,
         attachment.mime,
         attachment.size,
       );
+      if (saved) {
+        toast.success("Attachment saved");
+      }
     } catch (e) {
       setError(
         typeof e === "string" ? (e as AdminAttachmentErrorCode) : String(e),

@@ -14,6 +14,8 @@ import {
   settle,
   CM_ORIGIN,
   CM_PUBKEY,
+  capturedToasts,
+  capturedErrorToasts,
   makeCmFalseFeedback,
 } from "./adminConsolePanelTestHelpers.jsdom.mjs";
 
@@ -737,9 +739,10 @@ test("non-image-attachment-save-button: a non-image attachment shows a Save butt
   );
 
   let saveArgs = null;
+  let saveResult = true;
   setIpcHandler("admin_save_attachment", (args) => {
     saveArgs = args;
-    return Promise.resolve(true);
+    return Promise.resolve(saveResult);
   });
 
   const { container, doRender, unmount } = mountPanel({ origin, pubkey });
@@ -821,6 +824,32 @@ test("non-image-attachment-save-button: a non-image attachment shows a Save butt
       saveArgs.expectedSize,
       2048,
       `save args must include the correct size; got: ${JSON.stringify(saveArgs)}`,
+    );
+
+    // A written file (`true`) shows exactly one success toast.
+    assert.deepEqual(capturedToasts, ["Attachment saved"]);
+
+    // A cancelled dialog (`false`) shows nothing: no toast, no error.
+    saveResult = false;
+    const saveBtnAfter = Array.from(container.querySelectorAll("button")).find(
+      (b) => (b.textContent ?? "").includes("Save attachment"),
+    );
+    assert.ok(saveBtnAfter, "Save button must re-enable after a save");
+    await act(async () => {
+      fireEvent.click(saveBtnAfter);
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    assert.deepEqual(
+      capturedToasts,
+      ["Attachment saved"],
+      "cancel must not toast",
+    );
+    assert.deepEqual(capturedErrorToasts, [], "cancel must not error-toast");
+    assert.ok(
+      Array.from(container.querySelectorAll("button")).some((b) =>
+        (b.textContent ?? "").includes("Save attachment"),
+      ),
+      `cancel must leave the Save control, not an error; got: ${container.textContent?.slice(0, 400)}`,
     );
   } finally {
     await unmount();
