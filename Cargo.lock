@@ -918,6 +918,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]
@@ -1127,6 +1128,7 @@ dependencies = [
  "buzz-core",
  "buzz-datastore-tracing",
  "chrono",
+ "futures-util",
  "hex",
  "metrics",
  "metrics-util",
@@ -1171,9 +1173,6 @@ dependencies = [
  "base64 0.22.1",
  "buzz-cli",
  "buzz-core",
- "buzz-git-identity",
- "git-credential-nostr",
- "git-sign-nostr",
  "ignore",
  "image",
  "nix 0.31.3",
@@ -1191,7 +1190,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "windows-sys 0.61.2",
- "zeroize",
 ]
 
 [[package]]

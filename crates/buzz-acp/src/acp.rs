@@ -824,21 +824,32 @@ impl AcpClient {
             cmd.env("CODEX_CONFIG", merged);
         }
 
-        // ── L1b: deterministic agent git identity for the whole runtime subtree ──
-        //
-        // buzz-dev-mcp's shim applies the identity+signing GIT_CONFIG_* only to
-        // its own shell-tool children. The native shells of claude-code / codex /
-        // goose never see it, so a bare `git commit` there resolves to whatever
-        // ambient identity the repo/global config carries (the leak that
-        // produced attribution gaps). Lift the same identity onto the agent
-        // runtime child so every native shell inherits it.
-        //
-        // Composed over the desktop's per-URL credential-helper GIT_CONFIG_*
-        // (base-offset preserved). NOSTR_PRIVATE_KEY is staged on the child so
-        // dev-mcp's shim installs the same identity for its subtree. When a key
-        // is configured but identity cannot be installed, fail the session
-        // closed (`?`) rather than spawn an agent that would commit as ambient
-        // Will; `Ok(None)` (no key at all) spawns unchanged.
+        // The harness composes the entire Git config block once. It must replace
+        // inherited counts/PATH rather than mixing two independently indexed blocks.
+        for (name, value) in extra_env
+            .iter()
+            .filter(|(name, _)| crate::git::is_managed_env(name))
+        {
+            cmd.env(name, value);
+        }
+        // Git applies this older injection channel after GIT_CONFIG_COUNT.
+        // Keeping it would let an ambient user.name or signing setting win
+        // over the harness-owned agent identity in native shells.
+        cmd.env_remove("GIT_CONFIG_PARAMETERS");
+        cmd.env_remove("NOSTR_PRIVATE_KEY");
+        if extra_env.iter().any(|(name, _)| name == "GIT_CONFIG_COUNT") {
+            // Native shells inherit these overrides, while buzz-agent clears
+            // them for MCP. Let both paths use the harness's agent identity.
+            for name in [
+                "GIT_AUTHOR_NAME",
+                "GIT_AUTHOR_EMAIL",
+                "GIT_COMMITTER_NAME",
+                "GIT_COMMITTER_EMAIL",
+            ] {
+                cmd.env_remove(name);
+            }
+        }
+
         let git_identity_dir = install_git_identity(&mut cmd)?;
 
         // Spawn the agent in its own process group so SIGKILL doesn't propagate
