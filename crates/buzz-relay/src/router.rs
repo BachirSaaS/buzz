@@ -1538,19 +1538,29 @@ mod tests {
     /// `AppState::new` compiles; it is never queried by any of these router
     /// tests.
     async fn nip_fi_enforce_state() -> Arc<AppState> {
+        nip_fi_state(buzz_auth::NipFiMode::Enforce).await
+    }
+
+    /// Off-mode twin of [`nip_fi_enforce_state`]: the mode is set directly on
+    /// `config.nip_fi`, so no env is involved.
+    async fn nip_fi_off_state() -> Arc<AppState> {
+        nip_fi_state(buzz_auth::NipFiMode::Off).await
+    }
+
+    async fn nip_fi_state(mode: buzz_auth::NipFiMode) -> Arc<AppState> {
         use crate::nip_fi_config::NipFiRelayConfig;
-        use buzz_auth::{IssuerRegistry, NipFiMode};
+        use buzz_auth::IssuerRegistry;
 
         // Fix 5: use Config::for_test() which holds NIP_FI_ENV_LOCK internally,
         // so this fixture never races nip_fi_config's own tests. [FI-TRACE-ENV-RACE]
         let mut config = crate::config::Config::for_test();
         config.require_relay_membership = false;
         config.redis_url = "redis://127.0.0.1:1".to_string();
-        // Override NIP-FI mode to Enforce with no issuers configured — the
-        // verifier will be None (no JWKS source), which is the startup-race
-        // condition that must return 503 for a token-carrying request.
+        // No issuers configured — the verifier is None (no JWKS source). In
+        // Enforce that is the startup-race condition that must return 503 for
+        // a token-carrying request.
         config.nip_fi = NipFiRelayConfig {
-            mode: NipFiMode::Enforce,
+            mode,
             registry: IssuerRegistry::new(),
             jwks_configs: vec![],
             max_connection_lifetime_secs: 3600,
@@ -1619,6 +1629,52 @@ mod tests {
             .await
             .expect("router response")
             .status()
+    }
+
+    /// Off mode reads no identity header: an upgrade with no header and one
+    /// with a malformed header get the same non-gate status.
+    async fn assert_off_mode_ignores_header(path: &str, malformed: bool) {
+        let absent = nip_fi_gate_status(nip_fi_off_state().await, path, None, None).await;
+        let status = if malformed {
+            nip_fi_gate_status(
+                nip_fi_off_state().await,
+                path,
+                Some("Nostr-Federated-Identity"),
+                Some("Basic not-a-bearer-token"),
+            )
+            .await
+        } else {
+            absent
+        };
+        for s in [absent, status] {
+            assert!(
+                !matches!(s.as_u16(), 401 | 403 | 503),
+                "Off mode must not gate {path} (malformed={malformed}); got {s}"
+            );
+        }
+        assert_eq!(status, absent, "Off mode must ignore the header on {path}");
+    }
+
+    #[tokio::test]
+    async fn nip_fi_off_root_passes_without_header() {
+        assert_off_mode_ignores_header("/", false).await;
+    }
+
+    #[tokio::test]
+    async fn nip_fi_off_root_ignores_malformed_header() {
+        assert_off_mode_ignores_header("/", true).await;
+    }
+
+    #[tokio::test]
+    async fn nip_fi_off_audio_passes_without_header() {
+        let path = format!("/huddle/{}/audio", uuid::Uuid::new_v4());
+        assert_off_mode_ignores_header(&path, false).await;
+    }
+
+    #[tokio::test]
+    async fn nip_fi_off_audio_ignores_malformed_header() {
+        let path = format!("/huddle/{}/audio", uuid::Uuid::new_v4());
+        assert_off_mode_ignores_header(&path, true).await;
     }
 
     #[tokio::test]
