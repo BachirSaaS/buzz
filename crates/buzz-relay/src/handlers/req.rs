@@ -105,20 +105,18 @@ pub async fn handle_req(
     };
     if thread_windows.iter().any(Option::is_some) {
         if thread_windows.iter().any(Option::is_none) {
-            conn.send(RelayMessage::closed(
+            send_thread_window_closed(
+                &conn,
                 &sub_id,
                 "invalid: thread_window cannot mix with other query modes",
-            ));
+            );
             return;
         }
         let reader = match PublicKey::from_slice(&pubkey_bytes) {
             Ok(reader) => reader,
             Err(error) => {
                 warn!(conn_id = %conn_id, %error, "Authenticated reader key became invalid");
-                conn.send(RelayMessage::closed(
-                    &sub_id,
-                    "error: invalid authenticated reader",
-                ));
+                send_thread_window_closed(&conn, &sub_id, "error: invalid authenticated reader");
                 return;
             }
         };
@@ -128,8 +126,9 @@ pub async fn handle_req(
         if let Some(replaced) = state.sub_registry.remove_subscription(conn_id, &sub_id) {
             release_subscription_topics(&state, &conn.tenant, &replaced.scope).await;
         }
-        let result = tokio::time::timeout(
-            crate::api::bridge::thread_window::DEADLINE,
+        let deadline = tokio::time::Instant::now() + crate::api::bridge::thread_window::DEADLINE;
+        let result = tokio::time::timeout_at(
+            deadline,
             serve_thread_windows(
                 &sub_id,
                 thread_windows.iter().flatten(),
@@ -137,15 +136,13 @@ pub async fn handle_req(
                 &reader,
                 &conn,
                 &state,
+                deadline,
             ),
         )
         .await;
         match result {
             Ok(Ok(true)) => {
-                // A window is complete only if its terminal frame was queued.
-                // A saturated writer must close so the client can retry the
-                // incomplete page instead of waiting forever for EOSE.
-                if !conn.send(RelayMessage::eose(&sub_id)) {
+                if !send_thread_window_frame(&conn, RelayMessage::eose(&sub_id), deadline).await {
                     conn.cancel.cancel();
                 }
             }
@@ -156,10 +153,7 @@ pub async fn handle_req(
             }
             Ok(Err((status, body))) => close_thread_window_error(&conn, &sub_id, status, &body),
             Err(_) => {
-                conn.send(RelayMessage::closed(
-                    &sub_id,
-                    "error: thread window deadline exceeded",
-                ));
+                send_thread_window_closed(&conn, &sub_id, "error: thread window deadline exceeded");
             }
         }
         return;
@@ -571,6 +565,7 @@ pub(crate) async fn serve_thread_windows<'a>(
     reader: &PublicKey,
     conn: &ConnectionState,
     state: &AppState,
+    deadline: tokio::time::Instant,
 ) -> Result<bool, crate::api::bridge::thread_window::Error> {
     let events = crate::api::bridge::thread_window::query_batch(
         state,
@@ -581,11 +576,40 @@ pub(crate) async fn serve_thread_windows<'a>(
     )
     .await?;
     for event in events {
-        if !conn.send(serde_json::json!(["EVENT", sub_id, event]).to_string()) {
+        if !send_thread_window_frame(
+            conn,
+            serde_json::json!(["EVENT", sub_id, event]).to_string(),
+            deadline,
+        )
+        .await
+        {
             return Ok(false);
         }
     }
     Ok(true)
+}
+
+// Finite pages must not fail merely because the producer briefly outruns the
+// socket writer. The same deadline bounds both query and queue delivery.
+async fn send_thread_window_frame(
+    conn: &ConnectionState,
+    frame: String,
+    deadline: tokio::time::Instant,
+) -> bool {
+    tokio::select! {
+        biased;
+        _ = conn.cancel.cancelled() => false,
+        result = tokio::time::timeout_at(
+            deadline,
+            conn.send_tx.send(axum::extract::ws::Message::Text(frame.into())),
+        ) => matches!(result, Ok(Ok(()))),
+    }
+}
+
+fn send_thread_window_closed(conn: &ConnectionState, sub_id: &str, reason: &str) {
+    if !conn.send(RelayMessage::closed(sub_id, reason)) {
+        conn.cancel.cancel();
+    }
 }
 
 fn close_thread_window_error(
@@ -604,7 +628,7 @@ fn close_thread_window_error(
     } else {
         "error"
     };
-    conn.send(RelayMessage::closed(sub_id, &format!("{prefix}: {detail}")));
+    send_thread_window_closed(conn, sub_id, &format!("{prefix}: {detail}"));
 }
 
 /// FTS candidate hits fetched per page. Pages are always full regardless of

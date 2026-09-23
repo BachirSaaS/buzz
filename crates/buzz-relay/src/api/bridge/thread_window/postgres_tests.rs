@@ -467,7 +467,36 @@ async fn websocket_batch_enforces_token_scope_and_rejects_queue_truncation() {
         "complete page closed socket"
     );
 
-    // Leave room for the two EVENT frames, but not for EOSE.
+    // A slow but draining writer must receive the entire page even when its
+    // queue holds fewer frames than the window produces.
+    let (draining, mut draining_rx) = f.ws_conn(None);
+    let drain = tokio::spawn(async move {
+        let mut frames = Vec::new();
+        for _ in 0..7 {
+            let message = draining_rx.recv().await.expect("complete window frame");
+            frames.push(serde_json::from_str::<Value>(message.to_text().unwrap()).unwrap());
+        }
+        frames
+    });
+    crate::handlers::req::handle_req(
+        "draining".into(),
+        vec![parsed.clone(); 3],
+        vec![filter.clone(); 3],
+        vec![None; 3],
+        draining.clone(),
+        f.state.clone(),
+    )
+    .await;
+    let drained = tokio::time::timeout(std::time::Duration::from_secs(2), drain)
+        .await
+        .expect("draining writer completes")
+        .unwrap();
+    assert_eq!(drained.len(), 7);
+    assert!(drained[..6].iter().all(|frame| frame[0] == "EVENT"));
+    assert_eq!(drained[6][0], "EOSE");
+    assert!(!draining.cancel.is_cancelled());
+
+    // A queue with room for the page but not EOSE must close, not complete.
     let (terminal, mut terminal_rx) = f.ws_conn(None);
     for _ in 0..2 {
         assert!(terminal.send("padding".into()));
@@ -491,9 +520,7 @@ async fn websocket_batch_enforces_token_scope_and_rejects_queue_truncation() {
     assert_eq!(terminal_frames.len(), 2);
     assert!(terminal_frames.iter().all(|frame| frame[0] == "EVENT"));
 
-    // The full queue also drops an incorrectly attempted EOSE, so checking
-    // drained frames alone cannot distinguish a complete from a truncated page.
-    // Assert the production sender reports truncation at the source.
+    // The source reports truncation if delivery cannot proceed by its bound.
     let (probe, _probe_rx) = f.ws_conn(None);
     let requests = super::parse(&vec![filter.clone(); 3]).unwrap();
     let sent = crate::handlers::req::serve_thread_windows(
@@ -503,14 +530,14 @@ async fn websocket_batch_enforces_token_scope_and_rejects_queue_truncation() {
         &f.keys.public_key(),
         &probe,
         &f.state,
+        tokio::time::Instant::now() + std::time::Duration::from_secs(1),
     )
     .await
     .unwrap();
     assert!(!sent, "a failed EVENT enqueue must not authorize EOSE");
 
+    // A stalled writer cannot receive EOSE; the finite request must close.
     let (slow, mut slow_rx) = f.ws_conn(None);
-    // Capacity four: one row + bounds per filter. Two windows fill it,
-    // then the third fails to enqueue. Draining later must not reveal EOSE.
     crate::handlers::req::handle_req(
         "full".into(),
         vec![parsed.clone(); 3],
@@ -561,6 +588,23 @@ async fn websocket_batch_enforces_token_scope_and_rejects_queue_truncation() {
     .await;
     assert_eq!(frame(&mut mixed_rx)[0], "CLOSED");
     assert!(mixed_rx.try_recv().is_err());
+
+    // A rejected window with a saturated terminal queue must not leave its
+    // subscription waiting on a socket that will never deliver CLOSED.
+    let (rejected, _rejected_rx) = f.ws_conn(None);
+    for _ in 0..4 {
+        assert!(rejected.send("padding".into()));
+    }
+    crate::handlers::req::handle_req(
+        "invalid-full".into(),
+        vec![nostr::Filter::new()],
+        vec![json!({"thread_window":true,"until":1})],
+        vec![None],
+        rejected.clone(),
+        f.state.clone(),
+    )
+    .await;
+    assert!(rejected.cancel.is_cancelled());
 }
 
 fn frame(rx: &mut tokio::sync::mpsc::Receiver<axum::extract::ws::Message>) -> Value {
