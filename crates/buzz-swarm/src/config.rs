@@ -147,6 +147,10 @@ impl SecretRef {
 pub struct Secret(Zeroizing<String>);
 
 impl Secret {
+    pub fn new(value: String) -> Self {
+        Self(Zeroizing::new(value))
+    }
+
     pub fn expose(&self) -> &str {
         &self.0
     }
@@ -238,9 +242,6 @@ impl SwarmFile {
             if let Some(path) = &mut spec.workdir {
                 *path = self.directory.join(expand_tilde(path, env));
             }
-            if spec.workdir.is_none() && !self.directory.as_os_str().is_empty() {
-                spec.workdir = Some(self.directory.clone());
-            }
             if let Some(command) = &mut spec.harness {
                 if command.contains('/') || command.starts_with('~') {
                     *command = self
@@ -254,11 +255,15 @@ impl SwarmFile {
         Ok(specs)
     }
 
+    /// `defaults:` on its own, including values every agent overrides.
+    pub fn defaults(&self) -> Result<Spec> {
+        serde_yaml::from_value(Value::Mapping(self.defaults.clone())).context("parsing `defaults:`")
+    }
+
     /// Type-check `defaults:` on its own, then produce one fully merged `Spec`
     /// per agent entry (agent keys win; `env:` maps merge key-wise).
     pub fn specs(&self) -> Result<Vec<Spec>> {
-        let defaults: Spec = serde_yaml::from_value(Value::Mapping(self.defaults.clone()))
-            .context("parsing `defaults:`")?;
+        let defaults = self.defaults()?;
         for (field, present) in [
             ("name", defaults.name.is_some()),
             ("nsec", defaults.nsec.is_some()),

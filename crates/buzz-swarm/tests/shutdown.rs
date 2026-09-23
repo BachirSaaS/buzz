@@ -78,7 +78,7 @@ fn blocked_stdout_does_not_prevent_shutdown_or_orphan_the_harness() {
         .expect("start swarm");
     let mut running = Running {
         swarm,
-        pid_file: directory.path().join("harness.pid"),
+        pid_file: directory.path().join("workspaces/noisy/harness.pid"),
     };
     let startup_deadline = Instant::now() + Duration::from_secs(5);
     let harness_pid = loop {

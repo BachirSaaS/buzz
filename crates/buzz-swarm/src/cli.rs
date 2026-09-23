@@ -1,8 +1,9 @@
+use std::os::unix::fs::DirBuilderExt;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
 use crate::config::{expand_tilde, SwarmFile, DEFAULT_CONFIG_FILE};
@@ -71,12 +72,22 @@ async fn run(cli: Cli) -> Result<bool> {
                     key.path.display()
                 );
             }
+            for workdir in &plan.new_workdirs {
+                println!("{}: created on start", workdir.display());
+            }
             Ok(false)
         }
         Command::Start { grace } => {
             // Validate the whole file before creating keys or starting anything.
             for key in &plan.generated_keys {
                 key.persist()?;
+            }
+            for workdir in &plan.new_workdirs {
+                std::fs::DirBuilder::new()
+                    .recursive(true)
+                    .mode(0o700)
+                    .create(workdir)
+                    .with_context(|| format!("creating workdir {}", workdir.display()))?;
             }
             let summary = supervisor::run(
                 plan,

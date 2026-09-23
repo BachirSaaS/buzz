@@ -3,6 +3,7 @@
 use std::fs;
 use std::os::unix::ffi::OsStringExt;
 use std::os::unix::fs::PermissionsExt;
+use std::path::Path;
 use std::process::{Command, Output};
 
 use nostr::{Keys, ToBech32};
@@ -23,11 +24,12 @@ impl Fixture {
 set -eu
 test -z "${OWNER_SOURCE+x}"
 test -z "${OTHER_AGENT_SOURCE+x}"
+test -z "${SIBLING_SOURCE+x}"
+test -z "${TAG_SOURCE+x}"
 test -z "${BUZZ_ACP_HEARTBEAT_PROMPT+x}"
 test "$BUZZ_ACP_SYSTEM_PROMPT_FILE" = "persona.txt"
-test -f "$BUZZ_ACP_SYSTEM_PROMPT_FILE"
 test -z "$BUZZ_ACP_MCP_COMMAND"
-printf '%s\n%s\n%s\n' "$BUZZ_PRIVATE_KEY" "$BUZZ_AUTH_TAG" "$BUZZ_RELAY_URL" > "launch-${BUZZ_RELAY_URL##*/}"
+printf '%s\n%s\n%s\n%s\n' "$BUZZ_PRIVATE_KEY" "$BUZZ_AUTH_TAG" "$BUZZ_RELAY_URL" "$(pwd -P)" > "launch-${BUZZ_RELAY_URL##*/}"
 "#).expect("harness");
         fs::set_permissions(script, fs::Permissions::from_mode(0o755)).expect("chmod");
         fs::write(root.path().join("persona.txt"), "Test agent").expect("persona");
@@ -53,6 +55,11 @@ defaults:
     BUZZ_ACP_SYSTEM_PROMPT_FILE: persona.txt
 agents:
 {agents}
+  - name: sibling
+    enabled: false
+    auth_tag: {{env: TAG_SOURCE}}
+    env:
+      SIBLING_CREDENTIAL: {{env: SIBLING_SOURCE}}
 "#
             ),
         )
@@ -70,6 +77,8 @@ agents:
                 self.owner.secret_key().to_bech32().expect("nsec"),
             )
             .env("OTHER_AGENT_SOURCE", "must-not-reach-the-child")
+            .env("SIBLING_SOURCE", "declared-by-a-sibling-only")
+            .env("TAG_SOURCE", "declared-by-a-disabled-sibling")
             .env(
                 "BUZZ_ACP_HEARTBEAT_PROMPT",
                 std::ffi::OsString::from_vec(vec![0xff]),
@@ -79,6 +88,14 @@ agents:
             .arg("--config")
             .arg(self.root.path().join("swarm.yaml"));
         command
+    }
+
+    /// Launch records land in the default per-agent workdir.
+    fn launch(&self, host: &str) -> std::path::PathBuf {
+        self.root
+            .path()
+            .join("workspaces/helper")
+            .join(format!("launch-{host}"))
     }
 
     fn run(&self, args: &[&str]) -> Output {
@@ -98,12 +115,14 @@ fn starts_from_another_directory_and_reuses_one_identity_across_relays_and_resta
     fixture.write_config("  - name: helper\n  - name: disabled\n    enabled: false\n    nsec: {env: OTHER_AGENT_SOURCE}");
     let preview = fixture.run(&["validate"]);
     assert!(String::from_utf8_lossy(&preview.stdout).contains("created on start"));
+    for written in ["keys", "workspaces"] {
+        assert!(
+            !fixture.root.path().join(written).exists(),
+            "validation wrote {written}"
+        );
+    }
     assert!(
-        !fixture.root.path().join("keys").exists(),
-        "validation wrote keys"
-    );
-    assert!(
-        !fixture.root.path().join("launch-one.example").exists(),
+        !fixture.launch("one.example").exists(),
         "validation launched a harness"
     );
 
@@ -119,10 +138,8 @@ fn starts_from_another_directory_and_reuses_one_identity_across_relays_and_resta
         0o600
     );
     let keys = Keys::parse(persisted.trim()).expect("agent key");
-    let first =
-        fs::read_to_string(fixture.root.path().join("launch-one.example")).expect("first launch");
-    let second =
-        fs::read_to_string(fixture.root.path().join("launch-two.example")).expect("second launch");
+    let first = fs::read_to_string(fixture.launch("one.example")).expect("first launch");
+    let second = fs::read_to_string(fixture.launch("two.example")).expect("second launch");
     let first: Vec<_> = first.lines().collect();
     let second: Vec<_> = second.lines().collect();
     assert!(
@@ -131,6 +148,20 @@ fn starts_from_another_directory_and_reuses_one_identity_across_relays_and_resta
     );
     assert_eq!(first[1], second[1], "relays received different auth tags");
     assert_ne!(first[2], second[2]);
+    // Agents run in a private workdir, not beside `keys/`.
+    let workdir = fixture.root.path().join("workspaces/helper");
+    assert_eq!(
+        Path::new(first[3]),
+        workdir.canonicalize().expect("workdir")
+    );
+    assert_eq!(
+        fs::metadata(&workdir)
+            .expect("workdir")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o700
+    );
     assert_eq!(
         buzz_sdk::nip_oa::verify_auth_tag(first[1], &keys.public_key()).expect("tag"),
         fixture.owner.public_key()
@@ -190,7 +221,7 @@ fn invalid_launches_start_nothing_and_persist_no_keys() {
         let output = fixture.command().output().expect("run");
         assert!(!output.status.success(), "invalid configuration succeeded");
         assert!(!fixture.root.path().join("keys").exists());
-        assert!(!fixture.root.path().join("launch-one.example").exists());
+        assert!(!fixture.root.path().join("workspaces").exists());
     }
 }
 
@@ -220,7 +251,7 @@ fn unknown_selection_and_mismatched_delegation_fail_closed() {
     .expect("key");
     fs::write(fixture.root.path().join("auth.json"), tag).expect("tag file");
     assert!(!fixture.command().output().expect("run").status.success());
-    assert!(!fixture.root.path().join("launch-one.example").exists());
+    assert!(!fixture.launch("one.example").exists());
 }
 
 #[test]
@@ -234,5 +265,5 @@ fn an_expired_delegation_fails_before_launch() {
     fs::write(path, config).expect("write");
     assert!(!fixture.command().output().expect("run").status.success());
     assert!(!fixture.root.path().join("keys").exists());
-    assert!(!fixture.root.path().join("launch-one.example").exists());
+    assert!(!fixture.launch("one.example").exists());
 }

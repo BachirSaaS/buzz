@@ -45,6 +45,8 @@ pub struct Plan {
     pub owner_pubkey: String,
     pub agents: Vec<AgentPlan>,
     pub generated_keys: Vec<GeneratedKey>,
+    /// Default workdirs that do not exist yet; created on start.
+    pub new_workdirs: Vec<PathBuf>,
 }
 
 impl Plan {
@@ -70,14 +72,26 @@ impl Plan {
             .filter_map(|source| source.env_key())
             .map(str::to_owned)
             .collect();
+        // A declared source reaches only the agents that declare it, under the
+        // name they declare; no child inherits it ambiently. Raw defaults count
+        // even when every agent overrides them.
+        let defaults = file.defaults()?;
+        let declared_sources = specs
+            .iter()
+            .chain([&defaults])
+            .flat_map(|spec| spec.auth_tag.iter().chain(spec.env.values()))
+            .filter_map(|source| source.env_key())
+            .map(str::to_owned);
         let env_remove: Vec<_> = env
             .keys()
             .filter(|key| key.starts_with("BUZZ_ACP_") || RESERVED.contains(key))
             .map(str::to_owned)
             .chain(private_sources.iter().cloned())
+            .chain(declared_sources)
             .collect();
         let mut agents = Vec::new();
         let mut generated_keys = Vec::new();
+        let mut new_workdirs = Vec::new();
         let mut seen_names = BTreeSet::new();
         let mut seen_connections = BTreeSet::new();
         let mut selected = BTreeSet::new();
@@ -111,15 +125,22 @@ impl Plan {
                 None => owner_pubkey = Some(identity.owner.clone()),
             }
             let program = executable(spec.harness.as_deref().unwrap_or("buzz-acp"), env)?;
-            let workdir = spec
-                .workdir
-                .clone()
-                .unwrap_or_else(|| file.directory.clone());
+            // Default to a private directory per agent, away from `keys/`.
+            // Only that default may be created; an explicit workdir must exist.
+            let workdir = spec.workdir.clone().unwrap_or_else(|| {
+                file.directory
+                    .join("workspaces")
+                    .join(name.to_ascii_lowercase())
+            });
+            let create = spec.workdir.is_none() && !workdir.try_exists()?;
             ensure!(
-                workdir.is_dir(),
+                create || workdir.is_dir(),
                 "agent `{name}`: workdir {} is not a directory",
                 workdir.display()
             );
+            if create {
+                new_workdirs.push(workdir.clone());
+            }
             let mut child_env = BTreeMap::from([
                 ("BUZZ_ACP_AGENT_COMMAND".into(), "buzz-agent".into()),
                 ("BUZZ_ACP_MCP_COMMAND".into(), "buzz-dev-mcp".into()),
@@ -201,6 +222,7 @@ impl Plan {
             owner_pubkey: owner_pubkey.context("no agent owner")?,
             agents,
             generated_keys,
+            new_workdirs,
         })
     }
 }
@@ -216,10 +238,18 @@ fn executable(name: &str, env: &Env) -> Result<PathBuf> {
             .map(|directory| directory.join(name))
             .collect()
     };
-    candidates.into_iter().find(|path| std::fs::metadata(path)
-        .is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0))
-        .map(std::path::absolute).transpose()?
-        .with_context(|| format!("cannot find executable `{name}`; install buzz-acp or Sprig's personality symlinks on PATH"))
+    let is_executable = |path: &PathBuf| {
+        std::fs::metadata(path)
+            .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+    };
+    candidates
+        .into_iter()
+        .find(is_executable)
+        .map(std::path::absolute)
+        .transpose()?
+        .with_context(|| {
+            format!("cannot find executable `{name}`; install buzz-acp or Sprig's personality symlinks on PATH")
+        })
 }
 
 /// Normalize equivalent relay addresses before checking duplicate identities.

@@ -90,6 +90,33 @@ fn inherited_identity_and_acp_policy_are_removed_but_provider_env_is_inherited()
 }
 
 #[test]
+fn declared_sources_reach_only_their_declarers() {
+    let fixture = Fixture::new();
+    let plan = fixture
+        .plan(
+            "  env:\n    SHARED: {env: DEFAULT_SOURCE}\n    ANTHROPIC_API_KEY: {env: ANTHROPIC_API_KEY}",
+            "  - name: alpha\n    env:\n      SHARED: alpha\n      MY_KEY: {env: ALPHA_SOURCE}\n  - name: beta\n    env:\n      SHARED: beta",
+            &Env::from_iter([
+                ("DEFAULT_SOURCE", "overridden-everywhere"),
+                ("ALPHA_SOURCE", "alpha-only"),
+                ("ANTHROPIC_API_KEY", "shared-provider-key"),
+            ]),
+        )
+        .expect("plan");
+    let [alpha, beta] = &plan.agents[..] else {
+        panic!("two connections");
+    };
+    assert_eq!(alpha.env["MY_KEY"], "alpha-only");
+    assert!(!beta.env.contains_key("MY_KEY"));
+    for agent in [alpha, beta] {
+        assert_eq!(agent.env["ANTHROPIC_API_KEY"], "shared-provider-key");
+        for source in ["ALPHA_SOURCE", "DEFAULT_SOURCE", "ANTHROPIC_API_KEY"] {
+            assert!(agent.env_remove.iter().any(|key| key == source), "{source}");
+        }
+    }
+}
+
+#[test]
 fn env_cannot_override_identity_sources_or_use_invalid_names() {
     let fixture = Fixture::new();
     for key in RESERVED.iter().copied().chain(["OWNER", "BAD=KEY", "1BAD"]) {
@@ -158,7 +185,18 @@ fn file_credentials_resolve_relative_to_the_config_directory() {
         )
         .expect("plan");
     assert_eq!(plan.agents[0].env["API_CREDENTIAL"], "test-value");
-    assert_eq!(plan.agents[0].workdir, fixture.root.path());
+    assert_eq!(
+        plan.agents[0].workdir,
+        fixture.root.path().join("workspaces/helper")
+    );
+    assert_eq!(plan.new_workdirs, [plan.agents[0].workdir.clone()]);
+    // Another agent's pending default does not make an explicit workdir exist.
+    for agents in [
+        "  - name: helper\n  - name: other\n    workdir: workspaces/helper",
+        "  - name: other\n    workdir: workspaces/helper\n  - name: helper",
+    ] {
+        assert!(fixture.plan("", agents, &Env::default()).is_err());
+    }
     assert_eq!(
         format!("{:?}", SecretRef::Literal("hidden".into())),
         "SecretRef(<redacted>)"

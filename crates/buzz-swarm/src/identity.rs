@@ -77,7 +77,7 @@ impl Identity {
         )
         .context("`auth_tag` does not authorize this agent key")?;
         Ok(Self {
-            secret: SecretRef::Literal(keys.secret_key().to_bech32()?).resolve(env)?,
+            secret: Secret::new(keys.secret_key().to_bech32()?),
             pubkey: keys.public_key().to_hex(),
             owner: delegated_owner.to_hex(),
             auth_tag,

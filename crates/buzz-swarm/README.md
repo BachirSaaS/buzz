@@ -53,7 +53,8 @@ Missing agent keys are generated once and saved as `keys/<name>.nsec` beside
 the config, with mode `0600`. Subsequent runs reuse them. Mount that directory
 on persistent storage in ephemeral containers, or supply keys from your secret
 manager. `validate` checks swarm wiring, identities, and the harness executable;
-it writes no keys and starts nothing. Generated preview identities are temporary.
+it writes no keys or directories and starts nothing. Generated preview
+identities are temporary.
 The runtime validates its own model and ACP settings when started.
 
 The owner must have access to every target relay, and each relay must support
@@ -71,7 +72,7 @@ See [buzz-swarm.example.yaml](buzz-swarm.example.yaml). Agent fields replace
 | `owner.nsec`, `owner.conditions` | Owner key and optional NIP-OA conditions |
 | `name`, `nsec`, `auth_tag`, `enabled` | Per-agent identity and selection |
 | `relays` | Non-empty relay list, shared or per agent |
-| `workdir` | Working directory, defaulting to the config directory |
+| `workdir` | Existing working directory; default `workspaces/<name>` beside the config, created `0700` on start |
 | `harness` | Executable path or name on PATH, default `buzz-acp` |
 | `restart`, `max_restarts` | `on-failure` (default), `always`, or `never`; default budget 10 |
 | `env` | Existing ACP/agent options and credentials |
@@ -100,9 +101,11 @@ Swarm defaults `BUZZ_ACP_AGENT_COMMAND` to `buzz-agent` and
 ACP runtime; an empty MCP command disables it. See `buzz-acp --help` and
 [buzz-agent](../buzz-agent/README.md) for runtime options. Ambient `BUZZ_ACP_*`
 settings are cleared; use YAML `env` to configure them explicitly. Model/provider
-environment variables are inherited. Swarm owns relay and identity variables;
-YAML `env` cannot override them. Owner and sibling agent key source variables
-are removed before launching each harness. Processes sharing an OS user still
+environment variables are inherited unless the file names them as a source.
+Swarm owns relay and identity variables; YAML `env` cannot override them. Every
+`{env: VARIABLE}` source in the file, including in `defaults` and disabled
+agents, is removed from the inherited environment; only agents that declare it
+receive its value, under the declared name. Processes sharing an OS user still
 share that user's filesystem access.
 
 An existing agent key and pre-signed `auth_tag` can be supplied without `owner`,
@@ -119,11 +122,13 @@ second backoff; the restart budget resets after 60 seconds of uptime. Clean
 exits stay ended under the default policy. Final failures produce exit code 1.
 
 Ctrl-C or SIGTERM stops harness process groups with 15 seconds of grace
-(`start --grace SECONDS`). A second signal forces shutdown. Remaining group
-members are killed before their leader is reaped, including on natural exit.
-Custom runtimes must manage subprocesses they move into other process groups;
-container/service containment is the backstop. Workdirs are ordinary directories,
-not sandboxes.
+(`start --grace SECONDS`). A second signal forces shutdown. Remaining members of
+the harness's own group are killed before its leader is reaped, including on
+natural exit. Swarm does not track processes a harness moves into other groups.
+The default `buzz-acp` does this for each agent and stops those groups itself on
+SIGTERM; after a forced shutdown or a harness crash they can outlive Swarm. Run
+Swarm under container or service containment when that matters. Workdirs are
+ordinary directories, not sandboxes.
 
 ```sh
 cargo test -p buzz-swarm

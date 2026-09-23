@@ -132,7 +132,10 @@ agents:
         matches!(file.owner(&env).unwrap().nsec, SecretRef::File(path) if path == directory.path().join("owner.nsec"))
     );
     let specs = file.resolved_specs(&env).unwrap();
-    assert_eq!(specs[0].workdir.as_deref(), Some(directory.path()));
+    assert_eq!(
+        specs[0].workdir, None,
+        "the plan owns the per-agent default"
+    );
     assert_eq!(
         Path::new(specs[0].harness.as_deref().unwrap()),
         directory.path().join("bin/harness")
