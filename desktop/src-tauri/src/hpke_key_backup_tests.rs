@@ -20,8 +20,8 @@ fn test_recipient() -> (rustls::crypto::hpke::HpkePublicKey, HpkePrivateKey) {
 
 fn enrollment(public_key: &[u8]) -> HpkeBackupEnrollment {
     HpkeBackupEnrollment::new(
-        "kgoose-key-2026-09",
-        "kgoose/staging",
+        "backup-key-2026-09",
+        "backup/staging",
         "subject:01J8A4M7Q1G4X8S8M51FS7K2HX",
         test_backup_id(),
         public_key,
