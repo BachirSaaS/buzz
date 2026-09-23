@@ -1225,21 +1225,39 @@ fn decode_cursor(token: &str) -> Result<(DateTime<Utc>, Vec<u8>), ApiError> {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CommunityQuery {
-    community_id: Uuid,
+    community_host: String,
+}
+
+/// Resolve a client-supplied community host to its tenant through the same
+/// fail-closed binder that scopes live connections. The client's own local
+/// community ids are never trusted; an unmapped host is an error, so a wrong
+/// target can never masquerade as an empty result.
+async fn community_for_host(
+    state: &crate::state::AppState,
+    host: &str,
+) -> Result<buzz_core::CommunityId, ApiError> {
+    match crate::tenant::bind_community(&state.db, host).await {
+        Ok(tenant) => Ok(tenant.community()),
+        Err(crate::tenant::BindError::UnmappedHost) => Err(ApiError::bad_request(
+            "unknown_community_host",
+            "no community is served at this host",
+        )),
+        Err(crate::tenant::BindError::Lookup(_)) => Err(ApiError::internal()),
+    }
 }
 
 /// Query params for `GET /members/restrictions`.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RestrictionsQuery {
-    community_id: Uuid,
+    community_host: String,
     /// Maximum number of records to return (1–200, default 200).
     limit: Option<i64>,
     /// Opaque continuation cursor from a prior response's `nextCursor` field.
     cursor: Option<String>,
 }
 
-/// GET /members/restrictions?communityId={uuid}[&limit={1-200}][&cursor={token}]
+/// GET /members/restrictions?communityHost={host}[&limit={1-200}][&cursor={token}]
 ///
 /// List currently active bans and timeouts for the given community, newest
 /// first, with stable keyset pagination.
@@ -1250,8 +1268,9 @@ struct RestrictionsQuery {
 /// - `cursor` — opaque token from a prior page's `nextCursor`. Omit for the
 ///   first page. Format: base64url of `{updated_at_micros}_{pubkey_hex}`.
 ///
-/// Returns 400 if `communityId` is absent / invalid, `limit` is out of range,
-/// or `cursor` is malformed. Returns 401 without a valid admin credential.
+/// Returns 400 if `communityHost` is absent or served by no community
+/// (`unknown_community_host`), `limit` is out of range, or `cursor` is
+/// malformed. Returns 401 without a valid admin credential.
 async fn list_member_restrictions(
     State(state): State<Arc<crate::state::AppState>>,
     uri: Uri,
@@ -1271,7 +1290,7 @@ async fn list_member_restrictions(
     let page_limit = limit(Some(query.limit.unwrap_or(200)))?;
     let cursor = query.cursor.as_deref().map(decode_cursor).transpose()?;
 
-    let community = buzz_core::CommunityId::from_uuid(query.community_id);
+    let community = community_for_host(&state, &query.community_host).await?;
     let records = state
         .db
         .list_community_restrictions_page(community, page_limit, cursor)
@@ -1291,7 +1310,7 @@ async fn list_member_restrictions(
     }))
 }
 
-/// DELETE /members/{pubkey}/ban?communityId={uuid}
+/// DELETE /members/{pubkey}/ban?communityHost={host}
 ///
 /// Lift an active ban for the given member in the given community.
 /// Returns 204 on success, 409 if no active ban exists.
@@ -1316,7 +1335,7 @@ async fn unban_member(
     let principal = require_mutation_principal(principal_opt)?;
 
     let target_bytes = decode_hex_pubkey(&pubkey_hex)?;
-    let community = buzz_core::CommunityId::from_uuid(query.community_id);
+    let community = community_for_host(&state, &query.community_host).await?;
 
     let actor_authority = match principal.role {
         AdminRole::Operator => "relay_operator",
@@ -1339,7 +1358,7 @@ async fn unban_member(
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
-/// DELETE /members/{pubkey}/timeout?communityId={uuid}
+/// DELETE /members/{pubkey}/timeout?communityHost={host}
 ///
 /// Clear an active timeout/write-block for the given member in the given
 /// community. Returns 204 on success, 409 if no active timeout exists.
@@ -1364,7 +1383,7 @@ async fn untimeout_member(
     let principal = require_mutation_principal(principal_opt)?;
 
     let target_bytes = decode_hex_pubkey(&pubkey_hex)?;
-    let community = buzz_core::CommunityId::from_uuid(query.community_id);
+    let community = community_for_host(&state, &query.community_host).await?;
 
     let actor_authority = match principal.role {
         AdminRole::Operator => "relay_operator",
@@ -2054,11 +2073,10 @@ mod postgres_tests {
     #[tokio::test]
     async fn list_restrictions_rejects_missing_credential() {
         let state = test_state().await;
-        let community_id = Uuid::nil();
         let response = status_for(
             state,
             Request::builder()
-                .uri(format!("/members/restrictions?communityId={community_id}"))
+                .uri("/members/restrictions?communityHost=unauth.example")
                 .header(header::HOST, "admin.example")
                 .body(Body::empty())
                 .expect("request"),
@@ -2075,13 +2093,12 @@ mod postgres_tests {
     async fn unban_member_rejects_missing_credential() {
         let state = test_state().await;
         let pubkey_hex = "ab".repeat(32);
-        let community_id = Uuid::nil();
         let response = status_for(
             state,
             Request::builder()
                 .method("DELETE")
                 .uri(format!(
-                    "/members/{pubkey_hex}/ban?communityId={community_id}"
+                    "/members/{pubkey_hex}/ban?communityHost=unauth.example"
                 ))
                 .header(header::HOST, "admin.example")
                 .body(Body::empty())
@@ -2099,13 +2116,12 @@ mod postgres_tests {
     async fn untimeout_member_rejects_missing_credential() {
         let state = test_state().await;
         let pubkey_hex = "ab".repeat(32);
-        let community_id = Uuid::nil();
         let response = status_for(
             state,
             Request::builder()
                 .method("DELETE")
                 .uri(format!(
-                    "/members/{pubkey_hex}/timeout?communityId={community_id}"
+                    "/members/{pubkey_hex}/timeout?communityHost=unauth.example"
                 ))
                 .header(header::HOST, "admin.example")
                 .body(Body::empty())
@@ -2137,9 +2153,7 @@ mod postgres_tests {
         let state = test_state().await;
         let operator_keys = test_operator_keys();
         let pubkey_hex = "ab".repeat(32);
-        let community_id = community_uuid;
-
-        let path = format!("/members/{pubkey_hex}/ban?communityId={community_id}");
+        let path = format!("/members/{pubkey_hex}/ban?communityHost={host}");
         let auth = make_nostr_auth_delete(&operator_keys, &path);
         let response = status_for(
             state,
@@ -2176,9 +2190,7 @@ mod postgres_tests {
         let state = test_state().await;
         let operator_keys = test_operator_keys();
         let pubkey_hex = "ab".repeat(32);
-        let community_id = community_uuid;
-
-        let path = format!("/members/{pubkey_hex}/timeout?communityId={community_id}");
+        let path = format!("/members/{pubkey_hex}/timeout?communityHost={host}");
         let auth = make_nostr_auth_delete(&operator_keys, &path);
         let response = status_for(
             state,
@@ -2282,7 +2294,7 @@ mod postgres_tests {
         .expect("insert timeout fixture");
 
         let state = nip98_state_with_real_pool(pool).await;
-        let path = format!("/members/restrictions?communityId={community_uuid}");
+        let path = format!("/members/restrictions?communityHost={host}");
         let auth = make_nostr_auth(&test_operator_keys(), &path);
         let response = status_for(
             state,
@@ -2342,6 +2354,57 @@ mod postgres_tests {
             serde_json::Value::Null,
             "nextCursor must be null when all records fit in one page"
         );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires Postgres"]
+    async fn restrictions_endpoints_reject_an_unknown_host_instead_of_listing_nothing() {
+        let pool = sqlx::PgPool::connect(&database_url())
+            .await
+            .expect("connect test database");
+        let state = nip98_state_with_real_pool(pool).await;
+        let host = format!("unmapped-{}.example", Uuid::new_v4().simple());
+        let target_hex = "ab".repeat(32);
+        for (method, path) in [
+            ("GET", format!("/members/restrictions?communityHost={host}")),
+            (
+                "DELETE",
+                format!("/members/{target_hex}/ban?communityHost={host}"),
+            ),
+            (
+                "DELETE",
+                format!("/members/{target_hex}/timeout?communityHost={host}"),
+            ),
+        ] {
+            let auth = if method == "GET" {
+                make_nostr_auth(&test_operator_keys(), &path)
+            } else {
+                make_nostr_auth_delete(&test_operator_keys(), &path)
+            };
+            let response = status_for(
+                state.clone(),
+                Request::builder()
+                    .method(method)
+                    .uri(&path)
+                    .header(header::HOST, "admin.example")
+                    .header(header::AUTHORIZATION, auth)
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await;
+            assert_eq!(
+                response.status(),
+                StatusCode::BAD_REQUEST,
+                "{method} {path}"
+            );
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("read body");
+            assert!(
+                String::from_utf8_lossy(&body).contains("unknown_community_host"),
+                "{method} {path}"
+            );
+        }
     }
 
     /// Pagination regression: bind the default=200 cap, SQL LIMIT enforcement,
@@ -2445,7 +2508,7 @@ mod postgres_tests {
         let operator_keys = test_operator_keys();
 
         // ── assertion 1: limit=201 → 400 ─────────────────────────────────
-        let bad_path = format!("/members/restrictions?communityId={community_uuid}&limit=201");
+        let bad_path = format!("/members/restrictions?communityHost={host}&limit=201");
         let bad_auth = make_nostr_auth(&operator_keys, &bad_path);
         let bad_response = status_for(
             Arc::clone(&state),
@@ -2466,7 +2529,7 @@ mod postgres_tests {
 
         // ── assertion 2: default limit → exactly 200 items + non-null cursor ─
         // (This is the falsifiable binding of default=200 and max=200.)
-        let first_path = format!("/members/restrictions?communityId={community_uuid}");
+        let first_path = format!("/members/restrictions?communityHost={host}");
         let first_auth = make_nostr_auth(&operator_keys, &first_path);
         let first_response = status_for(
             Arc::clone(&state),
@@ -2516,7 +2579,7 @@ mod postgres_tests {
         let mut page_count = 1usize; // already consumed first page above
 
         while let Some(tok) = cursor_token.clone() {
-            let path = format!("/members/restrictions?communityId={community_uuid}&cursor={tok}");
+            let path = format!("/members/restrictions?communityHost={host}&cursor={tok}");
             let auth = make_nostr_auth(&operator_keys, &path);
             let response = status_for(
                 Arc::clone(&state),
@@ -2619,7 +2682,7 @@ mod postgres_tests {
 
         let state = nip98_state_with_real_pool(pool.clone()).await;
         let target_hex = hex::encode(&target_pubkey);
-        let path = format!("/members/{target_hex}/ban?communityId={community_uuid}");
+        let path = format!("/members/{target_hex}/ban?communityHost={host}");
         let auth = make_nostr_auth_delete(&test_operator_keys(), &path);
         let response = status_for(
             state,
@@ -2749,7 +2812,7 @@ mod postgres_tests {
 
         let state = nip98_state_with_real_pool(pool.clone()).await;
         let target_hex = hex::encode(&target_pubkey);
-        let path = format!("/members/{target_hex}/timeout?communityId={community_uuid}");
+        let path = format!("/members/{target_hex}/timeout?communityHost={host}");
         let auth = make_nostr_auth_delete(&test_operator_keys(), &path);
         let response = status_for(
             state,
@@ -2864,7 +2927,7 @@ mod postgres_tests {
 
         let state = nip98_state_with_real_pool(pool.clone()).await;
         let target_hex = hex::encode(&target_pubkey);
-        let path = format!("/members/{target_hex}/ban?communityId={community_uuid}");
+        let path = format!("/members/{target_hex}/ban?communityHost={host}");
         let auth = make_nostr_auth_delete(&test_operator_keys(), &path);
         let response = status_for(
             state,

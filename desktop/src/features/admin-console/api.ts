@@ -556,27 +556,27 @@ export type AdminRestrictionsPage = {
 };
 
 /**
- * List one page of active bans and timeouts for a community. Pass the prior
- * page's `nextCursor` to continue.
+ * List one page of active bans and timeouts for the active relay's community.
+ * The native command names the community by the active relay's host, which
+ * the relay resolves to its tenant. Pass the prior page's `nextCursor` to
+ * continue.
  *
- * GET /api/admin/v1/members/restrictions?communityId={id}[&cursor={token}]
+ * GET /api/admin/v1/members/restrictions?communityHost={host}[&cursor={token}]
  */
 export async function listAdminRestrictions(
   origin: string,
-  communityId: string,
   cursor: string | null = null,
 ): Promise<AdminRestrictionsPage> {
   return invokeTauri<AdminRestrictionsPage>("admin_list_restrictions", {
     origin,
-    communityId,
     cursor,
   });
 }
 
 /**
- * Lift an active ban for a community member.
+ * Lift an active ban for a member of the active relay's community.
  *
- * DELETE /api/admin/v1/members/{pubkey}/ban?communityId={id}
+ * DELETE /api/admin/v1/members/{pubkey}/ban?communityHost={host}
  *
  * Returns normally on 204. Throws an `AdminMutationError`-shaped rejection
  * on 409 ("no active ban") or other errors.
@@ -584,15 +584,14 @@ export async function listAdminRestrictions(
 export async function liftAdminBan(
   origin: string,
   pubkey: string,
-  communityId: string,
 ): Promise<void> {
-  return invokeTauri<void>("admin_lift_ban", { origin, pubkey, communityId });
+  return invokeTauri<void>("admin_lift_ban", { origin, pubkey });
 }
 
 /**
- * Clear an active timeout for a community member.
+ * Clear an active timeout for a member of the active relay's community.
  *
- * DELETE /api/admin/v1/members/{pubkey}/timeout?communityId={id}
+ * DELETE /api/admin/v1/members/{pubkey}/timeout?communityHost={host}
  *
  * Returns normally on 204. Throws an `AdminMutationError`-shaped rejection
  * on 409 ("no active timeout") or other errors.
@@ -600,13 +599,8 @@ export async function liftAdminBan(
 export async function liftAdminTimeout(
   origin: string,
   pubkey: string,
-  communityId: string,
 ): Promise<void> {
-  return invokeTauri<void>("admin_lift_timeout", {
-    origin,
-    pubkey,
-    communityId,
-  });
+  return invokeTauri<void>("admin_lift_timeout", { origin, pubkey });
 }
 
 // ── Attachment ────────────────────────────────────────────────────────────

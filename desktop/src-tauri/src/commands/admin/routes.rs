@@ -77,13 +77,13 @@ pub enum AdminRoute {
     OperatorDelete {
         pubkey: HexPubkey,
     },
-    /// GET /members/restrictions — communityId in query.
+    /// GET /members/restrictions — communityHost in query.
     MemberRestrictionsList,
-    /// DELETE /members/{pubkey}/ban — communityId in query.
+    /// DELETE /members/{pubkey}/ban — communityHost in query.
     MemberBanDelete {
         pubkey: HexPubkey,
     },
-    /// DELETE /members/{pubkey}/timeout — communityId in query.
+    /// DELETE /members/{pubkey}/timeout — communityHost in query.
     MemberTimeoutDelete {
         pubkey: HexPubkey,
     },
@@ -162,6 +162,8 @@ pub struct AdminQuery {
     pub scope: Option<String>,
     /// Opaque continuation token from a prior page's `nextCursor`.
     pub cursor: Option<String>,
+    /// Community host the relay resolves to its tenant (restrictions routes).
+    pub community_host: Option<String>,
 }
 
 impl AdminQuery {
@@ -171,6 +173,9 @@ impl AdminQuery {
         let mut parts: Vec<String> = Vec::new();
         if let Some(v) = &self.community_id {
             parts.push(format!("communityId={}", urlencoded(v)));
+        }
+        if let Some(v) = &self.community_host {
+            parts.push(format!("communityHost={}", urlencoded(v)));
         }
         if let Some(v) = &self.status {
             parts.push(format!("status={}", urlencoded(v)));

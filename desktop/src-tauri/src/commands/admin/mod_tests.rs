@@ -1236,3 +1236,53 @@ async fn save_rejects_an_unrelated_content_type() {
     .await;
     assert_eq!(saved, Err("admin_attachment_mime_mismatch".to_string()));
 }
+
+// ── Restrictions community scoping ────────────────────────────────────────
+
+#[test]
+fn restrictions_url_names_the_active_relay_authority() {
+    let state = relay_state("wss://Community.Example.com:8443/ws");
+    let pubkey = routes::HexPubkey::parse(&"ab".repeat(32)).unwrap();
+    let url = restrictions_url(
+        "https://admin.example.com",
+        &routes::AdminRoute::MemberBanDelete { pubkey },
+        None,
+        &state,
+    )
+    .unwrap();
+    assert!(
+        url.ends_with("?communityHost=community.example.com%3A8443"),
+        "{url}"
+    );
+    assert!(!url.contains("communityId"), "{url}");
+}
+
+#[test]
+fn restrictions_url_carries_the_cursor_and_default_port_host() {
+    let state = relay_state("wss://relay.example.com");
+    let url = restrictions_url(
+        "https://admin.example.com",
+        &routes::AdminRoute::MemberRestrictionsList,
+        Some("tok".to_string()),
+        &state,
+    )
+    .unwrap();
+    assert!(
+        url.ends_with("/members/restrictions?cursor=tok&communityHost=relay.example.com")
+            || url.ends_with("/members/restrictions?communityHost=relay.example.com&cursor=tok"),
+        "{url}"
+    );
+}
+
+#[test]
+fn restrictions_url_errors_when_the_relay_host_is_unresolvable() {
+    let state = relay_state("not a url");
+    let err = restrictions_url(
+        "https://admin.example.com",
+        &routes::AdminRoute::MemberRestrictionsList,
+        None,
+        &state,
+    )
+    .unwrap_err();
+    assert_eq!(err, "admin_community_host_unresolved");
+}

@@ -464,6 +464,7 @@ pub async fn admin_list_reports(
         limit: query.limit,
         scope: query.scope,
         cursor: None,
+        community_host: None,
     };
     let url = origin.route_url(&routes::AdminRoute::ReportsList, &q);
     let bytes = fetch_admin_json(&url, SUCCESS_JSON_CAP, &state).await?;
@@ -748,29 +749,54 @@ pub async fn admin_save_attachment(
 
 // ── Member restrictions ───────────────────────────────────────────────────
 
-/// List active bans and timeouts — GET /api/admin/v1/members/restrictions?communityId={uuid}[&cursor={token}].
+/// Build a restrictions-route URL scoped to the active relay's community.
+///
+/// The community is named by the active relay's host authority — the same
+/// `relay_url_authority` the relay's own connection binding uses — so the relay
+/// resolves its tenant. The desktop's local community ids are never sent.
+fn restrictions_url(
+    origin: &str,
+    route: &routes::AdminRoute,
+    cursor: Option<String>,
+    state: &crate::app_state::AppState,
+) -> Result<String, String> {
+    let origin = origin::AdminOrigin::parse(origin)?;
+    let host = buzz_core_pkg::tenant::relay_url_authority(
+        &crate::relay::relay_api_base_url_with_override(state),
+    );
+    if host.is_empty() {
+        return Err("admin_community_host_unresolved".to_string());
+    }
+    let q = routes::AdminQuery {
+        community_host: Some(host),
+        cursor,
+        ..Default::default()
+    };
+    Ok(origin.route_url(route, &q))
+}
+
+/// List active bans and timeouts for the active relay's community —
+/// GET /api/admin/v1/members/restrictions?communityHost={host}[&cursor={token}].
 ///
 /// Returns `{ items: [...], nextCursor: string|null }`. Pass the previous
 /// page's `nextCursor` as `cursor` to fetch the next page (relay page size 200).
 #[tauri::command]
 pub async fn admin_list_restrictions(
     origin: String,
-    community_id: String,
     cursor: Option<String>,
     state: tauri::State<'_, crate::app_state::AppState>,
 ) -> Result<serde_json::Value, String> {
-    let origin = origin::AdminOrigin::parse(&origin)?;
-    let q = routes::AdminQuery {
-        community_id: Some(community_id),
+    let url = restrictions_url(
+        &origin,
+        &routes::AdminRoute::MemberRestrictionsList,
         cursor,
-        ..Default::default()
-    };
-    let url = origin.route_url(&routes::AdminRoute::MemberRestrictionsList, &q);
+        &state,
+    )?;
     let bytes = fetch_admin_json(&url, SUCCESS_JSON_CAP, &state).await?;
     serde_json::from_slice(&bytes).map_err(|e| format!("invalid JSON from relay: {e}"))
 }
 
-/// Lift an active ban — DELETE /api/admin/v1/members/{pubkey}/ban?communityId={uuid}.
+/// Lift an active ban — DELETE /api/admin/v1/members/{pubkey}/ban?communityHost={host}.
 ///
 /// Returns 204 on success, 409 when no active ban exists for this member.
 /// A 409 is surfaced as an `AdminMutationError` so the UI can handle it
@@ -779,41 +805,39 @@ pub async fn admin_list_restrictions(
 pub async fn admin_lift_ban(
     origin: String,
     pubkey: String,
-    community_id: String,
     state: tauri::State<'_, crate::app_state::AppState>,
 ) -> Result<(), AdminMutationError> {
-    let origin = origin::AdminOrigin::parse(&origin)?;
     let pubkey =
         routes::HexPubkey::parse(&pubkey).map_err(|e| format!("invalid member pubkey: {e}"))?;
-    let q = routes::AdminQuery {
-        community_id: Some(community_id),
-        ..Default::default()
-    };
-    let url = origin.route_url(&routes::AdminRoute::MemberBanDelete { pubkey }, &q);
+    let url = restrictions_url(
+        &origin,
+        &routes::AdminRoute::MemberBanDelete { pubkey },
+        None,
+        &state,
+    )?;
     // 204 No Content: empty body is the success signal. delete_admin_json
     // returns Ok(vec![]) for 204; we discard the bytes and return ().
     let _bytes = delete_admin_json(&url, SUCCESS_JSON_CAP, &state).await?;
     Ok(())
 }
 
-/// Lift an active timeout — DELETE /api/admin/v1/members/{pubkey}/timeout?communityId={uuid}.
+/// Lift an active timeout — DELETE /api/admin/v1/members/{pubkey}/timeout?communityHost={host}.
 ///
 /// Returns 204 on success, 409 when no active timeout exists for this member.
 #[tauri::command]
 pub async fn admin_lift_timeout(
     origin: String,
     pubkey: String,
-    community_id: String,
     state: tauri::State<'_, crate::app_state::AppState>,
 ) -> Result<(), AdminMutationError> {
-    let origin = origin::AdminOrigin::parse(&origin)?;
     let pubkey =
         routes::HexPubkey::parse(&pubkey).map_err(|e| format!("invalid member pubkey: {e}"))?;
-    let q = routes::AdminQuery {
-        community_id: Some(community_id),
-        ..Default::default()
-    };
-    let url = origin.route_url(&routes::AdminRoute::MemberTimeoutDelete { pubkey }, &q);
+    let url = restrictions_url(
+        &origin,
+        &routes::AdminRoute::MemberTimeoutDelete { pubkey },
+        None,
+        &state,
+    )?;
     let _bytes = delete_admin_json(&url, SUCCESS_JSON_CAP, &state).await?;
     Ok(())
 }

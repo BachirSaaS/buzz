@@ -984,17 +984,13 @@ test("staffing-self-removal-fires-onSelfMutation: confirming removal of own pubk
 
 // ── P1: Restrictions section ──────────────────────────────────────────────────
 //
-// The Restrictions section renders below the operator list when a communityId is
-// available. It lists active bans/timeouts and provides per-row Lift ban /
+// The Restrictions section renders below the operator list for the active
+// relay's community. It lists active bans/timeouts and provides per-row Lift ban /
 // Clear timeout buttons with confirmation dialogs.
 //
 // Mutation evidence:
-//   - Remove the {effectiveCommunityId && ...} gate → section renders without a
-//     communityId, admin_list_restrictions fires with undefined → RED.
 //   - Remove confirm dialog → lift IPC fires on button click without confirm → RED.
 //   - Remove the list refresh after lift → row stays after lift → RED.
-
-const CM_COMMUNITY_ID = "00000000-0000-0000-0000-000000000042";
 
 function makeBanRecord(pubkeyHex, overrides = {}) {
   return {
@@ -1038,7 +1034,6 @@ test("restrictions-empty: restrictions section shows 'no active bans or timeouts
     origin,
     pubkey,
     [],
-    { communityId: CM_COMMUNITY_ID },
   );
   await doRender();
   await settle(50);
@@ -1047,10 +1042,7 @@ test("restrictions-empty: restrictions section shows 'no active bans or timeouts
     const section = container.querySelector(
       "[data-testid='restrictions-section']",
     );
-    assert.ok(
-      section !== null,
-      "restrictions-section must render with a communityId",
-    );
+    assert.ok(section !== null, "restrictions-section must render");
     const emptyMsg = container.querySelector(
       "[data-testid='restrictions-empty']",
     );
@@ -1067,39 +1059,47 @@ test("restrictions-empty: restrictions section shows 'no active bans or timeouts
   }
 });
 
-test("restrictions-absent-without-communityId: restrictions section is absent when no communityId", async () => {
-  // When no communityId is available (no active community in context), the
-  // restrictions section must not render — no IPC call, no DOM element.
+test("restrictions-unknown-host-is-an-error: an unresolved community host shows the error, never the empty state", async () => {
+  // The relay rejects a host it serves no community for with
+  // unknown_community_host; the list must say so rather than claim there are
+  // no active bans.
   //
-  // Mutation evidence:
-  //   - Remove the {effectiveCommunityId && ...} gate → section renders → RED.
-  const origin = "https://admin-restrictions-absent.example.com";
+  // Mutation evidence: render the empty state on error → RED.
+  const origin = "https://admin-restrictions-unknown.example.com";
   const pubkey = "b2".repeat(32);
 
   const listCalls = [];
   setIpcHandler("admin_list_restrictions", (args) => {
     listCalls.push(args);
-    return Promise.resolve({ items: [], nextCursor: null });
+    return Promise.reject(
+      'admin relay error 400: {"error":"unknown_community_host","message":"no community is served at this host"}',
+    );
   });
 
-  // No communityId prop → falls back to useCommunities → no community → null
   const { container, doRender, unmount } = mountStaffingPanel(origin, pubkey);
   await doRender();
   await settle(30);
 
   try {
-    const section = container.querySelector(
-      "[data-testid='restrictions-section']",
+    assert.ok(
+      container.querySelector("[data-testid='restrictions-section']"),
+      "restrictions-section must render",
     );
     assert.equal(
-      section,
+      container.querySelector("[data-testid='restrictions-empty']"),
       null,
-      "restrictions-section must be absent when no communityId is available",
+      "an unresolved host must not render as 'No active bans or timeouts'",
     );
+    assert.ok(
+      container.textContent.includes("no community is served at this host") ||
+        container.textContent.includes("unknown_community_host"),
+      `error must be shown; got: ${container.textContent}`,
+    );
+    assert.equal(listCalls.length >= 1, true);
     assert.equal(
-      listCalls.length,
-      0,
-      "admin_list_restrictions must not be called when no communityId",
+      "communityId" in listCalls[0],
+      false,
+      "no client community id is sent",
     );
   } finally {
     await unmount();
@@ -1123,7 +1123,6 @@ test("restrictions-rows: banned and timed-out members render with correct button
     origin,
     pubkey,
     [],
-    { communityId: CM_COMMUNITY_ID },
   );
   await doRender();
   await settle(50);
@@ -1187,7 +1186,6 @@ test("restrictions-lift-ban-cancel: cancel does not invoke admin_lift_ban", asyn
     origin,
     pubkey,
     [],
-    { communityId: CM_COMMUNITY_ID },
   );
   await doRender();
   await settle(50);
@@ -1260,7 +1258,6 @@ test("restrictions-lift-ban-confirm: confirming lift-ban calls admin_lift_ban wi
     origin,
     pubkey,
     [],
-    { communityId: CM_COMMUNITY_ID },
   );
   await doRender();
   await settle(50);
@@ -1299,9 +1296,9 @@ test("restrictions-lift-ban-confirm: confirming lift-ban calls admin_lift_ban wi
       `admin_lift_ban must receive the banned pubkey; got: ${liftCalls[0]?.pubkey}`,
     );
     assert.equal(
-      liftCalls[0]?.communityId,
-      CM_COMMUNITY_ID,
-      `admin_lift_ban must receive the communityId; got: ${liftCalls[0]?.communityId}`,
+      "communityId" in (liftCalls[0] ?? {}),
+      false,
+      "admin_lift_ban must not send a client community id; the native command derives the relay host",
     );
 
     // After the lift the list refreshes and the row must be gone.
@@ -1340,7 +1337,6 @@ test("restrictions-lift-timeout-confirm: confirming clear-timeout calls admin_li
     origin,
     pubkey,
     [],
-    { communityId: CM_COMMUNITY_ID },
   );
   await doRender();
   await settle(50);
@@ -1376,9 +1372,9 @@ test("restrictions-lift-timeout-confirm: confirming clear-timeout calls admin_li
       `admin_lift_timeout must receive the timed-out pubkey; got: ${liftCalls[0]?.pubkey}`,
     );
     assert.equal(
-      liftCalls[0]?.communityId,
-      CM_COMMUNITY_ID,
-      `admin_lift_timeout must receive the communityId; got: ${liftCalls[0]?.communityId}`,
+      "communityId" in (liftCalls[0] ?? {}),
+      false,
+      "admin_lift_timeout must not send a client community id; the native command derives the relay host",
     );
 
     // Row must be gone after list refresh.
@@ -1434,7 +1430,6 @@ test("restrictions-lift-409-treated-as-success: a 409 (already gone) refreshes t
     origin,
     pubkey,
     [],
-    { communityId: CM_COMMUNITY_ID },
   );
   await doRender();
   await settle(50);
@@ -1502,7 +1497,6 @@ test("restrictions-load-more: second page is fetched with the cursor and appende
     origin,
     pubkey,
     [],
-    { communityId: CM_COMMUNITY_ID },
   );
   await doRender();
   await settle(50);
@@ -1558,9 +1552,7 @@ test("restrictions-load-more-stale-error: a failed old page does not survive a s
     lifted = true;
     return Promise.resolve();
   });
-  const m = mountStaffingPanel(origin, pubkey, [], {
-    communityId: CM_COMMUNITY_ID,
-  });
+  const m = mountStaffingPanel(origin, pubkey, [], {});
   try {
     await m.doRender();
     await settle(30);

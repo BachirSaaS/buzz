@@ -152,16 +152,19 @@ function RestrictionTypeBadge({
 }
 
 /**
- * Active restrictions for the current community. Operators can lift bans and
- * timeouts per member row.
+ * Active restrictions for the active relay's community. The native commands
+ * name the community by the active relay's host, so there is no client-side
+ * community id to get wrong; an unresolvable host surfaces as an error.
+ * Operators can lift bans and timeouts per member row.
  */
 function RestrictionsSection({
   origin,
-  communityId,
+  relayKey,
   generation,
 }: {
   origin: string;
-  communityId: string;
+  /** Active relay identity; a change reloads the list. */
+  relayKey: string;
   generation: number;
 }) {
   const [listGen, setListGen] = useState(0);
@@ -178,8 +181,8 @@ function RestrictionsSection({
     items: AdminMemberRestrictionDto[];
     nextCursor: string | null;
   }> = useAsyncLoad(
-    () => listAdminRestrictions(origin, communityId),
-    [origin, communityId],
+    () => listAdminRestrictions(origin),
+    [origin, relayKey],
     generation + listGen,
   );
 
@@ -190,7 +193,7 @@ function RestrictionsSection({
     setLiftError(null);
     setWorkingPubkey(row.pubkey);
     try {
-      await liftAdminBan(origin, row.pubkey, communityId);
+      await liftAdminBan(origin, row.pubkey);
       setListGen((g) => g + 1);
     } catch (e) {
       const msg = adminErrorMessage(e);
@@ -212,7 +215,7 @@ function RestrictionsSection({
     setLiftError(null);
     setWorkingPubkey(row.pubkey);
     try {
-      await liftAdminTimeout(origin, row.pubkey, communityId);
+      await liftAdminTimeout(origin, row.pubkey);
       setListGen((g) => g + 1);
     } catch (e) {
       const msg = adminErrorMessage(e);
@@ -264,7 +267,7 @@ function RestrictionsSection({
     const gen = loadGen;
     setMoreRequest({ gen, busy: true, error: null });
     try {
-      const page = await listAdminRestrictions(origin, communityId, nextCursor);
+      const page = await listAdminRestrictions(origin, nextCursor);
       if (loadGenRef.current !== gen) return;
       setMore({
         gen,
@@ -463,7 +466,6 @@ export function StaffingTab({
   generation,
   canMutate,
   onSelfMutation,
-  communityId: communityIdOverride,
 }: {
   origin: string;
   pubkey: string;
@@ -480,18 +482,8 @@ export function StaffingTab({
    * server state.
    */
   onSelfMutation?: () => void;
-  /**
-   * Override the community ID used for the Restrictions section. When absent
-   * the active community from `useCommunities` is used. Intended for unit
-   * tests that need to exercise the restrictions surface without seeding
-   * localStorage with a community entry.
-   *
-   * Do not pass this prop in production code.
-   */
-  communityId?: string;
 }) {
   const { activeCommunity } = useCommunities();
-  const effectiveCommunityId = communityIdOverride ?? activeCommunity?.id;
   const [listGen, setListGen] = useState(0);
   const [addPubkey, setAddPubkey] = useState("");
   const [addRole, setAddRole] = useState<"operator" | "moderator">("moderator");
@@ -787,15 +779,13 @@ export function StaffingTab({
       )}
 
       {/* Restrictions section — active bans and timeouts for the current community */}
-      {effectiveCommunityId && (
-        <div className="mt-6 rounded-md border border-border/60 px-3 py-2.5">
-          <RestrictionsSection
-            origin={origin}
-            communityId={effectiveCommunityId}
-            generation={generation}
-          />
-        </div>
-      )}
+      <div className="mt-6 rounded-md border border-border/60 px-3 py-2.5">
+        <RestrictionsSection
+          origin={origin}
+          relayKey={activeCommunity?.relayUrl ?? ""}
+          generation={generation}
+        />
+      </div>
     </div>
   );
 }

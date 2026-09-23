@@ -176,7 +176,6 @@ export function mountPanel({
   role = undefined,
   initialTab = undefined,
   onSelfMutation = undefined,
-  communityId = undefined,
 }) {
   const qc = makeQueryClient(pubkey);
   // StaffingTab calls useUsersBatchQuery which needs QueryClientProvider +
@@ -206,7 +205,6 @@ export function mountPanel({
               ...(role !== undefined ? { role } : {}),
               ...(initialTab !== undefined ? { initialTab } : {}),
               ...(onSelfMutation !== undefined ? { onSelfMutation } : {}),
-              ...(communityId !== undefined ? { communityId } : {}),
             }),
           ),
         ),
@@ -263,7 +261,7 @@ export function mountStaffingPanel(
   origin,
   pubkey,
   operators = [],
-  { onSelfMutation, communityId } = {},
+  { onSelfMutation } = {},
 ) {
   setIpcHandler("admin_list_reports", () => Promise.resolve([]));
   setIpcHandler("admin_list_operators", () =>
@@ -276,7 +274,6 @@ export function mountStaffingPanel(
     role: "operator",
     initialTab: "staffing",
     ...(onSelfMutation !== undefined ? { onSelfMutation } : {}),
-    ...(communityId !== undefined ? { communityId } : {}),
   });
 }
 
