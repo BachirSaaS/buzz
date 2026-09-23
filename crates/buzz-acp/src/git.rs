@@ -89,10 +89,10 @@ impl GitEnvironment {
         paths.extend(
             std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()).filter(|entry| {
                 agent
-                    || !entry
+                    || entry
                         .join(buzz_git_identity::IDENTITY_MANIFEST_NAME)
                         .symlink_metadata()
-                        .is_ok()
+                        .is_err()
             }),
         );
         env.push((
