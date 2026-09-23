@@ -5,6 +5,14 @@
 //! scope. In particular, this is a native Rust API and is not registered as a
 //! Tauri command: renderer-controlled recipient keys would turn encryption into
 //! an nsec export path.
+//!
+//! This is a pure sealing component, not an active [`crate::app_state::AppState`]
+//! backup operation. A future enrollment/upload path must serialize identity
+//! selection and sealing with `AppState::identity_mutation`, obtain the live
+//! identity through `AppState::signing_keys()`, and bind its public key to the
+//! authenticated enrollment before upload. This API alone does not protect
+//! against identity lock, loss, or concurrent rotation, and its tests do not
+//! claim that runtime integration.
 
 use std::fmt;
 
@@ -41,6 +49,8 @@ pub const CIPHERTEXT_LEN: usize = 48;
 
 const AAD_DOMAIN_V1: &[u8] = b"buzz/nsec-backup/aad/v1";
 const MAX_CONTEXT_FIELD_LEN: usize = 255;
+const P256_PUBLIC_KEY_BASE64URL_LEN: usize = 87;
+const CIPHERTEXT_BASE64URL_LEN: usize = 64;
 
 /// Errors produced while validating or sealing an HPKE nsec-backup envelope.
 ///
@@ -219,14 +229,35 @@ impl HpkeBackupEnvelope {
         ))
     }
 
-    /// Decode and validate the RFC 9180 encapsulated P-256 public key.
+    /// Decode and validate the RFC 9180 encapsulated P-256 public-key shape.
+    ///
+    /// This enforces the 65-byte uncompressed SEC1 representation and its
+    /// `0x04` prefix. The HPKE provider validates P-256 curve membership when
+    /// a recipient uses these bytes to open the envelope.
     pub fn encapsulated_key_bytes(&self) -> Result<Vec<u8>, HpkeBackupError> {
-        decode_canonical_base64(&self.enc, P256_PUBLIC_KEY_LEN, "enc")
+        let decoded = decode_canonical_base64(
+            &self.enc,
+            P256_PUBLIC_KEY_BASE64URL_LEN,
+            P256_PUBLIC_KEY_LEN,
+            "enc",
+        )?;
+        if decoded.first() != Some(&0x04) {
+            return Err(HpkeBackupError::InvalidField {
+                field: "enc",
+                reason: "expected uncompressed SEC1 prefix 0x04",
+            });
+        }
+        Ok(decoded)
     }
 
     /// Decode and validate the 32-byte-secret AES-256-GCM ciphertext.
     pub fn ciphertext_bytes(&self) -> Result<Vec<u8>, HpkeBackupError> {
-        decode_canonical_base64(&self.ciphertext, CIPHERTEXT_LEN, "ciphertext")
+        decode_canonical_base64(
+            &self.ciphertext,
+            CIPHERTEXT_BASE64URL_LEN,
+            CIPHERTEXT_LEN,
+            "ciphertext",
+        )
     }
 }
 
@@ -330,13 +361,22 @@ fn push_framed(output: &mut Vec<u8>, value: &[u8]) {
 
 fn decode_canonical_base64(
     value: &str,
-    expected_len: usize,
+    expected_encoded_len: usize,
+    expected_decoded_len: usize,
     field: &'static str,
 ) -> Result<Vec<u8>, HpkeBackupError> {
+    // `str::len` is the UTF-8 byte length. Check it before decoding so an
+    // untrusted JSON string cannot cause an allocation proportional to input.
+    if value.len() != expected_encoded_len {
+        return Err(HpkeBackupError::InvalidField {
+            field,
+            reason: "unexpected encoded length",
+        });
+    }
     let decoded = URL_SAFE_NO_PAD
         .decode(value)
         .map_err(|_| HpkeBackupError::InvalidEnvelope("invalid base64url payload"))?;
-    if decoded.len() != expected_len {
+    if decoded.len() != expected_decoded_len {
         return Err(HpkeBackupError::InvalidField {
             field,
             reason: "unexpected decoded length",

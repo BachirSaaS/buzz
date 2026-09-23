@@ -5,6 +5,13 @@ recovery service. It encrypts a native Nostr secret locally and produces an
 opaque envelope. It does not provision a recipient, upload an envelope, create
 KMS keys, or implement release and recovery.
 
+This is currently a pure native sealing component, not an active `AppState`
+backup operation. Future desktop enrollment/upload orchestration must run live
+identity selection and sealing under `AppState::identity_mutation`, obtain that
+identity through `AppState::signing_keys()`, and bind the resulting public key
+to the authenticated enrollment before upload. The current API does not itself
+provide or test identity lock, loss, or rotation protection.
+
 The API is `hpke_key_backup::seal_nostr_secret`. Its recipient key and enrollment
 metadata must come from trusted native configuration or a verified service
 registry. It is intentionally not a Tauri command: a renderer, deep link, Nostr
@@ -54,11 +61,15 @@ of 1 through 255 bytes with no control characters. They are opaque identifiers;
 an email address is not an authorization identity. `backup_id` is the canonical
 text form of the 16 bytes authenticated below. `nostr_pubkey` is derived from the
 encrypted secret, never accepted independently. `enc` decodes to 65 bytes and
-`ciphertext` decodes to 48 bytes (32-byte plaintext plus 16-byte GCM tag).
+is exactly 87 unpadded base64url ASCII characters. `ciphertext` decodes to 48
+bytes (32-byte plaintext plus 16-byte GCM tag) and is exactly 64 unpadded
+base64url ASCII characters.
 
 JSON member ordering and whitespace are not authenticated and consumers must not
 depend on them. The metadata values are authenticated through the deterministic
-binary encoding below.
+binary encoding below. A future transport that receives untrusted JSON must
+enforce a small fixed envelope-body limit before deserialization; the fixed
+base64 lengths and bounded decoded fields do not bound JSON parser input.
 
 ## Associated data
 
@@ -87,4 +98,7 @@ The checked-in fixture at
 `desktop/src-tauri/src/testdata/hpke_nsec_backup_v1.json` pins a full envelope,
 AAD, recipient test key, and plaintext test key for future Kotlin interop. Tests
 also open the exact required suite's official RFC 9180/CFRG vector; this verifies
-standards compatibility, not KMS or KGoose integration.
+standards compatibility. The fixture was also manually verified across libraries
+with Tink Java 1.23.0 using an independently reconstructed AAD: it recovered the
+exact 32-byte plaintext, and encapsulation, ciphertext, and AAD tampering failed.
+That is fixture compatibility evidence, not live KMS or KGoose integration.

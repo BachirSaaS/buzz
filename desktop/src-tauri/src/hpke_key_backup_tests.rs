@@ -63,6 +63,8 @@ fn receiver_recovers_exact_secret_and_matching_pubkey() {
         envelope.nostr_pubkey,
         Keys::new(secret).public_key().to_hex()
     );
+    assert_eq!(envelope.enc.len(), 87);
+    assert_eq!(envelope.ciphertext.len(), 64);
     assert_eq!(envelope.encapsulated_key_bytes().unwrap().len(), 65);
     assert_eq!(envelope.ciphertext_bytes().unwrap().len(), 48);
 }
@@ -231,6 +233,78 @@ fn envelope_rejects_noncanonical_or_conflicting_metadata() {
     let mut padded_base64 = envelope.clone();
     padded_base64.enc.push('=');
     assert!(padded_base64.encapsulated_key_bytes().is_err());
+}
+
+#[test]
+fn envelope_rejects_binary_fields_with_wrong_byte_lengths_before_decode() {
+    let (public_key, _) = test_recipient();
+    let envelope = seal_nostr_secret(&test_secret(), &enrollment(&public_key.0)).unwrap();
+
+    let mut oversized_enc = envelope.clone();
+    oversized_enc.enc.push_str(&"A".repeat(1_000_000));
+    assert_eq!(
+        oversized_enc.encapsulated_key_bytes(),
+        Err(HpkeBackupError::InvalidField {
+            field: "enc",
+            reason: "unexpected encoded length",
+        })
+    );
+
+    let mut short_enc = envelope.clone();
+    short_enc.enc.pop();
+    assert_eq!(
+        short_enc.encapsulated_key_bytes(),
+        Err(HpkeBackupError::InvalidField {
+            field: "enc",
+            reason: "unexpected encoded length",
+        })
+    );
+
+    let mut multibyte_ciphertext = envelope.clone();
+    multibyte_ciphertext.ciphertext = "é".repeat(envelope.ciphertext.len());
+    assert_eq!(
+        multibyte_ciphertext.ciphertext_bytes(),
+        Err(HpkeBackupError::InvalidField {
+            field: "ciphertext",
+            reason: "unexpected encoded length",
+        })
+    );
+}
+
+#[test]
+fn envelope_rejects_malformed_base64_and_wrong_encapsulation_prefix() {
+    let (public_key, _) = test_recipient();
+    let envelope = seal_nostr_secret(&test_secret(), &enrollment(&public_key.0)).unwrap();
+
+    let mut malformed_enc = envelope.clone();
+    malformed_enc.enc.replace_range(..1, "!");
+    assert_eq!(
+        malformed_enc.encapsulated_key_bytes(),
+        Err(HpkeBackupError::InvalidEnvelope(
+            "invalid base64url payload"
+        ))
+    );
+
+    let mut malformed_ciphertext = envelope.clone();
+    malformed_ciphertext.ciphertext.replace_range(..1, "!");
+    assert_eq!(
+        malformed_ciphertext.ciphertext_bytes(),
+        Err(HpkeBackupError::InvalidEnvelope(
+            "invalid base64url payload"
+        ))
+    );
+
+    let mut wrong_prefix = envelope.clone();
+    let mut enc = URL_SAFE_NO_PAD.decode(&wrong_prefix.enc).unwrap();
+    enc[0] = 0x03;
+    wrong_prefix.enc = URL_SAFE_NO_PAD.encode(enc);
+    assert_eq!(
+        wrong_prefix.encapsulated_key_bytes(),
+        Err(HpkeBackupError::InvalidField {
+            field: "enc",
+            reason: "expected uncompressed SEC1 prefix 0x04",
+        })
+    );
 }
 
 #[test]
