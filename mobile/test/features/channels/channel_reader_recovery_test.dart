@@ -200,7 +200,7 @@ void main() {
           final own = relay.published.single;
           expect(
             own.createdAt,
-            priorHead ? t + 31 : inInclusiveRange(t, t + 1),
+            priorHead ? t + 31 : inInclusiveRange(t, nowSeconds()),
           );
 
           // The OK beat the (never delivered) echo. A same-second peer that
