@@ -360,7 +360,6 @@ fn parse_git_auth_header_full(
                     "WWW-Authenticate",
                     format!("Nostr realm=\"buzz\", method=\"{method}\""),
                 )
-                .header("content-type", "text/plain; charset=utf-8")
                 .body(Body::from("missing Authorization header"))
                 .unwrap()
         })?;
@@ -372,7 +371,6 @@ fn parse_git_auth_header_full(
                 "WWW-Authenticate",
                 format!("Nostr realm=\"buzz\", method=\"{method}\""),
             )
-            .header("content-type", "text/plain; charset=utf-8")
             .body(Body::from("expected Authorization: Nostr <base64>"))
             .unwrap()
     })?;
@@ -4155,14 +4153,12 @@ mod off_mode_precedence_tests {
                 b"missing Authorization header",
                 "missing-auth 401 body must be exact 'missing Authorization header'"
             );
-            let ct = headers
-                .get("content-type")
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or("");
-            assert_eq!(
-                ct,
-                "text/plain; charset=utf-8",
-                "missing-auth 401 Content-Type must be exactly 'text/plain; charset=utf-8'; got {ct:?}"
+            // FI-INV-15: Off-mode bytes match origin/main, whose legacy 401
+            // builder sets no Content-Type on this response.
+            assert!(
+                headers.get("content-type").is_none(),
+                "missing-auth 401 must carry no Content-Type (legacy Off bytes); got {:?}",
+                headers.get("content-type")
             );
             let challenge = headers
                 .get("www-authenticate")
@@ -4200,14 +4196,10 @@ mod off_mode_precedence_tests {
                 b"expected Authorization: Nostr <base64>",
                 "wrong-scheme 401 body must be 'expected Authorization: Nostr <base64>'"
             );
-            let ct_ws = headers
-                .get("content-type")
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or("");
-            assert_eq!(
-                ct_ws, "text/plain; charset=utf-8",
-                "wrong-scheme 401 Content-Type must be exactly 'text/plain; charset=utf-8'; \
-                 got {ct_ws:?}"
+            assert!(
+                headers.get("content-type").is_none(),
+                "wrong-scheme 401 must carry no Content-Type (legacy Off bytes); got {:?}",
+                headers.get("content-type")
             );
             let challenge_ws = headers
                 .get("www-authenticate")
