@@ -98,6 +98,7 @@ function setup(t, pubkey, fetch = () => []) {
     fetches: 0,
     fetch,
     publish: async () => {},
+    reconnect: () => {},
     published: [],
     encryptGate: null,
     payload: (i = -1) => JSON.parse(relay.published.at(i).content),
@@ -108,7 +109,10 @@ function setup(t, pubkey, fetch = () => []) {
     relay.published.push(event);
   };
   relayClient.subscribeLive = async () => async () => {};
-  relayClient.subscribeToReconnects = () => () => {};
+  relayClient.subscribeToReconnects = (cb) => {
+    relay.reconnect = cb;
+    return () => {};
+  };
   window.__TAURI_INTERNALS__ = {
     invoke: async (cmd, args) => {
       if (cmd === "nip44_decrypt_from_self") return args.ciphertext;
@@ -451,10 +455,15 @@ const ownershipLanes = [
   ),
 ];
 
-for (const lane of ownershipLanes) {
-  test(`${lane.name} keeps a newer edit pending when an older publish completes`, async (t) => {
+for (const [lane, identical] of ownershipLanes.flatMap((l) => [
+  [l, false],
+  [l, true],
+])) {
+  test(`${lane.name} keeps a newer edit pending when an older publish completes (${identical ? "identical" : "ack"})`, async (t) => {
     const pk = `pk-own-${lane.dTag}`;
     const ackA = deferred();
+    const preflight = deferred();
+    let ackStarted = false;
     const manager = captureManager(t, lane.Manager());
     const m = () => manager.current;
     const pending = () =>
@@ -471,13 +480,35 @@ for (const lane of ownershipLanes) {
     await until(() => relay.fetches === 2, "mount reads did not run");
     await flush();
 
-    relay.publish = () => ackA.promise;
+    relay.publish = () => {
+      ackStarted = true;
+      return ackA.promise;
+    };
     await act(async () => lane.editA(result));
     await tick(t, 2_000); // A's debounce → publishEvent, ACK held
     await until(() => relay.fetches === 3, "A did not reach publish");
     await flush();
+    assert.ok(ackStarted && !relay.published.length, "A not held at ACK");
     relay.publish = async () => {};
+    if (identical) {
+      // Reconnect requeues the same A; its redundant publish is held in
+      // preflight so B lands before A takes the identical-payload return.
+      const sameA = pending();
+      await act(async () => relay.reconnect());
+      await until(() => relay.fetches === 4, "reconnect read not started");
+      await flush();
+      assert.equal(pending(), sameA, "reconnect changed the store reference");
+      await act(async () => ackA.resolve());
+      await until(
+        () => relay.published.length === 1 && !pending(),
+        "A unsettled",
+      );
+      relay.fetch = () => preflight.promise;
+      await tick(t, 2_000);
+      await until(() => relay.fetches === 5, "duplicate preflight not started");
+    }
     await act(async () => lane.editB(result));
+    if (identical) await act(async () => preflight.resolve([]));
     await act(async () => ackA.resolve());
     await until(() => relay.published.length === 1, "A was not acknowledged");
 
