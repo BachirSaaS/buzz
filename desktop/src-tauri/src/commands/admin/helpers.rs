@@ -170,12 +170,24 @@ pub(super) fn build_admin_mutation_request(
     Ok(req)
 }
 
+/// What the fetched attachment bytes are for; decides the Content-Type rule.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum AttachmentUse {
+    /// Rendered in the webview: the relay's type must equal the imeta MIME.
+    Preview,
+    /// Written only to a user-chosen file, never rendered. The relay serves
+    /// non-raster files as `application/octet-stream` + `attachment` by
+    /// design, so that is accepted alongside the imeta MIME.
+    Save,
+}
+
 /// Stream and validate an attachment response, enforcing Content-Type, size,
 /// and the cap.
 pub(super) async fn finish_attachment_response(
     resp: reqwest::Response,
     expected_mime: &str,
     expected_size: u64,
+    purpose: AttachmentUse,
 ) -> Result<Vec<u8>, String> {
     use futures_util::StreamExt;
 
@@ -200,7 +212,9 @@ pub(super) async fn finish_attachment_response(
         .unwrap_or("")
         .trim()
         .to_ascii_lowercase();
-    if content_type != expected_mime.trim().to_ascii_lowercase() {
+    let type_ok = content_type == expected_mime.trim().to_ascii_lowercase()
+        || (purpose == AttachmentUse::Save && content_type == "application/octet-stream");
+    if !type_ok {
         return Err("admin_attachment_mime_mismatch".to_string());
     }
 

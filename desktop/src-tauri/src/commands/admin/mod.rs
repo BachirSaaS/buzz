@@ -709,6 +709,7 @@ pub async fn admin_fetch_feedback_attachment(
         &expected_mime,
         expected_size,
         &keys,
+        helpers::AttachmentUse::Preview,
     )
     .await
     .map(tauri::ipc::Response::new)

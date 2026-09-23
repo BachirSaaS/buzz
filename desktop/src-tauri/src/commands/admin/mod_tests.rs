@@ -1162,3 +1162,77 @@ async fn save_core_fetch_failure_never_prompts() {
     .await;
     assert_eq!(saved, Err("admin_attachment_relay_error_500".to_string()));
 }
+
+/// The relay serves non-raster attachments as `application/octet-stream` +
+/// `Content-Disposition: attachment` (`media.rs` response policy); the imeta
+/// sidecar still says `application/pdf`.
+const RELAY_OCTET_STREAM_HEADERS: &str = "Content-Type: application/octet-stream\r\nContent-Disposition: attachment\r\nX-Content-Type-Options: nosniff\r\n";
+
+#[tokio::test]
+async fn save_core_accepts_a_pdf_served_as_relay_octet_stream() {
+    let addr = serve_sequence(vec![(
+        "200 OK",
+        RELAY_OCTET_STREAM_HEADERS,
+        "%PDF-1.7 saved",
+    )])
+    .await;
+    let dir = tempfile::tempdir().unwrap();
+    let dest = dir.path().join("report.pdf");
+    let pick_dest = dest.clone();
+    let saved = attachment::save_feedback_attachment(
+        &format!("http://127.0.0.1:{}", addr.port()),
+        SAVE_FEEDBACK_ID,
+        &save_sha(),
+        "application/pdf",
+        14,
+        &nostr::Keys::generate(),
+        |_, _, _| async move { Ok(Some(pick_dest)) },
+    )
+    .await;
+    assert_eq!(saved, Ok(true));
+    assert_eq!(std::fs::read(&dest).unwrap(), b"%PDF-1.7 saved");
+}
+
+#[tokio::test]
+async fn preview_still_rejects_relay_octet_stream() {
+    let addr = serve_sequence(vec![(
+        "200 OK",
+        RELAY_OCTET_STREAM_HEADERS,
+        "%PDF-1.7 saved",
+    )])
+    .await;
+    let fetched = attachment::fetch_feedback_attachment(
+        &format!("http://127.0.0.1:{}", addr.port()),
+        SAVE_FEEDBACK_ID,
+        &save_sha(),
+        "application/pdf",
+        14,
+        &nostr::Keys::generate(),
+        helpers::AttachmentUse::Preview,
+    )
+    .await;
+    assert_eq!(fetched, Err("admin_attachment_mime_mismatch".to_string()));
+}
+
+#[tokio::test]
+async fn save_rejects_an_unrelated_content_type() {
+    let addr = serve_sequence(vec![(
+        "200 OK",
+        "Content-Type: text/html\r\n",
+        "%PDF-1.7 saved",
+    )])
+    .await;
+    let saved = attachment::save_feedback_attachment(
+        &format!("http://127.0.0.1:{}", addr.port()),
+        SAVE_FEEDBACK_ID,
+        &save_sha(),
+        "application/pdf",
+        14,
+        &nostr::Keys::generate(),
+        |_, _, _| -> std::future::Ready<Result<Option<std::path::PathBuf>, String>> {
+            panic!("must not prompt on a type mismatch")
+        },
+    )
+    .await;
+    assert_eq!(saved, Err("admin_attachment_mime_mismatch".to_string()));
+}

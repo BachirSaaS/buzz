@@ -5,12 +5,12 @@
 use std::future::Future;
 use std::path::PathBuf;
 
-use super::helpers::finish_attachment_response;
+use super::helpers::{finish_attachment_response, AttachmentUse};
 use super::{client, origin, routes, ATTACHMENT_CAP};
 
 /// Fetch a feedback attachment, enforcing the caller's server-validated
 /// `imeta` MIME and size: inputs are checked before any network activity, the
-/// relay's `Content-Type` must match, and the body is streamed under the cap
+/// relay's `Content-Type` must match (Save also accepts `application/octet-stream`, see [`AttachmentUse`]), and the body is streamed under the cap
 /// and must equal `expected_size`. Errors are stable `admin_attachment_*` codes.
 pub(super) async fn fetch_feedback_attachment(
     origin: &str,
@@ -19,6 +19,7 @@ pub(super) async fn fetch_feedback_attachment(
     expected_mime: &str,
     expected_size: u64,
     keys: &nostr::Keys,
+    purpose: AttachmentUse,
 ) -> Result<Vec<u8>, String> {
     use crate::relay::build_nip98_auth_header_for_keys;
 
@@ -69,7 +70,7 @@ pub(super) async fn fetch_feedback_attachment(
         }
     }
     let resp = resp.expect("loop runs at least once");
-    finish_attachment_response(resp, expected_mime, expected_size).await
+    finish_attachment_response(resp, expected_mime, expected_size, purpose).await
 }
 
 /// Suggested filename and dialog-filter extension for an attachment, e.g.
@@ -130,6 +131,7 @@ where
             expected_mime,
             expected_size,
             keys,
+            AttachmentUse::Save,
         ),
         sha256,
         expected_mime,
