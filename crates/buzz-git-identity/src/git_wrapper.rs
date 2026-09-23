@@ -1,6 +1,6 @@
 //! Enforcement `git` wrapper — the L2/L3 half of deterministic agent identity.
 //!
-//! Installed on PATH (shim dir and the harness's agent-runtime PATH) as `git`,
+//! Installed as `git` in the harness's Git environment dir (first on PATH),
 //! ahead of the real binary. Every `git` an agent's shell runs lands here first.
 //! The wrapper:
 //!
@@ -65,7 +65,7 @@ const VALUE_LONG_OPTS: &[&str] = &[
 
 /// The harness-owned identity authority: the identity/signing config the
 /// wrapper re-applies before exec, and the agent author email push
-/// verification checks against. Read from the 0600 manifest the harness/shim
+/// verification checks against. Read from the 0600 manifest the harness
 /// wrote beside the keyfile — never from the caller-mutable `GIT_CONFIG_*`
 /// environment the wrapper exists to constrain.
 struct Authority {
@@ -88,7 +88,7 @@ enum AuthorityState {
     /// The install dir is located but its manifest is missing, unreadable, or
     /// does not carry the complete managed signing contract (see
     /// [`Authority::classify`]). A managed install always writes the full
-    /// contract via [`crate::identity_signing_entries`], and `user` mode
+    /// contract via the harness (`buzz-acp` `GitEnvironment`), and `user` mode
     /// installs no manifest at all — so an incomplete or inconsistent manifest
     /// means the authority was removed, corrupted, or tampered after install.
     /// Fail closed rather than silently drop or misdirect enforcement.
@@ -115,7 +115,7 @@ impl Authority {
     /// [`AuthorityState::Tampered`] otherwise. Pure over its `entries` input so
     /// it is testable without `PATH`/filesystem.
     ///
-    /// A managed install is written solely by [`crate::identity_signing_entries`]
+    /// A managed install is written solely by the harness (`buzz-acp` `GitEnvironment`)
     /// (agent mode); `user` mode writes no manifest. So a valid manifest carries
     /// EXACTLY the eight canonical keys that function writes, each once, with the
     /// fixed values ([`crate::FIXED_SIGNING_ENTRIES`]) and a `user.signingkey`
@@ -136,7 +136,7 @@ impl Authority {
     ///   construction.
     fn classify(entries: Vec<(String, String)>) -> AuthorityState {
         // Collect each canonical key's single value, rejecting duplicates and
-        // unknown keys. `CANONICAL_KEYS` mirrors `identity_signing_entries`.
+        // unknown keys. `CANONICAL_KEYS` mirrors the harness identity entries.
         const CANONICAL_KEYS: &[&str] = &[
             "user.name",
             "user.email",
@@ -197,7 +197,7 @@ impl Authority {
         }
 
         // Rebuild the entries from the validated canonical fields in the order
-        // `identity_signing_entries` writes them — nothing unvalidated (a
+        // the harness writes them — nothing unvalidated (a
         // duplicate, an unknown redirect key) crosses into the `-c` injection.
         let canonical: Vec<(String, String)> = CANONICAL_KEYS
             .iter()
@@ -1171,7 +1171,7 @@ fn config_env_override(token: &str) -> Option<&'static str> {
 
 /// Normalize a `name.subname[=value]` config spec and return the canonical key
 /// when it names a protected identity or signing setting (case-insensitive).
-/// These are exactly the keys [`crate::identity_signing_entries`] injects: an
+/// These are exactly the keys the harness (`buzz-acp` `GitEnvironment`) injects: an
 /// agent must not be able to redirect authorship or disable/redirect signing.
 fn matches_protected_key(cfg: &str) -> Option<&'static str> {
     let key = cfg.split('=').next().unwrap_or(cfg).to_ascii_lowercase();

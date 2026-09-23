@@ -681,6 +681,51 @@ fn wrapper_reapplies_agent_identity_over_repo_config() {
     );
 }
 
+/// A fixture agent key persisted the way the harness persists it.
+struct AgentKey {
+    keyfile_path: String,
+    pubkey_hex: String,
+    npub: String,
+}
+
+/// Write `nsec` to an owner-only keyfile in `dir` and derive its identity.
+fn write_agent_key(dir: &Path, nsec: &str) -> Option<AgentKey> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let keys = nostr::Keys::parse(nsec).ok()?;
+    let keyfile = dir.join(".nostr-key");
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&keyfile)
+        .and_then(|mut f| std::io::Write::write_all(&mut f, nsec.as_bytes()))
+        .ok()?;
+    Some(AgentKey {
+        keyfile_path: keyfile.to_str()?.to_owned(),
+        pubkey_hex: keys.public_key().to_hex(),
+        npub: keys.public_key().to_bech32().ok()?,
+    })
+}
+
+/// The complete manifest a managed install writes for `id` on `relay.test`.
+fn manifest_entries(id: &AgentKey) -> Vec<(String, String)> {
+    let mut entries = vec![
+        ("user.name".to_owned(), id.npub.clone()),
+        (
+            "user.email".to_owned(),
+            format!("{}@relay.test", id.pubkey_hex),
+        ),
+    ];
+    entries.extend(
+        buzz_git_identity::FIXED_SIGNING_ENTRIES
+            .iter()
+            .map(|&(k, v)| (k.to_owned(), v.to_owned())),
+    );
+    entries.push(("user.signingkey".to_owned(), id.pubkey_hex.clone()));
+    entries.push(("nostr.keyfile".to_owned(), id.keyfile_path.clone()));
+    entries
+}
+
 /// Build a shim dir wired for REAL signing: `git` and `git-sign-nostr` both
 /// symlink to the buzz-acp multicall, and the `.git-identity` manifest carries
 /// the full identity + signing config (`commit.gpgSign=true`, the signer
@@ -696,21 +741,14 @@ fn signed_shim_env() -> (tempfile::TempDir, String, String, tempfile::TempDir) {
     // `nostr.keyfile` points here). Kept separate from the shim so the shim
     // holds only the git symlinks + manifest, as the harness installs them.
     let keydir = tempfile::tempdir().unwrap();
-    let id = buzz_git_identity::write_keyfile(keydir.path(), &nsec).expect("write keyfile");
-    // Authorship is pinned (the shape `identity_signing_entries` writes) rather
-    // than derived from the runner's ambient `BUZZ_RELAY_URL`/display name.
+    let id = write_agent_key(keydir.path(), &nsec).expect("write keyfile");
     let expected_email = format!("{}@relay.test", id.pubkey_hex);
 
     let shim = tempfile::tempdir().unwrap();
     for name in ["git", "git-sign-nostr"] {
         std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_buzz-acp"), shim.path().join(name)).unwrap();
     }
-    let mut entries = vec![
-        ("user.name".to_owned(), id.npub.clone()),
-        ("user.email".to_owned(), expected_email.clone()),
-    ];
-    entries.extend(buzz_git_identity::signing_entries(&id));
-    buzz_git_identity::write_identity_manifest(shim.path(), &entries).unwrap();
+    buzz_git_identity::write_identity_manifest(shim.path(), &manifest_entries(&id)).unwrap();
 
     let real = real_git_dir();
     let path = std::env::join_paths([shim.path().to_path_buf(), real])
@@ -982,7 +1020,7 @@ fn wrapper_refuses_push_of_commit_validly_signed_by_wrong_key() {
     let keys_b = nostr::Keys::generate();
     let nsec_b = keys_b.secret_key().to_bech32().unwrap();
     let keydir_b = tempfile::tempdir().unwrap();
-    let id_b = buzz_git_identity::write_keyfile(keydir_b.path(), &nsec_b).expect("write B keyfile");
+    let id_b = write_agent_key(keydir_b.path(), &nsec_b).expect("write B keyfile");
 
     // Create a commit authored as agent A but signed with key B, bypassing the
     // wrapper's `enforce` by invoking the real git binary directly with B's
@@ -2368,13 +2406,13 @@ fn probe_isolation_rejects_sibling_helper_poisoning() {
         let keys = nostr::Keys::generate();
         let nsec = keys.secret_key().to_bech32().unwrap();
         let keydir = tempfile::tempdir().unwrap();
-        let id = buzz_git_identity::write_keyfile(keydir.path(), &nsec).expect("write keyfile");
+        let id = write_agent_key(keydir.path(), &nsec).expect("write keyfile");
         let shim = tempfile::tempdir().unwrap();
         for name in ["git", "git-sign-nostr"] {
             std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_buzz-acp"), shim.path().join(name))
                 .unwrap();
         }
-        let entries = buzz_git_identity::identity_signing_entries(&id);
+        let entries = manifest_entries(&id);
         buzz_git_identity::write_identity_manifest(shim.path(), &entries).unwrap();
         let path = make_path_with_sibling(&shim);
 
@@ -2423,13 +2461,13 @@ fn probe_isolation_rejects_sibling_helper_poisoning() {
         let keys = nostr::Keys::generate();
         let nsec = keys.secret_key().to_bech32().unwrap();
         let keydir = tempfile::tempdir().unwrap();
-        let id = buzz_git_identity::write_keyfile(keydir.path(), &nsec).expect("write keyfile");
+        let id = write_agent_key(keydir.path(), &nsec).expect("write keyfile");
         let shim = tempfile::tempdir().unwrap();
         for name in ["git", "git-sign-nostr"] {
             std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_buzz-acp"), shim.path().join(name))
                 .unwrap();
         }
-        let entries = buzz_git_identity::identity_signing_entries(&id);
+        let entries = manifest_entries(&id);
         buzz_git_identity::write_identity_manifest(shim.path(), &entries).unwrap();
         let path = make_path_with_sibling(&shim);
 
@@ -2628,13 +2666,13 @@ fn wrapper_refuses_push_plain_last_wins_alt_binary() {
         let keys = nostr::Keys::generate();
         let nsec = keys.secret_key().to_bech32().unwrap();
         let keydir = tempfile::tempdir().unwrap();
-        let id = buzz_git_identity::write_keyfile(keydir.path(), &nsec).expect("write keyfile");
+        let id = write_agent_key(keydir.path(), &nsec).expect("write keyfile");
         let shim = tempfile::tempdir().unwrap();
         for name in ["git", "git-sign-nostr"] {
             std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_buzz-acp"), shim.path().join(name))
                 .unwrap();
         }
-        let entries = buzz_git_identity::identity_signing_entries(&id);
+        let entries = manifest_entries(&id);
         buzz_git_identity::write_identity_manifest(shim.path(), &entries).unwrap();
         let path = make_alt_path(&shim);
 
@@ -2821,12 +2859,12 @@ fn wrapper_treats_exit1_with_stdout_as_probe_failure_not_unsupported() {
     let keys = nostr::Keys::generate();
     let nsec = keys.secret_key().to_bech32().unwrap();
     let keydir = tempfile::tempdir().unwrap();
-    let id = buzz_git_identity::write_keyfile(keydir.path(), &nsec).expect("write keyfile");
+    let id = write_agent_key(keydir.path(), &nsec).expect("write keyfile");
     let shim = tempfile::tempdir().unwrap();
     for name in ["git", "git-sign-nostr"] {
         std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_buzz-acp"), shim.path().join(name)).unwrap();
     }
-    let entries = buzz_git_identity::identity_signing_entries(&id);
+    let entries = manifest_entries(&id);
     buzz_git_identity::write_identity_manifest(shim.path(), &entries).unwrap();
 
     // PATH: shim_dir : fake_dir : (original minus real-git dir)
@@ -2908,12 +2946,12 @@ fn wrapper_treats_exit1_with_unrelated_stderr_as_probe_failure_not_unsupported()
     let keys = nostr::Keys::generate();
     let nsec = keys.secret_key().to_bech32().unwrap();
     let keydir = tempfile::tempdir().unwrap();
-    let id = buzz_git_identity::write_keyfile(keydir.path(), &nsec).expect("write keyfile");
+    let id = write_agent_key(keydir.path(), &nsec).expect("write keyfile");
     let shim = tempfile::tempdir().unwrap();
     for name in ["git", "git-sign-nostr"] {
         std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_buzz-acp"), shim.path().join(name)).unwrap();
     }
-    let entries = buzz_git_identity::identity_signing_entries(&id);
+    let entries = manifest_entries(&id);
     buzz_git_identity::write_identity_manifest(shim.path(), &entries).unwrap();
 
     // PATH: shim_dir : fake_dir : (original minus real-git dir)
@@ -2994,12 +3032,12 @@ fn wrapper_treats_exit1_with_empty_stderr_as_probe_failure_not_unsupported() {
     let keys = nostr::Keys::generate();
     let nsec = keys.secret_key().to_bech32().unwrap();
     let keydir = tempfile::tempdir().unwrap();
-    let id = buzz_git_identity::write_keyfile(keydir.path(), &nsec).expect("write keyfile");
+    let id = write_agent_key(keydir.path(), &nsec).expect("write keyfile");
     let shim = tempfile::tempdir().unwrap();
     for name in ["git", "git-sign-nostr"] {
         std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_buzz-acp"), shim.path().join(name)).unwrap();
     }
-    let entries = buzz_git_identity::identity_signing_entries(&id);
+    let entries = manifest_entries(&id);
     buzz_git_identity::write_identity_manifest(shim.path(), &entries).unwrap();
 
     // PATH: shim_dir : fake_dir : (original minus real-git dir)

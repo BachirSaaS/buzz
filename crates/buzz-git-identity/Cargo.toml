@@ -4,15 +4,13 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Deterministic agent git identity: author/email/signing GIT_CONFIG_* construction shared by the harness and dev-mcp"
+description = "Deterministic agent git identity: the enforcement git wrapper and its harness manifest contract"
 
 [lib]
 name = "buzz_git_identity"
 path = "src/lib.rs"
 
 [dependencies]
-nostr = { workspace = true }
-zeroize = { workspace = true }
 tempfile = "3"
 
 [target.'cfg(unix)'.dependencies]
