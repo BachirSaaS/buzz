@@ -1566,8 +1566,8 @@ mod tests {
             max_connection_lifetime_secs: 3600,
         };
 
-        // 100ms acquire timeout: the stub pool must fail fast instead of
-        // waiting out sqlx's 30s default, keeping the unit lane quick.
+        // 100ms acquire timeout: a request that falls through to the stub
+        // pool still waits, but for 100ms instead of sqlx's 30s default.
         let pool = sqlx::postgres::PgPoolOptions::new()
             .acquire_timeout(std::time::Duration::from_millis(100))
             .connect_lazy(&config.database_url)
@@ -1637,7 +1637,9 @@ mod tests {
     }
 
     /// Off mode reads no identity header: an upgrade with no header and one
-    /// with a malformed header get the same non-gate status.
+    /// with a malformed header get the same status, outside {401, 403, 503}.
+    /// This proves the NIP-FI gate is bypassed, not that the upgrade succeeds:
+    /// without a database the request can stop later (e.g. tenant lookup 404).
     async fn assert_off_mode_ignores_header(path: &str, malformed: bool) {
         let absent = nip_fi_gate_status(nip_fi_off_state().await, path, None, None).await;
         let status = if malformed {

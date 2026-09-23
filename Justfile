@@ -474,15 +474,20 @@ test-unit:
         # are all selected by audio::join::tests and audio::handler::tests.
         # DB-backed audio join tests use #[ignore] and run in the postgres lane.
         # NIP-FI (S3) relay witnesses: the wholly-new nip_fi_config and
-        # nip_fi_upgrade modules, plus the exact NIP-FI tests added to mixed
+        # nip_fi_upgrade modules, the auth metrics contract module, plus the
+        # exact NIP-FI tests added, or whose assertions changed, in mixed
         # modules (audio::room, connection, handlers::*, router, state). They
         # ran in NO lane before, the same gap as above. Mixed modules are listed
         # by exact name so main's unselected tests (several wait out the ~30s
         # sqlx acquire timeout) stay out; the NIP-FI stub-pool helpers use a
-        # 100ms acquire timeout. NIP-FI tests that need Postgres live in
-        # postgres_tests and run in the PostgreSQL lane.
+        # 100ms acquire timeout, which shortens that fallthrough but does not
+        # remove it. NIP-FI tests that need Postgres live in postgres_tests and
+        # run in the PostgreSQL lane. Keep scripts/run-tests.sh in step.
         cargo nextest run -p buzz-relay --lib -E '
                 test(/^nip_fi_(config|upgrade)::/)
+                + test(/^metrics::contract_tests::/)
+                + test(=audio::room::tests::roster_revisions_are_ordered_and_snapshot_is_authoritative)
+                + test(=connection::tests::auth_lifecycle_reconciles_every_terminal_and_never_leaks_gauge)
                 + test(=audio::room::tests::b1_pending_peer_removed_before_commit_emits_no_delta)
                 + test(=audio::room::tests::b2_commit_peer_emits_exactly_one_joined_delta_and_marks_visible)
                 + test(=audio::room::tests::b3_commit_peer_revision_is_monotone_between_concurrent_events)

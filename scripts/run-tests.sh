@@ -167,7 +167,8 @@ run_unit_tests() {
 
   # Mirror the four audio/FI suites from `just test-unit`'s nextest expression.
   # These are infra-free (no DB, no Redis); the `#[ignore]`-gated DB witnesses
-  # are excluded by cargo test's default filter. Keep in step with Justfile:461.
+  # are excluded by cargo test's default filter. Keep in step with the Justfile
+  # `test-unit` relay expression.
   run_test_step "buzz-relay audio join tests" \
     cargo test -p buzz-relay --lib audio::join::tests:: -- --nocapture
 
@@ -179,6 +180,63 @@ run_unit_tests() {
 
   run_test_step "buzz-relay NIP-FI session tests" \
     cargo test -p buzz-relay --lib nip_fi_session::tests:: -- --nocapture
+
+  # Mirror the NIP-FI (S3) stanza from `just test-unit`: module filters, then
+  # each exact name. Keep this list in step with that stanza's `test(=...)`s.
+  run_test_step "buzz-relay NIP-FI config tests" \
+    cargo test -p buzz-relay --lib nip_fi_config:: -- --nocapture
+
+  run_test_step "buzz-relay NIP-FI upgrade tests" \
+    cargo test -p buzz-relay --lib nip_fi_upgrade:: -- --nocapture
+
+  run_test_step "buzz-relay auth metrics contract tests" \
+    cargo test -p buzz-relay --lib metrics::contract_tests:: -- --nocapture
+
+  local nip_fi_exact_tests=(
+    audio::room::tests::roster_revisions_are_ordered_and_snapshot_is_authoritative
+    connection::tests::auth_lifecycle_reconciles_every_terminal_and_never_leaks_gauge
+    audio::room::tests::b1_pending_peer_removed_before_commit_emits_no_delta
+    audio::room::tests::b2_commit_peer_emits_exactly_one_joined_delta_and_marks_visible
+    audio::room::tests::b3_commit_peer_revision_is_monotone_between_concurrent_events
+    audio::room::tests::f7a_pending_peer_excluded_from_snapshot_until_committed
+    connection::tests::b2_cancelled_connection_event_frame_not_dispatched
+    connection::tests::b3_expiry_denial_precedes_close_through_send_loop
+    connection::tests::b3_root_pairing_denial_precedes_close_through_send_loop
+    connection::tests::cancellation_during_select_with_fi_denial_routes_through_bounded_path
+    connection::tests::cancelled_never_ready_sink_with_queued_fi_denial_exits_within_timeout
+    connection::tests::deadline_exp_is_earliest_selects_exp
+    connection::tests::deadline_max_connection_lifetime_is_earliest_selects_partition
+    connection::tests::deadline_no_lifetime_returns_upstream_only
+    connection::tests::expiry_notice_queued_on_ctrl_before_cancel
+    connection::tests::f3_root_outer_wrapper_delivers_denial_on_bootstrap_cancellation
+    connection::tests::f3_root_pre_built_expired_gate_terminates_connection
+    handlers::auth::tests::b2_pre_cancelled_connection_never_becomes_authenticated
+    handlers::auth::tests::handle_auth_pairing_mismatch_runs_full_root_denial_path
+    handlers::event::tests::p1b_agent_observer_event_barrier_expiry_blocks_fanout_and_ack
+    handlers::req::tests::p1a_huddle_liveness_req_barrier_expiry_blocks_query_and_emission
+    router::tests::b4_connection_upgrade_only_no_upgrade_header_not_gated
+    router::tests::b4_upgrade_only_no_connection_header_not_gated
+    router::tests::nip_fi_enforce_audio_denies_missing_assertion_401
+    router::tests::nip_fi_enforce_audio_denies_token_when_no_verifier_503
+    router::tests::nip_fi_enforce_nip11_content_negotiation_serves_200_not_401
+    router::tests::nip_fi_enforce_plain_get_not_gated_401_or_503
+    router::tests::nip_fi_enforce_root_denies_missing_assertion_401
+    router::tests::nip_fi_enforce_root_denies_token_when_no_verifier_503
+    router::tests::nip_fi_enforce_ws_upgrade_with_html_accept_is_gated_401
+    router::tests::nip_fi_off_audio_ignores_malformed_header
+    router::tests::nip_fi_off_audio_passes_without_header
+    router::tests::nip_fi_off_root_ignores_malformed_header
+    router::tests::nip_fi_off_root_passes_without_header
+    state::tests::f3_cancellation_during_check_terminates_socket_without_waiting_for_check
+  )
+  local name
+  for name in "${nip_fi_exact_tests[@]}"; do
+    run_test_step "buzz-relay ${name}" \
+      cargo test -p buzz-relay --lib "$name" -- --exact --nocapture
+  done
+
+  run_test_step "buzz-relay binary tests" \
+    cargo test -p buzz-relay --bin buzz-relay -- --nocapture
 }
 
 # ---- DB / integration tests (infra required) --------------------------------

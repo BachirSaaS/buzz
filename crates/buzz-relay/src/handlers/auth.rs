@@ -574,8 +574,8 @@ mod tests {
         config.require_relay_membership = false;
         config.database_url = "postgres://buzz:buzz_dev@127.0.0.1:1/buzz".to_string();
         config.redis_url = "redis://127.0.0.1:1".to_string();
-        // 100ms acquire timeout: the stub pool must fail fast instead of
-        // waiting out sqlx's 30s default, keeping the unit lane quick.
+        // 100ms acquire timeout: a request that falls through to the stub
+        // pool still waits, but for 100ms instead of sqlx's 30s default.
         let pool = sqlx::postgres::PgPoolOptions::new()
             .acquire_timeout(std::time::Duration::from_millis(100))
             .connect_lazy(&config.database_url)
