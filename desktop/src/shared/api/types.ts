@@ -69,21 +69,15 @@ export type SetChannelPurposeInput = {
   purpose: string;
 };
 
-export type CanvasResponse = {
-  content: string | null;
-  updatedAt: number | null;
-  author: string | null;
-};
+export type {
+  CanvasHistoryCursor,
+  CanvasHistoryResponse,
+  CanvasResponse,
+  CanvasRevision,
+  SetCanvasInput,
+  SetCanvasResult,
+} from "@/shared/api/canvasTypes";
 
-export type SetCanvasInput = {
-  channelId: string;
-  content: string;
-};
-
-export type SetCanvasResult = {
-  ok: boolean;
-  eventId: string;
-};
 export type AddChannelMembersInput = {
   channelId: string;
   pubkeys: string[];
@@ -303,6 +297,9 @@ export type ManagedAgentBackend =
   | { type: "local" }
   | { type: "provider"; id: string; config: Record<string, unknown> };
 
+/** ACP conversation boundary configured on an agent definition. */
+export type AcpSessionPolicy = "channel" | "thread";
+
 import type { RestartDiffEntry } from "./restartDiff";
 export type { JsonValue, RestartChange, RestartDiffEntry } from "./restartDiff";
 export type ManagedAgent = {
@@ -332,6 +329,7 @@ export type ManagedAgent = {
   idleTimeoutSeconds: number | null;
   maxTurnDurationSeconds: number | null;
   parallelism: number;
+  sessionPolicy: AcpSessionPolicy;
   systemPrompt: string | null;
   avatarUrl: string | null;
   model: string | null;
