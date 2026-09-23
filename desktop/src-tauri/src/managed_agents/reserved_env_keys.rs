@@ -94,11 +94,10 @@ pub(crate) fn is_reserved_env_key(key: &str) -> bool {
 /// `GIT_CONFIG_PARAMETERS`) — is reserved.
 ///
 /// Buzz stages the relay git credential helper *and* the agent identity/signing
-/// config into the child through these indexed vars (see `runtime.rs` and
-/// `install_git_identity`). A user override is layered onto the spawn command
-/// *after* the credential helper, so a single `GIT_CONFIG_COUNT=0` (or any
-/// index collision) silently orphans the helper — breaking relay git auth in
-/// `user` mode, where no identity install runs to re-stage it — and other
+/// config through these indexed vars (`runtime.rs` for custom harnesses,
+/// `buzz-acp`'s `GitEnvironment` otherwise). A user override is layered onto
+/// the spawn command *after* the credential helper, so a single
+/// `GIT_CONFIG_COUNT=0` (or any index collision) silently orphans it, and other
 /// family members can redirect git's config resolution entirely. It is a
 /// prefix rule because the indexed keys are unbounded; matching the exact
 /// `GIT_CONFIG` name and the `GIT_CONFIG_` prefix covers the whole family

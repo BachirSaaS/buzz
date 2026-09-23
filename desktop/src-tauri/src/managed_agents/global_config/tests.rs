@@ -541,8 +541,7 @@ fn resolve_global_fallback_when_no_persona_linked() {
 /// P1 (Carl): a user-supplied `GIT_CONFIG_*` entry — at any layer — must never
 /// reach `descriptor.env`, which `spawn_agent_child` writes onto the child
 /// *after* the relay credential-helper `GIT_CONFIG_*`. A surviving
-/// `GIT_CONFIG_COUNT=0` would orphan the helper (and in `user` mode no identity
-/// install re-stages it), erasing relay git auth. This drives the real
+/// `GIT_CONFIG_COUNT=0` would orphan the helper, erasing relay git auth. This drives the real
 /// six-layer resolver — the same path spawn and remote-deploy both consume —
 /// not a fresh `Command`, so it witnesses the actual Desktop→harness layering.
 #[test]
@@ -594,6 +593,41 @@ fn git_config_stripped_from_every_env_layer_before_descriptor() {
         effective.env.get("BENIGN").map(String::as_str),
         Some("persona")
     );
+}
+
+/// `BUZZ_GIT_IDENTITY` reaches the harness only through this resolved env, and
+/// the harness reads it once at startup. A per-agent value must therefore beat
+/// the persona and global values here, in both directions.
+#[test]
+fn per_agent_git_identity_mode_beats_persona_and_global() {
+    let runtime = super::super::known_acp_runtime("buzz-agent").expect("buzz-agent runtime");
+    for (agent, global) in [("user", "agent"), ("agent", "user")] {
+        let mut persona = persona("p", Some("model"), Some("anthropic"));
+        persona.env_vars = [("BUZZ_GIT_IDENTITY".to_string(), global.to_string())]
+            .into_iter()
+            .collect();
+        let mut record = bare_record();
+        record.persona_id = Some("p".to_string());
+        record.env_vars = [("BUZZ_GIT_IDENTITY".to_string(), agent.to_string())]
+            .into_iter()
+            .collect();
+        let global_config = GlobalAgentConfig {
+            env_vars: [("BUZZ_GIT_IDENTITY".to_string(), global.to_string())]
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        };
+        let effective = super::super::readiness::resolve_effective_agent_env(
+            &record,
+            &[persona],
+            Some(runtime),
+            &global_config,
+        );
+        assert_eq!(
+            effective.env.get("BUZZ_GIT_IDENTITY").map(String::as_str),
+            Some(agent)
+        );
+    }
 }
 
 /// All-None: no source provides model/provider → both must be None.
