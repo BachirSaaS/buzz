@@ -1036,18 +1036,21 @@ pub(crate) fn get_admin_origin_core(
     }
 }
 
-/// Core storage logic for `set_admin_origin`, parameterised by data directory
-/// and resolved pubkey hex. No `tauri::State` — testable with `tempdir`.
+/// Core storage logic for `set_admin_origin`, parameterised by data directory,
+/// resolved pubkey hex, and relay slug. No `tauri::State` — testable with `tempdir`.
 ///
 /// Validates and persists `raw_origin`. Pass `None` to clear. Returns the
 /// canonical origin string on success, or `None` on clear.
 pub(crate) fn set_admin_origin_core(
     data_dir: &std::path::Path,
     pubkey_hex: &str,
+    relay_slug: &str,
     raw_origin: Option<String>,
 ) -> Result<Option<String>, String> {
     use crate::managed_agents::storage::atomic_write_json_restricted;
-    let path = data_dir.join(format!("admin-console-origin-{pubkey_hex}.json"));
+    let path = data_dir.join(format!(
+        "admin-console-origin-{pubkey_hex}-{relay_slug}.json"
+    ));
     match raw_origin {
         None => {
             if path.exists() {
@@ -1068,13 +1071,13 @@ pub(crate) fn set_admin_origin_core(
     }
 }
 
-/// Return the persisted admin console origin for the active pubkey, or `None`
-/// if none has been saved yet.
+/// Return the persisted admin console origin for the active pubkey and connected
+/// relay, or `None` if none has been saved yet.
 ///
-/// `expected_pubkey` is checked against the active signing key before
-/// reading. This is a defence-in-depth guard: if a delayed IPC call arrives
-/// after the user has switched identities, the mismatch is caught here and the
-/// read is rejected so stale-session data cannot surface in the new session.
+/// The origin is stored per `(pubkey, relay_host)` so a prod-connected build
+/// never reads a staging origin and vice versa. `expected_pubkey` is checked
+/// against the active signing key before reading as a defence-in-depth guard
+/// against delayed IPC from a prior session.
 ///
 /// The stored value is reparsed through `AdminOrigin::parse()` on every read.
 /// If the stored content is invalid, it is removed and an error returned so
@@ -1097,20 +1100,23 @@ pub fn get_admin_origin(
             );
         }
     }
+    let relay_slug = relay_host_slug(&state);
     use tauri::Manager as _;
     let dir = app
         .path()
         .app_data_dir()
         .map_err(|e| format!("failed to resolve app data dir: {e}"))?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("failed to create app data dir: {e}"))?;
-    get_admin_origin_core(&dir, &pubkey)
+    get_admin_origin_core(&dir, &pubkey, &relay_slug)
 }
 
-/// Validate and persist the admin console origin for the active pubkey.
+/// Validate and persist the admin console origin for the active pubkey and
+/// connected relay.
 ///
-/// `expected_pubkey` guards against delayed IPC: if the active signing key no
-/// longer matches `expected_pubkey`, the write is rejected to prevent a save
-/// started under identity A from writing into identity B's storage namespace.
+/// The origin is stored per `(pubkey, relay_host)` so prod and staging builds
+/// never share or overwrite each other's saved origin. `expected_pubkey` guards
+/// against delayed IPC: if the active signing key no longer matches
+/// `expected_pubkey`, the write is rejected.
 ///
 /// Passes `raw_origin` through `AdminOrigin::parse` to normalise and validate
 /// it before writing. Pass `None` to clear the stored origin.
@@ -1131,13 +1137,14 @@ pub fn set_admin_origin(
             );
         }
     }
+    let relay_slug = relay_host_slug(&state);
     use tauri::Manager as _;
     let dir = app
         .path()
         .app_data_dir()
         .map_err(|e| format!("failed to resolve app data dir: {e}"))?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("failed to create app data dir: {e}"))?;
-    set_admin_origin_core(&dir, &pubkey, raw_origin)
+    set_admin_origin_core(&dir, &pubkey, &relay_slug, raw_origin)
 }
 
 /// On-disk shape for the persisted admin console origin.
@@ -1158,6 +1165,45 @@ fn validate_pubkey_hex(hex: String) -> Result<String, String> {
     } else {
         Err("signing key produced an unexpected pubkey format; cannot scope storage".to_string())
     }
+}
+
+/// Derive a safe filename slug from the connected relay's host.
+///
+/// Extracts the host from the active relay HTTP base URL (e.g.
+/// `https://relay.example.com` → `relay.example.com`) and strips any
+/// characters that are not safe in filenames across all platforms.
+/// Falls back to `"default"` on a malformed or absent URL so storage
+/// never breaks during relay bootstrapping.
+fn relay_host_slug(state: &crate::app_state::AppState) -> String {
+    let base = crate::relay::relay_api_base_url_with_override(state);
+    let host = base
+        .trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .split('/')
+        .next()
+        .unwrap_or("")
+        // Drop port so `relay.example.com:8080` and `relay.example.com`
+        // scope to the same host entry.
+        .split(':')
+        .next()
+        .unwrap_or("");
+    if host.is_empty() {
+        return "default".to_string();
+    }
+    // Retain only hostname-safe chars (alphanumeric, hyphen, dot) and
+    // normalise to lowercase so the slug is consistent and filename-safe.
+    let slug: String = host
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '.' {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    // Trim leading/trailing hyphens that could result from non-ASCII prefixes.
+    slug.trim_matches('-').to_string()
 }
 
 // ── NIP-11 admin-origin discovery ─────────────────────────────────────────
