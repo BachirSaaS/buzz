@@ -474,11 +474,12 @@ const PROTO_VERSION: u16 = buzz_relay_mesh::WIRE_VERSION as u16;
 
 /// Capabilities advertised by this build. All three tunnel profiles ship in
 /// the same binary, so the list is static.
-fn capabilities() -> Vec<String> {
+pub(crate) fn capabilities() -> Vec<String> {
     vec![
         "reliable-stream".to_string(),
         "realtime-media".to_string(),
         "huddle-control".to_string(),
+        crate::audio::join::HUDDLE_COMMIT_PHASE_CAPABILITY.to_string(),
     ]
 }
 

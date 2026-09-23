@@ -906,6 +906,10 @@ pub(crate) async fn handle_active_audio_connection(
             tenant.community(),
             pubkey_hex.clone(),
             requested_version,
+            crate::audio::join::owner_supports_commit_phase(
+                mesh.membership.as_ref(),
+                owner_runtime_id,
+            ),
         )
         .await
         {
@@ -1274,6 +1278,9 @@ pub(crate) async fn handle_active_audio_connection(
             } else if let Some(pk) = guard
                 .remote_session
                 .as_ref()
+                // A legacy-mode owner publishes at registration and must never
+                // receive `CommitConfirmed` (its decoder rejects the variant).
+                .filter(|s| s.commit_phase())
                 .map(|s| s.pubkey().to_string())
             {
                 if let Some(stream) = guard.remote_stream.as_mut() {
@@ -5193,6 +5200,148 @@ mod tests {
                         }),
                     ))
                 })
+            }
+            fn set_inbound(&self, _handler: Box<dyn InboundHandler>) {}
+        }
+
+        /// Ingress send half toward a real owner: forwards every frame except a
+        /// `CommitConfirmed`, which fires `confirm_stalled`, writes no bytes and
+        /// stays pending (an owner stream that cannot absorb the confirm).
+        struct ConfirmStallingSend {
+            inner: Box<dyn StreamSendHalf>,
+            confirm_stalled: Arc<tokio::sync::Notify>,
+        }
+        impl StreamSendHalf for ConfirmStallingSend {
+            fn send_frame(
+                &mut self,
+                frame: MeshStreamFrame,
+            ) -> BoxFuture<'_, Result<(), MeshError>> {
+                let is_confirm = matches!(&frame, MeshStreamFrame::Data { payload, .. }
+                if matches!(
+                    crate::audio::join::decode_control(payload),
+                    Ok(crate::audio::join::HuddleControlMsg::CommitConfirmed { .. })
+                ));
+                if is_confirm {
+                    let stalled = Arc::clone(&self.confirm_stalled);
+                    return Box::pin(async move {
+                        stalled.notify_one();
+                        std::future::pending().await
+                    });
+                }
+                self.inner.send_frame(frame)
+            }
+            fn finish(&mut self) -> Result<(), MeshError> {
+                self.inner.finish()
+            }
+        }
+
+        /// Owner recv tap: records each frame (`None` = stream end) only once
+        /// the underlying `recv_frame` has resolved, i.e. the owner received it.
+        struct RecordingRecv {
+            inner: Box<dyn StreamRecvHalf>,
+            received: Arc<std::sync::Mutex<Vec<Option<MeshStreamFrame>>>>,
+        }
+        impl StreamRecvHalf for RecordingRecv {
+            fn recv_frame(&mut self) -> BoxFuture<'_, Result<Option<MeshStreamFrame>, MeshError>> {
+                Box::pin(async move {
+                    let frame = self.inner.recv_frame().await?;
+                    self.received
+                        .lock()
+                        .expect("received lock")
+                        .push(frame.clone());
+                    Ok(frame)
+                })
+            }
+        }
+
+        struct ChanHalfSend(tokio::sync::mpsc::UnboundedSender<MeshStreamFrame>);
+        impl StreamSendHalf for ChanHalfSend {
+            fn send_frame(
+                &mut self,
+                frame: MeshStreamFrame,
+            ) -> BoxFuture<'_, Result<(), MeshError>> {
+                let r = self
+                    .0
+                    .send(frame)
+                    .map_err(|_| MeshError::Transport("peer closed".into()));
+                Box::pin(async move { r })
+            }
+            fn finish(&mut self) -> Result<(), MeshError> {
+                Ok(())
+            }
+        }
+        struct ChanHalfRecv(tokio::sync::mpsc::UnboundedReceiver<MeshStreamFrame>);
+        impl StreamRecvHalf for ChanHalfRecv {
+            fn recv_frame(&mut self) -> BoxFuture<'_, Result<Option<MeshStreamFrame>, MeshError>> {
+                Box::pin(async move { Ok(self.0.recv().await) })
+            }
+        }
+
+        /// Transport whose session stream is served by a real
+        /// `HuddleControlAcceptor` owning `owner_rooms` as `OWNER_RUNTIME`.
+        struct AcceptorTransport {
+            owner_rooms: Arc<crate::audio::room::AudioRoomManager>,
+            confirm_stalled: Arc<tokio::sync::Notify>,
+            received: Arc<std::sync::Mutex<Vec<Option<MeshStreamFrame>>>>,
+            owner_task: std::sync::Mutex<Option<tokio::task::JoinHandle<Result<(), MeshError>>>>,
+        }
+        impl RelayPeerTransport for AcceptorTransport {
+            fn send_datagram(&self, _to: RuntimeId, _dgram: MeshDatagram) -> Result<(), MeshError> {
+                Ok(())
+            }
+            fn open_session_stream(
+                &self,
+                _to: RuntimeId,
+                hello: StreamHello,
+            ) -> BoxFuture<'_, Result<MeshStream, MeshError>> {
+                let (to_owner_tx, to_owner_rx) = tokio::sync::mpsc::unbounded_channel();
+                let (to_ingress_tx, to_ingress_rx) = tokio::sync::mpsc::unbounded_channel();
+                let owner_stream = MeshStream::new(
+                    Box::new(ChanHalfSend(to_ingress_tx)),
+                    Box::new(RecordingRecv {
+                        inner: Box::new(ChanHalfRecv(to_owner_rx)),
+                        received: Arc::clone(&self.received),
+                    }),
+                );
+                let acceptor = crate::audio::join::HuddleControlAcceptor::new(
+                    Arc::clone(&self.owner_rooms),
+                    Arc::new(NoopDatagramTransport) as Arc<dyn RelayPeerTransport>,
+                    Arc::new(FakeRemoteDirectory {
+                        remote_runtime_id: OWNER_RUNTIME,
+                        generation: OWNER_GENERATION,
+                    }),
+                    OWNER_RUNTIME,
+                    Arc::new(HuddleOwnerRegistry::new()),
+                );
+                let from = hello.sender;
+                *self.owner_task.lock().expect("owner_task lock") =
+                    Some(tokio::spawn(async move {
+                        acceptor.accept_inbound(from, hello, owner_stream).await
+                    }));
+                let ingress_stream = MeshStream::new(
+                    Box::new(ConfirmStallingSend {
+                        inner: Box::new(ChanHalfSend(to_owner_tx)),
+                        confirm_stalled: Arc::clone(&self.confirm_stalled),
+                    }),
+                    Box::new(ChanHalfRecv(to_ingress_rx)),
+                );
+                Box::pin(async move { Ok(ingress_stream) })
+            }
+            fn set_inbound(&self, _handler: Box<dyn InboundHandler>) {}
+        }
+
+        /// Datagram sink for the owner acceptor's remote-peer media fan-out.
+        struct NoopDatagramTransport;
+        impl RelayPeerTransport for NoopDatagramTransport {
+            fn send_datagram(&self, _to: RuntimeId, _dgram: MeshDatagram) -> Result<(), MeshError> {
+                Ok(())
+            }
+            fn open_session_stream(
+                &self,
+                _to: RuntimeId,
+                _hello: StreamHello,
+            ) -> BoxFuture<'_, Result<MeshStream, MeshError>> {
+                Box::pin(async { Err(MeshError::Transport("unused".into())) })
             }
             fn set_inbound(&self, _handler: Box<dyn InboundHandler>) {}
         }
@@ -9753,6 +9902,25 @@ mod tests {
             owner_snapshot: RosterSnapshot,
             extra_owner_frames: Vec<Vec<u8>>,
         ) -> CrossPod {
+            cross_pod_setup_with_owner_caps(
+                confirm_succeeds,
+                owner_snapshot,
+                extra_owner_frames,
+                crate::mesh_boot::capabilities(),
+                None,
+            )
+            .await
+        }
+
+        /// [`cross_pod_setup`] with an explicit owner gossip record: the
+        /// ingress chooses commit-phase mode only if `owner_caps` advertises it.
+        async fn cross_pod_setup_with_owner_caps(
+            confirm_succeeds: bool,
+            owner_snapshot: RosterSnapshot,
+            extra_owner_frames: Vec<Vec<u8>>,
+            owner_caps: Vec<String>,
+            transport: Option<Arc<dyn RelayPeerTransport>>,
+        ) -> CrossPod {
             let state = audio_test_state_real_db()
                 .await
                 .expect("cross-pod harness: PostgreSQL must be available");
@@ -9779,6 +9947,13 @@ mod tests {
             let mut mesh =
                 crate::mesh_boot::MeshHandle::for_test_only(Arc::new(HuddleOwnerRegistry::new()))
                     .await;
+            let membership = buzz_relay_mesh::MeshMembership::new(
+                buzz_relay_mesh::GossipRecord::new(mesh.local_runtime_id, vec![], 1),
+            );
+            let mut owner_record = buzz_relay_mesh::GossipRecord::new(OWNER_RUNTIME, vec![], 1);
+            owner_record.capabilities = owner_caps;
+            membership.apply_gossip_record(owner_record);
+            mesh.membership = Arc::new(membership);
             mesh.transport = Arc::new(ScriptedTransport {
                 ok_sends: if confirm_succeeds { 2 } else { 1 },
                 peer_registered_payload,
@@ -9789,6 +9964,9 @@ mod tests {
                 sent: Arc::clone(&sent),
                 confirm_polled: Arc::clone(&confirm_polled),
             });
+            if let Some(transport) = transport {
+                mesh.transport = transport;
+            }
             let mesh = mesh.with_test_directory(Arc::new(FakeRemoteDirectory {
                 remote_runtime_id: OWNER_RUNTIME,
                 generation: OWNER_GENERATION,
@@ -10105,35 +10283,40 @@ mod tests {
             server.abort();
         }
 
-        /// Finding 1 witness: on the cross-pod path, Carol's owner join delta is
-        /// already buffered on the owner stream (and a co-located delta already in
-        /// Bob's room control queue) before Bob's bootstrap is written. Bob's first
-        /// frame must still be his own `joined` — authenticated pubkey, owner
-        /// index, complete initial snapshot — and Carol's delta must follow it.
+        /// Finding 1 witness: on the cross-pod path, Dave's owner join delta is
+        /// already buffered on the owner stream and Carol's co-located delta is
+        /// already in Bob's room control queue before Bob's bootstrap is written.
+        /// Bob's first frame must still be his own `joined` — authenticated
+        /// pubkey, owner index, complete initial snapshot — and both deltas,
+        /// distinguishable by identity, must follow it.
         ///
         /// Mutation oracles: P1 (delete the bootstrap `ctrl_tx.try_send`) → the
-        /// first frame is Carol's delta; P5 (move the bootstrap write after the
-        /// forwarder/reader spawns) → the buffered deltas can overtake it.
+        /// first frame is a buffered delta; P5 (move the bootstrap write after
+        /// the forwarder/reader spawns) → the buffered deltas can overtake it;
+        /// M7 (stop forwarding owner deltas) → Dave never arrives.
         #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
         #[ignore = "requires Postgres — runs in postgres-ci nextest lane"]
         async fn b1_cross_pod_bootstrap_precedes_buffered_owner_delta() {
             let alice_hex = nostr::Keys::generate().public_key().to_hex();
             let carol_hex = nostr::Keys::generate().public_key().to_hex();
-            let carol_delta = crate::audio::join::encode_control(
+            let dave_hex = nostr::Keys::generate().public_key().to_hex();
+            // Dave joins on the owner pod (delta buffered on the owner stream);
+            // Carol joins co-located on the ingress (queued via broadcast_control).
+            let dave_delta = crate::audio::join::encode_control(
                 &crate::audio::join::HuddleControlMsg::RosterDelta {
                     revision: 2,
-                    joined: Some(roster_entry(&carol_hex, 2)),
+                    joined: Some(roster_entry(&dave_hex, 3)),
                     left: None,
                 },
             )
-            .expect("B1: encode Carol delta");
+            .expect("B1: encode Dave delta");
             let h = cross_pod_setup(
                 true,
                 RosterSnapshot {
                     revision: 1,
                     peers: vec![roster_entry(&alice_hex, 0)],
                 },
-                vec![carol_delta],
+                vec![dave_delta],
             )
             .await;
             let (fanout_rx, fanout_release) =
@@ -10162,12 +10345,15 @@ mod tests {
             fanout_release.notify_one();
 
             let mut texts = Vec::new();
-            while texts.len() < 2 {
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+            while texts.len() < 3 {
                 use futures_util::StreamExt as _;
                 if let tokio_tungstenite::tungstenite::Message::Text(t) =
-                    tokio::time::timeout(std::time::Duration::from_secs(3), client.next())
+                    tokio::time::timeout_at(deadline, client.next())
                         .await
-                        .expect("B1: expected bootstrap and Carol delta")
+                        .unwrap_or_else(|_| {
+                            panic!("B1: expected bootstrap, Dave and Carol; got {texts:?}")
+                        })
                         .expect("B1: client stream ended")
                         .expect("B1: ws error")
                 {
@@ -10203,38 +10389,149 @@ mod tests {
                 peers, expected,
                 "B1: bootstrap must carry the complete initial snapshot"
             );
+            let mut followers: Vec<&str> = texts[1..]
+                .iter()
+                .map(|t| t["pubkey"].as_str().expect("B1: delta pubkey"))
+                .collect();
+            followers.sort_unstable();
+            let mut expected_followers = vec![carol_hex.as_str(), dave_hex.as_str()];
+            expected_followers.sort_unstable();
             assert_eq!(
-                texts[1]["pubkey"].as_str(),
-                Some(carol_hex.as_str()),
-                "B1: Carol's delta must follow the bootstrap; got {texts:?}"
+                followers, expected_followers,
+                "B1: the owner-stream delta (Dave) and the co-located delta (Carol) \
+                 must both follow the bootstrap; got {texts:?}"
             );
 
             conn_cancel.cancel();
             server.abort();
         }
 
-        /// Finding 2 witness: the real failed-confirm branch with a co-located,
-        /// committed ingress observer (Carol) yields the combined outcome: Carol
-        /// never receives a `joined` for Bob, Bob's client is terminated, the
-        /// owner's pending slot is released (`UnregisterPeer` for Bob attempted),
-        /// Bob is gone from the ingress room, and exactly one 48102 is committed.
+        /// C1 (handler): against an owner whose gossip record lacks
+        /// `huddle-commit-phase` (a pre-commit-phase pod), every frame the
+        /// ingress writes — registration, and the clean close on disconnect —
+        /// decodes with the frozen base wire, and no `CommitConfirmed` is sent.
+        ///
+        /// Mutation oracles: M1 (always send `RegisterPeerCommitPhase`) and M2
+        /// (send `CommitConfirmed` regardless of mode) → an undecodable frame.
+        #[tokio::test]
+        #[ignore = "requires Postgres — runs in postgres-ci nextest lane"]
+        async fn c1_handler_ingress_sends_only_base_frames_to_legacy_owner() {
+            let h = cross_pod_setup_with_owner_caps(
+                true,
+                RosterSnapshot {
+                    revision: 1,
+                    peers: vec![],
+                },
+                vec![],
+                vec!["huddle-control".to_string()],
+                None,
+            )
+            .await;
+            let (fanout_rx, fanout_release) =
+                crate::nip_fi_test_hooks::audio_participant_fanout_hook::arm(h.tenant.community());
+            let conn_cancel = tokio_util::sync::CancellationToken::new();
+            let (mut client, server) = cross_pod_connect(&h, &conn_cancel, None).await;
+            tokio::time::timeout(std::time::Duration::from_secs(10), fanout_rx)
+                .await
+                .expect("C1: handler must commit the join within 10s")
+                .expect("C1: fanout hook dropped");
+            fanout_release.notify_one();
+            {
+                use futures_util::StreamExt as _;
+                let first = tokio::time::timeout(std::time::Duration::from_secs(5), client.next())
+                    .await
+                    .expect("C1: bootstrap must arrive")
+                    .expect("C1: client stream ended")
+                    .expect("C1: ws error");
+                let tokio_tungstenite::tungstenite::Message::Text(t) = first else {
+                    panic!("C1: expected bootstrap text; got {first:?}");
+                };
+                let v: serde_json::Value = serde_json::from_str(&t).expect("C1: bootstrap JSON");
+                assert_eq!(v["type"], "joined", "C1: legacy-mode join must be admitted");
+            }
+            conn_cancel.cancel();
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+            while !owner_unregister_attempted(&h) && tokio::time::Instant::now() < deadline {
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+            assert!(
+                owner_unregister_attempted(&h),
+                "C1: clean close must reach the owner"
+            );
+            let sent = h.sent.lock().expect("sent lock").clone();
+            for frame in &sent {
+                if let MeshStreamFrame::Data { payload, .. } = frame {
+                    if let Err(e) = crate::audio::join::base_wire::decode(payload) {
+                        panic!(
+                            "C1: legacy owner cannot decode {:?}: {e}",
+                            crate::audio::join::decode_control(payload)
+                        );
+                    }
+                }
+            }
+            assert!(
+                matches!(
+                    sent.first(),
+                    Some(MeshStreamFrame::Data { payload, .. })
+                        if matches!(
+                            crate::audio::join::base_wire::decode(payload),
+                            Ok(crate::audio::join::base_wire::HuddleControlMsg::RegisterPeer { .. })
+                        )
+                ),
+                "C1: first frame must be base RegisterPeer"
+            );
+            server.abort();
+        }
+
+        /// Finding 2 witness: the real failed-confirm branch against a real
+        /// owner `HuddleControlAcceptor`. The ingress confirm write stalls before
+        /// any byte reaches the owner, so the owner holds Bob as an uncommitted
+        /// pending slot; the failure then yields the combined outcome: the
+        /// co-located observer (Carol) never sees Bob, Bob's client is terminated,
+        /// exactly one 48102 is committed, the owner receives `UnregisterPeer`
+        /// for Bob before the stream ends, and the owner's slot is released.
+        ///
+        /// Scope: the stall happens before any write; partial-write
+        /// cancellation on a real iroh send half is not exercised.
         ///
         /// Mutation oracles: P2 (unconditional pre-confirm
         /// `broadcast_control_except`) → Carol's queue holds Bob's `joined`;
         /// P6 (delete the confirm-failure arm's `remove_peer` + 48102) → zero
-        /// 48102 rows and Bob stays in the room.
+        /// 48102 rows and Bob stays in the room; P7 (delete `send_clean_close`)
+        /// → the owner sees the stream end with no `UnregisterPeer`.
         #[tokio::test]
         #[ignore = "requires Postgres — runs in postgres-ci nextest lane"]
         async fn confirm_failure_combined_outcome_no_orphan_join_exactly_one_48102() {
-            let h = cross_pod_setup(
+            let owner_rooms = Arc::new(crate::audio::room::AudioRoomManager::new());
+            let confirm_stalled = Arc::new(tokio::sync::Notify::new());
+            let received = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let transport = Arc::new(AcceptorTransport {
+                owner_rooms: Arc::clone(&owner_rooms),
+                confirm_stalled: Arc::clone(&confirm_stalled),
+                received: Arc::clone(&received),
+                owner_task: std::sync::Mutex::new(None),
+            });
+            let h = cross_pod_setup_with_owner_caps(
                 false,
                 RosterSnapshot {
                     revision: 1,
                     peers: vec![],
                 },
                 vec![],
+                crate::mesh_boot::capabilities(),
+                Some(Arc::clone(&transport) as Arc<dyn RelayPeerTransport>),
             )
             .await;
+            // Owner-local Alice holds owner index 0, so Bob's owner-assigned
+            // index (1) does not collide with Carol's ingress-local index 0.
+            let _alice_rx = {
+                let room = owner_rooms.get_or_create(h.tenant.community(), h.channel_id);
+                let (alice_id, _, _, audio_rx, ctrl_rx, _) = room
+                    .add_peer(nostr::Keys::generate().public_key().to_hex(), 2)
+                    .expect("F2: add Alice");
+                room.mark_committed(alice_id);
+                (audio_rx, ctrl_rx)
+            };
             let carol_hex = nostr::Keys::generate().public_key().to_hex();
             let (_carol_audio_rx, mut carol_ctrl_rx) = {
                 let room = h
@@ -10246,8 +10543,35 @@ mod tests {
                 room.mark_committed(carol_id);
                 (audio_rx, ctrl_rx)
             };
+            let stalled = confirm_stalled.notified();
             let conn_cancel = tokio_util::sync::CancellationToken::new();
             let (mut client, server) = cross_pod_connect(&h, &conn_cancel, None).await;
+
+            tokio::time::timeout(std::time::Duration::from_secs(10), stalled)
+                .await
+                .expect("F2: CommitConfirmed write must be attempted and stall");
+            let owner_room = owner_rooms
+                .get(h.tenant.community(), h.channel_id)
+                .expect("F2: owner room exists");
+            let bob_slot = |room: &crate::audio::room::Room| {
+                room.peers
+                    .iter()
+                    .find(|p| p.pubkey == h.member_hex)
+                    .map(|p| p.committed)
+            };
+            assert_eq!(
+                bob_slot(&owner_room),
+                Some(false),
+                "F2: before failure the owner holds Bob as an uncommitted pending slot"
+            );
+            assert!(
+                !owner_room
+                    .roster_snapshot()
+                    .peers
+                    .iter()
+                    .any(|p| p.pubkey == h.member_hex),
+                "F2: the owner roster must exclude pending Bob"
+            );
 
             tokio::time::timeout(
                 std::time::Duration::from_secs(10),
@@ -10255,11 +10579,6 @@ mod tests {
             )
             .await
             .expect("F2: failed confirm must terminate the joining client");
-
-            assert!(
-                h.send_count.load(Ordering::SeqCst) >= 2,
-                "F2: confirm send was never attempted"
-            );
             assert_eq!(
                 settled_48102_count(&h.pool, &h).await,
                 1,
@@ -10269,14 +10588,44 @@ mod tests {
                 !bob_in_room(&h),
                 "F2: committed peer must be removed from the ingress room"
             );
-            assert!(
-                owner_unregister_attempted(&h),
-                "F2: the owner pending slot must be released via UnregisterPeer"
-            );
             let carol_saw = std::iter::from_fn(|| carol_ctrl_rx.try_recv().ok()).count();
             assert!(
                 carol_saw == 0,
                 "F2: co-located observer must receive no unpaired control for Bob; got {carol_saw} frames"
+            );
+
+            let owner_task = transport
+                .owner_task
+                .lock()
+                .expect("owner_task lock")
+                .take()
+                .expect("F2: owner stream was opened");
+            tokio::time::timeout(std::time::Duration::from_secs(5), owner_task)
+                .await
+                .expect("F2: owner control loop must finish after the clean close")
+                .expect("F2: owner task panicked")
+                .expect("F2: owner control loop error");
+            let received = received.lock().expect("received lock").clone();
+            let unregister_at = received.iter().position(|f| {
+                matches!(f, Some(MeshStreamFrame::Data { payload, .. })
+                if matches!(
+                    crate::audio::join::decode_control(payload),
+                    Ok(crate::audio::join::HuddleControlMsg::UnregisterPeer { ref pubkey })
+                        if *pubkey == h.member_hex
+                ))
+            });
+            let end_at = received
+                .iter()
+                .position(|f| matches!(f, None | Some(MeshStreamFrame::Goodbye { .. })));
+            assert!(
+                matches!((unregister_at, end_at), (Some(u), Some(e)) if u < e),
+                "F2: owner must receive UnregisterPeer for Bob before Goodbye/stream end; \
+                 got {received:?}"
+            );
+            assert_eq!(
+                bob_slot(&owner_room),
+                None,
+                "F2: the owner's pending slot must be released"
             );
             server.abort();
         }
