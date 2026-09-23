@@ -2,6 +2,10 @@ packages:
   - "desktop"
   - "web"
   - "admin-web"
+# Fail `pnpm run` fast with a "run pnpm install" message when node_modules is
+# stale against pnpm-lock.yaml (e.g. after merging main). `error`, not
+# `install`: parallel pre-push lanes would race on the install.
+verifyDepsBeforeRun: error
 allowBuilds:
   esbuild: true
 overrides:
