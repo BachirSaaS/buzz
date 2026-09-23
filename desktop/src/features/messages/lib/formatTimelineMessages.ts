@@ -475,35 +475,10 @@ export function formatTimelineMessages(
     const authorProfile = profiles?.[authorPubkey.toLowerCase()];
     const isAgent = role === "bot" || authorProfile?.isAgent === true;
     const ownerPubkey = isAgent ? (authorProfile?.ownerPubkey ?? null) : null;
-    // Tombstone in-place: a `message_deleted` system message should appear at
-    // the original message's position in the timeline, not appended at the
-    // time the moderator acted. Look up the target's `created_at` and use it
-    // so the tombstone slots into the original message's chronological slot.
-    // Falls back to the tombstone's own `created_at` when the target is not
-    // in the current window (e.g. deleted message scrolled out of view).
-    const effectiveCreatedAt = (() => {
-      if (event.kind !== KIND_SYSTEM_MESSAGE) return event.created_at;
-      try {
-        const payload = JSON.parse(event.content) as {
-          type?: string;
-          target_event_id?: string;
-        };
-        if (
-          payload.type === "message_deleted" &&
-          typeof payload.target_event_id === "string"
-        ) {
-          const target = timelineEventsById.get(payload.target_event_id);
-          if (target) return target.created_at;
-        }
-      } catch {
-        // Non-JSON or unexpected shape — fall through.
-      }
-      return event.created_at;
-    })();
     return {
       id: event.id,
       renderKey: event.localKey ?? event.id,
-      createdAt: effectiveCreatedAt,
+      createdAt: event.created_at,
       pubkey: authorPubkey,
       signerPubkey: normalizePubkey(event.pubkey),
       author,
@@ -527,7 +502,7 @@ export function formatTimelineMessages(
         role === "bot"
           ? respondToLookup?.get(authorPubkey.toLowerCase())
           : undefined,
-      time: formatTime(effectiveCreatedAt),
+      time: formatTime(event.created_at),
       body: edit ? edit.content : event.content,
       parentId: thread.parentId,
       rootId: thread.rootId,
