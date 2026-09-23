@@ -712,7 +712,7 @@ pub async fn execute_delete_with_marker(
     community_id: CommunityId,
     target_event_id: &[u8],
     parent_event_id: Option<&[u8]>,
-    _root_event_id: Option<&[u8]>,
+    root_event_id: Option<&[u8]>,
 ) -> Result<bool> {
     let mut tx = pool.begin().await?;
 
@@ -737,33 +737,17 @@ pub async fn execute_delete_with_marker(
         return Ok(false);
     }
 
-    // Soft-delete the event and update thread metadata (idempotent: already-deleted is a no-op).
-    sqlx::query(
-        r#"
-        UPDATE events
-        SET deleted_at = now()
-        WHERE community_id = $1 AND id = $2 AND deleted_at IS NULL
-        "#,
+    // Canonical delete + thread_metadata counters, fenced by this transaction.
+    // Counters move only when the row transitions to deleted, so a second
+    // action against an already-deleted target leaves them unchanged.
+    crate::event::soft_delete_event_and_update_thread_in_tx(
+        &mut tx,
+        community_id,
+        target_event_id,
+        parent_event_id,
+        root_event_id,
     )
-    .bind(community_id.as_uuid())
-    .bind(target_event_id)
-    .execute(&mut *tx)
     .await?;
-
-    // Update thread metadata if parent is known.
-    if let Some(parent) = parent_event_id {
-        sqlx::query(
-            r#"
-            UPDATE events
-            SET reply_count = GREATEST(reply_count - 1, 0)
-            WHERE community_id = $1 AND id = $2 AND deleted_at IS NULL
-            "#,
-        )
-        .bind(community_id.as_uuid())
-        .bind(parent)
-        .execute(&mut *tx)
-        .await?;
-    }
 
     let marker = sqlx::query(
         r#"
@@ -2917,6 +2901,234 @@ mod postgres_tests {
         assert!(
             !second,
             "second execute_ban_with_marker must return false (already marked)"
+        );
+    }
+
+    // ── execute_delete_with_marker: thread counters ─────────────────────────
+
+    /// Root ← reply ← nested; returns (root, reply, nested) event ids.
+    async fn make_thread(pool: &PgPool, community: CommunityId) -> [Vec<u8>; 3] {
+        use crate::channel::{ChannelType, ChannelVisibility};
+        use crate::event::{insert_event_with_thread_metadata, ThreadMetadataParams};
+        use nostr::{EventBuilder, Keys, Kind};
+
+        let keys = Keys::generate();
+        let channel = Uuid::new_v4();
+        crate::channel::create_channel_with_id(
+            pool,
+            community,
+            channel,
+            &format!("admin-delete-{channel}"),
+            ChannelType::Stream,
+            ChannelVisibility::Open,
+            None,
+            keys.public_key().to_bytes().as_slice(),
+            None,
+        )
+        .await
+        .expect("channel");
+        let events: Vec<nostr::Event> = ["root", "reply", "nested"]
+            .iter()
+            .map(|c| {
+                EventBuilder::new(Kind::Custom(9), *c)
+                    .sign_with_keys(&keys)
+                    .expect("sign")
+            })
+            .collect();
+        let at = |e: &nostr::Event| {
+            DateTime::from_timestamp(e.created_at.as_secs() as i64, 0).expect("ts")
+        };
+        let (root, reply, nested) = (&events[0], &events[1], &events[2]);
+        for (event, parent, depth) in [
+            (root, None, 0),
+            (reply, Some(root), 1),
+            (nested, Some(reply), 2),
+        ] {
+            insert_event_with_thread_metadata(
+                pool,
+                community,
+                event,
+                Some(channel),
+                Some(ThreadMetadataParams {
+                    event_id: event.id.as_bytes(),
+                    event_created_at: at(event),
+                    channel_id: channel,
+                    parent_event_id: parent.map(|p| p.id.as_bytes().as_slice()),
+                    parent_event_created_at: parent.map(at),
+                    root_event_id: parent.map(|_| root.id.as_bytes().as_slice()),
+                    root_event_created_at: parent.map(|_| at(root)),
+                    depth,
+                    broadcast: false,
+                }),
+            )
+            .await
+            .expect("thread event");
+        }
+        [root, reply, nested].map(|e| e.id.as_bytes().to_vec())
+    }
+
+    /// Claim + enforce a fresh delete action; returns (action_id, lease_token).
+    async fn enforcing_action(
+        pool: &PgPool,
+        community_id: Uuid,
+        lease_until: DateTime<Utc>,
+    ) -> (Uuid, Uuid) {
+        let report_id = make_report(pool, community_id).await;
+        let action_id = match do_claim(pool, community_id, report_id, Uuid::new_v4()).await {
+            ClaimResult::Claimed(a) => a.id,
+            other => panic!("expected Claimed, got {other:?}"),
+        };
+        begin_enforcing(pool, action_id)
+            .await
+            .expect("begin_enforcing");
+        match acquire_action_lease(pool, action_id, lease_until)
+            .await
+            .expect("acquire lease")
+        {
+            LeaseResult::Acquired(t) => (action_id, t),
+            other => panic!("expected Acquired, got {other:?}"),
+        }
+    }
+
+    /// (reply_count, descendant_count) as the thread summary reader sees them.
+    async fn counts(pool: &PgPool, community: CommunityId, id: &[u8]) -> (i32, i32) {
+        let s = crate::thread::get_thread_summary(pool, community, id)
+            .await
+            .expect("summary")
+            .expect("thread row");
+        (s.reply_count, s.descendant_count)
+    }
+
+    #[tokio::test]
+    #[ignore = "requires Postgres"]
+    async fn admin_delete_updates_thread_summary_once_across_actions() {
+        let pool = setup_pool().await;
+        let community_id = make_community(&pool).await;
+        let cid = CommunityId::from_uuid(community_id);
+        let [root, reply, nested] = make_thread(&pool, cid).await;
+        assert_eq!(counts(&pool, cid, &reply).await, (1, 0));
+        assert_eq!(counts(&pool, cid, &root).await, (1, 2));
+
+        let lease_until = Utc::now() + chrono::Duration::seconds(60);
+        for _ in 0..2 {
+            // Two distinct actions against the same target: only the first
+            // transitions the row, so counters move exactly once.
+            let (action_id, token) = enforcing_action(&pool, community_id, lease_until).await;
+            let committed = execute_delete_with_marker(
+                &pool,
+                action_id,
+                token,
+                cid,
+                &nested,
+                Some(&reply),
+                Some(&root),
+            )
+            .await
+            .expect("delete");
+            assert!(committed, "each action commits its own marker");
+            assert_eq!(
+                counts(&pool, cid, &reply).await,
+                (0, 0),
+                "parent reply_count"
+            );
+            assert_eq!(
+                counts(&pool, cid, &root).await,
+                (1, 1),
+                "root descendant_count"
+            );
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "requires Postgres"]
+    async fn admin_delete_with_lost_lease_changes_nothing() {
+        let pool = setup_pool().await;
+        let community_id = make_community(&pool).await;
+        let cid = CommunityId::from_uuid(community_id);
+        let [root, reply, nested] = make_thread(&pool, cid).await;
+
+        let expired = Utc::now() - chrono::Duration::seconds(1);
+        let (action_id, token) = enforcing_action(&pool, community_id, expired).await;
+        let committed = execute_delete_with_marker(
+            &pool,
+            action_id,
+            token,
+            cid,
+            &nested,
+            Some(&reply),
+            Some(&root),
+        )
+        .await
+        .expect("delete");
+        assert!(!committed, "expired lease must not commit");
+
+        let deleted: bool = sqlx::query_scalar(
+            "SELECT deleted_at IS NOT NULL FROM events WHERE community_id = $1 AND id = $2",
+        )
+        .bind(community_id)
+        .bind(&nested)
+        .fetch_one(&pool)
+        .await
+        .expect("event row");
+        assert!(!deleted, "delete must roll back with the fence");
+        assert_eq!(counts(&pool, cid, &reply).await, (1, 0));
+        assert_eq!(counts(&pool, cid, &root).await, (1, 2));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires Postgres"]
+    async fn admin_delete_rolled_back_by_marker_fence_changes_nothing() {
+        // Same action re-driven after its marker is set: the marker UPDATE
+        // matches zero rows, so the whole transaction (delete + counters) rolls back.
+        let pool = setup_pool().await;
+        let community_id = make_community(&pool).await;
+        let cid = CommunityId::from_uuid(community_id);
+        let [root, reply, nested] = make_thread(&pool, cid).await;
+        let lease_until = Utc::now() + chrono::Duration::seconds(60);
+        let (action_id, token) = enforcing_action(&pool, community_id, lease_until).await;
+
+        assert!(execute_delete_with_marker(
+            &pool,
+            action_id,
+            token,
+            cid,
+            &reply,
+            Some(&root),
+            Some(&root)
+        )
+        .await
+        .expect("first delete"));
+        let second = execute_delete_with_marker(
+            &pool,
+            action_id,
+            token,
+            cid,
+            &nested,
+            Some(&reply),
+            Some(&root),
+        )
+        .await
+        .expect("second delete");
+        assert!(!second, "marker already set must roll back");
+
+        let deleted: bool = sqlx::query_scalar(
+            "SELECT deleted_at IS NOT NULL FROM events WHERE community_id = $1 AND id = $2",
+        )
+        .bind(community_id)
+        .bind(&nested)
+        .fetch_one(&pool)
+        .await
+        .expect("event row");
+        assert!(!deleted, "rolled-back delete must not persist");
+        assert_eq!(
+            counts(&pool, cid, &reply).await,
+            (1, 0),
+            "nested's parent untouched"
+        );
+        assert_eq!(
+            counts(&pool, cid, &root).await,
+            (0, 1),
+            "only the first delete counted"
         );
     }
 
