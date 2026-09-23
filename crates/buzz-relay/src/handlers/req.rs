@@ -142,11 +142,17 @@ pub async fn handle_req(
         .await;
         match result {
             Ok(Ok(true)) => {
-                conn.send(RelayMessage::eose(&sub_id));
+                // A window is complete only if its terminal frame was queued.
+                // A saturated writer must close so the client can retry the
+                // incomplete page instead of waiting forever for EOSE.
+                if !conn.send(RelayMessage::eose(&sub_id)) {
+                    conn.cancel.cancel();
+                }
             }
             Ok(Ok(false)) => {
-                // A failed enqueue is not a complete page. Do not send EOSE:
-                // the client must retry rather than accept truncated bounds.
+                // Some EVENTs could already be queued. Close rather than
+                // claim a complete page or leave this request silent.
+                conn.cancel.cancel();
             }
             Ok(Err((status, body))) => close_thread_window_error(&conn, &sub_id, status, &body),
             Err(_) => {
@@ -558,7 +564,7 @@ pub async fn handle_req(
     );
 }
 
-async fn serve_thread_windows<'a>(
+pub(crate) async fn serve_thread_windows<'a>(
     sub_id: &str,
     requests: impl Iterator<Item = &'a buzz_core::thread_window::Request>,
     allowed_channels: Option<&[uuid::Uuid]>,

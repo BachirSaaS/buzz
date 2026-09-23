@@ -451,7 +451,7 @@ async fn websocket_batch_enforces_token_scope_and_rejects_queue_truncation() {
         vec![parsed.clone()],
         vec![filter.clone()],
         vec![None],
-        allowed,
+        allowed.clone(),
         f.state.clone(),
     )
     .await;
@@ -462,6 +462,51 @@ async fn websocket_batch_enforces_token_scope_and_rejects_queue_truncation() {
         vec![Some("EVENT"), Some("EVENT"), Some("EOSE")]
     );
     assert_eq!(frames[1][2]["kind"], 39007);
+    assert!(
+        !allowed.cancel.is_cancelled(),
+        "complete page closed socket"
+    );
+
+    // Leave room for the two EVENT frames, but not for EOSE.
+    let (terminal, mut terminal_rx) = f.ws_conn(None);
+    for _ in 0..2 {
+        assert!(terminal.send("padding".into()));
+    }
+    crate::handlers::req::handle_req(
+        "terminal".into(),
+        vec![parsed.clone()],
+        vec![filter.clone()],
+        vec![None],
+        terminal.clone(),
+        f.state.clone(),
+    )
+    .await;
+    assert!(
+        terminal.cancel.is_cancelled(),
+        "failed EOSE must close socket"
+    );
+    let terminal_frames: Vec<_> = std::iter::from_fn(|| terminal_rx.try_recv().ok())
+        .filter_map(|msg| serde_json::from_str::<Value>(msg.to_text().unwrap()).ok())
+        .collect();
+    assert_eq!(terminal_frames.len(), 2);
+    assert!(terminal_frames.iter().all(|frame| frame[0] == "EVENT"));
+
+    // The full queue also drops an incorrectly attempted EOSE, so checking
+    // drained frames alone cannot distinguish a complete from a truncated page.
+    // Assert the production sender reports truncation at the source.
+    let (probe, _probe_rx) = f.ws_conn(None);
+    let requests = super::parse(&vec![filter.clone(); 3]).unwrap();
+    let sent = crate::handlers::req::serve_thread_windows(
+        "full",
+        requests.iter().flatten(),
+        None,
+        &f.keys.public_key(),
+        &probe,
+        &f.state,
+    )
+    .await
+    .unwrap();
+    assert!(!sent, "a failed EVENT enqueue must not authorize EOSE");
 
     let (slow, mut slow_rx) = f.ws_conn(None);
     // Capacity four: one row + bounds per filter. Two windows fill it,
@@ -471,10 +516,14 @@ async fn websocket_batch_enforces_token_scope_and_rejects_queue_truncation() {
         vec![parsed.clone(); 3],
         vec![filter.clone(); 3],
         vec![None; 3],
-        slow,
+        slow.clone(),
         f.state.clone(),
     )
     .await;
+    assert!(
+        slow.cancel.is_cancelled(),
+        "truncated page must close socket"
+    );
     let drained: Vec<_> = std::iter::from_fn(|| slow_rx.try_recv().ok())
         .map(|m| serde_json::from_str::<Value>(m.to_text().unwrap()).unwrap())
         .collect();
@@ -542,6 +591,14 @@ async fn websocket_window_replaces_live_subscription_before_eose() {
         .await;
     assert_eq!(
         f.state
+            .pubsub
+            .topic_refcount(&conn.tenant, buzz_pubsub::EventTopic::Channel(f.channel))
+            .await,
+        1,
+        "fixture must retain the live channel topic"
+    );
+    assert_eq!(
+        f.state
             .sub_registry
             .channel_subscriber_conns_scoped(f.community, f.channel),
         vec![conn.conn_id]
@@ -557,6 +614,14 @@ async fn websocket_window_replaces_live_subscription_before_eose() {
     )
     .await;
     assert!(conn.subscriptions.lock().await.get("replace").is_none());
+    assert_eq!(
+        f.state
+            .pubsub
+            .topic_refcount(&conn.tenant, buzz_pubsub::EventTopic::Channel(f.channel))
+            .await,
+        0,
+        "replacing the live subscription must release its channel topic"
+    );
     assert!(f
         .state
         .sub_registry

@@ -113,7 +113,7 @@ impl ClientMessage {
                         // Thread-mode cursor validation belongs to the REQ handler,
                         // where invalid input can terminate this subscription with
                         // CLOSED rather than leaving a bare NOTICE.
-                        if value.get("thread_window").is_some_and(|v| v == true) {
+                        if value.get("thread_window").is_some_and(|v| v != false) {
                             return Ok(None);
                         }
                         let Some(raw) = value.get("before_id") else {
@@ -352,12 +352,22 @@ mod tests {
 
     #[test]
     fn parse_req_routes_malformed_thread_cursor_to_subscription_validation() {
-        for cursor in [
-            serde_json::json!({"until": 1, "before_id": "zz"}),
-            serde_json::json!({"before_id": "ab".repeat(32)}),
+        for (flag, cursor) in [
+            (
+                serde_json::json!(true),
+                serde_json::json!({"until": 1, "before_id": "zz"}),
+            ),
+            (
+                serde_json::json!(true),
+                serde_json::json!({"before_id": "ab".repeat(32)}),
+            ),
+            (
+                serde_json::json!("yes"),
+                serde_json::json!({"before_id": "ab".repeat(32)}),
+            ),
         ] {
             let mut filter = serde_json::json!({
-                "thread_window": true,
+                "thread_window": flag,
                 "#h": [uuid::Uuid::nil()],
                 "#e": ["ab".repeat(32)],
                 "kinds": [9]

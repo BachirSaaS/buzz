@@ -250,6 +250,14 @@ the head page. Unknown fields, malformed values, and mixing thread windows with
 another query mode MUST be rejected. A query MAY contain at most four window
 filters.
 
+On WebSocket REQ, invalid thread-window extensions that reach the window
+validator terminate the named subscription with `CLOSED invalid:`. Malformed
+standard NIP-01 filter fields (for example `until: -1`, `kinds: [70000]`, or
+`limit: "x"`) can fail typed filter deserialization earlier and receive a
+connection-level `NOTICE` instead; clients MUST NOT wait indefinitely for EOSE
+or CLOSED after a parse failure. A missing or invalid bounds overlay still
+makes a page unusable.
+
 ### Relay Processing
 
 For an authorized request the relay MUST:
@@ -299,6 +307,16 @@ needed auxiliary data separately. A root's auxiliary history can exceed the
 allowance even at `limit: 1`; blind retries of the same query will not help.
 For timeouts or changed access, retry with bounded backoff and fresh access.
 These errors MUST NOT trigger legacy compatibility fallback.
+
+A WebSocket thread-window page is complete only after its request-bound bounds
+and EOSE arrive. If any EVENT or the terminal EOSE cannot be enqueued, the relay
+cancels that connection rather than silently leaving a finite request pending;
+a Close frame is best-effort and may not reach a stalled reader. Clients MUST
+abandon the entire incomplete batch, retain their previous cursor, and retry
+with a fresh request ID and bounded backoff after disconnect or timeout. A client
+MUST also impose its own deadline and surface persistent failure rather than
+wait forever or fall back to legacy pagination. This relay capability does not
+itself enable thread-window pagination in desktop or mobile clients.
 
 ### Thread Bounds: `kind:39007`
 
