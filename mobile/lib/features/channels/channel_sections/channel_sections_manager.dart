@@ -56,6 +56,8 @@ class ChannelSectionsManager {
   Future<void>? _syncInFlight;
   bool _syncAgain = false;
   int _subscriptionGeneration = 0;
+  int _localRevision = 0;
+  bool _publishPending = false;
 
   ChannelSectionsManager({
     required this.pubkey,
@@ -88,6 +90,19 @@ class ChannelSectionsManager {
 
     await _syncWithRelay();
     _onChanged();
+  }
+
+  /// Re-reads the retained head once, e.g. on app foreground resume, to catch
+  /// an EVENT a healthy socket never delivered. Skipped while a local edit is
+  /// pending and discarded if one lands before the read returns.
+  void refreshFromRelay() {
+    if (_disposed || !_remoteEnabled || _publishPending) return;
+    final revision = _localRevision;
+    unawaited(
+      _fetchAndMerge(
+        isCurrent: () => revision == _localRevision && !_publishPending,
+      ),
+    );
   }
 
   /// One startup-sync attempt: fetch the remote blob, then start the live
@@ -287,16 +302,25 @@ class ChannelSectionsManager {
 
   void markDirty() {
     if (!_remoteEnabled || _disposed) return;
+    _localRevision++;
+    _publishPending = true;
     _publishDebounce?.cancel();
     _publishDebounce = Timer(const Duration(seconds: 5), () {
       _publishDebounce = null;
-      unawaited(_publish());
+      unawaited(
+        _publish().whenComplete(
+          () => _publishPending = _publishDebounce != null,
+        ),
+      );
     });
   }
 
   /// Returns whether the fetch reached the relay (regardless of whether a
   /// remote blob exists).
-  Future<bool> _fetchAndMerge({bool allowDisposed = false}) async {
+  Future<bool> _fetchAndMerge({
+    bool allowDisposed = false,
+    bool Function()? isCurrent,
+  }) async {
     if (_relaySession == null) return false;
     try {
       final events = await _relaySession.fetchHistory(
@@ -310,6 +334,7 @@ class ChannelSectionsManager {
         ),
       );
       if (_disposed && !allowDisposed) return false;
+      if (isCurrent != null && !isCurrent()) return false;
       _mergeEvents(events);
       _persist();
       if (!_disposed) _onChanged();
@@ -386,16 +411,7 @@ class ChannelSectionsManager {
 
       final incoming = ChannelSectionStore.fromJson(parsed);
 
-      // Last-write-wins: newer createdAt wins; tie-break by event ID.
-      // Relay retains `ORDER BY created_at DESC, id ASC`, so the lower ID wins
-      // at equal second — accept incoming only if its ID is lexicographically
-      // lower than the one we already hold.
-      final isNewer =
-          event.createdAt > _lastRemoteCreatedAt ||
-          (event.createdAt == _lastRemoteCreatedAt &&
-              event.id.compareTo(_lastRemoteEventId ?? '') < 0);
-
-      if (isNewer) {
+      if (_isAfterCursor(event.createdAt, event.id)) {
         _lastRemoteCreatedAt = event.createdAt;
         _lastRemoteEventId = event.id;
         _store = incoming;
@@ -405,6 +421,13 @@ class ChannelSectionsManager {
       // Decryption failure or parse error — keep existing state.
     }
   }
+
+  /// Last-write-wins. Relay retains `ORDER BY created_at DESC, id ASC`: at
+  /// equal second the lower event ID wins.
+  bool _isAfterCursor(int createdAt, String id) =>
+      createdAt > _lastRemoteCreatedAt ||
+      (createdAt == _lastRemoteCreatedAt &&
+          id.compareTo(_lastRemoteEventId ?? '') < 0);
 
   void _handleIncomingEvent(NostrEvent event) {
     if (_disposed) return;
@@ -451,6 +474,7 @@ class ChannelSectionsManager {
       final ciphertext = _crypto.encrypt(payload);
       final createdAt = max(currentUnixSeconds(), _lastRemoteCreatedAt + 1);
 
+      String? signedId;
       await _signedEventRelay.submit(
         kind: EventKind.readState,
         content: ciphertext,
@@ -459,9 +483,16 @@ class ChannelSectionsManager {
           ['t', 'channel-sections'],
         ],
         createdAt: createdAt,
+        onSigned: (event) => signedId = event.id,
       );
 
-      _lastRemoteCreatedAt = max(_lastRemoteCreatedAt, createdAt);
+      // Keep the cursor a coherent (created_at, id) pair so an OK that beats
+      // its own echo cannot make later same-second heads compare against a
+      // stale ID. A newer head learned during the await stays.
+      if (signedId != null && _isAfterCursor(createdAt, signedId!)) {
+        _lastRemoteCreatedAt = createdAt;
+        _lastRemoteEventId = signedId;
+      }
       _lastPublishedStore = ChannelSectionStore(
         sections: List.of(_store.sections),
         assignments: Map.of(_store.assignments),
