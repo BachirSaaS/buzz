@@ -2267,8 +2267,9 @@ mod external_infra {
         // returns `changed: true` with a new HEAD digest.
         //
         // Falsifying mutation A: remove NIP-FI admission from the settings handler
-        //   → the mismatch and malformed tokens above would have reached the handler
-        //   → set_default_branch called multiple times → Step 4's assert_eq!(digest)
+        //   → the mismatched-key token above would have reached the handler (the outer
+        //   guard verifies but does not pair keys; malformed tokens stay rejected there)
+        //   → set_default_branch called → Step 4's assert_eq!(digest)
         //   fires before we get here.
         // Falsifying mutation B: always-deny pairing → 403 AuthorizationDenied →
         //   status != 200 → Step-5 assert_eq!(status_ok, OK) fires.

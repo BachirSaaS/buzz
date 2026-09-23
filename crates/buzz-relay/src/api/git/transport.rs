@@ -4967,7 +4967,7 @@ mod off_mode_precedence_tests {
                     // Proves malformed-proof detection is not bypassed by a valid assertion.
                     //
                     // Falsifying mutation: accept malformed NIP-98 when assertion present →
-                    // admission passes → handler returns 404 (not 403).
+                    // admission bypassed → response is not 403 EvidenceRejected.
                     let (mal_proof_status, _mal_proof_headers, mal_proof_body) = send_pack_request(
                         Arc::clone(&state),
                         route,
@@ -4985,7 +4985,7 @@ mod off_mode_precedence_tests {
                     axum::http::StatusCode::FORBIDDEN,
                     "{route}: malformed proof + valid assertion MUST deny 403 EvidenceRejected. \
                      Falsifying mutation: skip NIP-98 validation when assertion present → \
-                     handler reached → 404."
+                     admission bypassed → not 403."
                 );
                     assert_eq!(
                         mal_proof_body.as_ref(),

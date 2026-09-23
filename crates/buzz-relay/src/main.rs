@@ -3000,7 +3000,7 @@ mod composition_tests {
     // Response queue (5 total):
     //   response[0]: ok  — warm at T=0 (direct call)
     //   response[1]: fail — stale at T=61 (direct call, snapshot still live)
-    //   response[2]: fail — timer callback at T=121 (source T=121 > deadline T=90
+    //   response[2]: fail — timer callback due T=121, observes T=122 (source T=122 > deadline T=90
     //                        → snapshot cleared → fetch → None → callback returns false)
     //   response[3]: fail — direct call at T=122 (confirms still None; Claim 3 source)
     //   response[4]: ok  — direct call at T=123 (recovery; Claim 4)
@@ -3009,7 +3009,7 @@ mod composition_tests {
     //   T=0:   warm (response[0]). Timer NOT yet spawned (Claims 1-2 use direct calls).
     //   T=61:  direct call → stale fail (response[1]) → live snapshot → Claims 1+2.
     //   T=61:  spawn timer. Timer `last = T=61`. First callback due at T=61+60=T=121.
-    //   T=122: advance Tokio. Timer fires at T=121. Source: T=121 > deadline=90
+    //   T=122: advance Tokio past the T=121 due time; callback observes T=122. Source: T=122 > deadline=90
     //          → snapshot cleared → fetch response[2]=fail → None → callback returns
     //          false → warn! emitted. callback_count=1.
     //   Wait for callback_count >= 1, then cancel.
@@ -3017,9 +3017,9 @@ mod composition_tests {
     //   T=123: direct call (response[4]=ok) → Some. Claim 4 confirmed.
     //
     // Falsifying mutation: "store snapshot on failure with extended deadline"
-    // sets deadline to T0+61+90=T0+151. At T=121:
-    //   - now=T0+121 >= deadline=T0+151 is FALSE → snapshot live, NOT cleared.
-    //   - age_secs = T0+121 - T0+61 = 60 >= 60 → stale → fetch response[2]=fail.
+    // sets deadline to T0+61+90=T0+151. At observed T=122:
+    //   - now=T0+122 >= deadline=T0+151 is FALSE → snapshot live, NOT cleared.
+    //   - age_secs = T0+122 - T0+61 = 61 >= 60 → stale → fetch response[2]=fail.
     //   - Snapshot NOT cleared → fetch fails → but old snapshot kept (live) → Some.
     //   - Callback returns TRUE (not false) → callback_returned_false stays false
     //   - assertion fires: callback_returned_false must be true.
@@ -3506,16 +3506,16 @@ mod composition_tests {
             &captured[..captured.len().min(500)]
         );
         // Assert timer background warn! was captured (path 4).
-        // Fired by callback 2 at Tokio T=120: source clock T=120 > deadline T=90
+        // Fired by callback 2 at Tokio T=121: source clock T=121 > deadline T=90
         // → get_snapshot returns None → callback returns false → warn! emitted.
         //
         // Falsifying mutation: bridge now_fn to a fixed T=61 clock →
-        // source at T=120 still sees T=61 < T=90 → snapshot live → callback true
+        // source at T=121 still sees T=61 < T=90 → snapshot live → callback true
         // → no warn! → this assertion fails.
         assert!(
             captured.contains("background JWKS refresh returned no snapshot"),
             "Expected timer warn! 'NIP-FI: background JWKS refresh returned no snapshot'. \
-             Fired when callback 2 (Tokio T=120) finds source clock T=120 > hard_deadline T=90. \
+             Fired when callback 2 (Tokio T=121) finds source clock T=121 > hard_deadline T=90. \
              Captured (first 500 chars):\n{}",
             &captured[..captured.len().min(500)]
         );
