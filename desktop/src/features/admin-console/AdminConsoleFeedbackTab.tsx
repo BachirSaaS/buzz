@@ -184,7 +184,6 @@ function AttachmentViewer({
 }) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [error, setError] = useState<AdminAttachmentErrorCode | null>(null);
-  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const blobUrlRef = useRef<string | null>(null);
   // Per-load generation: incremented when a new load starts AND in cleanup so
@@ -217,7 +216,6 @@ function AttachmentViewer({
     const thisOrigin = origin;
     const thisPubkey = pubkey;
 
-    setLoading(true);
     setError(null);
     try {
       const url = await fetchAdminAttachmentBlobUrl(
@@ -248,8 +246,6 @@ function AttachmentViewer({
       setError(
         typeof e === "string" ? (e as AdminAttachmentErrorCode) : String(e),
       );
-    } finally {
-      if (thisGen === loadGenRef.current) setLoading(false);
     }
   }, [
     origin,
@@ -311,83 +307,45 @@ function AttachmentViewer({
     );
   }
 
-  if (!blobUrl) {
-    // For image/* types the load is triggered automatically on mount; show a
-    // spinner while in-flight.
-    if (attachment.mime.startsWith("image/") || loading) {
-      return (
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-          Loading…
-        </div>
-      );
-    }
-    // Non-image types: offer Save (independent re-fetch via native dialog) and
-    // View (in-memory blob preview, opt-in). Save is always available and
-    // does not require View to be clicked first.
+  // Non-image types are never previewed: Save writes them through the native
+  // dialog (a blob `<a download>` is a no-op in WKWebView).
+  if (!attachment.mime.startsWith("image/")) {
     return (
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          className="gap-1.5"
-          disabled={saving}
-          onClick={() => void save()}
-          size="sm"
-          type="button"
-          variant="outline"
-        >
-          {saving ? (
-            <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <>
-              <Download className="h-3.5 w-3.5" />
-              {`Save attachment (${attachment.mime})`}
-            </>
-          )}
-        </Button>
-        <Button
-          className="gap-1.5"
-          disabled={loading}
-          onClick={() => void load()}
-          size="sm"
-          type="button"
-          variant="ghost"
-        >
-          <Download className="h-3.5 w-3.5" />
-          {`View attachment (${attachment.mime})`}
-        </Button>
+      <Button
+        className="gap-1.5"
+        disabled={saving}
+        onClick={() => void save()}
+        size="sm"
+        type="button"
+        variant="outline"
+      >
+        {saving ? (
+          <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <>
+            <Download className="h-3.5 w-3.5" />
+            {`Save attachment (${attachment.mime})`}
+          </>
+        )}
+      </Button>
+    );
+  }
+
+  if (!blobUrl) {
+    return (
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+        Loading…
       </div>
     );
   }
 
-  if (attachment.mime.startsWith("image/")) {
-    return (
-      <img
-        alt="Feedback attachment"
-        className="max-h-96 max-w-full rounded-md border border-border/60 object-contain"
-        src={blobUrl}
-      />
-    );
-  }
-
-  // blobUrl loaded for non-image: offer save-to-disk.
   return (
-    <Button
-      className="gap-1.5"
-      disabled={saving}
-      onClick={() => void save()}
-      size="sm"
-      type="button"
-      variant="outline"
-    >
-      {saving ? (
-        <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-      ) : (
-        <>
-          <Download className="h-3.5 w-3.5" />
-          {`Save attachment (${attachment.mime})`}
-        </>
-      )}
-    </Button>
+    <img
+      alt="Feedback attachment"
+      className="max-h-96 max-w-full rounded-md border border-border/60 object-contain"
+      src={blobUrl}
+    />
   );
 }
 

@@ -786,6 +786,12 @@ test("non-image-attachment-save-button: a non-image attachment shows a Save butt
       `"Save attachment" button must render for a non-image attachment; got: ${container.textContent?.slice(0, 400)}`,
     );
 
+    // Save is the only action: no View/preview control for non-images.
+    assert.ok(
+      !(container.textContent ?? "").includes("View attachment"),
+      "non-image attachments must not offer a View action",
+    );
+
     // No <a download> anchor must exist for non-image attachments.
     const anchors = container.querySelectorAll("a[download]");
     assert.equal(

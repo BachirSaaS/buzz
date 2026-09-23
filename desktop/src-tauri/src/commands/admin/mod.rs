@@ -50,13 +50,14 @@ const ATTACHMENT_CAP: u64 = 10_485_760; // 10 MiB
 
 // Re-export helpers into this module's namespace.
 use helpers::{
-    delete_admin_json, fetch_admin_json, finish_attachment_response, patch_admin_json,
-    post_admin_json, put_admin_json,
+    delete_admin_json, fetch_admin_json, patch_admin_json, post_admin_json, put_admin_json,
 };
 
 // ── Typed mutation error ──────────────────────────────────────────────────
 
 pub(crate) mod error;
+
+mod attachment;
 pub use error::AdminMutationError;
 
 // ── Typed probe result ────────────────────────────────────────────────────
@@ -684,13 +685,11 @@ pub async fn admin_delete_operator(
     serde_json::from_slice(&bytes).map_err(|e| format!("invalid JSON from relay: {e}").into())
 }
 
-/// Fetch a feedback attachment by SHA-256 hash.
+/// Fetch a feedback attachment by SHA-256 hash for in-app preview.
 ///
 /// The front-end MUST supply `expectedMime` and `expectedSize` from the
-/// server-validated `imeta` fields returned by `admin_get_feedback`. The
-/// command verifies the relay's `Content-Type` against `expectedMime` and
-/// the actual byte count against `expectedSize`. Mismatch or over-cap yields
-/// a stable typed error-code string.
+/// server-validated `imeta` fields returned by `admin_get_feedback`; see
+/// [`attachment::fetch_feedback_attachment`] for the checks applied.
 ///
 /// Returns `tauri::ipc::Response` so bytes cross IPC as a raw `ArrayBuffer`.
 #[tauri::command]
@@ -702,65 +701,53 @@ pub async fn admin_fetch_feedback_attachment(
     expected_size: u64,
     state: tauri::State<'_, crate::app_state::AppState>,
 ) -> Result<tauri::ipc::Response, String> {
-    use crate::relay::build_nip98_auth_header_for_keys;
-
-    // Validate inputs before any network activity.
-    let feedback_id = uuid::Uuid::parse_str(&feedback_id)
-        .map_err(|_| "admin_attachment_invalid_feedback_id".to_string())?;
-    let sha256 = routes::AttachmentHash::parse(&sha256)
-        .map_err(|_| "admin_attachment_invalid_hash".to_string())?;
-    if expected_size == 0 {
-        return Err("admin_attachment_invalid_size".to_string());
-    }
-    if expected_size > ATTACHMENT_CAP {
-        return Err("admin_attachment_too_large".to_string());
-    }
-    if expected_mime.is_empty() {
-        return Err("admin_attachment_invalid_mime".to_string());
-    }
-
-    let origin = origin::AdminOrigin::parse(&origin)?;
-    let url = origin.route_url(
-        &routes::AdminRoute::FeedbackAttachment {
-            id: feedback_id,
-            sha256,
-        },
-        &routes::AdminQuery::default(),
-    );
-
     let keys = state.signing_keys()?;
-    let http_client = client::ADMIN_CLIENT
-        .get()
-        .ok_or_else(|| "admin client not initialised".to_string())?;
+    attachment::fetch_feedback_attachment(
+        &origin,
+        &feedback_id,
+        &sha256,
+        &expected_mime,
+        expected_size,
+        &keys,
+    )
+    .await
+    .map(tauri::ipc::Response::new)
+}
 
-    let auth_header = build_nip98_auth_header_for_keys(&keys, &reqwest::Method::GET, &url, &[])
-        .map_err(|e| format!("nip98 build failed: {e}"))?;
-
-    let resp = http_client
-        .get(&url)
-        .header(reqwest::header::AUTHORIZATION, &auth_header)
-        .send()
-        .await
-        .map_err(|e| {
-            tracing::debug!(error = %e, "admin attachment fetch failed");
-            "admin_attachment_network_error".to_string()
-        })?;
-
-    // One retry on 401 with a fresh NIP-98 event.
-    if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
-        let auth_header2 =
-            build_nip98_auth_header_for_keys(&keys, &reqwest::Method::GET, &url, &[])
-                .map_err(|e| format!("nip98 build failed on retry: {e}"))?;
-        let resp2 = http_client
-            .get(&url)
-            .header(reqwest::header::AUTHORIZATION, auth_header2)
-            .send()
-            .await
-            .map_err(|_| "admin_attachment_network_error".to_string())?;
-        return finish_attachment_response(resp2, &expected_mime, expected_size).await;
-    }
-
-    finish_attachment_response(resp, &expected_mime, expected_size).await
+/// Save a feedback attachment to a user-chosen path via the native save dialog.
+///
+/// Fetches through the same validated path as preview, so non-image bytes are
+/// never left as an in-memory blob URL (a WKWebView no-op for `<a download>`).
+/// Returns `Ok(true)` when the file was written, `Ok(false)` when the user
+/// cancelled the dialog.
+#[tauri::command]
+pub async fn admin_save_attachment(
+    origin: String,
+    feedback_id: String,
+    sha256: String,
+    expected_mime: String,
+    expected_size: u64,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, crate::app_state::AppState>,
+) -> Result<bool, String> {
+    let keys = state.signing_keys()?;
+    attachment::save_attachment(
+        attachment::fetch_feedback_attachment(
+            &origin,
+            &feedback_id,
+            &sha256,
+            &expected_mime,
+            expected_size,
+            &keys,
+        ),
+        &sha256,
+        &expected_mime,
+        |name, filter, ext| async move {
+            crate::commands::export_util::pick_save_path(&app, &name, filter, &[ext]).await
+        },
+        |path, bytes| std::fs::write(path, bytes),
+    )
+    .await
 }
 
 // ── Member restrictions ───────────────────────────────────────────────────
@@ -833,160 +820,6 @@ pub async fn admin_lift_timeout(
     let url = origin.route_url(&routes::AdminRoute::MemberTimeoutDelete { pubkey }, &q);
     let _bytes = delete_admin_json(&url, SUCCESS_JSON_CAP, &state).await?;
     Ok(())
-}
-
-/// Save a feedback attachment to a user-chosen path via the native save dialog.
-///
-/// Takes the same parameters as `admin_fetch_feedback_attachment` — the relay
-/// fetch and the save-dialog are fused into one command so non-image bytes are
-/// never left as an in-memory blob URL (a WKWebView no-op for `<a download>`).
-/// Returns `Ok(true)` when the file was written, `Ok(false)` when the user
-/// cancelled the dialog.
-#[tauri::command]
-pub async fn admin_save_attachment(
-    origin: String,
-    feedback_id: String,
-    sha256: String,
-    expected_mime: String,
-    expected_size: u64,
-    app: tauri::AppHandle,
-    state: tauri::State<'_, crate::app_state::AppState>,
-) -> Result<bool, String> {
-    use crate::relay::build_nip98_auth_header_for_keys;
-
-    // Validate inputs before any network activity — mirrors admin_fetch_feedback_attachment.
-    let feedback_id = uuid::Uuid::parse_str(&feedback_id)
-        .map_err(|_| "admin_attachment_invalid_feedback_id".to_string())?;
-    let sha256_hash = routes::AttachmentHash::parse(&sha256)
-        .map_err(|_| "admin_attachment_invalid_hash".to_string())?;
-    if expected_size == 0 {
-        return Err("admin_attachment_invalid_size".to_string());
-    }
-    if expected_size > ATTACHMENT_CAP {
-        return Err("admin_attachment_too_large".to_string());
-    }
-    if expected_mime.is_empty() {
-        return Err("admin_attachment_invalid_mime".to_string());
-    }
-
-    let origin = origin::AdminOrigin::parse(&origin)?;
-    let url = origin.route_url(
-        &routes::AdminRoute::FeedbackAttachment {
-            id: feedback_id,
-            sha256: sha256_hash,
-        },
-        &routes::AdminQuery::default(),
-    );
-
-    let keys = state.signing_keys()?;
-    let http_client = client::ADMIN_CLIENT
-        .get()
-        .ok_or_else(|| "admin client not initialised".to_string())?;
-
-    let auth_header = build_nip98_auth_header_for_keys(&keys, &reqwest::Method::GET, &url, &[])
-        .map_err(|e| format!("nip98 build failed: {e}"))?;
-
-    let resp = http_client
-        .get(&url)
-        .header(reqwest::header::AUTHORIZATION, &auth_header)
-        .send()
-        .await
-        .map_err(|e| {
-            tracing::debug!(error = %e, "admin save_attachment fetch failed");
-            "admin_attachment_network_error".to_string()
-        })?;
-
-    // One retry on 401 with a fresh NIP-98 event.
-    let resp = if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
-        let auth_header2 =
-            build_nip98_auth_header_for_keys(&keys, &reqwest::Method::GET, &url, &[])
-                .map_err(|e| format!("nip98 build failed on retry: {e}"))?;
-        http_client
-            .get(&url)
-            .header(reqwest::header::AUTHORIZATION, auth_header2)
-            .send()
-            .await
-            .map_err(|_| "admin_attachment_network_error".to_string())?
-    } else {
-        resp
-    };
-
-    // Validate + collect bytes (same logic as finish_attachment_response but
-    // returning Vec<u8> directly, since we write to disk rather than IPC).
-    if resp.status().is_redirection() {
-        return Err("admin_attachment_redirect".to_string());
-    }
-    if !resp.status().is_success() {
-        return Err(format!(
-            "admin_attachment_relay_error_{}",
-            resp.status().as_u16()
-        ));
-    }
-
-    // Verify Content-Type.
-    let content_type = resp
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("")
-        .split(';')
-        .next()
-        .unwrap_or("")
-        .trim()
-        .to_ascii_lowercase();
-    if content_type != expected_mime.trim().to_ascii_lowercase() {
-        return Err("admin_attachment_mime_mismatch".to_string());
-    }
-
-    // Content-Length preflight.
-    if let Some(cl) = resp.content_length() {
-        if cl > ATTACHMENT_CAP {
-            return Err("admin_attachment_too_large".to_string());
-        }
-        if cl != expected_size {
-            return Err("admin_attachment_size_mismatch".to_string());
-        }
-    }
-
-    // Stream with running byte counter.
-    use futures_util::StreamExt;
-    let mut bytes: Vec<u8> = Vec::new();
-    let mut stream = resp.bytes_stream();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|_| "admin_attachment_stream_error".to_string())?;
-        if bytes.len() as u64 + chunk.len() as u64 > ATTACHMENT_CAP {
-            return Err("admin_attachment_too_large".to_string());
-        }
-        bytes.extend_from_slice(&chunk);
-    }
-    if bytes.len() as u64 != expected_size {
-        return Err("admin_attachment_size_mismatch".to_string());
-    }
-
-    // Derive a suggested filename from the sha256 prefix and MIME subtype.
-    // e.g. "attachment-a1b2c3d4.png" for image/png.
-    let ext = expected_mime
-        .split('/')
-        .nth(1)
-        .unwrap_or("bin")
-        .split('+')
-        .next()
-        .unwrap_or("bin");
-    let suggested = format!("attachment-{}.{}", &sha256[..8], ext);
-    let filter_name = if expected_mime.starts_with("image/") {
-        "Images"
-    } else {
-        "All Files"
-    };
-
-    crate::commands::export_util::save_bytes_with_dialog(
-        &app,
-        &suggested,
-        filter_name,
-        &[ext],
-        &bytes,
-    )
-    .await
 }
 
 // ── Origin storage commands ───────────────────────────────────────────────

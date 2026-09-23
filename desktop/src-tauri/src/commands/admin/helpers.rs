@@ -176,7 +176,7 @@ pub(super) async fn finish_attachment_response(
     resp: reqwest::Response,
     expected_mime: &str,
     expected_size: u64,
-) -> Result<tauri::ipc::Response, String> {
+) -> Result<Vec<u8>, String> {
     use futures_util::StreamExt;
 
     if resp.status().is_redirection() {
@@ -230,7 +230,7 @@ pub(super) async fn finish_attachment_response(
         return Err("admin_attachment_size_mismatch".to_string());
     }
 
-    Ok(tauri::ipc::Response::new(bytes))
+    Ok(bytes)
 }
 
 /// Read a response body up to `success_cap` bytes on 2xx, `error_cap` on
