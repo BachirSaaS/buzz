@@ -1111,3 +1111,54 @@ fn advertised_host_trust_binding() {
         );
     }
 }
+
+// ── Native Save core over the wire ────────────────────────────────────────
+
+const SAVE_FEEDBACK_ID: &str = "00000000-0000-0000-0000-00000000fb01";
+
+fn save_sha() -> String {
+    "ab".repeat(32)
+}
+
+#[tokio::test]
+async fn save_core_writes_the_served_bytes_to_the_chosen_file() {
+    let addr = serve_sequence(vec![(
+        "200 OK",
+        "Content-Type: application/pdf\r\n",
+        "%PDF-1.7 saved",
+    )])
+    .await;
+    let dir = tempfile::tempdir().unwrap();
+    let dest = dir.path().join("saved.pdf");
+    let pick_dest = dest.clone();
+    let saved = attachment::save_feedback_attachment(
+        &format!("http://127.0.0.1:{}", addr.port()),
+        SAVE_FEEDBACK_ID,
+        &save_sha(),
+        "application/pdf",
+        14,
+        &nostr::Keys::generate(),
+        |_, _, _| async move { Ok(Some(pick_dest)) },
+    )
+    .await;
+    assert_eq!(saved, Ok(true));
+    assert_eq!(std::fs::read(&dest).unwrap(), b"%PDF-1.7 saved");
+}
+
+#[tokio::test]
+async fn save_core_fetch_failure_never_prompts() {
+    let addr = serve_sequence(vec![("500 Internal Server Error", "", "")]).await;
+    let saved = attachment::save_feedback_attachment(
+        &format!("http://127.0.0.1:{}", addr.port()),
+        SAVE_FEEDBACK_ID,
+        &save_sha(),
+        "application/pdf",
+        14,
+        &nostr::Keys::generate(),
+        |_, _, _| -> std::future::Ready<Result<Option<std::path::PathBuf>, String>> {
+            panic!("must not prompt after a failed fetch")
+        },
+    )
+    .await;
+    assert_eq!(saved, Err("admin_attachment_relay_error_500".to_string()));
+}

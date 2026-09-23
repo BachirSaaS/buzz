@@ -731,21 +731,16 @@ pub async fn admin_save_attachment(
     state: tauri::State<'_, crate::app_state::AppState>,
 ) -> Result<bool, String> {
     let keys = state.signing_keys()?;
-    attachment::save_attachment(
-        attachment::fetch_feedback_attachment(
-            &origin,
-            &feedback_id,
-            &sha256,
-            &expected_mime,
-            expected_size,
-            &keys,
-        ),
+    attachment::save_feedback_attachment(
+        &origin,
+        &feedback_id,
         &sha256,
         &expected_mime,
+        expected_size,
+        &keys,
         |name, filter, ext| async move {
             crate::commands::export_util::pick_save_path(&app, &name, filter, &[ext]).await
         },
-        |path, bytes| std::fs::write(path, bytes),
     )
     .await
 }

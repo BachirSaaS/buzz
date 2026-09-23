@@ -1,9 +1,9 @@
 //! Feedback attachment fetch (one validated path shared by preview and save)
-//! and the native save flow, with the dialog and disk write injected so the
-//! save logic is testable without a window.
+//! and the native save flow. Only the save dialog is injected, so tests drive
+//! the real fetch and the real disk write without a window.
 
 use std::future::Future;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use super::helpers::finish_attachment_response;
 use super::{client, origin, routes, ATTACHMENT_CAP};
@@ -106,15 +106,48 @@ pub(super) fn attachment_file_name(sha256: &str, mime: &str) -> (String, &'stati
     (format!("attachment-{prefix}.{ext}"), ext)
 }
 
-/// Fetch, ask the user where to save, and write. `Ok(false)` means the user
-/// cancelled; the fetch completes (and any fetch error surfaces) before the
-/// dialog opens, so a failed download never prompts for a path.
+/// Native Save core: fetch the attachment through the shared validated path,
+/// then run [`save_attachment`]. The Tauri command only supplies the dialog.
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn save_feedback_attachment<Pick, PickFut>(
+    origin: &str,
+    feedback_id: &str,
+    sha256: &str,
+    expected_mime: &str,
+    expected_size: u64,
+    keys: &nostr::Keys,
+    pick: Pick,
+) -> Result<bool, String>
+where
+    Pick: FnOnce(String, &'static str, &'static str) -> PickFut,
+    PickFut: Future<Output = Result<Option<PathBuf>, String>>,
+{
+    save_attachment(
+        fetch_feedback_attachment(
+            origin,
+            feedback_id,
+            sha256,
+            expected_mime,
+            expected_size,
+            keys,
+        ),
+        sha256,
+        expected_mime,
+        pick,
+    )
+    .await
+}
+
+/// Fetch, ask the user where to save, and write the bytes to the chosen path.
+/// `Ok(false)` means the user cancelled; the fetch completes (and any fetch
+/// error surfaces) before the dialog opens, so a failed download never prompts
+/// for a path. Only the fetch and the dialog are injected; the disk write is
+/// the real one so tests exercise the production sink.
 pub(super) async fn save_attachment<Pick, PickFut>(
     fetch: impl Future<Output = Result<Vec<u8>, String>>,
     sha256: &str,
     mime: &str,
     pick: Pick,
-    write: impl FnOnce(&Path, &[u8]) -> std::io::Result<()>,
 ) -> Result<bool, String>
 where
     Pick: FnOnce(String, &'static str, &'static str) -> PickFut,
@@ -130,7 +163,7 @@ where
     let Some(dest) = pick(suggested, filter, ext).await? else {
         return Ok(false);
     };
-    write(&dest, &bytes).map_err(|e| format!("Failed to write file: {e}"))?;
+    std::fs::write(&dest, &bytes).map_err(|e| format!("Failed to write file: {e}"))?;
     Ok(true)
 }
 
@@ -162,19 +195,17 @@ mod tests {
 
     #[tokio::test]
     async fn save_writes_fetched_bytes_to_the_chosen_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("report.zip");
         let offered = RefCell::new(None);
-        let written = RefCell::new(None);
         let saved = save_attachment(
             async { Ok(b"PK-bytes".to_vec()) },
             SHA,
             "application/zip",
             |name, filter, ext| {
                 *offered.borrow_mut() = Some((name, filter, ext));
-                async { Ok(Some(PathBuf::from("/chosen/report.zip"))) }
-            },
-            |path, bytes| {
-                *written.borrow_mut() = Some((path.to_owned(), bytes.to_vec()));
-                Ok(())
+                let dest = dest.clone();
+                async move { Ok(Some(dest)) }
             },
         )
         .await;
@@ -183,23 +214,21 @@ mod tests {
             offered.into_inner(),
             Some(("attachment-a1b2c3d4.zip".to_owned(), "Files", "zip"))
         );
-        assert_eq!(
-            written.into_inner(),
-            Some((PathBuf::from("/chosen/report.zip"), b"PK-bytes".to_vec()))
-        );
+        assert_eq!(std::fs::read(&dest).unwrap(), b"PK-bytes");
     }
 
     #[tokio::test]
     async fn cancelled_dialog_writes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
         let saved = save_attachment(
             async { Ok(vec![1]) },
             SHA,
             "application/pdf",
             |_, _, _| async { Ok(None) },
-            |_, _| panic!("must not write after cancel"),
         )
         .await;
         assert_eq!(saved, Ok(false));
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
     }
 
     #[tokio::test]
@@ -211,7 +240,6 @@ mod tests {
             |_, _, _| -> std::future::Ready<Result<Option<PathBuf>, String>> {
                 panic!("must not prompt after a failed fetch")
             },
-            |_, _| panic!("must not write after a failed fetch"),
         )
         .await;
         assert_eq!(saved, Err("admin_attachment_mime_mismatch".to_string()));
@@ -219,17 +247,17 @@ mod tests {
 
     #[tokio::test]
     async fn write_error_is_reported() {
+        // A path under a missing directory makes the real write fail.
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("missing").join("x.pdf");
         let saved = save_attachment(
             async { Ok(vec![1]) },
             SHA,
             "application/pdf",
-            |_, _, _| async { Ok(Some(PathBuf::from("/read-only/x.pdf"))) },
-            |_, _| Err(std::io::Error::other("read-only volume")),
+            |_, _, _| async move { Ok(Some(dest)) },
         )
         .await;
-        assert_eq!(
-            saved,
-            Err("Failed to write file: read-only volume".to_string())
-        );
+        let err = saved.unwrap_err();
+        assert!(err.starts_with("Failed to write file: "), "{err}");
     }
 }
