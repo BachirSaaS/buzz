@@ -256,12 +256,11 @@ impl HpkeBackupEnvelope {
 
 /// Seal one native Nostr secret key to a trusted HPKE backup enrollment.
 ///
-/// The function derives the Nostr public key from `secret_key`, copies only its
-/// raw 32-byte secret representation into a zeroizing plaintext buffer, and
-/// invokes RFC 9180 Base mode once. `rustls` creates a fresh ephemeral
-/// P-256 key for every call. HPKE Base mode does not authenticate the sender;
-/// future upload authorization or a separate signature must provide that
-/// property.
+/// The function derives the Nostr public key from `secret_key` and encrypts its
+/// raw 32-byte secret representation in RFC 9180 Base mode. `rustls` creates a
+/// fresh ephemeral P-256 key for every call. HPKE Base mode does not
+/// authenticate the sender; future upload authorization or a separate signature
+/// must provide that property.
 pub fn seal_nostr_secret(
     secret_key: &SecretKey,
     enrollment: &HpkeBackupEnrollment,
@@ -279,6 +278,8 @@ pub fn seal_nostr_secret(
         ciphertext: String::new(),
     };
     let aad = envelope.associated_data()?;
+    // This clears our buffer on drop, but not the HPKE provider's internal
+    // plaintext copy, which can be freed without zeroization.
     let plaintext = Zeroizing::new(secret_key.to_secret_bytes());
 
     let recipient = HpkePublicKey(enrollment.recipient_public_key.to_vec());
