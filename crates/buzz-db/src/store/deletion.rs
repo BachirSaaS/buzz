@@ -1293,12 +1293,34 @@ impl DeletionStore {
         owner: &str,
         lease_duration: Duration,
     ) -> Result<Option<ClaimedDeletion>> {
+        self.claim_owner_submission(None, owner, lease_duration)
+            .await
+    }
+
+    /// Claim one due authenticated owner submission by request id.
+    pub async fn claim_specific_owner_submission(
+        &self,
+        request_id: Uuid,
+        owner: &str,
+        lease_duration: Duration,
+    ) -> Result<Option<ClaimedDeletion>> {
+        self.claim_owner_submission(Some(request_id), owner, lease_duration)
+            .await
+    }
+
+    async fn claim_owner_submission(
+        &self,
+        request_id: Option<Uuid>,
+        owner: &str,
+        lease_duration: Duration,
+    ) -> Result<Option<ClaimedDeletion>> {
         let lease_seconds = i64::try_from(lease_duration.as_secs()).unwrap_or(i64::MAX);
         let mut tx = self.pool.begin().await?;
         let row = sqlx::query(
             r#"WITH candidate AS (
                 SELECT id FROM community_deletion_requests
-                WHERE request_origin = 'owner' AND acknowledgement_version = $3
+                WHERE ($1::uuid IS NULL OR id = $1)
+                  AND request_origin = 'owner' AND acknowledgement_version = $4
                   AND stage = 'submitted'
                   AND blocked_at IS NULL AND next_attempt_at <= now()
                   AND (lease_until IS NULL OR lease_until < now())
@@ -1306,12 +1328,13 @@ impl DeletionStore {
                 FOR UPDATE SKIP LOCKED LIMIT 1
             )
             UPDATE community_deletion_requests request
-            SET lease_owner = $1, lease_generation = lease_generation + 1,
-                lease_until = now() + make_interval(secs => $2),
+            SET lease_owner = $2, lease_generation = lease_generation + 1,
+                lease_until = now() + make_interval(secs => $3),
                 attempts = attempts + 1, updated_at = now()
             FROM candidate WHERE request.id = candidate.id
             RETURNING request.*"#,
         )
+        .bind(request_id)
         .bind(owner)
         .bind(lease_seconds)
         .bind(OWNER_DELETION_ACKNOWLEDGEMENT_VERSION)
@@ -4597,8 +4620,16 @@ mod postgres_tests {
             .expect("submit manual request");
 
         let (first, second) = tokio::join!(
-            store.claim_next_owner_submission("preparer-a", DEFAULT_LEASE_DURATION),
-            store.claim_next_owner_submission("preparer-b", DEFAULT_LEASE_DURATION),
+            store.claim_specific_owner_submission(
+                owner_request.id,
+                "preparer-a",
+                DEFAULT_LEASE_DURATION,
+            ),
+            store.claim_specific_owner_submission(
+                owner_request.id,
+                "preparer-b",
+                DEFAULT_LEASE_DURATION,
+            ),
         );
         let claims = [first.expect("first claim"), second.expect("second claim")];
         assert_eq!(claims.iter().filter(|claim| claim.is_some()).count(), 1);
@@ -4606,6 +4637,15 @@ mod postgres_tests {
         assert_eq!(claim.request.id, owner_request.id);
         assert_eq!(claim.request.request_origin, DeletionRequestOrigin::Owner);
         assert_ne!(claim.request.id, operator_request.id);
+        assert!(store
+            .claim_specific_owner_submission(
+                operator_request.id,
+                "operator-preparer",
+                DEFAULT_LEASE_DURATION,
+            )
+            .await
+            .expect("operator request selection")
+            .is_none());
 
         store
             .heartbeat_owner_submission(&claim.lease, "drain", DEFAULT_LEASE_DURATION, false)
@@ -4619,7 +4659,7 @@ mod postgres_tests {
         .await
         .expect("expire preparation lease");
         let successor = store
-            .claim_next_owner_submission("preparer-c", DEFAULT_LEASE_DURATION)
+            .claim_specific_owner_submission(owner_request.id, "preparer-c", DEFAULT_LEASE_DURATION)
             .await
             .expect("reclaim expired preparation")
             .expect("expired owner preparation is reclaimable");
@@ -4643,7 +4683,7 @@ mod postgres_tests {
             .await
             .expect("admit owner request");
         let claim = store
-            .claim_next_owner_submission("preparer", DEFAULT_LEASE_DURATION)
+            .claim_specific_owner_submission(request_id, "preparer", DEFAULT_LEASE_DURATION)
             .await
             .expect("claim owner request")
             .expect("owner request is preparable");
@@ -4714,12 +4754,13 @@ mod postgres_tests {
         let (db, store) = store().await;
         let (host, owner, community) = archived_owned_community(&db).await;
         let operator = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        let request_id = Uuid::new_v4();
         store
-            .admit_owner_request(&host, &owner, operator, 1, Uuid::new_v4())
+            .admit_owner_request(&host, &owner, operator, 1, request_id)
             .await
             .expect("admit owner request");
         let stale = store
-            .claim_next_owner_submission("stale-preparer", DEFAULT_LEASE_DURATION)
+            .claim_specific_owner_submission(request_id, "stale-preparer", DEFAULT_LEASE_DURATION)
             .await
             .expect("claim owner request")
             .expect("owner request is preparable");
@@ -4731,7 +4772,11 @@ mod postgres_tests {
         .await
         .expect("expire stale lease");
         let successor = store
-            .claim_next_owner_submission("successor-preparer", DEFAULT_LEASE_DURATION)
+            .claim_specific_owner_submission(
+                request_id,
+                "successor-preparer",
+                DEFAULT_LEASE_DURATION,
+            )
             .await
             .expect("reclaim owner request")
             .expect("expired request is reclaimable");
@@ -4767,7 +4812,7 @@ mod postgres_tests {
             .await
             .expect("admit owner request");
         let claim = store
-            .claim_next_owner_submission("preparer", DEFAULT_LEASE_DURATION)
+            .claim_specific_owner_submission(request_id, "preparer", DEFAULT_LEASE_DURATION)
             .await
             .expect("claim owner request")
             .expect("owner request is preparable");
@@ -4786,7 +4831,7 @@ mod postgres_tests {
         assert!(retried.lease_owner.is_none());
 
         let claim = store
-            .claim_next_owner_submission("preparer-2", DEFAULT_LEASE_DURATION)
+            .claim_specific_owner_submission(request_id, "preparer-2", DEFAULT_LEASE_DURATION)
             .await
             .expect("reclaim owner request")
             .expect("retried request is due");
@@ -4878,6 +4923,50 @@ mod postgres_tests {
                 .await
                 .expect("community archive state");
         assert!(archived_at.is_some());
+    }
+
+    #[tokio::test]
+    #[ignore = "requires Postgres"]
+    async fn privileged_abort_rejects_irreversible_and_terminal_stages() {
+        let (db, store) = store().await;
+        let (request, _) = inventoried_request(&db, &store).await;
+        store
+            .approve(request.id, "approver", None)
+            .await
+            .expect("approve request");
+
+        for stage in [
+            DeletionStage::Drained,
+            DeletionStage::BindingsRemoved,
+            DeletionStage::PostgresPurged,
+            DeletionStage::CachePurged,
+            DeletionStage::LogicallyVerified,
+            DeletionStage::RetentionPending,
+        ] {
+            sqlx::query(
+                "UPDATE community_deletion_requests SET stage = $2, updated_at = now() \
+                 WHERE id = $1",
+            )
+            .bind(request.id)
+            .bind(stage.to_string())
+            .execute(&db.pool)
+            .await
+            .expect("place request at irreversible stage");
+
+            let error = store
+                .abort(request.id, "recovery-operator", "must remain irreversible")
+                .await
+                .expect_err("irreversible request must reject abort");
+            assert!(matches!(error, DbError::DeletionSafety(_)));
+            assert_eq!(
+                store
+                    .get(request.id)
+                    .await
+                    .expect("unchanged request")
+                    .stage,
+                stage
+            );
+        }
     }
 
     #[tokio::test]
