@@ -24,7 +24,10 @@ RelayClosedClass classifyRelayClosed(String message) {
       normalized.startsWith('duplicate:') ||
       normalized.startsWith('unsupported:') ||
       normalized.startsWith('error: mixed search') ||
-      normalized.startsWith('error: too many subscriptions')) {
+      normalized.startsWith('error: too many subscriptions') ||
+      // Server statement deadline: re-sending the same REQ re-runs the same
+      // slow query.
+      normalized.startsWith('error: query timed out')) {
     return RelayClosedClass.terminal;
   }
   return RelayClosedClass.retryable;

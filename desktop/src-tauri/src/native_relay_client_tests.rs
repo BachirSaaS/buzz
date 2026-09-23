@@ -681,6 +681,10 @@ fn closed_messages_classify_like_the_renderer_policy() {
         classify_closed("error: too many subscriptions"),
         ClosedClass::Terminal
     );
+    assert_eq!(
+        classify_closed("error: query timed out"),
+        ClosedClass::Terminal
+    );
     // Transient AUTH race, not a permanent rejection — the one prefix that
     // looks terminal and deliberately is not.
     assert_eq!(

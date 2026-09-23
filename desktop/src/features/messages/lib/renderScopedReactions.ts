@@ -6,6 +6,7 @@ import type { TimelineMessage } from "../types";
 import { relayClient } from "@/shared/api/relayClient";
 import { buildChannelReactionAuxFilter } from "@/shared/api/relayChannelFilters";
 import type { RelayEvent } from "@/shared/api/types";
+import { isQueryDeadlineError } from "@/shared/lib/relayError";
 
 export type RenderScopedReactionDeps = {
   fetchReactionEventsForMessages: (
@@ -130,7 +131,11 @@ export async function hydrateRenderScopedReactions(input: {
       (current = []) => sortMessages([...current, ...reactionEvents]),
     );
   } catch (error) {
-    releaseRenderScopedReactionIds(input.channelId, messageIds);
+    // Keep deadline-failed ids claimed: releasing them lets the next render
+    // re-send the same slow `#e` read. Other failures stay retryable.
+    if (!isQueryDeadlineError(error)) {
+      releaseRenderScopedReactionIds(input.channelId, messageIds);
+    }
     console.error(
       "Failed to hydrate visible reactions for channel",
       input.channelId,
