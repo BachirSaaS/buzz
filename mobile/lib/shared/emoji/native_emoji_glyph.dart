@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import 'native_emoji_style.dart';
+
 /// A standalone system emoji whose visual centre matches its surrounding UI.
 ///
 /// Apple's emoji glyphs sit slightly low inside Flutter's text box. Keep the
@@ -31,7 +33,7 @@ class NativeEmojiGlyph extends StatelessWidget {
       maxLines: 1,
       softWrap: false,
       textScaler: TextScaler.noScaling,
-      style: TextStyle(fontSize: size, height: 1),
+      style: nativeEmojiTextStyle.copyWith(fontSize: size, height: 1),
     );
     if (defaultTargetPlatform == TargetPlatform.iOS) {
       glyph = Transform.translate(offset: const Offset(0, -1), child: glyph);

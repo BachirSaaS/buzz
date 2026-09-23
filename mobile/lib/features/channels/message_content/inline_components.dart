@@ -63,6 +63,7 @@ List<MarkdownComponent> _useMessageInlineComponents({
         channelNames: inputs.channelNames,
         onChannelTap: channelTap,
       ),
+      NativeEmojiMd(finalContent),
       ...MarkdownComponent.inlineComponents,
     ],
     [inputs],
