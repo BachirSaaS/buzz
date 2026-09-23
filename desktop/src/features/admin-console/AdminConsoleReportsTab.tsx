@@ -7,11 +7,12 @@
  */
 
 import { useRef, useState } from "react";
-import { ChevronLeft, LoaderCircle } from "lucide-react";
+import { ChevronLeft, Copy, LoaderCircle } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/shared/ui/button";
 import { Badge } from "@/shared/ui/badge";
 import { cn } from "@/shared/lib/cn";
+import { copyTextToClipboard } from "@/shared/lib/clipboard";
 import { PubKey } from "@/shared/ui/PubKey";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import { useUsersBatchQuery } from "@/features/profile/hooks";
@@ -795,10 +796,9 @@ function ReportFields({ data }: { data: AdminReportDetailDto }) {
         <DetailRow label="Reporter" value={data.reporterPubkey} mono />
       )}
       <DetailRow label="Target kind" value={data.targetKind} />
-      {/* Target uses PubKey widget for pubkey/event reports with valid keys. */}
-      {isHex64(data.target) &&
-      (data.targetKind?.toLowerCase() === "pubkey" ||
-        data.targetKind?.toLowerCase() === "event") ? (
+      {/* Pubkey targets get the PubKey widget; event IDs are not keys, so they
+          render as raw hex with a copy control. */}
+      {isHex64(data.target) && data.targetKind?.toLowerCase() === "pubkey" ? (
         <div className="flex gap-2 text-xs">
           <span className="w-28 shrink-0 text-muted-foreground">Target</span>
           <PubKey
@@ -808,6 +808,25 @@ function ReportFields({ data }: { data: AdminReportDetailDto }) {
             testId="report-target-pubkey"
             variant="compact"
           />
+        </div>
+      ) : data.targetKind?.toLowerCase() === "event" ? (
+        <div className="flex items-center gap-2 text-xs">
+          <span className="w-28 shrink-0 text-muted-foreground">Target</span>
+          <span
+            className="min-w-0 break-all font-mono"
+            data-testid="report-target-event-id"
+          >
+            {data.target}
+          </span>
+          <button
+            aria-label="Copy event ID"
+            className="shrink-0 text-muted-foreground hover:text-foreground"
+            data-testid="report-target-event-copy"
+            onClick={() => copyTextToClipboard(data.target)}
+            type="button"
+          >
+            <Copy className="h-3.5 w-3.5" />
+          </button>
         </div>
       ) : (
         <DetailRow label="Target" value={data.target} mono />

@@ -2710,3 +2710,75 @@ test("report-list-snippet: event reports name the reported author, never look up
     await unmount();
   }
 });
+
+test("report-detail-event-target: event targets show and copy the raw event ID, not an npub", async () => {
+  // Mutation evidence: routing event targets back through <PubKey> renders
+  // npub(E) and drops the copy control, failing both assertions.
+  const origin = "https://admin.example.com";
+  const pubkey = "d4".repeat(32);
+  const eventId = "e1".repeat(32);
+  const reportId = "00000000-0000-0000-0000-0000000000e1";
+  const item = {
+    id: reportId,
+    communityId: "comm-1",
+    communityHost: "alpha.example.com",
+    reportEventId: "f2".repeat(32),
+    reporterPubkey: "bb",
+    targetKind: "event",
+    target: eventId,
+    reportType: "spam",
+    status: "open",
+    createdAt: "2024-06-01T12:00:00Z",
+  };
+  const detail = {
+    ...item,
+    channelId: null,
+    note: null,
+    resolvedBy: null,
+    resolvedAt: null,
+    actionId: null,
+    message: null,
+  };
+  setIpcHandler("admin_list_reports", () => Promise.resolve([item]));
+  setIpcHandler("admin_get_report", () => Promise.resolve(detail));
+  setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
+  const copied = [];
+  setIpcHandler("copy_text_to_clipboard", (args) => {
+    copied.push(args?.text);
+    return Promise.resolve();
+  });
+
+  const { container, doRender, unmount } = mountPanel({ origin, pubkey });
+  try {
+    await doRender();
+    await settle(30);
+    await openFirstReportDetail(container);
+    await settle(20);
+
+    assert.equal(
+      container.querySelector("[data-testid='report-target-pubkey']"),
+      null,
+    );
+    const shown = container.querySelector(
+      "[data-testid='report-target-event-id']",
+    );
+    assert.ok(shown, "event target must render as a raw event ID");
+    assert.equal(shown.textContent, eventId);
+    assert.ok(
+      !container.textContent.includes("npub1"),
+      "no npub for an event target",
+    );
+
+    const copy = container.querySelector(
+      "[data-testid='report-target-event-copy']",
+    );
+    assert.ok(copy, "event target must offer a copy control");
+    await act(async () => {
+      copy.click();
+    });
+    await settle(10);
+    assert.deepEqual(copied, [eventId]);
+  } finally {
+    await unmount();
+  }
+});
