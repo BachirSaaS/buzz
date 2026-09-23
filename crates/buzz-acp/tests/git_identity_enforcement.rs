@@ -1247,12 +1247,20 @@ absent commit.gpgSign"#,
     assert!(status.success(), "harness shutdown failed: {logs}");
 }
 
-/// `user` mode drops inherited `GIT_CONFIG_*` identity and signing keys, in any
-/// case spelling, so the operator's own configuration applies; unrelated
-/// inherited entries still reach the adapter.
+/// `user` mode drops inherited `GIT_CONFIG_*` identity and signing keys and
+/// config includes (which could carry identity), in any case spelling, so the
+/// operator's own configuration applies; unrelated inherited entries still
+/// reach the adapter.
 #[test]
 fn harness_user_mode_drops_inherited_identity_and_signing() {
     let work = tempfile::tempdir().unwrap();
+    let include_file = work.path().join("identity.inc");
+    std::fs::write(
+        &include_file,
+        "[user]\n\temail = included@example.invalid\n",
+    )
+    .unwrap();
+    let include = include_file.to_str().unwrap().to_owned();
     let (status, logs) = run_harness(
         work.path(),
         Some("user"),
@@ -1274,6 +1282,8 @@ test "$(git config core.abbrev)" = 12"#,
             ("gpg.x509.program", "inherited-signer"),
             ("commit.gpgsign", "true"),
             ("TAG.GPGSIGN", "true"),
+            ("Include.Path", &include),
+            ("INCLUDEIF.gitdir:/.PATH", &include),
             ("core.abbrev", "12"),
         ],
     );

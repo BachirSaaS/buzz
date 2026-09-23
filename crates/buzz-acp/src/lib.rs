@@ -9280,6 +9280,8 @@ mod build_mcp_servers_tests {
             ("USER.EMAIL", "inherited@example.invalid"),
             ("user.signingKey", "inherited-key"),
             ("commit.gpgsign", "true"),
+            ("Include.Path", "/tmp/identity.inc"),
+            ("INCLUDEIF.gitdir:/.PATH", "/tmp/identity.inc"),
             ("core.abbrev", "12"),
         ];
         std::env::set_var("BUZZ_GIT_IDENTITY", "user");
@@ -9314,6 +9316,8 @@ mod build_mcp_servers_tests {
             "user.email",
             "user.signingkey",
             "commit.gpgsign",
+            "include.path",
+            "includeif.gitdir:/.path",
         ] {
             assert!(
                 !keys.iter().any(|key| key == dropped),

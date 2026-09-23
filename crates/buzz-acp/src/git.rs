@@ -72,9 +72,10 @@ impl GitEnvironment {
         if !agent {
             let managed_keys = identity_entries(&info, relay, None);
             inherited.retain(|(key, _)| {
-                !managed_keys
-                    .iter()
-                    .any(|(managed, _)| managed.eq_ignore_ascii_case(key))
+                !is_config_include(key)
+                    && !managed_keys
+                        .iter()
+                        .any(|(managed, _)| managed.eq_ignore_ascii_case(key))
             });
         }
         let mut env = build_git_env(relay, &managed, inherited);
@@ -117,6 +118,18 @@ fn inherited_config() -> anyhow::Result<Vec<(String, String)>> {
             ))
         })
         .collect()
+}
+
+/// `include.path` or `includeIf.<condition>.path`: an included file could set
+/// any identity key. Section and variable names are case-insensitive; the
+/// condition subsection may contain dots.
+fn is_config_include(key: &str) -> bool {
+    let (Some((section, _)), Some((_, variable))) = (key.split_once('.'), key.rsplit_once('.'))
+    else {
+        return false;
+    };
+    variable.eq_ignore_ascii_case("path")
+        && (section.eq_ignore_ascii_case("include") || section.eq_ignore_ascii_case("includeIf"))
 }
 
 /// Write `data` to `path` with 0600 permissions set at creation time via
