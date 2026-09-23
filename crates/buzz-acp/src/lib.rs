@@ -9285,6 +9285,10 @@ mod build_mcp_servers_tests {
             ("TAG.GPGSIGN", "true"),
             ("Include.Path", "/tmp/identity.inc"),
             ("INCLUDEIF.gitdir:/.PATH", "/tmp/identity.inc"),
+            ("Author.Name", "Inherited Author"),
+            ("Author.Email", "author@example.invalid"),
+            ("COMMITTER.name", "Inherited Committer"),
+            ("committer.EMAIL", "committer@example.invalid"),
             ("gpg.X509.program", "distinct-subsection"),
             ("core.abbrev", "12"),
         ];
@@ -9324,7 +9328,7 @@ mod build_mcp_servers_tests {
                 )
             })
             .collect();
-        for (key, _) in &inherited[..9] {
+        for (key, _) in &inherited[..13] {
             assert!(
                 !entries.iter().any(|(forwarded, _)| forwarded == key),
                 "{key} leaked: {entries:?}"

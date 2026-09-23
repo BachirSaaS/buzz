@@ -1247,13 +1247,28 @@ absent commit.gpgSign"#,
     assert!(status.success(), "harness shutdown failed: {logs}");
 }
 
-/// `user` mode drops inherited `GIT_CONFIG_*` identity and signing keys and
-/// config includes (which could carry identity), in any case spelling, so the
-/// operator's own configuration applies; unrelated inherited entries still
-/// reach the adapter.
+/// `user` mode drops inherited `GIT_CONFIG_*` identity, `author.*` /
+/// `committer.*` and signing keys and config includes (which could carry
+/// identity), in any case spelling, so the operator's own configuration
+/// applies; unrelated inherited entries still reach the adapter.
 #[test]
 fn harness_user_mode_drops_inherited_identity_and_signing() {
     let work = tempfile::tempdir().unwrap();
+    for args in [
+        &["init", "-q"][..],
+        &["config", "user.name", "Operator"],
+        &["config", "user.email", "operator@example.invalid"],
+    ] {
+        let status = hermetic_command("git")
+            .arg("-C")
+            .arg(work.path())
+            .args(args)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .status()
+            .unwrap();
+        assert!(status.success(), "git {args:?}");
+    }
     let include_file = work.path().join("identity.inc");
     std::fs::write(
         &include_file,
@@ -1265,8 +1280,9 @@ fn harness_user_mode_drops_inherited_identity_and_signing() {
         work.path(),
         Some("user"),
         r#"absent() { if git config "$1"; then echo "$1 is set" >&2; exit 1; fi; }
-absent user.name
-absent user.email
+operator() { case "$(git var "$1")" in "Operator <operator@example.invalid> "*) ;; *) echo "$1 is not the operator" >&2; exit 1;; esac; }
+operator GIT_AUTHOR_IDENT
+operator GIT_COMMITTER_IDENT
 absent user.signingkey
 absent gpg.format
 absent gpg.x509.program
@@ -1284,6 +1300,10 @@ test "$(git config gpg.X509.program)" = distinct-subsection"#,
             ("gpg.X509.program", "distinct-subsection"),
             ("commit.gpgsign", "true"),
             ("TAG.GPGSIGN", "true"),
+            ("Author.Name", "Inherited Author"),
+            ("Author.Email", "author@example.invalid"),
+            ("COMMITTER.name", "Inherited Committer"),
+            ("committer.EMAIL", "committer@example.invalid"),
             ("Include.Path", &include),
             ("INCLUDEIF.gitdir:/.PATH", &include),
             ("core.abbrev", "12"),

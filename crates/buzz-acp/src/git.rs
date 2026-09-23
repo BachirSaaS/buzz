@@ -67,12 +67,16 @@ impl GitEnvironment {
             buzz_git_identity::write_identity_manifest(dir.path(), &managed)?;
         }
         // In `user` mode nothing later overrides inherited identity or signing,
-        // so drop those keys; the set is agent mode's own managed keys.
+        // so drop agent mode's own managed keys, the author/committer
+        // overrides and includes.
         let mut inherited = inherited_config()?;
         if !agent {
             let managed_keys = identity_entries(&info, relay, None);
             inherited.retain(|(key, _)| {
                 !is_config_include(key)
+                    && !AUTHOR_COMMITTER_KEYS
+                        .iter()
+                        .any(|identity| same_config_key(identity, key))
                     && !managed_keys
                         .iter()
                         .any(|(managed, _)| same_config_key(managed, key))
@@ -119,6 +123,14 @@ fn inherited_config() -> anyhow::Result<Vec<(String, String)>> {
         })
         .collect()
 }
+
+/// Per-role identity keys that override `user.*`; not agent-managed entries.
+const AUTHOR_COMMITTER_KEYS: [&str; 4] = [
+    "author.name",
+    "author.email",
+    "committer.name",
+    "committer.email",
+];
 
 /// Split a Git config key into section, optional subsection and variable. The
 /// subsection is everything between the first and last dot, so it may itself
