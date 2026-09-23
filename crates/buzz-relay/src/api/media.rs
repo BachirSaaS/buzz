@@ -1932,240 +1932,250 @@ mod tests {
             (status, resp_headers, resp_body)
         }
 
-        // ── Upload: Enforce mode, missing Blossom auth → 401 NIP-FI ─────────
+        /// Upload body that both upload routes reject deterministically before
+        /// any storage call: the ID3 magic sniffs as `audio/mpeg`, which
+        /// `validate_file_content` refuses on `/upload` and `upload_blob_result`
+        /// refuses as `DisallowedContentType` on `/media/upload`.  Both map to
+        /// 415 JSON (`buzz-media/src/error.rs`), after admission, the serving
+        /// lease, and the body read, but before any storage call.
+        const AUDIO_BODY: &[u8] = b"ID3\x04\x00\x00\x00\x00\x00\x00";
+        const AUDIO_REJECTION: &[u8] = br#"{"error":"disallowed content type: audio/mpeg"}"#;
 
-        /// Enforce mode + PUT /upload with no Authorization header must return
-        /// 401 `authentication required\n` + `WWW-Authenticate: Nostr` + text/plain.
-        ///
-        /// Falsifying mutation: remove `admit_nip_fi_http_on_state` from
-        /// `upload_blob` → NIP-FI admission is skipped → Blossom extraction
-        /// runs without NIP-FI gate → `MissingAuth` → 401 `{"error":"authentication
-        /// failed"}` application/json, no `WWW-Authenticate` → body and
-        /// content-type assertions fire.
+        fn sha256_hex(bytes: &[u8]) -> String {
+            use sha2::Digest as _;
+            hex::encode(sha2::Sha256::digest(bytes))
+        }
+
+        /// Assert an exact response: status, Content-Type, challenge, and body.
+        fn assert_exact_response(
+            (status, headers, body): &(StatusCode, axum::http::HeaderMap, bytes::Bytes),
+            expected_status: StatusCode,
+            expected_content_type: &str,
+            expected_challenge: Option<&str>,
+            expected_body: &[u8],
+            context: &str,
+        ) {
+            assert_eq!(*status, expected_status, "{context}: status; body {body:?}");
+            assert_eq!(
+                headers.get("content-type").and_then(|v| v.to_str().ok()),
+                Some(expected_content_type),
+                "{context}: Content-Type"
+            );
+            assert_eq!(
+                headers
+                    .get("www-authenticate")
+                    .and_then(|v| v.to_str().ok()),
+                expected_challenge,
+                "{context}: WWW-Authenticate"
+            );
+            assert_eq!(body.as_ref(), expected_body, "{context}: body");
+        }
+
+        // ── Upload proof matrix: Enforce mode, both upload routes ───────────
+        //
+        // `/upload` and the legacy `/media/upload` alias both route to
+        // `upload_blob`.  Every Enforce case carries a valid assertion, so the
+        // outer guard forwards the request and the handler's
+        // `admit_nip_fi_http_on_state` produces the denial.  Removing the
+        // handler admission (or routing an alias around it) lets the legacy
+        // Blossom extractor answer with `{"error":"authentication failed"}`
+        // JSON instead of these NIP-FI text/plain bytes.
+        const UPLOAD_ROUTES: [&str; 2] = ["/upload", "/media/upload"];
+
+        fn upload_request(
+            rt: &tokio::runtime::Runtime,
+            state: &Arc<AppState>,
+            route: &str,
+            host: &str,
+            authorization: &[&str],
+            assertion: Option<&str>,
+        ) -> (StatusCode, axum::http::HeaderMap, bytes::Bytes) {
+            let mut headers = axum::http::HeaderMap::new();
+            headers.insert(
+                "x-sha-256",
+                sha256_hex(AUDIO_BODY).parse().expect("valid header"),
+            );
+            for value in authorization {
+                headers.append(
+                    axum::http::header::AUTHORIZATION,
+                    value.parse().expect("valid header bytes"),
+                );
+            }
+            if let Some(assertion) = assertion {
+                headers.insert(
+                    buzz_auth::CLIENT_ATTACHED_HEADER,
+                    format!("Bearer {assertion}").parse().expect("valid header"),
+                );
+            }
+            rt.block_on(media_oneshot(
+                Arc::clone(state),
+                "PUT",
+                route,
+                host,
+                headers,
+                AUDIO_BODY,
+            ))
+        }
+
+        fn media_fixture(
+            state_fn: impl std::future::Future<Output = Option<Arc<AppState>>>,
+        ) -> (tokio::runtime::Runtime, Arc<AppState>, String) {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("runtime");
+            let Some(state) = rt.block_on(state_fn) else {
+                panic!("local Postgres not reachable");
+            };
+            let host = format!("nip-fi-media-up-{}.local", uuid::Uuid::new_v4().simple());
+            rt.block_on(state.db.ensure_configured_community(&host))
+                .expect("ensure community");
+            (rt, state, host)
+        }
+
+        /// Valid assertion, no Authorization → 401 MissingEvidence with challenge.
         #[test]
         #[ignore = "requires Postgres"]
         fn upload_enforce_missing_proof_is_401_nip_fi() {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("runtime");
-
-            let Some(state) = rt.block_on(media_enforce_test_state()) else {
-                panic!("local Postgres not reachable");
-            };
-            let host = format!("nip-fi-media-enf-{}.local", uuid::Uuid::new_v4().simple());
-            rt.block_on(state.db.ensure_configured_community(&host))
-                .expect("ensure community");
-
-            let keys = Keys::generate();
-            let assertion = signed_assertion(&keys.public_key().to_hex());
-            let sha256 = "a".repeat(64);
-
-            // Assertion present but NO Blossom Authorization header.
-            let mut headers = axum::http::HeaderMap::new();
-            headers.insert(
-                buzz_auth::CLIENT_ATTACHED_HEADER,
-                format!("Bearer {assertion}").parse().expect("valid header"),
-            );
-            headers.insert("x-sha-256", sha256.parse().expect("valid header"));
-
-            let (status, resp_headers, body) = rt.block_on(media_oneshot(
-                Arc::clone(&state),
-                "PUT",
-                "/upload",
-                &host,
-                headers,
-                b"",
-            ));
-
-            assert_eq!(
-                status,
-                StatusCode::UNAUTHORIZED,
-                "Enforce mode + missing Blossom Authorization MUST return 401 MissingEvidence. \
-                 Falsifying mutation: remove admit_nip_fi_http_on_state from upload_blob → \
-                 Blossom extraction runs without NIP-FI gate → MissingAuth → 401 \
-                 but JSON body and no WWW-Authenticate (legacy MediaError path)."
-            );
-            assert_eq!(
-                body.as_ref(),
-                b"authentication required\n",
-                "Enforce mode 401 body MUST be exact NIP-FI bytes 'authentication required\\n'. \
-                 JSON body would indicate the legacy MediaError path fired instead."
-            );
-            assert_eq!(
-                resp_headers
-                    .get("content-type")
-                    .and_then(|v| v.to_str().ok())
-                    .unwrap_or(""),
-                "text/plain; charset=utf-8",
-                "Enforce mode 401 Content-Type MUST be text/plain; charset=utf-8."
-            );
-            assert_eq!(
-                resp_headers
-                    .get("www-authenticate")
-                    .and_then(|v| v.to_str().ok())
-                    .unwrap_or(""),
-                "Nostr",
-                "Enforce mode 401 MUST carry WWW-Authenticate: Nostr."
-            );
+            let (rt, state, host) = media_fixture(media_enforce_test_state());
+            let assertion = signed_assertion(&Keys::generate().public_key().to_hex());
+            for route in UPLOAD_ROUTES {
+                assert_exact_response(
+                    &upload_request(&rt, &state, route, &host, &[], Some(&assertion)),
+                    StatusCode::UNAUTHORIZED,
+                    "text/plain; charset=utf-8",
+                    Some("Nostr"),
+                    b"authentication required\n",
+                    &format!("{route}: missing proof"),
+                );
+            }
         }
 
-        // ── Upload: Enforce mode, malformed Authorization → 403 NIP-FI ──────
-
-        /// Enforce mode + PUT /upload with a syntactically invalid Authorization
-        /// header must return 403 `evidence rejected\n` + text/plain, no challenge.
-        ///
-        /// Falsifying mutation: remove `admit_nip_fi_http_on_state` from
-        /// `upload_blob` → Blossom verifier runs directly → malformed base64 →
-        /// 401 JSON, not 403 text/plain → body and status assertions fire.
+        /// Valid assertion, malformed Authorization → 403 EvidenceRejected.
         #[test]
         #[ignore = "requires Postgres"]
         fn upload_enforce_malformed_proof_is_403_nip_fi() {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("runtime");
-
-            let Some(state) = rt.block_on(media_enforce_test_state()) else {
-                panic!("local Postgres not reachable");
-            };
-            let host = format!("nip-fi-media-enf-{}.local", uuid::Uuid::new_v4().simple());
-            rt.block_on(state.db.ensure_configured_community(&host))
-                .expect("ensure community");
-
-            let keys = Keys::generate();
-            let assertion = signed_assertion(&keys.public_key().to_hex());
-            let sha256 = "b".repeat(64);
-
-            // "Nostr " prefix present but the rest is not valid base64url.
-            let mut headers = axum::http::HeaderMap::new();
-            headers.insert(
-                axum::http::header::AUTHORIZATION,
-                "Nostr !!!not-valid-base64!!!"
-                    .parse()
-                    .expect("valid header"),
-            );
-            headers.insert(
-                buzz_auth::CLIENT_ATTACHED_HEADER,
-                format!("Bearer {assertion}").parse().expect("valid header"),
-            );
-            headers.insert("x-sha-256", sha256.parse().expect("valid header"));
-
-            let (status, resp_headers, body) = rt.block_on(media_oneshot(
-                Arc::clone(&state),
-                "PUT",
-                "/upload",
-                &host,
-                headers,
-                b"",
-            ));
-
-            assert_eq!(
-                status,
-                StatusCode::FORBIDDEN,
-                "Enforce mode + malformed Blossom Authorization MUST return 403 EvidenceRejected. \
-                 Falsifying mutation: remove admit_nip_fi_http_on_state → Blossom verifier runs → \
-                 InvalidBase64 → 401 JSON, not 403 text/plain."
-            );
-            assert_eq!(
-                body.as_ref(),
-                b"evidence rejected\n",
-                "Enforce mode 403 body MUST be exact NIP-FI bytes 'evidence rejected\\n'."
-            );
-            assert_eq!(
-                resp_headers
-                    .get("content-type")
-                    .and_then(|v| v.to_str().ok())
-                    .unwrap_or(""),
-                "text/plain; charset=utf-8",
-                "Enforce mode 403 Content-Type MUST be text/plain; charset=utf-8."
-            );
-            assert!(
-                resp_headers.get("www-authenticate").is_none(),
-                "Enforce mode 403 EvidenceRejected MUST NOT carry WWW-Authenticate."
-            );
+            let (rt, state, host) = media_fixture(media_enforce_test_state());
+            let assertion = signed_assertion(&Keys::generate().public_key().to_hex());
+            for route in UPLOAD_ROUTES {
+                assert_exact_response(
+                    &upload_request(
+                        &rt,
+                        &state,
+                        route,
+                        &host,
+                        &["Nostr !!!not-valid-base64!!!"],
+                        Some(&assertion),
+                    ),
+                    StatusCode::FORBIDDEN,
+                    "text/plain; charset=utf-8",
+                    None,
+                    b"evidence rejected\n",
+                    &format!("{route}: malformed proof"),
+                );
+            }
         }
 
-        // ── Upload: Enforce mode, duplicate Authorization → 403 cardinality ──
-
-        /// Enforce mode + PUT /upload with two identical valid Blossom auth
-        /// headers must return 403 `evidence rejected\n` from the cardinality
-        /// gate, before the Blossom verifier runs on either header.
-        ///
-        /// Falsifying mutation: remove the cardinality gate from `admit_nip_fi_http`
-        /// → the NIP-FI closure extracts and verifies the first header → if all
-        /// post-admission gates are satisfied the request proceeds past the gate,
-        /// returning something other than 403 `evidence rejected\n`.
+        /// Valid same-key assertion, the same valid proof twice → 403 from the
+        /// cardinality gate.  Removing the gate admits the first proof and the
+        /// request reaches the exact 415 of the same-key control below.
         #[test]
         #[ignore = "requires Postgres"]
         fn upload_enforce_duplicate_proof_is_403_cardinality() {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("runtime");
-
-            let Some(state) = rt.block_on(media_enforce_test_state()) else {
-                panic!("local Postgres not reachable");
-            };
-            let host = format!("nip-fi-media-enf-{}.local", uuid::Uuid::new_v4().simple());
-            rt.block_on(state.db.ensure_configured_community(&host))
-                .expect("ensure community");
-
+            let (rt, state, host) = media_fixture(media_enforce_test_state());
             let keys = Keys::generate();
             let assertion = signed_assertion(&keys.public_key().to_hex());
-            let sha256 = "c".repeat(64);
-            let auth_val = blossom_upload_auth_value(&keys, &host, &sha256);
+            let proof = blossom_upload_auth_value(&keys, &host, &sha256_hex(AUDIO_BODY));
+            for route in UPLOAD_ROUTES {
+                assert_exact_response(
+                    &upload_request(
+                        &rt,
+                        &state,
+                        route,
+                        &host,
+                        &[&proof, &proof],
+                        Some(&assertion),
+                    ),
+                    StatusCode::FORBIDDEN,
+                    "text/plain; charset=utf-8",
+                    None,
+                    b"evidence rejected\n",
+                    &format!("{route}: duplicate proof"),
+                );
+            }
+        }
 
-            // Two identical valid Blossom auth headers → cardinality == 2.
-            let mut headers = axum::http::HeaderMap::new();
-            headers.append(
-                axum::http::header::AUTHORIZATION,
-                auth_val.parse().expect("valid header"),
-            );
-            headers.append(
-                axum::http::header::AUTHORIZATION,
-                auth_val.parse().expect("valid header"),
-            );
-            headers.insert(
-                buzz_auth::CLIENT_ATTACHED_HEADER,
-                format!("Bearer {assertion}").parse().expect("valid header"),
-            );
-            headers.insert("x-sha-256", sha256.parse().expect("valid header"));
+        /// Valid assertion for `key_a`, valid proof signed by `key_b` → the
+        /// handler's key-pairing check denies 403 `authorization denied\n`.
+        /// Removing key pairing lets the request reach the exact 415 below.
+        #[test]
+        #[ignore = "requires Postgres"]
+        fn upload_enforce_mismatched_key_is_handler_403() {
+            let (rt, state, host) = media_fixture(media_enforce_test_state());
+            let assertion = signed_assertion(&Keys::generate().public_key().to_hex());
+            let proof =
+                blossom_upload_auth_value(&Keys::generate(), &host, &sha256_hex(AUDIO_BODY));
+            for route in UPLOAD_ROUTES {
+                assert_exact_response(
+                    &upload_request(&rt, &state, route, &host, &[&proof], Some(&assertion)),
+                    StatusCode::FORBIDDEN,
+                    "text/plain; charset=utf-8",
+                    None,
+                    b"authorization denied\n",
+                    &format!("{route}: mismatched key"),
+                );
+            }
+        }
 
-            let (status, dup_resp_headers, body) = rt.block_on(media_oneshot(
-                Arc::clone(&state),
-                "PUT",
-                "/upload",
-                &host,
-                headers,
-                b"",
-            ));
+        /// Same-key assertion + proof → admission passes and the request reaches
+        /// content validation: exact 415 `AUDIO_REJECTION` on both routes, with
+        /// no dependence on storage.
+        #[test]
+        #[ignore = "requires Postgres"]
+        fn upload_enforce_same_key_admission_reaches_content_validation() {
+            let (rt, state, host) = media_fixture(media_enforce_test_state());
+            let keys = Keys::generate();
+            let assertion = signed_assertion(&keys.public_key().to_hex());
+            let proof = blossom_upload_auth_value(&keys, &host, &sha256_hex(AUDIO_BODY));
+            for route in UPLOAD_ROUTES {
+                assert_exact_response(
+                    &upload_request(&rt, &state, route, &host, &[&proof], Some(&assertion)),
+                    StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                    "application/json",
+                    None,
+                    AUDIO_REJECTION,
+                    &format!("{route}: same-key admission"),
+                );
+            }
+        }
 
-            assert_eq!(
-                status,
-                StatusCode::FORBIDDEN,
-                "Enforce mode + duplicate Authorization headers MUST return 403 EvidenceRejected \
-                 from the cardinality gate [FI-TRACE-AUTHORITY-UNIFORM]. \
-                 Falsifying mutation: remove cardinality gate → first header is extracted and \
-                 verified → request proceeds past the gate → different status or body."
-            );
-            assert_eq!(
-                body.as_ref(),
-                b"evidence rejected\n",
-                "Cardinality 403 body MUST be exact NIP-FI bytes 'evidence rejected\\n'."
-            );
-            assert_eq!(
-                dup_resp_headers
-                    .get("content-type")
-                    .and_then(|v| v.to_str().ok())
-                    .unwrap_or(""),
-                "text/plain; charset=utf-8",
-                "Cardinality 403 Content-Type MUST be text/plain; charset=utf-8."
-            );
-            assert!(
-                dup_resp_headers.get("www-authenticate").is_none(),
-                "Cardinality 403 MUST NOT carry WWW-Authenticate."
-            );
+        /// Off mode skips the cardinality gate and `HeaderMap::get` takes the
+        /// first Authorization value.  A single valid proof and a
+        /// valid-first/malformed-second pair both reach the exact 415; applying
+        /// cardinality in Off mode would return 403, and last-value selection
+        /// would return the legacy 401 JSON.
+        #[test]
+        #[ignore = "requires Postgres"]
+        fn upload_off_duplicate_auth_takes_first_value() {
+            let (rt, state, host) = media_fixture(media_off_test_state());
+            let proof =
+                blossom_upload_auth_value(&Keys::generate(), &host, &sha256_hex(AUDIO_BODY));
+            for (authorization, context) in [
+                (vec![proof.as_str()], "single proof"),
+                (
+                    vec![proof.as_str(), "Nostr !!!not-valid-base64!!!"],
+                    "valid-first/malformed-second",
+                ),
+            ] {
+                assert_exact_response(
+                    &upload_request(&rt, &state, "/upload", &host, &authorization, None),
+                    StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                    "application/json",
+                    None,
+                    AUDIO_REJECTION,
+                    &format!("Off {context}"),
+                );
+            }
         }
 
         // ── Upload: Off mode, missing Blossom auth → legacy MediaError JSON ──
@@ -2440,131 +2450,6 @@ mod tests {
             );
         }
 
-        // ── PUT /upload: Off mode, duplicate Authorization → passes first value ─
-        //
-        // Off mode skips the NIP-FI cardinality gate.  With valid-first /
-        // invalid-second duplicate Authorization headers, the first value is
-        // taken by `HeaderMap::get()` and admitted; the second (invalid) value
-        // is silently ignored.  This distinguishes first-value from last-value
-        // selection, which identical values cannot.
-        //
-        // Phase 1 (single-token control): one valid Blossom token → admission
-        // passes → post-admission handler runs → storage unavailable → non-401
-        // response.  This pins the admission path before the duplicate test.
-        //
-        // Phase 2 (first-valid / second-invalid): the first Authorization value
-        // is the valid Blossom token from Phase 1; the second is a malformed
-        // value that would fail if selected.  Off mode returns the same result
-        // as Phase 1, proving it took the first (valid) value.
-        //
-        // Falsifying mutation: apply cardinality check in Off mode → the two
-        // header values → 403 EvidenceRejected → body differs from control.
-        #[test]
-        #[ignore = "requires Postgres"]
-        fn upload_off_duplicate_auth_is_not_403() {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("runtime");
-
-            let Some(state) = rt.block_on(media_off_test_state()) else {
-                panic!("local Postgres not reachable");
-            };
-            let host = format!("nip-fi-media-off-{}.local", uuid::Uuid::new_v4().simple());
-            rt.block_on(state.db.ensure_configured_community(&host))
-                .expect("ensure community");
-
-            let keys = Keys::generate();
-            let sha256 = "b".repeat(64);
-            let valid_blossom = blossom_upload_auth_value(&keys, &host, &sha256);
-            // A header value that would fail Blossom auth if selected.
-            let invalid_val = "Nostr !!!not-valid-base64!!!";
-
-            // ── Phase 1: single-token control ────────────────────────────────
-            // One valid token → admission passes → storage unavailable (no MinIO)
-            // → handler returns a non-401 result (storage error or 4xx post-admission).
-            let (single_status, _single_headers, _single_body) = {
-                let mut headers = axum::http::HeaderMap::new();
-                headers.insert("x-sha-256", sha256.parse().expect("valid header"));
-                headers.insert(
-                    axum::http::header::AUTHORIZATION,
-                    valid_blossom.parse().expect("valid header"),
-                );
-                rt.block_on(media_oneshot(
-                    Arc::clone(&state),
-                    "PUT",
-                    "/upload",
-                    &host,
-                    headers,
-                    b"",
-                ))
-            };
-            // Single valid token: admission passes → NOT 401 (auth failure).
-            // 403 would mean cardinality fired (impossible with one header).
-            assert_ne!(
-                single_status,
-                StatusCode::UNAUTHORIZED,
-                "Off mode PUT /upload + single valid Blossom token MUST pass admission (not 401). \
-                 If 401, the Blossom token itself is being rejected — fix the token before the \
-                 duplicate test is meaningful. [FI-OFF-CONTROL]"
-            );
-            assert_ne!(
-                single_status,
-                StatusCode::FORBIDDEN,
-                "Off mode PUT /upload + single valid token MUST NOT return 403. \
-                 403 implies cardinality fired for a single header — impossible. [FI-OFF-CONTROL]"
-            );
-
-            // ── Phase 2: valid-first / invalid-second duplicate ───────────────
-            // Two different Authorization values: valid first, malformed second.
-            // Off mode takes the first → same non-401 result as Phase 1.
-            // If cardinality were applied → 403 EvidenceRejected.
-            let mut headers = axum::http::HeaderMap::new();
-            headers.insert("x-sha-256", sha256.parse().expect("valid header"));
-            headers.append(
-                axum::http::header::AUTHORIZATION,
-                valid_blossom.parse().expect("valid header"),
-            );
-            headers.append(
-                axum::http::header::AUTHORIZATION,
-                invalid_val.parse().expect("valid header bytes"),
-            );
-
-            let (status, _resp_headers, body) = rt.block_on(media_oneshot(
-                Arc::clone(&state),
-                "PUT",
-                "/upload",
-                &host,
-                headers,
-                b"",
-            ));
-
-            // Off mode passes the first valid value → same result as Phase 1.
-            // 403 would indicate the cardinality gate fired in Off mode — wrong.
-            // 401 would mean the first valid token was NOT selected — wrong.
-            assert_ne!(
-                status,
-                StatusCode::FORBIDDEN,
-                "Off mode PUT /upload + valid-first/invalid-second MUST NOT return 403. \
-                 In Off mode the cardinality gate is skipped; the first value is processed. \
-                 Falsifying mutation: apply cardinality in Off mode → 403 fires."
-            );
-            assert_ne!(
-                status,
-                StatusCode::UNAUTHORIZED,
-                "Off mode PUT /upload + valid-first/invalid-second: first token is valid \
-                 → Blossom admission MUST pass → NOT 401. \
-                 If 401, Off mode is taking the SECOND (invalid) value instead of the first."
-            );
-            // Result must match the single-token control — same admission path.
-            assert_eq!(
-                status, single_status,
-                "Off mode PUT /upload: duplicate-first result {status} must equal \
-                 single-token control {single_status}. \
-                 Body: {body:?}"
-            );
-        }
-
         // ── GET /media: Off mode, malformed Authorization → legacy JSON 401 ───
         //
         // Mirror of the upload Off+malformed case for the GET path.
@@ -2631,103 +2516,90 @@ mod tests {
             );
         }
 
-        // ── GET /media: Off mode, duplicate Authorization → not 403 ───────────
+        // ── GET/HEAD /media: Off mode, legacy bytes on both read methods ──────
         //
-        // Mirror of the upload Off+duplicate case for the GET path.
+        // Off mode skips the cardinality gate and `HeaderMap::get` takes the
+        // first Authorization value, so a single valid get proof and a
+        // valid-first/malformed-second pair both pass the legacy extractor and
+        // reach `serve_blob_for_tenant` / `head_blob`, whose sidecar gate
+        // returns `MediaError::NotFound` for the unstored blob → 404
+        // `{"error":"not found"}` JSON (`buzz-media/src/error.rs`).  With no
+        // Authorization at all the legacy extractor returns 401
+        // `{"error":"authentication failed"}` JSON.  HEAD carries the same
+        // status and headers with the body stripped by axum.
         //
-        // Phase 1 (single-token control): one valid Blossom get token → admission
-        // passes → blob not found → 404.  This pins the admission path.
-        //
-        // Phase 2 (first-valid / second-invalid): valid first, malformed second.
-        // Off mode takes the first value → same 404 as Phase 1.
-        //
-        // Falsifying mutation: apply cardinality in Off mode on GET → 403 fires.
-        #[test]
-        #[ignore = "requires Postgres"]
-        fn get_blob_off_duplicate_auth_is_not_403() {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("runtime");
-
-            let Some(state) = rt.block_on(media_off_test_state()) else {
-                panic!("local Postgres not reachable");
-            };
-            let host = format!("nip-fi-media-off-{}.local", uuid::Uuid::new_v4().simple());
-            rt.block_on(state.db.ensure_configured_community(&host))
-                .expect("ensure community");
-
-            let keys = Keys::generate();
-            let sha256 = "d0".repeat(32); // 64 hex chars
-            let path = format!("/media/{sha256}.jpg");
-            let valid_blossom = blossom_get_auth_value(&keys, &host, &sha256);
-            let invalid_val = "Nostr !!!not-valid-base64!!!";
-
-            // ── Phase 1: single-token control ────────────────────────────────
-            let (single_status, _single_headers, _single_body) = {
-                let mut headers = axum::http::HeaderMap::new();
-                headers.insert(
-                    axum::http::header::AUTHORIZATION,
-                    valid_blossom.parse().expect("valid header"),
-                );
-                rt.block_on(media_oneshot(
-                    Arc::clone(&state),
-                    "GET",
-                    &path,
-                    &host,
-                    headers,
-                    b"",
-                ))
-            };
-            // Single valid token: admission passes → blob not found → 404.
-            assert_eq!(
-                single_status,
-                StatusCode::NOT_FOUND,
-                "Off mode GET /media + single valid Blossom token MUST reach handler → 404 \
-                 (blob not stored). If 401/403 the token itself is rejected. [FI-OFF-CONTROL]"
-            );
-
-            // ── Phase 2: valid-first / invalid-second duplicate ───────────────
+        // Applying cardinality in Off mode would return NIP-FI 403 text/plain;
+        // last-value selection would return the legacy 401 for the duplicate.
+        fn media_read_off(
+            rt: &tokio::runtime::Runtime,
+            state: &Arc<AppState>,
+            method: &str,
+            path: &str,
+            host: &str,
+            authorization: &[&str],
+        ) -> (StatusCode, axum::http::HeaderMap, bytes::Bytes) {
             let mut headers = axum::http::HeaderMap::new();
-            headers.append(
-                axum::http::header::AUTHORIZATION,
-                valid_blossom.parse().expect("valid header"),
-            );
-            headers.append(
-                axum::http::header::AUTHORIZATION,
-                invalid_val.parse().expect("valid header bytes"),
-            );
-
-            let (status, _resp_headers, body) = rt.block_on(media_oneshot(
-                Arc::clone(&state),
-                "GET",
-                &path,
-                &host,
+            for value in authorization {
+                headers.append(
+                    axum::http::header::AUTHORIZATION,
+                    value.parse().expect("valid header bytes"),
+                );
+            }
+            rt.block_on(media_oneshot(
+                Arc::clone(state),
+                method,
+                path,
+                host,
                 headers,
                 b"",
-            ));
+            ))
+        }
 
-            // Off mode: first value is valid → admission passes → handler runs
-            // → blob not found → 404. Same result as Phase 1.
-            assert_ne!(
-                status,
-                StatusCode::FORBIDDEN,
-                "Off mode GET /media + valid-first/invalid-second MUST NOT return 403. \
-                 In Off mode the cardinality gate is skipped. \
-                 Falsifying mutation: apply cardinality in Off mode → 403 fires."
-            );
-            assert_ne!(
-                status,
+        #[test]
+        #[ignore = "requires Postgres"]
+        fn media_read_off_duplicate_auth_takes_first_value() {
+            let (rt, state, host) = media_fixture(media_off_test_state());
+            let sha256 = "d0".repeat(32);
+            let path = format!("/media/{sha256}.jpg");
+            let proof = blossom_get_auth_value(&Keys::generate(), &host, &sha256);
+            for (method, body) in [
+                ("GET", br#"{"error":"not found"}"#.as_slice()),
+                ("HEAD", b"".as_slice()),
+            ] {
+                for (authorization, context) in [
+                    (vec![proof.as_str()], "single proof"),
+                    (
+                        vec![proof.as_str(), "Nostr !!!not-valid-base64!!!"],
+                        "valid-first/malformed-second",
+                    ),
+                ] {
+                    assert_exact_response(
+                        &media_read_off(&rt, &state, method, &path, &host, &authorization),
+                        StatusCode::NOT_FOUND,
+                        "application/json",
+                        None,
+                        body,
+                        &format!("Off {method} {context}"),
+                    );
+                }
+            }
+        }
+
+        /// Off HEAD witness: missing Authorization → the legacy 401 JSON
+        /// headers, no challenge, body stripped.  Running NIP-FI denial in Off
+        /// mode would add `WWW-Authenticate: Nostr` and text/plain.
+        #[test]
+        #[ignore = "requires Postgres"]
+        fn head_blob_off_missing_auth_is_legacy_json_401() {
+            let (rt, state, host) = media_fixture(media_off_test_state());
+            let path = format!("/media/{}.jpg", "f".repeat(64));
+            assert_exact_response(
+                &media_read_off(&rt, &state, "HEAD", &path, &host, &[]),
                 StatusCode::UNAUTHORIZED,
-                "Off mode GET /media + valid-first/invalid-second: first token is valid \
-                 → admission MUST pass → NOT 401. \
-                 If 401, Off mode is taking the SECOND (invalid) value instead of the first."
-            );
-            assert_eq!(
-                status, single_status,
-                "Off mode GET /media: duplicate-first result {status} must equal \
-                 single-token control {single_status}. \
-                 Body: {body:?}"
+                "application/json",
+                None,
+                b"",
+                "Off HEAD missing auth",
             );
         }
 
@@ -2879,181 +2751,15 @@ mod tests {
             );
         }
 
-        // ── /media/upload alias: missing assertion → same 401 as /upload ─────
-        //
-        // PUT /media/upload is a legacy alias for PUT /upload (both handled by
-        // `upload_blob`).  Enforce mode + missing Blossom auth must return the
-        // same exact NIP-FI denial on the alias route.
-        //
-        // Falsifying mutation: remove the NIP-FI gate from the /media/upload
-        // alias route binding → alias bypasses admission → legacy Blossom extractor
-        // fires → 401 JSON body, no challenge → body/CT assertions fire.
-        #[test]
-        #[ignore = "requires Postgres"]
-        fn media_upload_alias_enforce_missing_proof_is_401_nip_fi() {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("runtime");
-
-            let Some(state) = rt.block_on(media_enforce_test_state()) else {
-                panic!("local Postgres not reachable");
-            };
-            let host = format!("nip-fi-media-alias-{}.local", uuid::Uuid::new_v4().simple());
-            rt.block_on(state.db.ensure_configured_community(&host))
-                .expect("ensure community");
-
-            let sha256 = "b".repeat(64);
-            let mut headers = axum::http::HeaderMap::new();
-            headers.insert("x-sha-256", sha256.parse().expect("valid header"));
-            // No assertion, no Blossom auth.
-
-            let (upload_status, upload_headers, upload_body) = rt.block_on(media_oneshot(
-                Arc::clone(&state),
-                "PUT",
-                "/upload",
-                &host,
-                headers.clone(),
-                b"",
-            ));
-            let (alias_status, alias_headers, alias_body) = rt.block_on(media_oneshot(
-                Arc::clone(&state),
-                "PUT",
-                "/media/upload",
-                &host,
-                headers,
-                b"",
-            ));
-
-            // Both routes must return the same NIP-FI 401.
-            assert_eq!(
-                upload_status,
-                StatusCode::UNAUTHORIZED,
-                "/upload: missing auth in Enforce MUST deny 401"
-            );
-            assert_eq!(
-                alias_status,
-                StatusCode::UNAUTHORIZED,
-                "/media/upload alias: missing auth in Enforce MUST deny 401 \
-                 (same as /upload — alias route is also gated)."
-            );
-            assert_eq!(
-                upload_body, alias_body,
-                "/media/upload alias MUST return same body as /upload for missing auth."
-            );
-            assert_eq!(
-                upload_status, alias_status,
-                "/media/upload alias MUST return same status as /upload."
-            );
-            // Confirm exact NIP-FI bytes on alias path.
-            assert_eq!(
-                alias_body.as_ref(),
-                b"authentication required\n",
-                "/media/upload alias: exact NIP-FI MissingEvidence body required."
-            );
-            assert_eq!(
-                alias_headers
-                    .get("content-type")
-                    .and_then(|v| v.to_str().ok())
-                    .unwrap_or(""),
-                "text/plain; charset=utf-8",
-                "/media/upload alias: 401 Content-Type must be text/plain; charset=utf-8."
-            );
-            let _ = upload_headers; // checked above via body/status equality
-        }
-
-        // ── /media/upload alias: handler-level key-pairing denial ────────────
-        //
-        // Proves that `/media/upload` (the legacy alias) reaches the upload
-        // handler's NIP-FI admission gate — not just the outer guard.
-        //
-        // Strategy: pass the outer guard with a cryptographically valid assertion
-        // signed for `key_a`, but supply a Blossom upload token signed by the
-        // distinct key `key_b`.  The handler's `admit_nip_fi_http_on_state`
-        // sees the key mismatch and returns 403 `authorization denied\n`.
-        //
-        // This is the handler-wiring witness for the alias: the outer-guard test
-        // above proves the alias is gated; this proves the gate is at the handler.
-        //
-        // Falsifying mutation: route `/media/upload` to a handler that skips
-        // `admit_nip_fi_http_on_state` → mismatched-key request passes → 401
-        // JSON (Blossom extractor fails without MinIO) ≠ 403 text/plain.
-        #[test]
-        #[ignore = "requires Postgres"]
-        fn media_upload_alias_enforce_mismatched_key_is_handler_403() {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("runtime");
-
-            let Some(state) = rt.block_on(media_enforce_test_state()) else {
-                panic!("local Postgres not reachable");
-            };
-            let host = format!(
-                "nip-fi-media-alias-hnd-{}.local",
-                uuid::Uuid::new_v4().simple()
-            );
-            rt.block_on(state.db.ensure_configured_community(&host))
-                .expect("ensure community");
-
-            // key_a: assertion identity; key_b: Blossom token identity.
-            // Outer guard receives a valid assertion (key_a) and forwards.
-            // Handler's admit_nip_fi_http_on_state: nostr_pubkey(key_a) ≠ nip98_pubkey(key_b)
-            // → 403 AuthorizationDenied.
-            let key_a = Keys::generate();
-            let key_b = Keys::generate();
-            let sha256 = "9".repeat(64);
-            let assertion = signed_assertion(&key_a.public_key().to_hex());
-            let blossom_token = blossom_upload_auth_value(&key_b, &host, &sha256);
-
-            let mut headers = axum::http::HeaderMap::new();
-            headers.insert("x-sha-256", sha256.parse().expect("valid header"));
-            headers.insert(
-                axum::http::header::AUTHORIZATION,
-                blossom_token.parse().expect("valid header"),
-            );
-            headers.insert(
-                axum::http::HeaderName::from_static(buzz_auth::CLIENT_ATTACHED_HEADER),
-                format!("Bearer {assertion}").parse().expect("valid header"),
-            );
-
-            let (status, _resp_headers, body) = rt.block_on(media_oneshot(
-                Arc::clone(&state),
-                "PUT",
-                "/media/upload",
-                &host,
-                headers,
-                b"",
-            ));
-
-            assert_eq!(
-                status,
-                StatusCode::FORBIDDEN,
-                "/media/upload alias mismatched key MUST reach handler and return 403 \
-                 AuthorizationDenied. \
-                 If 401: outer guard denied (bad assertion) instead of handler. \
-                 If 401 JSON: handler Blossom extractor ran without NIP-FI gate (alias wiring missing). \
-                 Falsifying mutation: remove admit_nip_fi_http_on_state from alias handler → \
-                 Blossom extractor runs instead → 401 JSON body."
-            );
-            assert_eq!(
-                body.as_ref(),
-                b"authorization denied\n",
-                "/media/upload alias handler denial MUST be exact 'authorization denied\\n' \
-                 (key-pairing check, not legacy Blossom JSON). \
-                 [FI-TRACE-DENIAL-ORACLE]"
-            );
-        }
-
         // ── GET /media: Enforce mode, malformed proof → 403 EvidenceRejected ─
         // Authorization header triggers EvidenceRejected before the NIP-FI
         // assertion check.  403 + exact body + CT + no challenge.
         //
-        // The fixture supplies a valid assertion so NIP-FI malformed-proof
-        // detection is the denial source.  Falsifying mutation: remove the
-        // malformed-token check from `admit_nip_fi_http_on_state` → malformed
-        // token passes → assertion check fires → key-pairing passes →
-        // downstream 404 or storage result, not 403 EvidenceRejected.
+        // The fixture supplies a valid assertion so the outer guard forwards
+        // the request and the handler's Blossom extraction failure is mapped
+        // to EvidenceRejected.  Removing handler admission from `get_blob`
+        // lets the legacy extractor answer with 401 `{"error":"authentication
+        // failed"}` JSON instead.
         #[test]
         #[ignore = "requires Postgres"]
         fn get_blob_enforce_malformed_proof_is_403_nip_fi() {
@@ -3102,8 +2808,7 @@ mod tests {
                 status,
                 StatusCode::FORBIDDEN,
                 "GET Enforce + malformed Nostr token MUST return 403 EvidenceRejected. \
-                 Falsifying mutation: remove malformed-token check → EvidenceRejected not fired \
-                 → 401 from NIP-FI assertion path instead."
+                 Removing handler admission → legacy 401 JSON instead."
             );
             assert_eq!(
                 body.as_ref(),
@@ -3132,11 +2837,10 @@ mod tests {
         // the cardinality gate inside `admit_nip_fi_http_on_state`.
         // 403 + exact body + CT + no challenge.
         //
-        // The fixture supplies a valid assertion so cardinality is the denial
-        // source, not a missing assertion.  Falsifying mutation: remove the
-        // cardinality gate from `admit_nip_fi_http_on_state` → duplicate headers
-        // pass cardinality → assertion check fires → key-pairing check → 200 or
-        // downstream error, not 403 EvidenceRejected.
+        // The fixture supplies a same-key valid assertion so cardinality is the
+        // only denial source.  Removing the cardinality gate admits the first
+        // proof and the request reaches the sidecar gate → 404 NotFound (the
+        // same-key control below), not 403 EvidenceRejected.
         #[test]
         #[ignore = "requires Postgres"]
         fn get_blob_enforce_duplicate_proof_is_403_cardinality() {
@@ -3186,8 +2890,7 @@ mod tests {
                 status,
                 StatusCode::FORBIDDEN,
                 "GET Enforce + duplicate Authorization MUST return 403 EvidenceRejected. \
-                 Falsifying mutation: remove cardinality gate → duplicate passes → \
-                 NIP-FI assertion check → 401 instead."
+                 Removing the cardinality gate → admitted → sidecar 404 instead."
             );
             assert_eq!(
                 body.as_ref(),
@@ -3418,78 +3121,10 @@ mod tests {
             );
         }
 
-        // ── PUT /upload: Enforce mode, same-key admission → reaches handler ──
-        //
-        // Same-key NIP-98 (Blossom) + assertion → key-pairing passes → handler
-        // proceeds past NIP-FI admission to post-admission checks and storage.
-        // Without MinIO storage the upload fails after admission, returning a
-        // non-401 non-403 status (500/503).
-        //
-        // Falsifying mutation: always-deny key pairing → 403 AuthorizationDenied
-        // → status == FORBIDDEN → assertion fires.
-        #[test]
-        #[ignore = "requires Postgres"]
-        fn upload_enforce_same_key_admission_passes_not_401_403() {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("runtime");
-
-            let Some(state) = rt.block_on(media_enforce_test_state()) else {
-                panic!("local Postgres not reachable");
-            };
-            let host = format!(
-                "nip-fi-media-enf-uppos-{}.local",
-                uuid::Uuid::new_v4().simple()
-            );
-            rt.block_on(state.db.ensure_configured_community(&host))
-                .expect("ensure community");
-
-            let keys = Keys::generate();
-            let sha256 = "4".repeat(64);
-            let assertion = signed_assertion(&keys.public_key().to_hex());
-            let blossom_token = blossom_upload_auth_value(&keys, &host, &sha256);
-
-            let mut headers = axum::http::HeaderMap::new();
-            headers.insert("x-sha-256", sha256.parse().expect("valid header"));
-            headers.insert(
-                axum::http::header::AUTHORIZATION,
-                blossom_token.parse().expect("valid header"),
-            );
-            headers.insert(
-                axum::http::HeaderName::from_static(buzz_auth::CLIENT_ATTACHED_HEADER),
-                format!("Bearer {assertion}").parse().expect("valid header"),
-            );
-
-            let (status, _resp_headers, body) = rt.block_on(media_oneshot(
-                Arc::clone(&state),
-                "PUT",
-                "/upload",
-                &host,
-                headers,
-                b"",
-            ));
-
-            assert_ne!(
-                status,
-                StatusCode::UNAUTHORIZED,
-                "PUT /upload same-key admission MUST pass NIP-FI (not 401). \
-                 Falsifying mutation: always-deny key pairing → 401 MissingEvidence. \
-                 Body: {body:?}"
-            );
-            assert_ne!(
-                status,
-                StatusCode::FORBIDDEN,
-                "PUT /upload same-key admission MUST pass NIP-FI (not 403). \
-                 Falsifying mutation: always-deny key pairing → 403 AuthorizationDenied. \
-                 Body: {body:?}"
-            );
-        }
-
         // ── HEAD /media: Enforce mode, same-key admission → reaches handler ─
         //
         // Same-key Blossom get-auth + assertion → admission passes → handler
-        // attempts sidecar lookup → blob not found (no MinIO) → 404.
+        // attempts sidecar lookup → `read_sidecar_mime` yields `None` → 404.
         //
         // Falsifying mutation: always-deny key pairing → 403 → assertion fires.
         #[test]
@@ -3522,7 +3157,7 @@ mod tests {
                 blossom_token.parse().expect("valid header"),
             );
             headers.insert(
-                axum::http::HeaderName::from_static(buzz_auth::CLIENT_ATTACHED_HEADER),
+                buzz_auth::CLIENT_ATTACHED_HEADER,
                 format!("Bearer {assertion}").parse().expect("valid header"),
             );
 
@@ -3548,44 +3183,52 @@ mod tests {
             );
         }
 
-        // ── Upload resource witness: body not polled + permit not consumed on denial ─
+        // ── Upload resource witness: handler denial precedes body read and permits ─
         //
-        // Proves that NIP-FI admission inside `upload_blob` fires BEFORE:
-        //   1. The request body is read (zero poll calls on a counting Body stream).
-        //   2. The upload concurrency permit is acquired.
+        // The outer guard (router.rs) forwards any request carrying a
+        // cryptographically valid assertion, so every denied request below
+        // carries one (for `key_a`) plus a valid Blossom upload proof signed by
+        // `key_b`, the real body hash, and the matching host.  Only the
+        // handler's `admit_nip_fi_http_on_state` key-pairing check can deny it
+        // (403 `authorization denied\n`).
         //
-        // The outer guard (router.rs:232-235) only forwards requests with a
-        // cryptographically valid assertion.  To witness the HANDLER-level
-        // admission ordering we must PASS the outer guard with a valid assertion
-        // and let the handler's own `admit_nip_fi_http_on_state` fire the denial.
-        // We do this with a mismatched-key scenario:
-        //   - NIP-FI assertion signed for `key_assertion`
-        //   - NIP-98 PUT token signed by `key_upload` (a different key)
-        //   → outer guard passes (assertion is cryptographically valid)
-        //   → handler's admit_nip_fi_http_on_state fires key-pairing check
-        //   → 403 AuthorizationDenied `authorization denied\n`
-        //   → body never read, permit never acquired.
+        // Production order in `upload_blob`: admission → x-sha-256 checks →
+        // membership → rate limit → `acquire_upload_permit` → body read in
+        // `upload_blob_result`.
         //
-        // Admitted control: same-key NIP-98 + assertion → pairing passes → body
-        // IS polled → proves the instrument/resource boundary is reachable with
-        // valid credentials.
-        //
-        // Production order in `upload_blob` (media.rs:266-342):
-        //   admit_nip_fi_http_on_state() → deny at key mismatch → early return
-        //   acquire_upload_permit() reached only after admission passes
-        //   body polling inside upload_blob_inner
-        //
-        // Falsifying mutation A: move admit_nip_fi_http_on_state after body-read →
-        //   poll_count > 0 on the mismatched-key request → assertion fires.
-        // Falsifying mutation B: move admit_nip_fi_http_on_state after permit acquire →
-        //   with all permits consumed, returns 503 instead of 403 → assertion fires.
+        // - Denied, instrumented body: zero polls.  Moving admission after the
+        //   body read would poll it first.
+        // - Denied, all global permits held: still 403, not 429.  Moving
+        //   admission after `acquire_upload_permit` would return 429.
+        // - `media_uploads_in_flight` for `key_b` is identical before and after
+        //   each denied request.  This proves no leaked per-key accounting; it
+        //   cannot observe a transient acquire-and-release.
+        // - Admitted controls (assertion for `key_b`, same proof) show the
+        //   resource boundaries are reachable: with permits held → exact 429
+        //   `upload concurrency limit reached` (`acquire_upload_permit` →
+        //   `buzz-media/src/error.rs`); with permits free → body polled and
+        //   exact 415 `AUDIO_REJECTION`.
         #[test]
         #[ignore = "requires Postgres"]
         fn upload_enforce_denial_does_not_poll_body_or_consume_permit() {
-            use axum::body::Body;
-            use http_body::Frame;
             use std::sync::atomic::{AtomicUsize, Ordering};
-            use std::sync::Arc as StdArc;
+
+            struct CountingBody {
+                inner: Option<bytes::Bytes>,
+                polls: Arc<AtomicUsize>,
+            }
+            impl http_body::Body for CountingBody {
+                type Data = bytes::Bytes;
+                type Error = std::convert::Infallible;
+                fn poll_frame(
+                    mut self: std::pin::Pin<&mut Self>,
+                    _cx: &mut std::task::Context<'_>,
+                ) -> std::task::Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>>
+                {
+                    self.polls.fetch_add(1, Ordering::SeqCst);
+                    std::task::Poll::Ready(self.inner.take().map(|b| Ok(http_body::Frame::data(b))))
+                }
+            }
 
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -3599,250 +3242,125 @@ mod tests {
                 "nip-fi-media-witness-{}.local",
                 uuid::Uuid::new_v4().simple()
             );
-            rt.block_on(state.db.ensure_configured_community(&host))
-                .expect("ensure community");
+            let community = rt
+                .block_on(state.db.ensure_configured_community(&host))
+                .expect("ensure community")
+                .id;
 
-            let sha256 = "3".repeat(64);
-            let poll_count = StdArc::new(AtomicUsize::new(0));
-
-            // Two keys: assertion is for key_a, NIP-98 is signed by key_b.
-            // Outer guard sees a valid assertion (key_a) and forwards the request.
-            // Handler's admit_nip_fi_http_on_state sees the NIP-98 pubkey (key_b)
-            // and fires the key-pairing check → 403 AuthorizationDenied.
             let key_a = Keys::generate();
             let key_b = Keys::generate();
-            let assertion_for_a = signed_assertion(&key_a.public_key().to_hex());
-            let upload_url = format!("http://{host}/upload");
-            let nip98_token_b = {
-                use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64;
-                use nostr::JsonUtil as _;
-                let now = nostr::Timestamp::now().as_secs();
-                let exp = now + 300;
-                // NIP-98 for PUT /upload signed by key_b (different from assertion key_a).
-                let event = nostr::EventBuilder::new(nostr::Kind::Custom(27235), "")
-                    .tags(vec![
-                        nostr::Tag::parse(["u", &upload_url]).unwrap(),
-                        nostr::Tag::parse(["method", "PUT"]).unwrap(),
-                        nostr::Tag::parse(["payload", &sha256]).unwrap(),
-                        nostr::Tag::parse(["expiration", &exp.to_string()]).unwrap(),
-                    ])
-                    .sign_with_keys(&key_b)
-                    .expect("sign nip98");
-                format!("Nostr {}", B64.encode(event.as_json().as_bytes()))
+            let sha256 = sha256_hex(AUDIO_BODY);
+            let proof_b = blossom_upload_auth_value(&key_b, &host, &sha256);
+            let mismatched_assertion = signed_assertion(&key_a.public_key().to_hex());
+            let same_key_assertion = signed_assertion(&key_b.public_key().to_hex());
+            let accounting_key = (community, key_b.public_key().to_bytes());
+            let in_flight = || {
+                state
+                    .media_uploads_in_flight
+                    .get(&accounting_key)
+                    .map(|count| *count)
             };
 
-            // ── Part 1: body-poll witness ───────────────────────────────────
-            // Send a mismatched-key request with an instrumented body.
-            // Outer guard forwards (assertion is valid); handler denies at key-pairing
-            // before reading the body.
-            {
-                let poll_count2 = StdArc::clone(&poll_count);
-                let assertion_for_a2 = assertion_for_a.clone();
-                let nip98_b2 = nip98_token_b.clone();
-                rt.block_on(async {
-                    use tower::ServiceExt;
-                    struct CountingBody {
-                        inner: bytes::Bytes,
-                        done: bool,
-                        counter: StdArc<AtomicUsize>,
-                    }
-                    impl http_body::Body for CountingBody {
-                        type Data = bytes::Bytes;
-                        type Error = std::convert::Infallible;
-                        fn poll_frame(
-                            mut self: std::pin::Pin<&mut Self>,
-                            _cx: &mut std::task::Context<'_>,
-                        ) -> std::task::Poll<Option<Result<Frame<Self::Data>, Self::Error>>>
-                        {
-                            if self.done {
-                                return std::task::Poll::Ready(None);
-                            }
-                            self.counter.fetch_add(1, Ordering::SeqCst);
-                            self.done = true;
-                            std::task::Poll::Ready(Some(Ok(Frame::data(self.inner.clone()))))
-                        }
-                    }
-                    let body = CountingBody {
-                        inner: bytes::Bytes::from(b"hello world".to_vec()),
-                        done: false,
-                        counter: StdArc::clone(&poll_count2),
-                    };
-                    let axum_body = Body::new(body);
-                    let req = axum::http::Request::builder()
-                        .method("PUT")
-                        .uri("/upload")
-                        .header("host", &host)
-                        .header("authorization", &nip98_b2)
-                        .header("x-sha-256", &sha256)
-                        .header(
-                            buzz_auth::CLIENT_ATTACHED_HEADER,
-                            format!("Bearer {assertion_for_a2}"),
-                        )
-                        .body(axum_body)
-                        .expect("build request");
+            // Send PUT /upload with `assertion`, returning (status, headers, body, polls).
+            let send = |assertion: &str| {
+                let polls = Arc::new(AtomicUsize::new(0));
+                let request = Request::builder()
+                    .method("PUT")
+                    .uri("/upload")
+                    .header("host", &host)
+                    .header("authorization", &proof_b)
+                    .header("x-sha-256", &sha256)
+                    .header(
+                        buzz_auth::CLIENT_ATTACHED_HEADER,
+                        format!("Bearer {assertion}"),
+                    )
+                    .body(Body::new(CountingBody {
+                        inner: Some(bytes::Bytes::from_static(AUDIO_BODY)),
+                        polls: Arc::clone(&polls),
+                    }))
+                    .expect("build request");
+                let response = rt.block_on(async {
                     let resp = crate::router::build_router(Arc::clone(&state))
-                        .oneshot(req)
+                        .oneshot(request)
                         .await
                         .expect("router oneshot");
-                    assert_eq!(
-                        resp.status(),
-                        StatusCode::FORBIDDEN,
-                        "Mismatched-key: outer guard forwards (valid assertion), handler \
-                         fires key-pairing check → 403 AuthorizationDenied. \
-                         Falsifying mutation A: move admission after body-read → \
-                         poll_count > 0 before this 403."
-                    );
-                    let resp_body = axum::body::to_bytes(resp.into_body(), 256)
-                        .await
-                        .unwrap_or_default();
-                    assert_eq!(
-                        resp_body.as_ref(),
-                        b"authorization denied\n",
-                        "Mismatched-key handler denial MUST be 'authorization denied\\n' \
-                         (key-pairing check, not outer guard or NIP-98 error)."
-                    );
+                    let status = resp.status();
+                    let headers = resp.headers().clone();
+                    let body = to_bytes(resp.into_body(), 8192).await.unwrap_or_default();
+                    (status, headers, body)
                 });
-            }
+                (response, polls.load(Ordering::SeqCst))
+            };
+            let denied = |response: &(StatusCode, axum::http::HeaderMap, bytes::Bytes),
+                          context: &str| {
+                assert_exact_response(
+                    response,
+                    StatusCode::FORBIDDEN,
+                    "text/plain; charset=utf-8",
+                    None,
+                    b"authorization denied\n",
+                    context,
+                );
+            };
+
+            // ── Denied request, permits free: body never polled ─────────────
+            let before = in_flight();
+            let (response, polls) = send(&mismatched_assertion);
+            denied(&response, "mismatched key, permits free");
+            assert_eq!(polls, 0, "handler denial MUST precede the body read");
             assert_eq!(
-                poll_count.load(Ordering::SeqCst),
-                0,
-                "Body MUST NOT be polled when handler denies at key-pairing (before body-read). \
-                 Falsifying mutation A: move admission after body-read → poll_count > 0."
+                in_flight(),
+                before,
+                "denial MUST leave per-key accounting unchanged"
             );
 
-            // ── Part 2: permit-order witness ────────────────────────────────
-            // Consume all global upload permits, then send a mismatched-key request.
-            // Handler's NIP-FI key-pairing fires BEFORE permit acquisition, so the
-            // response is 403 (key mismatch) — not 503 (concurrency limit).
-            {
-                let semaphore = Arc::clone(&state.media_upload_semaphore);
-                let available = semaphore.available_permits();
-                let mut held_permits = Vec::new();
-                for _ in 0..available {
-                    if let Ok(p) = semaphore.clone().try_acquire_owned() {
-                        held_permits.push(p);
-                    }
-                }
+            // ── All global permits held ─────────────────────────────────────
+            let semaphore = Arc::clone(&state.media_upload_semaphore);
+            let held: Vec<_> =
+                std::iter::from_fn(|| semaphore.clone().try_acquire_owned().ok()).collect();
+            assert!(
+                !held.is_empty(),
+                "fixture must hold at least one upload permit"
+            );
 
-                let (status, _resp_headers, body) = rt.block_on(media_oneshot(
-                    Arc::clone(&state),
-                    "PUT",
-                    "/upload",
-                    &host,
-                    {
-                        let mut h = axum::http::HeaderMap::new();
-                        h.insert("x-sha-256", sha256.parse().expect("valid header"));
-                        h.insert(
-                            axum::http::header::AUTHORIZATION,
-                            nip98_token_b.parse().expect("valid header"),
-                        );
-                        h.insert(
-                            axum::http::HeaderName::from_static(buzz_auth::CLIENT_ATTACHED_HEADER),
-                            format!("Bearer {assertion_for_a}")
-                                .parse()
-                                .expect("valid header"),
-                        );
-                        h
-                    },
-                    b"",
-                ));
+            let before = in_flight();
+            let (response, polls) = send(&mismatched_assertion);
+            denied(&response, "mismatched key, permits exhausted");
+            assert_eq!(polls, 0, "handler denial MUST precede the body read");
+            assert_eq!(
+                in_flight(),
+                before,
+                "denial MUST leave per-key accounting unchanged"
+            );
 
-                assert_eq!(
-                    status,
-                    StatusCode::FORBIDDEN,
-                    "Handler key-pairing MUST fire BEFORE permit acquisition. \
-                     With all permits consumed, a post-admission request returns 503; \
-                     a key-pairing denial must still return 403 AuthorizationDenied. \
-                     Falsifying mutation B: move admission after permit acquire → \
-                     503 returned instead of 403."
-                );
-                assert_eq!(
-                    body.as_ref(),
-                    b"authorization denied\n",
-                    "Permit witness: handler 403 body must be 'authorization denied\\n', \
-                     not 503 MediaError body."
-                );
+            let (response, polls) = send(&same_key_assertion);
+            assert_exact_response(
+                &response,
+                StatusCode::TOO_MANY_REQUESTS,
+                "application/json",
+                None,
+                br#"{"error":"upload concurrency limit reached"}"#,
+                "admitted request, permits exhausted",
+            );
+            assert_eq!(polls, 0, "permit rejection precedes the body read");
+            drop(held);
 
-                drop(held_permits);
-            }
-
-            // ── Part 3: admitted control (instrument/resource boundary reachable) ─
-            // Same-key NIP-98 + assertion → pairing passes → body IS polled.
-            // This proves the body-poll witness above is not merely a stuck counter.
-            //
-            // Without MinIO the upload fails with a storage error (500/503) after
-            // the body is read — we only check that poll_count advances beyond zero.
-            {
-                let poll_count3 = StdArc::new(AtomicUsize::new(0));
-                let poll_count3_clone = StdArc::clone(&poll_count3);
-                let assertion_same_key = signed_assertion(&key_b.public_key().to_hex());
-                rt.block_on(async {
-                    use tower::ServiceExt;
-                    struct CountingBody {
-                        inner: bytes::Bytes,
-                        done: bool,
-                        counter: StdArc<AtomicUsize>,
-                    }
-                    impl http_body::Body for CountingBody {
-                        type Data = bytes::Bytes;
-                        type Error = std::convert::Infallible;
-                        fn poll_frame(
-                            mut self: std::pin::Pin<&mut Self>,
-                            _cx: &mut std::task::Context<'_>,
-                        ) -> std::task::Poll<Option<Result<Frame<Self::Data>, Self::Error>>>
-                        {
-                            if self.done {
-                                return std::task::Poll::Ready(None);
-                            }
-                            self.counter.fetch_add(1, Ordering::SeqCst);
-                            self.done = true;
-                            std::task::Poll::Ready(Some(Ok(Frame::data(self.inner.clone()))))
-                        }
-                    }
-                    let body = CountingBody {
-                        inner: bytes::Bytes::from(b"hello world".to_vec()),
-                        done: false,
-                        counter: StdArc::clone(&poll_count3_clone),
-                    };
-                    let axum_body = Body::new(body);
-                    let req = axum::http::Request::builder()
-                        .method("PUT")
-                        .uri("/upload")
-                        .header("host", &host)
-                        .header("authorization", &nip98_token_b)
-                        .header("x-sha-256", &sha256)
-                        .header(
-                            buzz_auth::CLIENT_ATTACHED_HEADER,
-                            format!("Bearer {assertion_same_key}"),
-                        )
-                        .body(axum_body)
-                        .expect("build request");
-                    let resp = crate::router::build_router(Arc::clone(&state))
-                        .oneshot(req)
-                        .await
-                        .expect("router oneshot");
-                    // Admission passes → post-admission checks → storage unavailable.
-                    // Any status other than 401/403 proves the handler boundary was reached.
-                    assert_ne!(
-                        resp.status(),
-                        StatusCode::UNAUTHORIZED,
-                        "Same-key admitted control MUST NOT return 401 (NIP-FI denied). \
-                         Falsifying mutation: always-deny pairing → 401 → body never read."
-                    );
-                    assert_ne!(
-                        resp.status(),
-                        StatusCode::FORBIDDEN,
-                        "Same-key admitted control MUST NOT return 403 (NIP-FI denied). \
-                         Falsifying mutation: always-deny pairing → 403 → body never read."
-                    );
-                });
-                assert!(
-                    poll_count3.load(Ordering::SeqCst) > 0,
-                    "Body MUST be polled after successful NIP-FI admission (same-key control). \
-                     Falsifying mutation: move body-read before admission → poll_count=0 even \
-                     when NIP-FI passes (would break the body-poll witness above)."
-                );
-            }
+            // ── Admitted request, permits free: body read, exact 415 ────────
+            let (response, polls) = send(&same_key_assertion);
+            assert_exact_response(
+                &response,
+                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                "application/json",
+                None,
+                AUDIO_REJECTION,
+                "admitted request, permits free",
+            );
+            assert!(polls > 0, "admitted upload MUST read the instrumented body");
+            assert_eq!(
+                in_flight(),
+                None,
+                "admitted upload MUST release its per-key slot"
+            );
         }
     }
 }

@@ -4529,6 +4529,10 @@ mod postgres_tests {
         config.require_auth_token = true;
         config.require_relay_membership = false;
         config.nip_fi.mode = buzz_auth::NipFiMode::Enforce;
+        // Pin the GIF provider absent: `Config::from_env()` imports
+        // `BUZZ_KLIPY_API_KEY`, and the GIF positive control's exact 404
+        // (`gifs.rs` "GIF search is not configured") depends on `klipy = None`.
+        config.klipy = None;
         // No issuers configured → nip_fi_verifier = None (startup-race path).
         // The seam test fires before verifier is needed (missing assertion → 401).
 
@@ -5228,9 +5232,11 @@ mod postgres_tests {
     // `build_router`: no `Nostr-Federated-Identity` header → MissingEvidence →
     // 401 `authentication required\n`.  The per-handler gate is unreachable.
     //
-    // Falsifying mutation: remove `nip_fi_assertion_guard` from `build_router`
-    // → request reaches `authorize_workflow_read` → workflow lookup → 404
-    // (no workflow with the test UUID). 404 ≠ 401.
+    // Removing only the outer guard does not change this 401: the request then
+    // reaches `authorize_workflow_read`, whose `admit_nip_fi_http_on_state`
+    // (workflows.rs) denies the same missing assertion with the same
+    // MissingEvidence bytes.  The handler-level gate is witnessed separately by
+    // the same-key positive and mismatched-key controls below.
     #[test]
     #[ignore = "requires Postgres"]
     fn nip_fi_enforce_workflow_runs_no_assertion_is_401() {
@@ -5318,7 +5324,7 @@ mod postgres_tests {
         rt.block_on(state.db.ensure_configured_community(&host))
             .expect("ensure community");
 
-        // klipy is None in the test state (no config.klipy set) — GIF provider absent.
+        // `nip_fi_enforce_test_state` pins `config.klipy = None`.
         let keys = Keys::generate();
         let url = format!("https://{host}{}", crate::api::gifs::SEARCH_PATH);
         let headers = same_key_nip98_and_assertion_headers(&keys, &url, "POST", b"{}");
@@ -5357,16 +5363,12 @@ mod postgres_tests {
 
     // ── Moderation reports — Enforce mode, same-key admission → reaches handler ─
     //
-    // Positive control: a valid NIP-FI assertion + same-key NIP-98 passes
-    // admission and reaches `moderation_reports`.  The handler returns a
-    // non-401/403 response (likely 403 from auth check since the caller is not
-    // an admin, or 200 with empty results).
-    //
-    // Falsifying mutation: make the NIP-FI verifier always-deny → 403
-    // AuthorizationDenied before the handler fires → the same 403 would mask
-    // an always-deny implementation; but the assertion body check distinguishes:
-    // NIP-FI AuthorizationDenied body = "authorization denied\n";
-    // moderation 403 body differs.
+    // Positive control: a valid NIP-FI assertion + same-key NIP-98 on the
+    // registered `/moderation/reports` route passes admission and reaches
+    // `authorize_moderation_action`.  The unprivileged caller gets the
+    // application 403 JSON `{"error":"restricted: moderator access required"}`
+    // (`authorize_moderation_read` → `api_error`), which is distinguishable
+    // from the NIP-FI text/plain `authorization denied\n` denial.
     #[test]
     #[ignore = "requires Postgres"]
     fn nip_fi_enforce_moderation_reports_same_key_admission_succeeds() {
@@ -5385,7 +5387,9 @@ mod postgres_tests {
         rt.block_on(state.db.ensure_configured_community(&host))
             .expect("ensure community");
 
-        // Seed the caller as owner so moderation authz passes.
+        // The caller holds no moderation role (`ensure_user` creates a member
+        // row only), so `authorize_moderation_action(ViewQueue)` fails and
+        // `authorize_moderation_read` maps it to an application JSON 403.
         let keys = Keys::generate();
         rt.block_on(async {
             state
@@ -5403,7 +5407,7 @@ mod postgres_tests {
                 .expect("ensure_user");
         });
 
-        let path = format!("/communities/{host}/moderation/reports");
+        let path = "/moderation/reports";
         let url = format!("https://{host}{path}");
         let headers = same_key_nip98_and_assertion_headers(&keys, &url, "GET", b"");
 
@@ -5426,17 +5430,25 @@ mod postgres_tests {
              If 401: NIP-FI MissingEvidence — assertion check denying. \
              If 200: moderation authz check was removed."
         );
-        let body_json: serde_json::Value =
-            serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
         assert_eq!(
-            body_json.get("error").and_then(|v| v.as_str()),
-            Some("restricted: moderator access required"),
+            resp_headers
+                .get("content-type")
+                .and_then(|v| v.to_str().ok()),
+            Some("application/json"),
+            "Moderation same-key positive: application 403 must be JSON"
+        );
+        assert!(
+            resp_headers.get("www-authenticate").is_none(),
+            "Moderation same-key positive: application 403 carries no challenge"
+        );
+        assert_eq!(
+            body.as_ref(),
+            br#"{"error":"restricted: moderator access required"}"#,
             "Moderation same-key positive: exact 403 body must be JSON \
              {{\"error\":\"restricted: moderator access required\"}}. \
              If 'authorization denied\\n': NIP-FI AuthDenied — verifier or pairing denying. \
              Falsifying mutation: make verifier always-deny → text/plain body."
         );
-        let _ = resp_headers;
     }
 
     // ── Workflow runs — Enforce mode, same-key admission → reaches handler ────
@@ -5574,7 +5586,7 @@ mod postgres_tests {
 
         let key_nip98 = Keys::generate();
         let key_assertion = Keys::generate();
-        let path = format!("/communities/{host}/moderation/reports");
+        let path = "/moderation/reports";
         let url = format!("https://{host}{path}");
         let assertion = signed_assertion_for_pubkey(&key_assertion.public_key().to_hex());
 
