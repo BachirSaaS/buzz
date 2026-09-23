@@ -122,7 +122,9 @@ class ChannelSortManager {
     }
     final generation = _generation;
     unawaited(
-      _fetchAndApply(isCurrent: () => generation == _generation).then((_) {
+      _fetchAndApply(
+        isCurrent: () => !_disposed && generation == _generation,
+      ).then((_) {
         if (!_disposed && generation != _generation) _onChanged();
       }),
     );

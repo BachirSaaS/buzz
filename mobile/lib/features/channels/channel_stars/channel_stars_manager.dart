@@ -90,11 +90,11 @@ class ChannelStarsManager {
   }
 
   /// Re-reads the retained head once, e.g. on app foreground resume, to catch
-  /// an EVENT a healthy socket never delivered.
+  /// an EVENT a healthy socket never delivered. One shot: skipped while an
+  /// edit is pending, not retried on failure, and leaves startup state alone.
   void refreshFromRelay() {
     if (_disposed || !_remoteEnabled || _relaySession == null) return;
-    _headApplied = false;
-    unawaited(_syncWithRelay().then((_) => _disposed ? null : _onChanged()));
+    unawaited(_recoverHead());
   }
 
   /// Applies the retained head and opens the live subscription, retrying with

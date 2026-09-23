@@ -1,6 +1,16 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:buzz/features/channels/channel_mutes/channel_mutes_manager.dart';
+import 'package:buzz/features/channels/channel_mutes/channel_mutes_provider.dart';
+import 'package:buzz/features/channels/channel_sections/channel_sections_provider.dart';
+import 'package:buzz/features/channels/channel_sort/channel_sort_provider.dart';
+import 'package:buzz/features/channels/channel_stars/channel_stars_provider.dart';
+import 'package:buzz/shared/community/community.dart';
+import 'package:buzz/shared/community/community_provider.dart';
+import 'package:buzz/shared/theme/theme_provider.dart';
+import 'package:flutter/widgets.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:buzz/features/channels/channel_sections/channel_sections_manager.dart';
 import 'package:buzz/features/channels/channel_sort/channel_sort_manager.dart';
 import 'package:buzz/features/channels/channel_sort/channel_sort_storage.dart';
@@ -80,10 +90,76 @@ final _lanes = [
   }),
 ];
 
+class _Lifecycle extends AppLifecycleNotifier {
+  @override
+  AppLifecycleState build() => AppLifecycleState.paused;
+  void resume() => state = AppLifecycleState.resumed;
+}
+
+class _Config extends RelayConfigNotifier {
+  _Config(this.nsec);
+  final String nsec;
+  @override
+  RelayConfig build() =>
+      RelayConfig(baseUrl: 'https://relay.example', nsec: nsec);
+}
+
+/// Missed heads, one per lane, each marked with `zz` so the persisted
+/// cache shows whether that lane's provider re-read on resume.
+const _missedHeads = {
+  'channel-stars':
+      '{"version":1,"channels":{"zz":{"starred":true,"updatedAt":1}}}',
+  'channel-mutes':
+      '{"version":1,"channels":{"zz":{"muted":true,"updatedAt":1}}}',
+  'channel-sections':
+      '{"version":1,"sections":[{"id":"zz","name":"zz","order":0}],"assignments":{}}',
+  'channel-sort': '{"version":1,"groups":{"zz":"recent"}}',
+};
+
 void main() {
   late SharedPreferences prefs;
   setUp(() async => prefs = await freshPrefs());
   wholeBlobLanes(() => prefs);
+
+  for (final MapEntry(key: dTag, value: head) in _missedHeads.entries) {
+    fakeAsyncTest('$dTag provider re-reads a missed head on resume', (clock) {
+      final relay = SidebarRelay();
+      final c = ProviderContainer(
+        overrides: [
+          savedPrefsProvider.overrideWithValue(prefs),
+          relayConfigProvider.overrideWith(() => _Config(relay.keys.nsec)),
+          relaySessionProvider.overrideWith(() => relay.session),
+          activeCommunityProvider.overrideWith(
+            (ref) async => Community(
+              id: 'c',
+              name: 'c',
+              relayUrl: 'wss://relay.example',
+              addedAt: DateTime(2026),
+            ),
+          ),
+          appLifecycleProvider.overrideWith(_Lifecycle.new),
+        ],
+      );
+      for (final p in [
+        channelStarsProvider,
+        channelMutesProvider,
+        channelSectionsProvider,
+        channelSortProvider,
+      ]) {
+        c.listen(p, (_, _) {});
+      }
+      bool adopted() =>
+          prefs.getKeys().any((k) => '${prefs.get(k)}'.contains('zz'));
+      clock.elapse(const Duration(seconds: 1));
+      expect(adopted(), isFalse);
+      relay.stored.add(relay.event(dTag, jsonDecode(head), nowSeconds() + 60));
+      (c.read(appLifecycleProvider.notifier) as _Lifecycle).resume();
+      clock.elapse(const Duration(seconds: 1));
+      expect(adopted(), isTrue);
+      expect(relay.reqsFor(dTag, 'l-'), hasLength(1));
+      c.dispose();
+    });
+  }
 
   for (final lane in _lanes) {
     Map<String, Object> blob(Map<String, (bool, int)> entries) => {
@@ -122,20 +198,29 @@ void main() {
           start(clock).set('mine', true);
           clock.elapse(const Duration(seconds: 5));
           final own = relay.published.single;
-          expect(own.createdAt, priorHead ? t + 31 : t);
+          expect(
+            own.createdAt,
+            priorHead ? t + 31 : inInclusiveRange(t, t + 1),
+          );
 
           // The OK beat the (never delivered) echo. A same-second peer that
           // the relay retains over our event must still be adopted.
+          // A same-second peer with a higher ID must still lose.
           final peerId = '${low.substring(1)}1';
           expect(peerId.compareTo(own.id), lessThan(0));
-          relay.emit(
-            relay.event(
-              lane.dTag,
-              blob({'peer': (true, own.createdAt)}),
-              own.createdAt,
-              id: peerId,
-            ),
-          );
+          for (final (name, id) in [
+            ('loser', ''.padLeft(64, 'f')),
+            ('peer', peerId),
+          ]) {
+            relay.emit(
+              relay.event(
+                lane.dTag,
+                blob({name: (true, own.createdAt)}),
+                own.createdAt,
+                id: id,
+              ),
+            );
+          }
           clock.elapse(const Duration(milliseconds: 20));
           expect(subject.values(), {'mine': true, 'peer': true});
         });
@@ -202,6 +287,12 @@ void main() {
         expect(subject.values(), {'a': true, 'b': true});
         expect(prefs.getString(prefs.getKeys().single), contains('"b"'));
         expect(relay.reqsFor(lane.dTag, 'l-'), hasLength(1));
+
+        // A failed resume read is one shot, not a retry loop.
+        relay.historyFailures = 1;
+        subject.refresh();
+        clock.elapse(const Duration(seconds: 70));
+        expect(relay.reqsFor(lane.dTag, 'h-'), hasLength(3));
       });
 
       fakeAsyncTest(
@@ -287,16 +378,22 @@ void wholeBlobLanes(SharedPreferences Function() prefs) {
       start(clock).createSection('mine');
       clock.elapse(const Duration(seconds: 5));
       final own = relay.published.single;
-      relay.emit(
-        relay.event(
-          'channel-sections',
-          blob('peer'),
-          own.createdAt,
-          id: ''.padLeft(64, '0'),
-        ),
-      );
-      clock.elapse(const Duration(milliseconds: 20));
-      expect(names(), ['peer']);
+      // A same-second higher ID loses to our own event; a lower one wins.
+      for (final (name, pad, want) in [
+        ('loser', 'f', 'mine'),
+        ('peer', '0', 'peer'),
+      ]) {
+        relay.emit(
+          relay.event(
+            'channel-sections',
+            blob(name),
+            own.createdAt,
+            id: ''.padLeft(64, pad),
+          ),
+        );
+        clock.elapse(const Duration(milliseconds: 20));
+        expect(names(), [want]);
+      }
     });
   });
 
@@ -306,7 +403,7 @@ void wholeBlobLanes(SharedPreferences Function() prefs) {
     setUp(() => relay = SidebarRelay());
     tearDown(() => m.dispose());
 
-    ChannelSortManager start(FakeAsync clock) {
+    ChannelSortManager start(FakeAsync clock, {bool remote = true}) {
       m = ChannelSortManager(
         pubkey: relay.pubkey,
         relayUrl: 'wss://relay.example',
@@ -314,7 +411,7 @@ void wholeBlobLanes(SharedPreferences Function() prefs) {
         crypto: ChannelSortCrypto(relay.keys.nsec, relay.pubkey),
         relaySession: relay.session,
         signedEventRelay: relay.signer,
-        remoteEnabled: true,
+        remoteEnabled: remote,
         onChanged: () {},
       )..initialize();
       clock.flushMicrotasks();
@@ -333,6 +430,23 @@ void wholeBlobLanes(SharedPreferences Function() prefs) {
       clock.flushMicrotasks();
       expect(m.sortModeFor('dms'), ChannelSortMode.recent);
       expect(relay.reqsFor('channel-sort', 'l-'), hasLength(1));
+    });
+
+    fakeAsyncTest('a retired resume read cannot overwrite its successor', (
+      clock,
+    ) {
+      start(clock);
+      relay.stored.add(recent(nowSeconds() + 9));
+      final held = relay.holdHistory = Completer<void>();
+      m.refreshFromRelay();
+      clock.flushMicrotasks();
+      m.dispose();
+      start(clock, remote: false).setSortModeFor('dms', ChannelSortMode.alpha);
+      clock.flushMicrotasks();
+      final before = {for (final k in prefs().getKeys()) k: prefs().get(k)};
+      held.complete();
+      clock.flushMicrotasks();
+      expect({for (final k in prefs().getKeys()) k: prefs().get(k)}, before);
     });
 
     fakeAsyncTest('resume leaves a pending edit alone', (clock) {
