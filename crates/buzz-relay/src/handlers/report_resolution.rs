@@ -981,6 +981,7 @@ mod tests {
             reporter_pubkey: "0".repeat(64),
             target_kind: target_kind.to_string(),
             target: target.to_string(),
+            target_author_pubkey: None,
             channel_id: None,
             report_type: "spam".to_string(),
             note: None,

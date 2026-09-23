@@ -2636,3 +2636,77 @@ test("report-list-snippet: list rows show display names when profiles resolve", 
     await unmount();
   }
 });
+
+test("report-list-snippet: event reports name the reported author, never look up the event id", async () => {
+  const origin = "https://admin-event-author.example.com";
+  const pubkey = "fa".repeat(32);
+
+  const reporterHex = "1234567890abcdef".repeat(4);
+  const eventIdHex = "fedcba0987654321".repeat(4);
+  const authorHex = "a1b2c3d4e5f60718".repeat(4);
+  const base = makeReportBase({
+    id: "00000000-0000-0000-0000-000000000ffc",
+    reporterPubkey: reporterHex,
+    target: eventIdHex,
+    targetKind: "event",
+  });
+
+  setIpcHandler("admin_list_reports", () =>
+    Promise.resolve([
+      { ...base, status: "open", targetAuthorPubkey: authorHex },
+    ]),
+  );
+  setIpcHandler("admin_list_feedback", () => Promise.resolve([]));
+  const profileRequests = [];
+  setIpcHandler("get_users_batch", (args) => {
+    profileRequests.push(...(args?.pubkeys ?? []));
+    const names = {
+      [reporterHex]: "Alice Reporter",
+      [authorHex]: "Carol Author",
+      [eventIdHex]: "Not A Person",
+    };
+    const profiles = {};
+    for (const pk of args?.pubkeys ?? []) {
+      if (names[pk])
+        profiles[pk] = { display_name: names[pk], avatar_url: null };
+    }
+    return Promise.resolve({ profiles, missing: [] });
+  });
+
+  const { container, doRender, unmount } = mountPanel({ origin, pubkey });
+  try {
+    await doRender();
+    await settle(50);
+    await settle(100);
+    const reportsTab = Array.from(container.querySelectorAll("button")).find(
+      (b) => (b.getAttribute("data-testid") ?? "").includes("tab-reports"),
+    );
+    assert.ok(reportsTab, "reports tab button must exist");
+    await act(async () => {
+      fireEvent.click(reportsTab);
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    await settle(100);
+
+    assert.equal(
+      profileRequests.includes(eventIdHex),
+      false,
+      "an event id must never be sent to the profile lookup",
+    );
+    const rowText = container.querySelector("li button")?.textContent ?? "";
+    assert.ok(
+      rowText.includes("Alice Reporter"),
+      `reporter name; got: ${rowText}`,
+    );
+    assert.ok(
+      rowText.includes("Carol Author"),
+      `reported author name; got: ${rowText}`,
+    );
+    assert.ok(
+      !rowText.includes("Not A Person"),
+      `event id resolved as a person; got: ${rowText}`,
+    );
+  } finally {
+    await unmount();
+  }
+});

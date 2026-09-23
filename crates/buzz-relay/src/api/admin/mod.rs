@@ -6085,6 +6085,7 @@ mod postgres_tests {
                 reporter_pubkey: "0".repeat(64),
                 target_kind: "pubkey".to_string(),
                 target: hex::encode(target),
+                target_author_pubkey: None,
                 channel_id: None,
                 report_type: "harassment".to_string(),
                 note: None,

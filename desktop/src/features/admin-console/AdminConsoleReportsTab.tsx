@@ -40,6 +40,34 @@ import {
 
 // ── Display-name helper (mirrors AdminConsoleStaffingTab) ─────────────────
 
+/** Pubkey of the person a report is about: the member itself, or the reported
+ *  event's author. `null` for blob targets and events the relay no longer has. */
+function reportedPersonPubkey(report: AdminReportDto): string | null {
+  switch (report.targetKind.toLowerCase()) {
+    case "pubkey":
+      return report.target;
+    case "event":
+      return report.targetAuthorPubkey ?? null;
+    default:
+      return null;
+  }
+}
+
+function formatReportTarget(
+  report: AdminReportDto,
+  profiles?: Record<string, UserProfileSummary | null | undefined>,
+): string {
+  const person = reportedPersonPubkey(report);
+  if (report.targetKind.toLowerCase() === "event") {
+    return person
+      ? `message by ${formatDisplayName(person, profiles?.[person])}`
+      : `message ${truncatePubkey(report.target)}`;
+  }
+  return person
+    ? formatDisplayName(person, profiles?.[person])
+    : truncatePubkey(report.target);
+}
+
 function formatDisplayName(
   pubkey: string,
   profile?: UserProfileSummary | null,
@@ -631,15 +659,15 @@ export function ReportsTab({
     generation + listGen,
   );
 
-  // Batch-resolve display names for reporter and target pubkeys so list rows
-  // show human-readable names rather than truncated hex. Mirrors the pattern
-  // used in AdminConsoleStaffingTab.
+  // Batch-resolve display names for the people on each row (reporter plus the
+  // reported person) so list rows show names rather than truncated hex. Event
+  // IDs and blob hashes are identifiers, never profile keys.
   const listedPubkeys =
     listState.status === "ok"
       ? [
           ...new Set(
             listState.data.flatMap((r) =>
-              [r.reporterPubkey, r.target].filter(
+              [r.reporterPubkey, reportedPersonPubkey(r)].filter(
                 (k): k is string => typeof k === "string" && k.length === 64,
               ),
             ),
@@ -691,7 +719,7 @@ export function ReportsTab({
             ? `reporter: ${formatDisplayName(report.reporterPubkey, profilesQuery.data?.profiles[report.reporterPubkey])}`
             : null,
           report.target
-            ? `target: ${formatDisplayName(report.target, profilesQuery.data?.profiles[report.target])}`
+            ? `target: ${formatReportTarget(report, profilesQuery.data?.profiles)}`
             : null,
         ]
           .filter(Boolean)

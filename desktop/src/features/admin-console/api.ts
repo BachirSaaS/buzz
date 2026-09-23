@@ -135,6 +135,8 @@ export type AdminReportDto = {
   reporterPubkey: string;
   targetKind: string;
   target: string;
+  /** Reported event's author when `targetKind` is `event` and the event is stored. */
+  targetAuthorPubkey?: string | null;
   channelId?: string | null;
   reportType: string;
   note?: string | null;
