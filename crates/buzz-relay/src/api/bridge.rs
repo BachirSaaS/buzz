@@ -24,7 +24,7 @@ use crate::state::AppState;
 use super::{api_error, internal_error, not_found};
 
 mod thread_roots;
-mod thread_window;
+pub(crate) mod thread_window;
 
 pub(crate) async fn enforce_http_admission(
     state: &AppState,

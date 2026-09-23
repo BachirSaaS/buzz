@@ -351,6 +351,39 @@ mod tests {
     }
 
     #[test]
+    fn parse_req_routes_malformed_thread_cursor_to_subscription_validation() {
+        for cursor in [
+            serde_json::json!({"until": 1, "before_id": "zz"}),
+            serde_json::json!({"before_id": "ab".repeat(32)}),
+        ] {
+            let mut filter = serde_json::json!({
+                "thread_window": true,
+                "#h": [uuid::Uuid::nil()],
+                "#e": ["ab".repeat(32)],
+                "kinds": [9]
+            });
+            filter
+                .as_object_mut()
+                .unwrap()
+                .extend(cursor.as_object().unwrap().clone());
+            let parsed =
+                ClientMessage::parse(&serde_json::json!(["REQ", "window", filter]).to_string())
+                    .expect("malformed thread cursor must reach subscription-specific CLOSED");
+            match parsed {
+                ClientMessage::Req {
+                    raw_filters,
+                    before_ids,
+                    ..
+                } => {
+                    assert_eq!(before_ids, vec![None]);
+                    assert!(crate::api::bridge::thread_window::parse(&raw_filters).is_err());
+                }
+                _ => panic!("expected REQ"),
+            }
+        }
+    }
+
+    #[test]
     fn parse_req_preserves_thread_window_extension_fields() {
         let raw = serde_json::json!([
             "REQ",

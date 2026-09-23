@@ -13,9 +13,9 @@ use crate::{
     state::AppState,
 };
 
-type Error = (StatusCode, Json<Value>);
+pub(crate) type Error = (StatusCode, Json<Value>);
 /// Shared deadline across all thread-window filters in a /query request.
-pub(super) const DEADLINE: Duration = Duration::from_secs(8);
+pub(crate) const DEADLINE: Duration = Duration::from_secs(8);
 const MAX_BYTES: usize = 8 * 1024 * 1024;
 /// One ledger shared by all opted-in filters, including replica fallback.
 #[derive(Default)]
@@ -26,7 +26,7 @@ pub(super) struct Budget {
 
 /// Validate before search/presence/other extension dispatch can swallow the
 /// opt-in. Absent/false preserves legacy handling; any other value is invalid.
-pub(super) fn parse(filters: &[Value]) -> Result<Vec<Option<Request>>, Error> {
+pub(crate) fn parse(filters: &[Value]) -> Result<Vec<Option<Request>>, Error> {
     let mut count = 0;
     filters
         .iter()
