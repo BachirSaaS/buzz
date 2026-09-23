@@ -1,0 +1,44 @@
+# Isolated backing stack for the long-thread load bench (scripts/thread-perf-*).
+# Separate Compose project `buzz-threadperf`; never touches the default dev
+# stack or buzz-harness. Postgres is pinned to 16 to match prod (Aurora PG 16).
+#   ports: postgres 5481 · redis 6481 · minio 9481
+services:
+  postgres:
+    image: postgres:16-alpine
+    command: ["postgres", "-c", "shared_buffers=1GB", "-c", "max_wal_size=8GB", "-c", "maintenance_work_mem=1GB"]
+    environment:
+      POSTGRES_USER: buzz
+      POSTGRES_PASSWORD: buzz_dev
+      POSTGRES_DB: buzz
+    ports: ["127.0.0.1:5481:5432"]
+    shm_size: 2g
+    volumes: [threadperf-pg:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U buzz"]
+      interval: 2s
+      retries: 30
+  redis:
+    image: redis:7-alpine
+    ports: ["127.0.0.1:6481:6379"]
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: buzz_dev
+      MINIO_ROOT_PASSWORD: buzz_dev_secret
+    ports: ["127.0.0.1:9481:9000"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 2s
+      retries: 30
+  minio-init:
+    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "mc alias set local http://minio:9000 buzz_dev buzz_dev_secret &&
+      mc mb --ignore-existing local/buzz-media"
+    restart: "no"
+volumes:
+  threadperf-pg:

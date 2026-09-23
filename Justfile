@@ -560,6 +560,15 @@ relay: bootstrap _ensure-migrations
     set +o allexport
     cargo run -p buzz-relay
 
+# Needs: cargo build --release -p buzz-relay -p buzz-cli -p buzz-admin
+# Long-thread bench stack: isolated PG16 + relay :3040, 187-reply thread, background rows (5M reproduces the cliff)
+thread-perf-seed rows="5000000":
+    ./scripts/thread-perf-seed.sh all {{rows}}
+
+# Replay the desktop thread read at limits 10/50/100/200 (aux on/off) and EXPLAIN the aux SQL
+thread-perf-bench label="run":
+    node scripts/thread-perf-bench.mjs {{label}}
+
 # Start the relay with the built web UI served from it
 relay-web: bootstrap _ensure-migrations
     #!/usr/bin/env bash
