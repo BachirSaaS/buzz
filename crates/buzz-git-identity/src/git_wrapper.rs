@@ -1,7 +1,9 @@
 //! Enforcement `git` wrapper — the L2/L3 half of deterministic agent identity.
 //!
-//! Installed as `git` in the harness's Git environment dir (first on PATH),
-//! ahead of the real binary. Every `git` an agent's shell runs lands here first.
+//! Installed as `git` in the harness's Git environment dir, which the harness
+//! puts first on the adapter's PATH. It is defense in depth over the
+//! `GIT_CONFIG_*` identity block: it acts only when a shell resolves it first,
+//! so startup files that reorder PATH, or an absolute git path, skip it.
 //! The wrapper:
 //!
 //! 1. **Scrubs** `GIT_AUTHOR_NAME`/`GIT_AUTHOR_EMAIL` and the committer pair from
