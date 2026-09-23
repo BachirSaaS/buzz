@@ -1945,7 +1945,7 @@ pub async fn dial_remote_owner(
     community_id: CommunityId,
     pubkey: String,
     protocol_version: u8,
-    commit_phase: bool,
+    membership: &dyn buzz_relay_mesh::RelayMeshMembership,
 ) -> Result<(RemoteHuddleSession, MeshStream), DialError> {
     let hello = StreamHello {
         sender: local_runtime_id,
@@ -1957,9 +1957,14 @@ pub async fn dial_remote_owner(
     // `open_session_stream` sends the Hello before returning.
     let mut stream = transport.open_session_stream(owner, hello).await?;
 
-    // `commit_phase` is true only for owners advertising
-    // `HUDDLE_COMMIT_PHASE_CAPABILITY`; everyone else gets the pre-commit-phase
-    // `RegisterPeer` they can decode, and publishes early as before.
+    // Decide the mode only now: a transport peer entry is always preceded by
+    // its membership record, so a successful open implies the owner's record
+    // is present. Checked before the open, a record installed during
+    // acquisition would be missed and a capable owner would publish early.
+    // One read, latched for both the registration variant and the session.
+    // Owners without `HUDDLE_COMMIT_PHASE_CAPABILITY` get the pre-commit-phase
+    // `RegisterPeer` they can decode, and publish early as before.
+    let commit_phase = owner_supports_commit_phase(membership, owner);
     let community_id = *community_id.as_uuid();
     let register = if commit_phase {
         HuddleControlMsg::RegisterPeerCommitPhase {
@@ -4119,7 +4124,6 @@ mod tests {
         let mut base_owner_record = buzz_relay_mesh::GossipRecord::new(owner_rt, vec![], 1);
         base_owner_record.capabilities = vec!["huddle-control".into()];
         membership.apply_gossip_record(base_owner_record);
-        let commit_phase = owner_supports_commit_phase(&membership, owner_rt);
 
         let (mut owner, client) = stream_pair();
         let base_owner = tokio::spawn(async move {
@@ -4165,7 +4169,7 @@ mod tests {
             community(),
             "bob".into(),
             2,
-            commit_phase,
+            &membership,
         )
         .await
         .unwrap();
@@ -4270,7 +4274,7 @@ mod tests {
             community(),
             "bob".into(),
             2,
-            owner_supports_commit_phase(&membership, owner_rt),
+            &membership,
         )
         .await
         .unwrap();
@@ -4314,6 +4318,131 @@ mod tests {
         stream.finish().unwrap();
         drop(stream);
         served.await.unwrap().unwrap();
+    }
+
+    /// Transport whose `open_session_stream` installs the capable owner record
+    /// (production `capabilities()`) during acquisition, before it returns —
+    /// the ordering a real dial has when gossip lands mid-connect.
+    struct RecordOnOpenTransport {
+        stream: Mutex<Option<MeshStream>>,
+        membership: Arc<buzz_relay_mesh::MeshMembership>,
+    }
+    impl RelayPeerTransport for RecordOnOpenTransport {
+        fn send_datagram(&self, _to: RuntimeId, _d: MeshDatagram) -> Result<(), MeshError> {
+            Ok(())
+        }
+        fn open_session_stream(
+            &self,
+            to: RuntimeId,
+            _hello: StreamHello,
+        ) -> BoxFuture<'_, Result<MeshStream, MeshError>> {
+            let mut record = buzz_relay_mesh::GossipRecord::new(to, vec![], 1);
+            record.capabilities = crate::mesh_boot::capabilities();
+            self.membership.apply_gossip_record(record);
+            let stream = self.stream.lock().unwrap().take();
+            Box::pin(async move { stream.ok_or_else(|| MeshError::Transport("used".into())) })
+        }
+        fn set_inbound(&self, _handler: Box<dyn buzz_relay_mesh::InboundHandler>) {}
+    }
+
+    /// Mode is chosen after stream acquisition: an owner record that appears
+    /// while the stream opens still selects `RegisterPeerCommitPhase`, the
+    /// session latches commit phase, the owner holds the peer back, and a close
+    /// before confirm cleans up silently.
+    #[tokio::test]
+    async fn capability_record_installed_during_open_selects_commit_phase() {
+        let (owner_rt, from, session_id) = (rt(1), rt(2), Uuid::new_v4());
+        let fenced = fenced_owned_by(owner_rt, session_id);
+        let membership = Arc::new(buzz_relay_mesh::MeshMembership::new(
+            buzz_relay_mesh::GossipRecord::new(from, vec![], 1),
+        ));
+        assert!(
+            !owner_supports_commit_phase(membership.as_ref(), owner_rt),
+            "precondition: no owner record before the dial"
+        );
+
+        let rooms = Arc::new(AudioRoomManager::new());
+        let (room, mut alice_ctrl_rx, mut delta_rx) = owner_room_with_observer(&rooms, session_id);
+        let (mut owner_stream, client) = stream_pair();
+
+        // Tap the registration frame before handing the stream to the owner.
+        let (tap_tx, tap_rx) = tokio::sync::oneshot::channel();
+        let (relay_owner, relay_client) = stream_pair();
+        let served = spawn_owner(&rooms, owner_rt, from, fenced, relay_owner);
+        let pump = tokio::spawn(async move {
+            let mut relay_client = relay_client;
+            let first = owner_stream.recv_frame().await.unwrap().unwrap();
+            if let MeshStreamFrame::Data { payload, .. } = &first {
+                let _ = tap_tx.send(decode_control(payload).unwrap());
+            }
+            relay_client.send_frame(first).await.unwrap();
+            loop {
+                tokio::select! {
+                    f = owner_stream.recv_frame() => match f.unwrap() {
+                        Some(f) => relay_client.send_frame(f).await.unwrap(),
+                        None => { let _ = relay_client.finish(); break; }
+                    },
+                    f = relay_client.recv_frame() => match f.unwrap() {
+                        Some(f) => owner_stream.send_frame(f).await.unwrap(),
+                        None => break,
+                    },
+                }
+            }
+        });
+
+        let transport = Arc::new(RecordOnOpenTransport {
+            stream: Mutex::new(Some(client)),
+            membership: Arc::clone(&membership),
+        });
+        let (session, stream) = dial_remote_owner(
+            transport,
+            from,
+            owner_rt,
+            fenced,
+            community(),
+            "bob".into(),
+            2,
+            membership.as_ref(),
+        )
+        .await
+        .unwrap();
+
+        let register = tap_rx.await.unwrap();
+        assert!(
+            matches!(register, HuddleControlMsg::RegisterPeerCommitPhase { .. }),
+            "a record installed during open must select commit phase; sent {register:?}"
+        );
+        assert!(session.commit_phase(), "session must latch commit phase");
+        settle().await;
+        assert!(
+            !room
+                .roster_snapshot()
+                .peers
+                .iter()
+                .any(|p| p.pubkey == "bob"),
+            "owner must hold Bob back until CommitConfirmed"
+        );
+        assert!(delta_rx.try_recv().is_err(), "no publish before confirm");
+        assert!(joined_controls(&mut alice_ctrl_rx).is_empty());
+
+        // Close before confirm: the pending peer leaves no trace.
+        drop(session);
+        drop(stream);
+        served.await.unwrap().unwrap();
+        pump.await.unwrap();
+        assert!(
+            delta_rx.try_recv().is_err(),
+            "precommit close must publish nothing"
+        );
+        assert!(
+            alice_ctrl_rx.try_recv().is_err(),
+            "precommit close must fan out neither joined nor left"
+        );
+        assert!(!room
+            .roster_snapshot()
+            .peers
+            .iter()
+            .any(|p| p.pubkey == "bob"));
     }
 
     /// A confirm never publishes twice: a repeat on a commit-phase stream and

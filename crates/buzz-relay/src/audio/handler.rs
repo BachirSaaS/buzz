@@ -906,10 +906,7 @@ pub(crate) async fn handle_active_audio_connection(
             tenant.community(),
             pubkey_hex.clone(),
             requested_version,
-            crate::audio::join::owner_supports_commit_phase(
-                mesh.membership.as_ref(),
-                owner_runtime_id,
-            ),
+            mesh.membership.as_ref(),
         )
         .await
         {
