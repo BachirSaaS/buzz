@@ -350,7 +350,7 @@ async fn huddle_started_link_exists_with_operation(
 /// to the requested ephemeral huddle channel — checked inside an open
 /// transaction with a shared row lock on matching rows.
 ///
-/// Uses `SELECT ... FOR SHARE` so any concurrent `soft_delete_event()` that
+/// Uses `SELECT ... FOR SHARE` so any concurrent `soft_delete_event_and_update_thread()` that
 /// attempts `UPDATE events SET deleted_at = NOW() WHERE ...` on the same row
 /// must wait until this transaction commits or rolls back. This makes the
 /// re-read authoritative against concurrent deletion — "visibility" alone
@@ -3212,9 +3212,10 @@ mod postgres_tests {
             delete_may_start2.notified().await;
             // Record whether the link row is still live at delete time.
             // Under FOR SHARE this call will block until the join tx commits.
-            let result = soft_delete_event(&pool2, community2, &event_id2)
-                .await
-                .expect("soft_delete_event should not error");
+            let result =
+                soft_delete_event_and_update_thread(&pool2, community2, &event_id2, None, None)
+                    .await
+                    .expect("soft_delete_event_and_update_thread should not error");
             // Mark whether the link was deleted (not already gone).
             link_gone2.store(result, Ordering::Relaxed);
             delete_completed2.store(true, Ordering::Relaxed);
