@@ -2273,7 +2273,6 @@ mod postgres_tests {
             .await
             .expect("create test community")
             .id;
-        let community_uuid = *community.as_uuid();
 
         let banned_pubkey = vec![0xAAu8; 32];
         let timed_out_pubkey = vec![0xBBu8; 32];
@@ -2432,7 +2431,6 @@ mod postgres_tests {
             .await
             .expect("create test community")
             .id;
-        let community_uuid = *community.as_uuid();
 
         let actor_pubkey = test_operator_keys().public_key().to_bytes().to_vec();
 
@@ -2646,7 +2644,6 @@ mod postgres_tests {
             .await
             .expect("create other community")
             .id;
-        let community_uuid = *community.as_uuid();
 
         // Insert a permanent ban as the target member.
         let target_pubkey = vec![0xCCu8; 32];
@@ -2771,7 +2768,6 @@ mod postgres_tests {
             .await
             .expect("create test community")
             .id;
-        let community_uuid = *community.as_uuid();
 
         let target_pubkey = vec![0xDDu8; 32];
         let actor_pubkey = test_operator_keys().public_key().to_bytes().to_vec();
@@ -2909,7 +2905,6 @@ mod postgres_tests {
             .await
             .expect("create test community")
             .id;
-        let community_uuid = *community.as_uuid();
 
         // Insert a ban that already expired.
         let target_pubkey = vec![0xEEu8; 32];
