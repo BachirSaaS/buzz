@@ -3250,6 +3250,33 @@ mod tests {
         args.iter().map(|s| s.to_string()).collect()
     }
 
+    /// Repository-local env git exports into hook processes. Under a pre-push
+    /// hook in a linked worktree `GIT_DIR` is absolute, so an inherited value
+    /// escapes `current_dir`/`-C` and fixture commands would rewrite the real
+    /// repository.
+    const INHERITED_GIT_ENV: &[&str] = &[
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_COMMON_DIR",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_PREFIX",
+        "GIT_NAMESPACE",
+        "GIT_CONFIG_PARAMETERS",
+        "GIT_CONFIG_COUNT",
+    ];
+
+    /// `Command::new(program)` with [`INHERITED_GIT_ENV`] removed; every test
+    /// git spawn goes through this so fixtures only touch their own tempdirs.
+    fn hermetic_command(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
+        let mut cmd = std::process::Command::new(program);
+        for var in INHERITED_GIT_ENV {
+            cmd.env_remove(var);
+        }
+        cmd
+    }
+
     // ── Ambient GIT_CONFIG_* isolation ───────────────────────────────────────
     //
     // The agent harness injects up to 10 GIT_CONFIG_* env vars (including
@@ -3801,7 +3828,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let repo = dir.path().to_path_buf();
         let git = |args: &[&str]| {
-            let ok = std::process::Command::new("git")
+            let ok = hermetic_command("git")
                 .args(args)
                 .current_dir(&repo)
                 .env("GIT_CONFIG_GLOBAL", "/dev/null")
@@ -4147,7 +4174,7 @@ mod tests {
         std::fs::create_dir(&dir).unwrap();
         let dir_str = dir.to_str().unwrap();
         // The `.git` view: an ordinary repo with no alias.
-        assert!(std::process::Command::new("git")
+        assert!(hermetic_command("git")
             .args(["-C", dir_str, "init", "-q"])
             .status()
             .unwrap()
@@ -4164,7 +4191,7 @@ mod tests {
         .unwrap();
         std::fs::create_dir(dir.join("objects")).unwrap();
         std::fs::create_dir(dir.join("refs")).unwrap();
-        assert!(std::process::Command::new("git")
+        assert!(hermetic_command("git")
             .args([
                 "--git-dir",
                 dir_str,
@@ -4241,7 +4268,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let repo = dir.path();
         let git = |args: &[&str]| {
-            assert!(std::process::Command::new("git")
+            assert!(hermetic_command("git")
                 .args(args)
                 .current_dir(repo)
                 .status()
@@ -4271,7 +4298,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let repo = dir.path();
         let git = |args: &[&str]| {
-            assert!(std::process::Command::new("git")
+            assert!(hermetic_command("git")
                 .args(args)
                 .current_dir(repo)
                 .status()
@@ -4297,10 +4324,7 @@ mod tests {
         let (_d, repo) = human_authored_repo();
         let remote = tempfile::tempdir().unwrap();
         let run = |args: &[&str]| {
-            std::process::Command::new("git")
-                .args(args)
-                .status()
-                .unwrap();
+            hermetic_command("git").args(args).status().unwrap();
         };
         run(&["init", "-q", "--bare", remote.path().to_str().unwrap()]);
         run(&[
@@ -4333,11 +4357,11 @@ mod tests {
     fn verify_push_rejects_receive_pack_flag() {
         let (_d, repo) = human_authored_repo();
         let remote = tempfile::tempdir().unwrap();
-        std::process::Command::new("git")
+        hermetic_command("git")
             .args(["init", "-q", "--bare", remote.path().to_str().unwrap()])
             .status()
             .unwrap();
-        std::process::Command::new("git")
+        hermetic_command("git")
             .args([
                 "-C",
                 repo.to_str().unwrap(),
@@ -4404,11 +4428,11 @@ mod tests {
     fn verify_push_rejects_exec_carried_by_alias_via_expanded_argv() {
         let (_d, repo) = human_authored_repo();
         let remote = tempfile::tempdir().unwrap();
-        std::process::Command::new("git")
+        hermetic_command("git")
             .args(["init", "-q", "--bare", remote.path().to_str().unwrap()])
             .status()
             .unwrap();
-        std::process::Command::new("git")
+        hermetic_command("git")
             .args([
                 "-C",
                 repo.to_str().unwrap(),
@@ -4471,10 +4495,7 @@ mod tests {
         let remote = tempfile::tempdir().unwrap();
         let redirect = tempfile::tempdir().unwrap();
         let g = |args: &[&str]| {
-            std::process::Command::new("git")
-                .args(args)
-                .status()
-                .unwrap();
+            hermetic_command("git").args(args).status().unwrap();
         };
         g(&["init", "-q", "--bare", remote.path().to_str().unwrap()]);
         g(&["init", "-q", "--bare", redirect.path().to_str().unwrap()]);
@@ -4490,7 +4511,7 @@ mod tests {
         // Seed `remote` with the first commit so `ls-remote` would return its OID
         // (making `partition_outgoing` exempt it as "already remote").
         let first_sha = {
-            let out = std::process::Command::new("git")
+            let out = hermetic_command("git")
                 .args(["-C", repo.to_str().unwrap(), "rev-parse", "HEAD"])
                 .output()
                 .unwrap();
@@ -4549,13 +4570,13 @@ mod tests {
             "Human Author <human@example.com>",
         ]);
         let second_sha = {
-            let out = std::process::Command::new("git")
+            let out = hermetic_command("git")
                 .args(["-C", repo.to_str().unwrap(), "rev-parse", "HEAD"])
                 .output()
                 .unwrap();
             String::from_utf8_lossy(&out.stdout).trim().to_string()
         };
-        let direct_push = std::process::Command::new("git")
+        let direct_push = hermetic_command("git")
             .args([
                 "-C",
                 repo.to_str().unwrap(),
@@ -4573,7 +4594,7 @@ mod tests {
         );
         // `redirect` must contain the new commit — proving the receive-pack redirect fired.
         let redirect_refs: Vec<String> = {
-            let out = std::process::Command::new("git")
+            let out = hermetic_command("git")
                 .args(["ls-remote", redirect.path().to_str().unwrap()])
                 .output()
                 .unwrap();
@@ -4596,7 +4617,7 @@ mod tests {
         );
         // `remote` must NOT contain the new commit (it was redirected away).
         let remote_refs: Vec<String> = {
-            let out = std::process::Command::new("git")
+            let out = hermetic_command("git")
                 .args(["ls-remote", remote.path().to_str().unwrap()])
                 .output()
                 .unwrap();
@@ -4637,11 +4658,11 @@ mod tests {
     fn verify_push_rejects_case_varied_receivepack_config() {
         let (_d, repo) = human_authored_repo();
         let remote = tempfile::tempdir().unwrap();
-        std::process::Command::new("git")
+        hermetic_command("git")
             .args(["init", "-q", "--bare", remote.path().to_str().unwrap()])
             .status()
             .unwrap();
-        std::process::Command::new("git")
+        hermetic_command("git")
             .args([
                 "-C",
                 repo.to_str().unwrap(),
@@ -4676,11 +4697,11 @@ mod tests {
     fn verify_push_rejects_case_varied_sshcommand_config() {
         let (_d, repo) = human_authored_repo();
         let remote = tempfile::tempdir().unwrap();
-        std::process::Command::new("git")
+        hermetic_command("git")
             .args(["init", "-q", "--bare", remote.path().to_str().unwrap()])
             .status()
             .unwrap();
-        std::process::Command::new("git")
+        hermetic_command("git")
             .args([
                 "-C",
                 repo.to_str().unwrap(),
@@ -4728,10 +4749,7 @@ mod tests {
         let a = tempfile::tempdir().unwrap();
         let b = tempfile::tempdir().unwrap();
         let g = |args: &[&str]| {
-            std::process::Command::new("git")
-                .args(args)
-                .status()
-                .unwrap();
+            hermetic_command("git").args(args).status().unwrap();
         };
         g(&["init", "-q", "--bare", a.path().to_str().unwrap()]);
         g(&["init", "-q", "--bare", b.path().to_str().unwrap()]);
@@ -4784,10 +4802,7 @@ mod tests {
         ]);
         let dry_out = {
             let arg_refs: Vec<&str> = dry_argv.iter().map(String::as_str).collect();
-            std::process::Command::new("git")
-                .args(&arg_refs)
-                .output()
-                .unwrap()
+            hermetic_command("git").args(&arg_refs).output().unwrap()
         };
         let dry_stdout = String::from_utf8_lossy(&dry_out.stdout);
         assert!(
@@ -4810,7 +4825,7 @@ mod tests {
         let a_ids = remote_object_ids(&real_git(), &ctx, a.path().to_str().unwrap())
             .expect("ls-remote A must succeed");
         let head_sha = {
-            let out = std::process::Command::new("git")
+            let out = hermetic_command("git")
                 .args(["-C", repo.to_str().unwrap(), "rev-parse", "HEAD"])
                 .output()
                 .unwrap();
@@ -4854,7 +4869,7 @@ mod tests {
         // guard is the only thing preventing the A-has-HEAD/B-empty bypass —
         // the underlying push mechanism really does populate B.
         let b_before: Vec<String> = {
-            let out = std::process::Command::new("git")
+            let out = hermetic_command("git")
                 .args(["ls-remote", b.path().to_str().unwrap()])
                 .output()
                 .unwrap();
@@ -4870,7 +4885,7 @@ mod tests {
              got: {b_before:?}"
         );
         // Direct push — bypasses verify_push, exercises the raw git mechanism.
-        let direct_push = std::process::Command::new("git")
+        let direct_push = hermetic_command("git")
             .args([
                 "-C",
                 repo.to_str().unwrap(),
@@ -4887,7 +4902,7 @@ mod tests {
             "direct push must succeed (both pushurls accept the refs)"
         );
         let b_after: Vec<String> = {
-            let out = std::process::Command::new("git")
+            let out = hermetic_command("git")
                 .args(["ls-remote", b.path().to_str().unwrap()])
                 .output()
                 .unwrap();
@@ -4937,7 +4952,7 @@ mod tests {
     #[test]
     fn remote_object_ids_accepts_empty_bare_repo() {
         let bare = tempfile::tempdir().unwrap();
-        let status = std::process::Command::new(real_git())
+        let status = hermetic_command(real_git())
             .args(["init", "-q", "--bare"])
             .current_dir(bare.path())
             .status()
@@ -4978,10 +4993,7 @@ mod tests {
         let a = tempfile::tempdir().unwrap(); // push destination (pushInsteadOf)
         let b = tempfile::tempdir().unwrap(); // ls-remote destination (insteadOf)
         let g = |args: &[&str]| {
-            std::process::Command::new("git")
-                .args(args)
-                .status()
-                .unwrap();
+            hermetic_command("git").args(args).status().unwrap();
         };
         // Only A and B need to be bare repos; orig is just a URL placeholder.
         g(&["init", "-q", "--bare", a.path().to_str().unwrap()]);
@@ -5027,10 +5039,7 @@ mod tests {
             let mut args = ctx.clone();
             args.extend(["ls-remote", "--get-url", a_url].map(String::from));
             let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-            std::process::Command::new("git")
-                .args(&refs)
-                .output()
-                .unwrap()
+            hermetic_command("git").args(&refs).output().unwrap()
         };
         let resolved = String::from_utf8_lossy(&get_url_out.stdout)
             .trim_end_matches('\n')
@@ -5054,10 +5063,7 @@ mod tests {
                 "main",
             ]);
             let refs: Vec<&str> = dry_argv.iter().map(String::as_str).collect();
-            std::process::Command::new("git")
-                .args(&refs)
-                .output()
-                .unwrap()
+            hermetic_command("git").args(&refs).output().unwrap()
         };
         let dry_stdout = String::from_utf8_lossy(&dry_out.stdout);
         assert!(
@@ -5074,7 +5080,7 @@ mod tests {
         );
 
         // A must be empty — refused before any object-id lookup or real push.
-        let show_ref = std::process::Command::new("git")
+        let show_ref = hermetic_command("git")
             .args(["-C", a_url, "show-ref", "--verify", "refs/heads/main"])
             .output()
             .unwrap();
@@ -5096,10 +5102,7 @@ mod tests {
         let (_d, repo) = human_authored_repo();
         let remote = tempfile::tempdir().unwrap();
         let run = |args: &[&str]| {
-            std::process::Command::new("git")
-                .args(args)
-                .status()
-                .unwrap();
+            hermetic_command("git").args(args).status().unwrap();
         };
         run(&["init", "-q", "--bare", remote.path().to_str().unwrap()]);
         run(&[
@@ -5148,7 +5151,7 @@ mod tests {
     fn verify_push_fails_closed_when_remote_unreachable() {
         let (_d, repo) = human_authored_repo();
         // origin points at a nonexistent path → dry-run fails → fail closed.
-        std::process::Command::new("git")
+        hermetic_command("git")
             .args([
                 "-C",
                 repo.to_str().unwrap(),
@@ -5206,7 +5209,7 @@ mod tests {
         let agent_repo = tempfile::tempdir().unwrap();
         let ar = agent_repo.path();
         let g = |args: &[&str]| {
-            std::process::Command::new("git")
+            hermetic_command("git")
                 .args(args)
                 .current_dir(ar)
                 .env("GIT_CONFIG_GLOBAL", "/dev/null")
@@ -5235,7 +5238,7 @@ mod tests {
 
     /// Run `git` in `repo` with the given argv and hermetic global/system config.
     fn git_in(repo: &Path, args: &[&str]) -> std::process::Output {
-        std::process::Command::new("git")
+        hermetic_command("git")
             .args(args)
             .current_dir(repo)
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
@@ -5297,7 +5300,7 @@ mod tests {
 
         // Also arm the env channel the wrapper re-append is meant to defeat.
         let params = "'user.email=params@evil.com'";
-        let out = std::process::Command::new("git")
+        let out = hermetic_command("git")
             .args(&refs)
             .current_dir(repo)
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
@@ -5656,10 +5659,7 @@ mod tests {
         let (_d, repo) = agent_authored_unsigned_repo();
         let remote = tempfile::tempdir().unwrap();
         let g = |args: &[&str]| {
-            std::process::Command::new("git")
-                .args(args)
-                .status()
-                .unwrap();
+            hermetic_command("git").args(args).status().unwrap();
         };
         g(&["init", "-q", "--bare", remote.path().to_str().unwrap()]);
         g(&[
@@ -5690,7 +5690,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let repo = dir.path().to_path_buf();
         let g = |args: &[&str]| {
-            let ok = std::process::Command::new("git")
+            let ok = hermetic_command("git")
                 .args(args)
                 .current_dir(&repo)
                 .env("GIT_CONFIG_GLOBAL", "/dev/null")
@@ -5742,10 +5742,7 @@ mod tests {
         }
 
         let g = |args: &[&str]| {
-            std::process::Command::new("git")
-                .args(args)
-                .status()
-                .unwrap();
+            hermetic_command("git").args(args).status().unwrap();
         };
 
         // Write a `url.foo.https://bar.insteadOf` rewrite key.  The subsection
@@ -5780,7 +5777,7 @@ mod tests {
         // `git ls-remote origin` with the rewrite active and `foo.https` on PATH
         // invokes `git-remote-foo.https`, which touches the marker and exits 1.
         // We use a subprocess so PATH manipulation is process-local and safe.
-        let probe_status = std::process::Command::new("git")
+        let probe_status = hermetic_command("git")
             .args(["-C", repo.to_str().unwrap(), "ls-remote", "origin"])
             .env("PATH", &sentinel_path)
             .status()
@@ -5983,10 +5980,7 @@ mod tests {
         let actual_path = parent.path().join("target\nsuffix");
         std::fs::create_dir_all(&actual_path).expect("create newline-path dir");
         let g = |args: &[&str]| {
-            std::process::Command::new("git")
-                .args(args)
-                .status()
-                .unwrap();
+            hermetic_command("git").args(args).status().unwrap();
         };
         g(&["init", "-q", "--bare", actual_path.to_str().unwrap()]);
 
@@ -6006,7 +6000,7 @@ mod tests {
             "expected newline-argv refusal; got: {err}"
         );
         // actual must remain empty — the guard fired before any write.
-        let ls_actual = std::process::Command::new("git")
+        let ls_actual = hermetic_command("git")
             .args(["ls-remote", actual_path.to_str().unwrap()])
             .output()
             .unwrap();
@@ -6040,10 +6034,7 @@ mod tests {
         let actual_path = parent.path().join("target\nsuffix");
         std::fs::create_dir_all(&actual_path).expect("create newline-path dir");
         let g = |args: &[&str]| {
-            std::process::Command::new("git")
-                .args(args)
-                .status()
-                .unwrap();
+            hermetic_command("git").args(args).status().unwrap();
         };
         g(&["init", "-q", "--bare", actual_path.to_str().unwrap()]);
 
@@ -6067,7 +6058,7 @@ mod tests {
             "expected newline-endpoint config refusal; got: {err}"
         );
         // actual must remain empty — the guard fired before any write.
-        let ls_actual = std::process::Command::new("git")
+        let ls_actual = hermetic_command("git")
             .args(["ls-remote", actual_path.to_str().unwrap()])
             .output()
             .unwrap();
@@ -6084,10 +6075,7 @@ mod tests {
         let (_d, repo) = human_authored_repo();
         let remote = tempfile::tempdir().unwrap();
         let g = |args: &[&str]| {
-            std::process::Command::new("git")
-                .args(args)
-                .status()
-                .unwrap();
+            hermetic_command("git").args(args).status().unwrap();
         };
         g(&["init", "-q", "--bare", remote.path().to_str().unwrap()]);
         g(&[
@@ -6124,10 +6112,7 @@ mod tests {
         let (_d, repo) = human_authored_repo();
         let remote = tempfile::tempdir().unwrap();
         let g = |args: &[&str]| {
-            std::process::Command::new("git")
-                .args(args)
-                .status()
-                .unwrap();
+            hermetic_command("git").args(args).status().unwrap();
         };
         g(&["init", "-q", "--bare", remote.path().to_str().unwrap()]);
         g(&[
@@ -6178,7 +6163,7 @@ mod tests {
         let (_d, repo) = human_authored_repo();
         let repo_str = repo.to_str().unwrap();
         let g = |args: &[&str]| {
-            let ok = std::process::Command::new("git")
+            let ok = hermetic_command("git")
                 .args(args)
                 .status()
                 .unwrap()
@@ -6213,7 +6198,7 @@ mod tests {
             r"^([Rr][Ee][Mm][Oo][Tt][Ee]|[Uu][Rr][Ll]|[Bb][Rr][Aa][Nn][Cc][Hh]|[Cc][Oo][Rr][Ee])\.";
 
         // Run the exact query `inspect_push_config` uses — same args, same pattern.
-        let out = std::process::Command::new("git")
+        let out = hermetic_command("git")
             .args([
                 "-C",
                 repo_str,
@@ -6259,7 +6244,7 @@ mod tests {
         );
 
         // Mutation proof: the old BRE pattern produces exit 1 + empty output.
-        let bre_out = std::process::Command::new("git")
+        let bre_out = hermetic_command("git")
             .args([
                 "-C",
                 repo_str,
@@ -6295,7 +6280,7 @@ mod tests {
         std::fs::write(&config_path, &config_content).unwrap();
 
         // The production pattern must still return these case-varied keys.
-        let caps_out = std::process::Command::new("git")
+        let caps_out = hermetic_command("git")
             .args([
                 "-C",
                 repo_str,
@@ -6407,10 +6392,7 @@ mod tests {
         }
 
         let g = |args: &[&str]| {
-            std::process::Command::new("git")
-                .args(args)
-                .status()
-                .unwrap();
+            hermetic_command("git").args(args).status().unwrap();
         };
         // Wire origin to evil:// — the config surface.
         g(&[
@@ -6459,10 +6441,7 @@ mod tests {
         let (_d, repo) = human_authored_repo();
         let remote = tempfile::tempdir().unwrap();
         let g = |args: &[&str]| {
-            std::process::Command::new("git")
-                .args(args)
-                .status()
-                .unwrap();
+            hermetic_command("git").args(args).status().unwrap();
         };
         g(&["init", "-q", "--bare", remote.path().to_str().unwrap()]);
         g(&[
@@ -6556,7 +6535,7 @@ mod tests {
 
         // The destination must be empty — the guard fires before any probe reaches
         // the remote.
-        let ls = std::process::Command::new("git")
+        let ls = hermetic_command("git")
             .args(["ls-remote", remote.path().to_str().unwrap()])
             .output()
             .unwrap();
@@ -6599,10 +6578,7 @@ mod tests {
         let (_d, repo) = human_authored_repo();
         let remote = tempfile::tempdir().unwrap();
         let g = |args: &[&str]| {
-            std::process::Command::new("git")
-                .args(args)
-                .status()
-                .unwrap();
+            hermetic_command("git").args(args).status().unwrap();
         };
         g(&["init", "-q", "--bare", remote.path().to_str().unwrap()]);
         g(&[
@@ -6652,7 +6628,7 @@ mod tests {
         assert!(err.contains("not authored by your agent identity"), "{err}");
 
         // Destination must be empty — the human commit must not have reached it.
-        let ls = std::process::Command::new("git")
+        let ls = hermetic_command("git")
             .args(["ls-remote", remote.path().to_str().unwrap()])
             .output()
             .unwrap();
@@ -6680,10 +6656,7 @@ mod tests {
         let (_d, repo) = human_authored_repo();
         let remote = tempfile::tempdir().unwrap();
         let g = |args: &[&str]| {
-            std::process::Command::new("git")
-                .args(args)
-                .status()
-                .unwrap();
+            hermetic_command("git").args(args).status().unwrap();
         };
         g(&["init", "-q", "--bare", remote.path().to_str().unwrap()]);
         g(&[
@@ -6736,7 +6709,7 @@ mod tests {
         );
         assert!(err.contains("not authored by your agent identity"), "{err}");
 
-        let ls = std::process::Command::new("git")
+        let ls = hermetic_command("git")
             .args(["ls-remote", remote.path().to_str().unwrap()])
             .output()
             .unwrap();
@@ -6794,10 +6767,7 @@ mod tests {
         let (_d, repo) = human_authored_repo();
         let remote = tempfile::tempdir().unwrap();
         let g = |args: &[&str]| {
-            std::process::Command::new("git")
-                .args(args)
-                .status()
-                .unwrap();
+            hermetic_command("git").args(args).status().unwrap();
         };
         g(&["init", "-q", "--bare", remote.path().to_str().unwrap()]);
         g(&[
@@ -6842,7 +6812,7 @@ mod tests {
              got Some(expanded) — removing the builtin check recreates the bypass"
         );
 
-        let ls = std::process::Command::new("git")
+        let ls = hermetic_command("git")
             .args(["ls-remote", remote.path().to_str().unwrap()])
             .output()
             .unwrap();
@@ -6865,10 +6835,7 @@ mod tests {
         let (_d, repo) = human_authored_repo();
         let remote = tempfile::tempdir().unwrap();
         let g = |args: &[&str]| {
-            std::process::Command::new("git")
-                .args(args)
-                .status()
-                .unwrap();
+            hermetic_command("git").args(args).status().unwrap();
         };
         g(&["init", "-q", "--bare", remote.path().to_str().unwrap()]);
         g(&[
@@ -6913,7 +6880,7 @@ mod tests {
              removing the builtin check would expand further to `status`"
         );
 
-        let ls = std::process::Command::new("git")
+        let ls = hermetic_command("git")
             .args(["ls-remote", remote.path().to_str().unwrap()])
             .output()
             .unwrap();
@@ -6979,10 +6946,7 @@ mod tests {
         let (_d, repo) = human_authored_repo();
         let remote = tempfile::tempdir().unwrap();
         let g = |args: &[&str]| {
-            std::process::Command::new("git")
-                .args(args)
-                .status()
-                .unwrap();
+            hermetic_command("git").args(args).status().unwrap();
         };
         g(&["init", "-q", "--bare", remote.path().to_str().unwrap()]);
         g(&[
@@ -7047,7 +7011,7 @@ mod tests {
 
         // Destination must be empty — the guard must fire before any commit reaches
         // the remote.
-        let ls = std::process::Command::new("git")
+        let ls = hermetic_command("git")
             .args(["ls-remote", remote.path().to_str().unwrap()])
             .output()
             .unwrap();
@@ -7248,7 +7212,7 @@ mod tests {
             return;
         }
         // Additional probe: does this binary dispatch alias..pub=version ?
-        let empty_probe = std::process::Command::new(real_git())
+        let empty_probe = hermetic_command(real_git())
             .args(["-c", "alias..pub=version", "pub"])
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .output();
@@ -7349,7 +7313,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let repo = dir.path().to_path_buf();
         let g = |args: &[&str]| -> bool {
-            std::process::Command::new("git")
+            hermetic_command("git")
                 .args(args)
                 .current_dir(&repo)
                 .env("GIT_CONFIG_GLOBAL", "/dev/null")
@@ -7376,7 +7340,7 @@ mod tests {
             &format!("Agent <{AGENT_EMAIL}>"),
         ]));
         let decoy_sha = {
-            let out = std::process::Command::new("git")
+            let out = hermetic_command("git")
                 .args(["-C", repo.to_str().unwrap(), "rev-parse", "HEAD"])
                 .output()
                 .unwrap();
@@ -7396,7 +7360,7 @@ mod tests {
             "Human <human@example.com>",
         ]));
         let real_sha = {
-            let out = std::process::Command::new("git")
+            let out = hermetic_command("git")
                 .args(["-C", repo.to_str().unwrap(), "rev-parse", "HEAD"])
                 .output()
                 .unwrap();
@@ -7413,7 +7377,7 @@ mod tests {
         // This proves the bypass is executable: ordinary `git show` follows the
         // replacement chain and reads DECOY's agent email instead of REAL's human email.
         let replaced_email = {
-            let out = std::process::Command::new("git")
+            let out = hermetic_command("git")
                 .args([
                     "-C",
                     repo.to_str().unwrap(),
@@ -7436,7 +7400,7 @@ mod tests {
 
         // Sanity: with --no-replace-objects, git show reports REAL's raw author.
         let raw_email = {
-            let out = std::process::Command::new("git")
+            let out = hermetic_command("git")
                 .args([
                     "-C",
                     repo.to_str().unwrap(),
@@ -7492,7 +7456,7 @@ mod tests {
         );
 
         // Destination must be empty.
-        let ls = std::process::Command::new("git")
+        let ls = hermetic_command("git")
             .args(["ls-remote", remote.path().to_str().unwrap()])
             .output()
             .unwrap();
@@ -7586,7 +7550,7 @@ mod tests {
         // PATH includes sign_nostr_bin's parent so the binary is on PATH when
         // repo config names it without a full path.
         let g = |args: &[&str]| -> bool {
-            std::process::Command::new("git")
+            hermetic_command("git")
                 .args(args)
                 .current_dir(&repo)
                 .env("GIT_CONFIG_GLOBAL", "/dev/null")
@@ -7606,7 +7570,7 @@ mod tests {
 
         // Capture helper — same env isolation.
         let gc = |args: &[&str]| -> String {
-            let out = std::process::Command::new("git")
+            let out = hermetic_command("git")
                 .args(args)
                 .current_dir(&repo)
                 .env("GIT_CONFIG_GLOBAL", "/dev/null")
@@ -7763,7 +7727,7 @@ mod tests {
         );
 
         // Destination must not have acquired REAL.
-        let ls = std::process::Command::new("git")
+        let ls = hermetic_command("git")
             .args(["ls-remote", remote.path().to_str().unwrap()])
             .output()
             .unwrap();

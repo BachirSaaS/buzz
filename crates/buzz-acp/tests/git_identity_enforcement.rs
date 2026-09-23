@@ -21,6 +21,7 @@
 #![cfg(unix)]
 
 use nostr::ToBech32;
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -40,6 +41,33 @@ fn real_git_dir() -> PathBuf {
         }
     }
     panic!("no real git on PATH");
+}
+
+/// Repository-local env git exports into hook processes. Under a pre-push hook
+/// in a linked worktree `GIT_DIR` is absolute, so an inherited value escapes
+/// `current_dir`/`-C` and fixture commands would rewrite the real repository.
+const INHERITED_GIT_ENV: &[&str] = &[
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_COMMON_DIR",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_PREFIX",
+    "GIT_NAMESPACE",
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_COUNT",
+];
+
+/// `Command::new(program)` with [`INHERITED_GIT_ENV`] removed. Every test spawn
+/// that runs git (directly, via the wrapper, or via a child that runs git) goes
+/// through this so the fixture only ever touches its own tempdir repos.
+fn hermetic_command(program: impl AsRef<OsStr>) -> Command {
+    let mut cmd = Command::new(program);
+    for var in INHERITED_GIT_ENV {
+        cmd.env_remove(var);
+    }
+    cmd
 }
 
 /// Isolated capability probe: returns `true` iff the installed git binary
@@ -145,7 +173,7 @@ fn human_repo() -> tempfile::TempDir {
     let d = tempfile::tempdir().unwrap();
     let p = d.path();
     let g = |args: &[&str]| {
-        let ok = Command::new("git")
+        let ok = hermetic_command("git")
             .args(args)
             .current_dir(p)
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
@@ -170,7 +198,7 @@ fn unborn_repo() -> tempfile::TempDir {
     let d = tempfile::tempdir().unwrap();
     let p = d.path();
     let g = |args: &[&str]| {
-        let ok = Command::new("git")
+        let ok = hermetic_command("git")
             .args(args)
             .current_dir(p)
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
@@ -191,7 +219,7 @@ fn unborn_repo() -> tempfile::TempDir {
 
 /// Number of commit objects in `repo`, including unreachable objects.
 fn commit_object_count(repo: &Path) -> usize {
-    let out = Command::new("git")
+    let out = hermetic_command("git")
         .args([
             "-C",
             repo.to_str().unwrap(),
@@ -217,7 +245,7 @@ fn commit_object_count(repo: &Path) -> usize {
 /// scrubbed so the signer skips NIP-OA owner attestation (no relay to verify
 /// against offline); signing itself needs no network.
 fn wrapper(path: &str, cwd: &Path, args: &[&str]) -> std::process::Output {
-    Command::new("git")
+    hermetic_command("git")
         .args(args)
         .current_dir(cwd)
         .env("PATH", path)
@@ -232,7 +260,7 @@ fn wrapper(path: &str, cwd: &Path, args: &[&str]) -> std::process::Output {
 
 /// The current `HEAD` commit SHA of `repo`, via real git (empty if unborn).
 fn head_sha(repo: &Path) -> String {
-    let out = Command::new("git")
+    let out = hermetic_command("git")
         .args(["-C", repo.to_str().unwrap(), "rev-parse", "HEAD"])
         .output()
         .unwrap();
@@ -274,7 +302,7 @@ fn wrapper_refuses_to_push_human_authored_commit() {
     // A reachable bare remote so the dry-run plan resolves and HEAD (human
     // authored) is examined as an offender.
     let remote = tempfile::tempdir().unwrap();
-    assert!(Command::new("git")
+    assert!(hermetic_command("git")
         .args(["init", "-q", "--bare", remote.path().to_str().unwrap()])
         .status()
         .unwrap()
@@ -297,7 +325,7 @@ fn wrapper_refuses_to_push_human_authored_commit() {
         String::from_utf8_lossy(&out.stderr),
     );
     // The bare remote must have received nothing.
-    let refs = Command::new("git")
+    let refs = hermetic_command("git")
         .args(["-C", remote.path().to_str().unwrap(), "for-each-ref"])
         .output()
         .unwrap();
@@ -392,7 +420,7 @@ fn wrapper_rejects_quoted_and_shell_aliases_and_allows_plain_alias() {
         "plain-subcommand alias must still commit; stderr={}",
         String::from_utf8_lossy(&out.stderr),
     );
-    let author = Command::new("git")
+    let author = hermetic_command("git")
         .args([
             "-C",
             repo.path().to_str().unwrap(),
@@ -507,7 +535,7 @@ fn wrapper_refuses_alias_chain_beyond_limit_and_allows_exact_limit() {
         "chain at the limit must reach the real command; stderr={}",
         String::from_utf8_lossy(&out.stderr),
     );
-    let author = Command::new("git")
+    let author = hermetic_command("git")
         .args([
             "-C",
             repo.path().to_str().unwrap(),
@@ -581,7 +609,7 @@ fn wrapper_reapplies_agent_identity_over_repo_config() {
         String::from_utf8_lossy(&out.stderr),
     );
 
-    let author = Command::new("git")
+    let author = hermetic_command("git")
         .args([
             "-C",
             repo.path().to_str().unwrap(),
@@ -615,13 +643,19 @@ fn signed_shim_env() -> (tempfile::TempDir, String, String, tempfile::TempDir) {
     // holds only the git symlinks + manifest, as the harness installs them.
     let keydir = tempfile::tempdir().unwrap();
     let id = buzz_git_identity::write_keyfile(keydir.path(), &nsec).expect("write keyfile");
-    let expected_email = buzz_git_identity::derive_git_email(&id.pubkey_hex);
+    // Authorship is pinned (the shape `identity_signing_entries` writes) rather
+    // than derived from the runner's ambient `BUZZ_RELAY_URL`/display name.
+    let expected_email = format!("{}@relay.test", id.pubkey_hex);
 
     let shim = tempfile::tempdir().unwrap();
     for name in ["git", "git-sign-nostr"] {
         std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_buzz-acp"), shim.path().join(name)).unwrap();
     }
-    let entries = buzz_git_identity::identity_signing_entries(&id);
+    let mut entries = vec![
+        ("user.name".to_owned(), id.npub.clone()),
+        ("user.email".to_owned(), expected_email.clone()),
+    ];
+    entries.extend(buzz_git_identity::signing_entries(&id));
     buzz_git_identity::write_identity_manifest(shim.path(), &entries).unwrap();
 
     let real = real_git_dir();
@@ -642,7 +676,7 @@ fn agent_repo_with_remote(agent_email: &str) -> (tempfile::TempDir, PathBuf, Pat
     std::fs::create_dir_all(&repo).unwrap();
     let remote = work.path().join("remote.git");
     let g = |cwd: &Path, args: &[&str]| {
-        assert!(Command::new("git")
+        assert!(hermetic_command("git")
             .args(args)
             .current_dir(cwd)
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
@@ -764,7 +798,7 @@ fn wrapper_refuses_push_of_unsigned_commit_tree() {
     let tree = wrapper(&path, &repo, &["write-tree"]);
     let tree_sha = String::from_utf8_lossy(&tree.stdout).trim().to_string();
     let parent = head_sha(&repo);
-    let out = Command::new("git")
+    let out = hermetic_command("git")
         .args(["commit-tree", &tree_sha, "-p", &parent, "-m", "plumbed"])
         .current_dir(&repo)
         .env("PATH", &path)
@@ -900,7 +934,7 @@ fn wrapper_refuses_push_of_commit_validly_signed_by_wrong_key() {
     // wrapper's `enforce` by invoking the real git binary directly with B's
     // signing config. `git-sign-nostr` resolves from the shim on PATH.
     let real_git = real_git_dir().join("git");
-    let out = Command::new(&real_git)
+    let out = hermetic_command(&real_git)
         .args([
             "-C",
             repo.to_str().unwrap(),
@@ -939,7 +973,7 @@ fn wrapper_refuses_push_of_commit_validly_signed_by_wrong_key() {
     );
     // Sanity: it is agent-authored, so the push gate demands a valid agent
     // signature on it (rather than skipping it as someone else's commit).
-    let author = Command::new(&real_git)
+    let author = hermetic_command(&real_git)
         .args([
             "-C",
             repo.to_str().unwrap(),
@@ -996,7 +1030,7 @@ fn spawn_path_installs_identity_so_agent_commits_land_agent_authored() {
     let repo = work.path().join("repo");
     std::fs::create_dir_all(&repo).unwrap();
     let g = |args: &[&str]| {
-        assert!(Command::new("git")
+        assert!(hermetic_command("git")
             .args(args)
             .current_dir(&repo)
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
@@ -1032,7 +1066,7 @@ fn spawn_path_installs_identity_so_agent_commits_land_agent_authored() {
 
     // Drive the real binary. `models` spawns the agent (running install_git_identity),
     // then fails init (the script exits) — expected; we assert on the side effect.
-    let output = Command::new(env!("CARGO_BIN_EXE_buzz-acp"))
+    let output = hermetic_command(env!("CARGO_BIN_EXE_buzz-acp"))
         .args([
             "models",
             "--agent-command",
@@ -1097,12 +1131,12 @@ fn wrapper_refuses_receive_pack_flag_and_leaves_target_empty() {
     let actual = tempfile::tempdir().unwrap();
 
     // Init both bare repos.
-    assert!(Command::new("git")
+    assert!(hermetic_command("git")
         .args(["init", "-q", "--bare", decoy.path().to_str().unwrap()])
         .status()
         .unwrap()
         .success());
-    assert!(Command::new("git")
+    assert!(hermetic_command("git")
         .args(["init", "-q", "--bare", actual.path().to_str().unwrap()])
         .status()
         .unwrap()
@@ -1111,7 +1145,7 @@ fn wrapper_refuses_receive_pack_flag_and_leaves_target_empty() {
     // Seed decoy with the human HEAD commit.
     // ls-remote on decoy returns HEAD's IDs; without the guard those IDs
     // exempt HEAD and the push succeeds to actual.
-    assert!(Command::new("git")
+    assert!(hermetic_command("git")
         .args([
             "-C",
             repo.path().to_str().unwrap(),
@@ -1161,7 +1195,7 @@ fn wrapper_refuses_receive_pack_flag_and_leaves_target_empty() {
     );
 
     // `actual` must be empty — the push was refused before any transport.
-    let refs = Command::new("git")
+    let refs = hermetic_command("git")
         .args([
             "-C",
             actual.path().to_str().unwrap(),
@@ -1202,7 +1236,7 @@ fn wrapper_refuses_receive_pack_flag_and_leaves_target_empty() {
         "expected the receivepack-config managed-mode refusal; stderr={}",
         String::from_utf8_lossy(&out2.stderr),
     );
-    let refs2 = Command::new("git")
+    let refs2 = hermetic_command("git")
         .args([
             "-C",
             actual.path().to_str().unwrap(),
@@ -1258,19 +1292,19 @@ fn wrapper_refuses_alias_with_abbreviated_receive_pack_flag() {
     // actual: starts empty; populated by the bypass if the guard is absent.
     let actual = tempfile::tempdir().unwrap();
 
-    assert!(Command::new("git")
+    assert!(hermetic_command("git")
         .args(["init", "-q", "--bare", decoy.path().to_str().unwrap()])
         .status()
         .unwrap()
         .success());
-    assert!(Command::new("git")
+    assert!(hermetic_command("git")
         .args(["init", "-q", "--bare", actual.path().to_str().unwrap()])
         .status()
         .unwrap()
         .success());
 
     // Seed decoy with HEAD so its IDs would exempt the commit under bypass.
-    assert!(Command::new("git")
+    assert!(hermetic_command("git")
         .args([
             "-C",
             repo.path().to_str().unwrap(),
@@ -1333,7 +1367,7 @@ fn wrapper_refuses_alias_with_abbreviated_receive_pack_flag() {
     );
 
     // actual must be empty — the push was refused before any data was sent.
-    let refs = Command::new("git")
+    let refs = hermetic_command("git")
         .args([
             "-C",
             actual.path().to_str().unwrap(),
@@ -1371,7 +1405,7 @@ fn wrapper_refuses_push_via_builtin_shadowing_alias() {
     let (_shim, path, _email, _keydir) = signed_shim_env();
     let repo = human_repo();
     let remote = tempfile::tempdir().unwrap();
-    assert!(Command::new("git")
+    assert!(hermetic_command("git")
         .args(["init", "-q", "--bare", remote.path().to_str().unwrap()])
         .status()
         .unwrap()
@@ -1400,7 +1434,7 @@ fn wrapper_refuses_push_via_builtin_shadowing_alias() {
         String::from_utf8_lossy(&out.stderr),
     );
     // Destination must be empty — the push was refused before anything was sent.
-    let refs = Command::new("git")
+    let refs = hermetic_command("git")
         .args(["-C", remote.path().to_str().unwrap(), "for-each-ref"])
         .output()
         .unwrap();
@@ -1440,7 +1474,7 @@ fn wrapper_refuses_push_via_subsection_command_alias() {
     let (_shim, path, _email, _keydir) = signed_shim_env();
     let repo = human_repo();
     let remote = tempfile::tempdir().unwrap();
-    assert!(Command::new("git")
+    assert!(hermetic_command("git")
         .args(["init", "-q", "--bare", remote.path().to_str().unwrap()])
         .status()
         .unwrap()
@@ -1466,7 +1500,7 @@ fn wrapper_refuses_push_via_subsection_command_alias() {
         String::from_utf8_lossy(&out.stderr),
     );
     // Destination must be empty.
-    let refs = Command::new("git")
+    let refs = hermetic_command("git")
         .args(["-C", remote.path().to_str().unwrap(), "for-each-ref"])
         .output()
         .unwrap();
@@ -1501,7 +1535,7 @@ fn wrapper_refuses_push_subsection_command_overrides_plain_alias() {
     let (_shim, path, _email, _keydir) = signed_shim_env();
     let repo = human_repo();
     let remote = tempfile::tempdir().unwrap();
-    assert!(Command::new("git")
+    assert!(hermetic_command("git")
         .args(["init", "-q", "--bare", remote.path().to_str().unwrap()])
         .status()
         .unwrap()
@@ -1528,7 +1562,7 @@ fn wrapper_refuses_push_subsection_command_overrides_plain_alias() {
         "expected the push-gate rejection (not a status execution); stderr={}",
         String::from_utf8_lossy(&out.stderr),
     );
-    let refs = Command::new("git")
+    let refs = hermetic_command("git")
         .args(["-C", remote.path().to_str().unwrap(), "for-each-ref"])
         .output()
         .unwrap();
@@ -1607,7 +1641,7 @@ fn wrapper_refuses_push_via_deprecated_builtin_alias() {
     // Probe whether the PATH git supports --list-cmds=deprecated and actually
     // lists whatchanged.  Skip on binaries where the deprecated-builtin
     // alias-first path does not exist.
-    let probe = Command::new("git")
+    let probe = hermetic_command("git")
         .args(["--list-cmds=deprecated"])
         .output()
         .unwrap();
@@ -1624,7 +1658,7 @@ fn wrapper_refuses_push_via_deprecated_builtin_alias() {
     let (_shim, path, _email, _keydir) = signed_shim_env();
     let repo = human_repo();
     let remote = tempfile::tempdir().unwrap();
-    assert!(Command::new("git")
+    assert!(hermetic_command("git")
         .args(["init", "-q", "--bare", remote.path().to_str().unwrap()])
         .status()
         .unwrap()
@@ -1668,7 +1702,7 @@ fn wrapper_refuses_push_via_deprecated_builtin_alias() {
         String::from_utf8_lossy(&out.stderr),
     );
     // Destination must be empty — no commit should have reached the remote.
-    let refs = Command::new("git")
+    let refs = hermetic_command("git")
         .args(["-C", remote.path().to_str().unwrap(), "for-each-ref"])
         .output()
         .unwrap();
@@ -1699,7 +1733,7 @@ fn wrapper_refuses_push_plain_last_overrides_subsection_command() {
     let (_shim, path, _email, _keydir) = signed_shim_env();
     let repo = human_repo();
     let remote = tempfile::tempdir().unwrap();
-    assert!(Command::new("git")
+    assert!(hermetic_command("git")
         .args(["init", "-q", "--bare", remote.path().to_str().unwrap()])
         .status()
         .unwrap()
@@ -1733,7 +1767,7 @@ fn wrapper_refuses_push_plain_last_overrides_subsection_command() {
     // Mutation evidence: deleting the last-wins branch from `resolve_alias`
     // and reverting to `.command`-first makes this test PASS (push reaches the
     // remote) instead of asserting the push was refused.
-    let refs = Command::new("git")
+    let refs = hermetic_command("git")
         .args(["-C", remote.path().to_str().unwrap(), "for-each-ref"])
         .output()
         .unwrap();
@@ -1765,7 +1799,7 @@ fn wrapper_refuses_push_via_empty_subsection_alias() {
     let (_shim, path, _email, _keydir) = signed_shim_env();
     let repo = human_repo();
     let remote = tempfile::tempdir().unwrap();
-    assert!(Command::new("git")
+    assert!(hermetic_command("git")
         .args(["init", "-q", "--bare", remote.path().to_str().unwrap()])
         .status()
         .unwrap()
@@ -1800,7 +1834,7 @@ fn wrapper_refuses_push_via_empty_subsection_alias() {
     // Mutation evidence: removing empty-subsection matching from `resolve_alias`
     // leaves `pub` unresolved; the wrapper treats it as a real (non-push)
     // command; git dispatches the push; the remote acquires the commit.
-    let refs = Command::new("git")
+    let refs = hermetic_command("git")
         .args(["-C", remote.path().to_str().unwrap(), "for-each-ref"])
         .output()
         .unwrap();
@@ -1845,7 +1879,7 @@ fn wrapper_allows_agent_push_via_subsection_command_alias() {
         String::from_utf8_lossy(&out.stderr),
     );
     // Remote must have received the commit.
-    let refs = Command::new("git")
+    let refs = hermetic_command("git")
         .args(["-C", remote.to_str().unwrap(), "for-each-ref"])
         .output()
         .unwrap();
@@ -1876,7 +1910,7 @@ fn wrapper_refuses_push_via_uppercase_alias_invocation() {
     let (_shim, path, _email, _keydir) = signed_shim_env();
     let repo = human_repo();
     let remote = tempfile::tempdir().unwrap();
-    assert!(Command::new("git")
+    assert!(hermetic_command("git")
         .args(["init", "-q", "--bare", remote.path().to_str().unwrap()])
         .status()
         .unwrap()
@@ -1901,7 +1935,7 @@ fn wrapper_refuses_push_via_uppercase_alias_invocation() {
         "expected push-gate author refusal; stderr={}",
         String::from_utf8_lossy(&out.stderr),
     );
-    let refs = Command::new("git")
+    let refs = hermetic_command("git")
         .args(["-C", remote.path().to_str().unwrap(), "for-each-ref"])
         .output()
         .unwrap();
@@ -1928,7 +1962,7 @@ fn wrapper_refuses_push_via_regex_metachar_subsection_alias() {
     let (_shim, path, _email, _keydir) = signed_shim_env();
     let repo = human_repo();
     let remote = tempfile::tempdir().unwrap();
-    assert!(Command::new("git")
+    assert!(hermetic_command("git")
         .args(["init", "-q", "--bare", remote.path().to_str().unwrap()])
         .status()
         .unwrap()
@@ -1959,7 +1993,7 @@ fn wrapper_refuses_push_via_regex_metachar_subsection_alias() {
         "expected push-gate author refusal; stderr={}",
         String::from_utf8_lossy(&out.stderr),
     );
-    let refs = Command::new("git")
+    let refs = hermetic_command("git")
         .args(["-C", remote.path().to_str().unwrap(), "for-each-ref"])
         .output()
         .unwrap();
@@ -1997,7 +2031,7 @@ fn wrapper_does_not_misresove_dotted_command_name_as_subsection_alias() {
         let (_shim, path, _email, _keydir) = signed_shim_env();
         let repo = human_repo();
         let remote = tempfile::tempdir().unwrap();
-        assert!(Command::new("git")
+        assert!(hermetic_command("git")
             .args(["init", "-q", "--bare", remote.path().to_str().unwrap()])
             .status()
             .unwrap()
@@ -2034,7 +2068,7 @@ fn wrapper_does_not_misresove_dotted_command_name_as_subsection_alias() {
             "expected push-gate author refusal for dotted-name alias; stderr={}",
             String::from_utf8_lossy(&out.stderr),
         );
-        let refs = Command::new("git")
+        let refs = hermetic_command("git")
             .args(["-C", remote.path().to_str().unwrap(), "for-each-ref"])
             .output()
             .unwrap();
@@ -2050,7 +2084,7 @@ fn wrapper_does_not_misresove_dotted_command_name_as_subsection_alias() {
         let (_shim, path, _email, _keydir) = signed_shim_env();
         let repo = human_repo();
         let remote = tempfile::tempdir().unwrap();
-        assert!(Command::new("git")
+        assert!(hermetic_command("git")
             .args(["init", "-q", "--bare", remote.path().to_str().unwrap()])
             .status()
             .unwrap()
@@ -2083,7 +2117,7 @@ fn wrapper_does_not_misresove_dotted_command_name_as_subsection_alias() {
             "expected push-gate author refusal for leading-dot subsection alias; stderr={}",
             String::from_utf8_lossy(&out.stderr),
         );
-        let refs = Command::new("git")
+        let refs = hermetic_command("git")
             .args(["-C", remote.path().to_str().unwrap(), "for-each-ref"])
             .output()
             .unwrap();
@@ -2113,7 +2147,7 @@ fn wrapper_refuses_push_via_multiline_alias_value() {
     let (_shim, path, _email, _keydir) = signed_shim_env();
     let repo = human_repo();
     let remote = tempfile::tempdir().unwrap();
-    assert!(Command::new("git")
+    assert!(hermetic_command("git")
         .args(["init", "-q", "--bare", remote.path().to_str().unwrap()])
         .status()
         .unwrap()
@@ -2147,7 +2181,7 @@ fn wrapper_refuses_push_via_multiline_alias_value() {
     // Either a push-gate refusal OR an alias-safety refusal (the body may
     // contain a backslash or other unsafe token) is acceptable here — the key
     // is that the push did NOT reach the remote.
-    let refs = Command::new("git")
+    let refs = hermetic_command("git")
         .args(["-C", remote.path().to_str().unwrap(), "for-each-ref"])
         .output()
         .unwrap();
@@ -2256,7 +2290,7 @@ fn probe_isolation_rejects_sibling_helper_poisoning() {
 
         let repo = human_repo();
         let remote = tempfile::tempdir().unwrap();
-        assert!(Command::new("git")
+        assert!(hermetic_command("git")
             .args(["init", "-q", "--bare", remote.path().to_str().unwrap()])
             .status()
             .unwrap()
@@ -2281,7 +2315,7 @@ fn probe_isolation_rejects_sibling_helper_poisoning() {
             "expected author-refusal despite sibling helper; stderr={}",
             String::from_utf8_lossy(&out.stderr),
         );
-        let refs = Command::new("git")
+        let refs = hermetic_command("git")
             .args(["-C", remote.path().to_str().unwrap(), "for-each-ref"])
             .output()
             .unwrap();
@@ -2311,7 +2345,7 @@ fn probe_isolation_rejects_sibling_helper_poisoning() {
 
         let repo = human_repo();
         let remote = tempfile::tempdir().unwrap();
-        assert!(Command::new("git")
+        assert!(hermetic_command("git")
             .args(["init", "-q", "--bare", remote.path().to_str().unwrap()])
             .status()
             .unwrap()
@@ -2335,7 +2369,7 @@ fn probe_isolation_rejects_sibling_helper_poisoning() {
             "expected author-refusal (negative control); stderr={}",
             String::from_utf8_lossy(&out.stderr),
         );
-        let refs = Command::new("git")
+        let refs = hermetic_command("git")
             .args(["-C", remote.path().to_str().unwrap(), "for-each-ref"])
             .output()
             .unwrap();
@@ -2377,7 +2411,7 @@ fn wrapper_refuses_push_plain_last_wins_on_both_binaries() {
         let (_shim, path, _email, _keydir) = signed_shim_env();
         let repo = human_repo();
         let remote = tempfile::tempdir().unwrap();
-        assert!(Command::new("git")
+        assert!(hermetic_command("git")
             .args(["init", "-q", "--bare", remote.path().to_str().unwrap()])
             .status()
             .unwrap()
@@ -2411,7 +2445,7 @@ fn wrapper_refuses_push_plain_last_wins_on_both_binaries() {
             "expected push-gate author refusal on primary binary; stderr={}",
             String::from_utf8_lossy(&out.stderr),
         );
-        let refs = Command::new("git")
+        let refs = hermetic_command("git")
             .args(["-C", remote.path().to_str().unwrap(), "for-each-ref"])
             .output()
             .unwrap();
@@ -2445,7 +2479,7 @@ fn wrapper_refuses_push_plain_last_wins_on_both_binaries() {
         );
     };
     let alt_git = alt_dir.join("git");
-    let alt_ver = Command::new(&alt_git)
+    let alt_ver = hermetic_command(&alt_git)
         .arg("--version")
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
@@ -2529,7 +2563,7 @@ fn wrapper_refuses_push_plain_last_wins_on_both_binaries() {
 
         let repo = human_repo();
         let remote = tempfile::tempdir().unwrap();
-        assert!(Command::new(&alt_git)
+        assert!(hermetic_command(&alt_git)
             .args(["init", "-q", "--bare", remote.path().to_str().unwrap()])
             .status()
             .unwrap()
@@ -2561,7 +2595,7 @@ fn wrapper_refuses_push_plain_last_wins_on_both_binaries() {
             "expected push-gate author refusal on alt git ({alt_ver}); stderr={}",
             String::from_utf8_lossy(&out.stderr),
         );
-        let refs = Command::new(&alt_git)
+        let refs = hermetic_command(&alt_git)
             .args(["-C", remote.path().to_str().unwrap(), "for-each-ref"])
             .output()
             .unwrap();
@@ -2590,7 +2624,7 @@ fn wrapper_allows_empty_then_valid_alias_override() {
 
     let repo = human_repo();
     let remote = tempfile::tempdir().unwrap();
-    assert!(Command::new("git")
+    assert!(hermetic_command("git")
         .args(["init", "-q", "--bare", remote.path().to_str().unwrap()])
         .status()
         .unwrap()
@@ -2622,7 +2656,7 @@ fn wrapper_allows_empty_then_valid_alias_override() {
         String::from_utf8_lossy(&out.stderr),
     );
     // Destination must be empty — the push was refused before anything landed.
-    let refs = Command::new("git")
+    let refs = hermetic_command("git")
         .args(["-C", remote.path().to_str().unwrap(), "for-each-ref"])
         .output()
         .unwrap();
@@ -2646,7 +2680,7 @@ fn wrapper_refuses_valid_then_empty_alias_override() {
 
     let repo = human_repo();
     let remote = tempfile::tempdir().unwrap();
-    assert!(Command::new("git")
+    assert!(hermetic_command("git")
         .args(["init", "-q", "--bare", remote.path().to_str().unwrap()])
         .status()
         .unwrap()
@@ -2668,7 +2702,7 @@ fn wrapper_refuses_valid_then_empty_alias_override() {
         String::from_utf8_lossy(&out.stderr),
     );
     // The remote must be untouched — refused before any push.
-    let refs = Command::new("git")
+    let refs = hermetic_command("git")
         .args(["-C", remote.path().to_str().unwrap(), "for-each-ref"])
         .output()
         .unwrap();
@@ -2736,7 +2770,7 @@ fn wrapper_treats_exit1_with_stdout_as_probe_failure_not_unsupported() {
 
     let repo = human_repo();
     let remote = tempfile::tempdir().unwrap();
-    assert!(Command::new("git")
+    assert!(hermetic_command("git")
         .args(["init", "-q", "--bare", remote.path().to_str().unwrap()])
         .status()
         .unwrap()
@@ -2759,7 +2793,7 @@ fn wrapper_treats_exit1_with_stdout_as_probe_failure_not_unsupported() {
         "expected ProbeFailure message for exit-1+stdout probe; stderr={}",
         String::from_utf8_lossy(&out.stderr),
     );
-    let refs = Command::new("git")
+    let refs = hermetic_command("git")
         .args(["-C", remote.path().to_str().unwrap(), "for-each-ref"])
         .output()
         .unwrap();
