@@ -16,9 +16,9 @@ impl GitEnvironment {
         relay_url: &str,
         executable: &Path,
     ) -> anyhow::Result<Self> {
-        // Read once, here: the wrapper never consults it, so an agent cannot
-        // `export` its way out of enforcement mid-session. An unrecognized value
-        // aborts startup rather than silently picking a mode.
+        // Read once, here: the wrapper never consults it, so changing
+        // `BUZZ_GIT_IDENTITY` mid-session cannot change the mode. An
+        // unrecognized value aborts startup rather than silently picking a mode.
         let mode = buzz_git_identity::GitIdentityMode::from_env().map_err(anyhow::Error::msg)?;
         let agent = mode == buzz_git_identity::GitIdentityMode::Agent;
         let dir = tempfile::Builder::new().prefix("buzz-acp-git-").tempdir()?;
