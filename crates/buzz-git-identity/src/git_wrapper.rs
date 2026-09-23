@@ -529,11 +529,14 @@ enum SubsectionSupport {
 ///
 /// Verdict classification:
 ///   - `Supported`: exit 0 AND stdout starts with "git version".
-///   - `Unsupported`: exit 1 AND stdout is empty — old git's recognized
-///     unknown-command refusal (error message goes to stderr only).
-///     Exit 1 with stdout content is treated as `ProbeFailure` (fail closed).
+///   - `Unsupported`: exit 1 AND stdout empty AND stderr starts with old
+///     git's unknown-command diagnostic for the sentinel
+///     (`git: '_probe_' is not a git command`), captured under `LC_ALL=C`
+///     so the message is stable.  Every other exit-1 outcome (non-empty
+///     stdout, absent or unrelated stderr) is `ProbeFailure`.
 ///   - `ProbeFailure`: any other outcome (I/O error, timeout, unexpected exit,
-///     exit-1 with stdout, wrong output on exit 0).  Callers fail closed.
+///     exit-1 without the recognized diagnostic, wrong output on exit 0).
+///     Callers fail closed.
 ///
 /// Do NOT apply this isolation to normal push execution — real pushes need
 /// `git-receive-pack` and other git helpers on `GIT_EXEC_PATH`.
@@ -634,15 +637,24 @@ fn git_supports_subsection_alias(real_git: &Path) -> SubsectionSupport {
     };
     // Temp dirs are dropped here, cleaning up the probe dir and scratch dir.
 
+    // Old git's unknown-command diagnostic for the sentinel, stable under
+    // LC_ALL=C: "git: '_probe_' is not a git command. See 'git --help'."
+    const UNKNOWN_CMD_DIAG: &[u8] = b"git: '_probe_' is not a git command";
+
     match result {
         // Supported: exit 0 AND output starts with "git version".
         Some(ref out) if out.status.success() && out.stdout.starts_with(b"git version") => {
             SubsectionSupport::Supported
         }
-        // Unsupported: old git's recognized unknown-command refusal exits 1
-        // with nothing on stdout (the message goes to stderr).  Any exit 1
-        // with stdout content is a suspicious/unexpected response → fail closed.
-        Some(ref out) if out.status.code() == Some(1) && out.stdout.is_empty() => {
+        // Unsupported: old git's unknown-command refusal — exit 1, empty
+        // stdout, stderr starting with the sentinel diagnostic.  Any other
+        // exit 1 (stdout content, empty or unrelated stderr) falls through
+        // to ProbeFailure.
+        Some(ref out)
+            if out.status.code() == Some(1)
+                && out.stdout.is_empty()
+                && out.stderr.starts_with(UNKNOWN_CMD_DIAG) =>
+        {
             SubsectionSupport::Unsupported
         }
         // Any other outcome: fail closed.

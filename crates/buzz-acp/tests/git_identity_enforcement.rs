@@ -70,102 +70,237 @@ fn hermetic_command(program: impl AsRef<OsStr>) -> Command {
     cmd
 }
 
-/// Isolated capability probe: returns `true` iff the installed git binary
-/// dispatches `alias.<name>.command` form aliases.
+/// Verdict returned by the isolated capability probe helpers.
+///
+/// Mirrors the production `SubsectionSupport` discrimination:
+///   - `Supported`:   exit 0 + "git version" stdout
+///   - `Unsupported`: exit 1 + empty stdout + stderr starting with
+///     `git: '<sentinel>' is not a git command`
+///   - `Failure`:     setup error, spawn failure, timeout, output overflow, or
+///     unclassifiable output — callers `panic!` (fail the test)
+#[derive(Debug, PartialEq, Eq)]
+enum ProbeVerdict {
+    Supported,
+    Unsupported,
+    Failure,
+}
+
+/// Probe timeout — same order of magnitude as the production `PROBE_TIMEOUT`.
+const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Per-stream probe output cap (bytes); `git version X.Y.Z\n` is ~20 bytes.
+const PROBE_OUTPUT_CAP: usize = 64 * 1024;
+
+/// Run `cmd` with a timeout + per-stream output cap, draining each pipe on its
+/// own reader thread.
+///
+/// Sets stdin=null, stdout+stderr=piped, then waits up to `timeout`.
+/// Returns `None` on spawn failure, timeout, or output overflow.
+fn run_probe_bounded(
+    cmd: &mut Command,
+    timeout: std::time::Duration,
+) -> Option<std::process::Output> {
+    use std::io::Read;
+    use std::process::Stdio;
+
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = cmd.spawn().ok()?;
+    let mut stdout_pipe = child.stdout.take()?;
+    let mut stderr_pipe = child.stderr.take()?;
+
+    // Collect stdout and stderr in threads so neither pipe fills up and
+    // deadlocks while the main thread waits.
+    let stdout_thread = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let mut tmp = [0u8; 4096];
+        loop {
+            match stdout_pipe.read(&mut tmp) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => {
+                    buf.extend_from_slice(&tmp[..n]);
+                    if buf.len() > PROBE_OUTPUT_CAP {
+                        return None;
+                    }
+                }
+            }
+        }
+        Some(buf)
+    });
+    let stderr_thread = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let mut tmp = [0u8; 4096];
+        loop {
+            match stderr_pipe.read(&mut tmp) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => {
+                    buf.extend_from_slice(&tmp[..n]);
+                    if buf.len() > PROBE_OUTPUT_CAP {
+                        return None;
+                    }
+                }
+            }
+        }
+        Some(buf)
+    });
+
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let stdout = stdout_thread.join().ok().flatten()?;
+                let stderr = stderr_thread.join().ok().flatten()?;
+                return Some(std::process::Output {
+                    status,
+                    stdout,
+                    stderr,
+                });
+            }
+            Ok(None) => {
+                if std::time::Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return None;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            Err(_) => {
+                let _ = child.kill();
+                return None;
+            }
+        }
+    }
+}
+
+/// Classify a raw probe `Output` for alias `sentinel` using the same rules as
+/// the production `git_supports_subsection_alias` classifier.
+fn classify_probe_output(out: &std::process::Output, sentinel: &str) -> ProbeVerdict {
+    let unknown_cmd_diag = format!("git: '{sentinel}' is not a git command");
+    if out.status.success() && out.stdout.starts_with(b"git version") {
+        ProbeVerdict::Supported
+    } else if out.status.code() == Some(1)
+        && out.stdout.is_empty()
+        && out.stderr.starts_with(unknown_cmd_diag.as_bytes())
+    {
+        ProbeVerdict::Unsupported
+    } else {
+        ProbeVerdict::Failure
+    }
+}
+
+/// Isolated capability probe for `alias.<name>.command` form aliases.
 ///
 /// Matches the production `git_supports_subsection_alias` isolation model:
 ///   - Probe-only private tempdir with a controlled `git` symlink to the real
 ///     binary (prevents sibling helpers from intercepting the probe)
 ///   - Both PATH and GIT_EXEC_PATH set to the private dir only
 ///   - GIT_CONFIG_NOSYSTEM, scratch HOME, XDG_CONFIG_HOME/GIT_DIR removed
-///   - Verdict requires exit 0 AND stdout starting with "git version";
-///     exit 1 with empty stdout → Unsupported; anything else → false (fail closed)
-fn isolated_subsection_probe() -> bool {
-    let git_dir = real_git_dir();
-    let git_binary = git_dir.join("git");
-    let git_binary = git_binary
-        .canonicalize()
-        .unwrap_or_else(|_| git_binary.clone());
-
-    // Private probe dir: only contains the controlled git symlink.
-    let probe_dir = match tempfile::tempdir() {
-        Ok(d) => d,
-        Err(_) => return false,
-    };
-    let git_link = probe_dir.path().join("git");
-    if std::os::unix::fs::symlink(&git_binary, &git_link).is_err() {
-        return false;
-    }
-
-    let scratch = match tempfile::tempdir() {
-        Ok(d) => d,
-        Err(_) => return false,
-    };
-    let probe_path = probe_dir.path().as_os_str().to_owned();
-    let out = Command::new(&git_link)
-        .args(["-c", "alias._probe_.command=version", "_probe_"])
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .env("HOME", scratch.path())
-        .env_remove("XDG_CONFIG_HOME")
-        .env_remove("GIT_CONFIG_GLOBAL")
-        .env_remove("GIT_CONFIG_SYSTEM")
-        .env_remove("GIT_DIR")
-        .env_remove("GIT_WORK_TREE")
-        .env_remove("GIT_NAMESPACE")
-        .env_remove("GIT_CONFIG_COUNT")
-        .env_remove("GIT_CONFIG_PARAMETERS")
-        .env("PATH", &probe_path)
-        .env("GIT_EXEC_PATH", probe_dir.path())
-        .env("LC_ALL", "C")
-        .current_dir(scratch.path())
-        .output()
-        .unwrap_or_else(|_| panic!("failed to spawn git for subsection probe"));
-    // Match production verdict: Supported = exit 0 + "git version" stdout.
-    out.status.success() && out.stdout.starts_with(b"git version")
+///   - LC_ALL=C so the unknown-command diagnostic is ASCII-stable
+///   - Bounded execution (timeout + output cap) via `run_probe_bounded`
+///
+/// Callers `panic!` on `Failure` — setup, spawn, timeout, and unclassifiable
+/// output indicate a broken test environment, not a capability answer.
+fn isolated_subsection_probe() -> ProbeVerdict {
+    run_isolated_probe_for(
+        &real_git_dir().join("git"),
+        "alias._probe_.command=version",
+        "_probe_",
+    )
 }
 
-/// Isolated empty-subsection dispatch probe: returns `true` iff the installed
-/// git binary dispatches `alias..<name>` (empty-subsection) form aliases.
-fn isolated_empty_subsection_probe() -> bool {
-    let git_dir = real_git_dir();
-    let git_binary = git_dir.join("git");
+/// Isolated empty-subsection dispatch probe for `alias..<name>` form aliases.
+///
+/// Same isolation model as `isolated_subsection_probe`; same tri-state return.
+fn isolated_empty_subsection_probe() -> ProbeVerdict {
+    run_isolated_probe_for(&real_git_dir().join("git"), "alias..pub=version", "pub")
+}
+
+/// Shared implementation for the isolated probes: runs
+/// `git -c <config> <sentinel>` against `git_binary`.
+fn run_isolated_probe_for(git_binary: &Path, config: &str, sentinel: &str) -> ProbeVerdict {
     let git_binary = git_binary
         .canonicalize()
-        .unwrap_or_else(|_| git_binary.clone());
+        .unwrap_or_else(|_| git_binary.to_path_buf());
 
+    // Private probe dir: only the controlled git symlink — no adjacent helpers.
     let probe_dir = match tempfile::tempdir() {
         Ok(d) => d,
-        Err(_) => return false,
+        Err(_) => return ProbeVerdict::Failure,
     };
     let git_link = probe_dir.path().join("git");
     if std::os::unix::fs::symlink(&git_binary, &git_link).is_err() {
-        return false;
+        return ProbeVerdict::Failure;
     }
 
     let scratch = match tempfile::tempdir() {
         Ok(d) => d,
-        Err(_) => return false,
+        Err(_) => return ProbeVerdict::Failure,
     };
     let probe_path = probe_dir.path().as_os_str().to_owned();
-    let out = Command::new(&git_link)
-        .args(["-c", "alias..pub=version", "pub"])
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .env("HOME", scratch.path())
-        .env_remove("XDG_CONFIG_HOME")
-        .env_remove("GIT_CONFIG_GLOBAL")
-        .env_remove("GIT_CONFIG_SYSTEM")
-        .env_remove("GIT_DIR")
-        .env_remove("GIT_WORK_TREE")
-        .env_remove("GIT_NAMESPACE")
-        .env_remove("GIT_CONFIG_COUNT")
-        .env_remove("GIT_CONFIG_PARAMETERS")
-        .env("PATH", &probe_path)
-        .env("GIT_EXEC_PATH", probe_dir.path())
-        .env("LC_ALL", "C")
-        .current_dir(scratch.path())
+    let out = match run_probe_bounded(
+        Command::new(&git_link)
+            .args(["-c", config, sentinel])
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("HOME", scratch.path())
+            .env_remove("XDG_CONFIG_HOME")
+            .env_remove("GIT_CONFIG_GLOBAL")
+            .env_remove("GIT_CONFIG_SYSTEM")
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_NAMESPACE")
+            .env_remove("GIT_CONFIG_COUNT")
+            .env_remove("GIT_CONFIG_PARAMETERS")
+            .env("PATH", &probe_path)
+            .env("GIT_EXEC_PATH", probe_dir.path())
+            .env("LC_ALL", "C")
+            .current_dir(scratch.path()),
+        PROBE_TIMEOUT,
+    ) {
+        Some(o) => o,
+        None => return ProbeVerdict::Failure,
+    };
+    classify_probe_output(&out, sentinel)
+}
+
+/// The test probe helpers must report setup/process/classification failure as
+/// `Failure` — never as `Unsupported`, which callers treat as a legitimate skip.
+#[test]
+fn probe_helpers_report_timeout_and_unrecognized_exit1_as_failure() {
+    let mut sleeper = Command::new("sh");
+    sleeper.args(["-c", "sleep 30"]);
+    assert!(
+        run_probe_bounded(&mut sleeper, std::time::Duration::from_millis(200)).is_none(),
+        "a probe exceeding its deadline must yield no output"
+    );
+
+    let unrelated = Command::new("sh")
+        .args(["-c", "echo 'fatal: something else' >&2; exit 1"])
         .output()
-        .unwrap_or_else(|_| panic!("failed to spawn git for empty-subsection probe"));
-    out.status.success() && out.stdout.starts_with(b"git version")
+        .unwrap();
+    assert_eq!(
+        classify_probe_output(&unrelated, "_probe_"),
+        ProbeVerdict::Failure
+    );
+
+    let recognized = Command::new("sh")
+        .args([
+            "-c",
+            "echo \"git: '_probe_' is not a git command. See 'git --help'.\" >&2; exit 1",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        classify_probe_output(&recognized, "_probe_"),
+        ProbeVerdict::Unsupported
+    );
+
+    let missing = Path::new("/nonexistent/buzz-probe-test/git");
+    assert_eq!(
+        run_isolated_probe_for(missing, "alias._probe_.command=version", "_probe_"),
+        ProbeVerdict::Failure
+    );
 }
 
 /// A git repo with one human-authored commit and human-named local config.
@@ -1466,9 +1601,13 @@ fn wrapper_refuses_push_via_builtin_shadowing_alias() {
 #[test]
 fn wrapper_refuses_push_via_subsection_command_alias() {
     // Dispatch probe: does this binary execute alias._probe_.command=version?
-    if !isolated_subsection_probe() {
-        eprintln!("skip: installed git does not dispatch alias.<name>.command form");
-        return;
+    match isolated_subsection_probe() {
+        ProbeVerdict::Supported => {}
+        ProbeVerdict::Unsupported => {
+            eprintln!("skip: installed git does not dispatch alias.<name>.command form");
+            return;
+        }
+        ProbeVerdict::Failure => panic!("subsection probe failed (setup/spawn/timeout)"),
     }
 
     let (_shim, path, _email, _keydir) = signed_shim_env();
@@ -1527,9 +1666,13 @@ fn wrapper_refuses_push_via_subsection_command_alias() {
 /// **Self-gate:** skips on binaries without subsection alias dispatch support.
 #[test]
 fn wrapper_refuses_push_subsection_command_overrides_plain_alias() {
-    if !isolated_subsection_probe() {
-        eprintln!("skip: installed git does not dispatch alias.<name>.command form");
-        return;
+    match isolated_subsection_probe() {
+        ProbeVerdict::Supported => {}
+        ProbeVerdict::Unsupported => {
+            eprintln!("skip: installed git does not dispatch alias.<name>.command form");
+            return;
+        }
+        ProbeVerdict::Failure => panic!("subsection probe failed (setup/spawn/timeout)"),
     }
 
     let (_shim, path, _email, _keydir) = signed_shim_env();
@@ -1725,9 +1868,13 @@ fn wrapper_refuses_push_via_deprecated_builtin_alias() {
 /// **Self-gate:** skips on binaries without subsection alias dispatch support.
 #[test]
 fn wrapper_refuses_push_plain_last_overrides_subsection_command() {
-    if !isolated_subsection_probe() {
-        eprintln!("skip: installed git does not dispatch alias.<name>.command form");
-        return;
+    match isolated_subsection_probe() {
+        ProbeVerdict::Supported => {}
+        ProbeVerdict::Unsupported => {
+            eprintln!("skip: installed git does not dispatch alias.<name>.command form");
+            return;
+        }
+        ProbeVerdict::Failure => panic!("subsection probe failed (setup/spawn/timeout)"),
     }
 
     let (_shim, path, _email, _keydir) = signed_shim_env();
@@ -1787,13 +1934,21 @@ fn wrapper_refuses_push_plain_last_overrides_subsection_command() {
 #[test]
 fn wrapper_refuses_push_via_empty_subsection_alias() {
     // Two-step gate: dispatch probe AND empty-subsection dispatch (both isolated).
-    if !isolated_subsection_probe() {
-        eprintln!("skip: installed git does not dispatch alias.<name>.command form");
-        return;
+    match isolated_subsection_probe() {
+        ProbeVerdict::Supported => {}
+        ProbeVerdict::Unsupported => {
+            eprintln!("skip: installed git does not dispatch alias.<name>.command form");
+            return;
+        }
+        ProbeVerdict::Failure => panic!("subsection probe failed (setup/spawn/timeout)"),
     }
-    if !isolated_empty_subsection_probe() {
-        eprintln!("skip: installed git does not dispatch alias..<name> form");
-        return;
+    match isolated_empty_subsection_probe() {
+        ProbeVerdict::Supported => {}
+        ProbeVerdict::Unsupported => {
+            eprintln!("skip: installed git does not dispatch alias..<name> form");
+            return;
+        }
+        ProbeVerdict::Failure => panic!("empty-subsection probe failed (setup/spawn/timeout)"),
     }
 
     let (_shim, path, _email, _keydir) = signed_shim_env();
@@ -1852,9 +2007,13 @@ fn wrapper_refuses_push_via_empty_subsection_alias() {
 /// **Self-gate:** skips on binaries without subsection alias dispatch support.
 #[test]
 fn wrapper_allows_agent_push_via_subsection_command_alias() {
-    if !isolated_subsection_probe() {
-        eprintln!("skip: installed git does not dispatch alias.<name>.command form");
-        return;
+    match isolated_subsection_probe() {
+        ProbeVerdict::Supported => {}
+        ProbeVerdict::Unsupported => {
+            eprintln!("skip: installed git does not dispatch alias.<name>.command form");
+            return;
+        }
+        ProbeVerdict::Failure => panic!("subsection probe failed (setup/spawn/timeout)"),
     }
 
     let (_shim, path, email, _keydir) = signed_shim_env();
@@ -1954,9 +2113,13 @@ fn wrapper_refuses_push_via_uppercase_alias_invocation() {
 /// Self-gate: skips on binaries that don't dispatch `.command` form aliases.
 #[test]
 fn wrapper_refuses_push_via_regex_metachar_subsection_alias() {
-    if !isolated_subsection_probe() {
-        eprintln!("skip: installed git does not dispatch alias.<name>.command form");
-        return;
+    match isolated_subsection_probe() {
+        ProbeVerdict::Supported => {}
+        ProbeVerdict::Unsupported => {
+            eprintln!("skip: installed git does not dispatch alias.<name>.command form");
+            return;
+        }
+        ProbeVerdict::Failure => panic!("subsection probe failed (setup/spawn/timeout)"),
     }
 
     let (_shim, path, _email, _keydir) = signed_shim_env();
@@ -2021,9 +2184,13 @@ fn wrapper_refuses_push_via_regex_metachar_subsection_alias() {
 /// Self-gate: skips on binaries that don't dispatch `.command` form aliases.
 #[test]
 fn wrapper_does_not_misresove_dotted_command_name_as_subsection_alias() {
-    if !isolated_subsection_probe() {
-        eprintln!("skip: installed git does not dispatch alias.<name>.command form");
-        return;
+    match isolated_subsection_probe() {
+        ProbeVerdict::Supported => {}
+        ProbeVerdict::Unsupported => {
+            eprintln!("skip: installed git does not dispatch alias.<name>.command form");
+            return;
+        }
+        ProbeVerdict::Failure => panic!("subsection probe failed (setup/spawn/timeout)"),
     }
 
     // ── Case A: alias.pub.command.command=push, alias.pub.command=status ──
@@ -2208,9 +2375,13 @@ fn wrapper_refuses_push_via_multiline_alias_value() {
 /// Does NOT mutate the global PATH — uses explicit PATH env on wrapper() instead.
 #[test]
 fn probe_isolation_rejects_sibling_helper_poisoning() {
-    if !isolated_subsection_probe() {
-        eprintln!("skip: installed git does not dispatch alias.<name>.command form");
-        return;
+    match isolated_subsection_probe() {
+        ProbeVerdict::Supported => {}
+        ProbeVerdict::Unsupported => {
+            eprintln!("skip: installed git does not dispatch alias.<name>.command form");
+            return;
+        }
+        ProbeVerdict::Failure => panic!("subsection probe failed (setup/spawn/timeout)"),
     }
 
     // Find the real git binary's absolute path.
@@ -2381,103 +2552,105 @@ fn probe_isolation_rejects_sibling_helper_poisoning() {
     }
 }
 
-/// R12-f: Mixed-definition on BOTH git binaries — when BOTH `alias.pub.command`
-/// (subsection form, defines alias `pub`) AND `alias.pub` (plain form) are set,
-/// and the plain form has push as its value, the push must be refused on every
-/// binary regardless of which form is the "last-wins" definition.
+/// R12-f (primary binary): Mixed-definition on the primary git binary — when BOTH
+/// `alias.pub.command` (subsection form, defines alias `pub`) AND `alias.pub`
+/// (plain form) are set with push as the plain-form value, the push must be
+/// refused on the host's primary git binary regardless of capability.
 ///
 /// On supporting git (2.54): BOTH forms are visible; last-wins ordering applies.
 ///   `.command=status` first, plain=push second → last-wins → push → refuse.
 /// On non-supporting git (2.50): `.command` form is invisible for dispatch;
 /// only the plain form is visible → push → refuse.
 ///
-/// Both binaries must write BOTH definitions so the test is structurally identical
-/// across the two code paths (neither binary silently collapses to one definition).
-/// The alternate-discovery section records each binary's capability so a run that
-/// collapses to one binary is visible in the test output, not silently green.
+/// Runs unconditionally: does not require a second git binary.  For two-binary
+/// capability-matrix coverage see `wrapper_refuses_push_plain_last_wins_alt_binary`.
 #[test]
-fn wrapper_refuses_push_plain_last_wins_on_both_binaries() {
+fn wrapper_refuses_push_plain_last_wins_primary_binary() {
     // ── Primary binary ──
     let primary_supports_subsection = isolated_subsection_probe();
+    match primary_supports_subsection {
+        ProbeVerdict::Supported | ProbeVerdict::Unsupported => {}
+        ProbeVerdict::Failure => panic!("subsection probe failed (setup/spawn/timeout)"),
+    }
     eprintln!(
         "primary binary: {} subsection aliases",
-        if primary_supports_subsection {
+        if primary_supports_subsection == ProbeVerdict::Supported {
             "SUPPORTS"
         } else {
             "does NOT support"
         }
     );
-    {
-        let (_shim, path, _email, _keydir) = signed_shim_env();
-        let repo = human_repo();
-        let remote = tempfile::tempdir().unwrap();
-        assert!(hermetic_command("git")
-            .args(["init", "-q", "--bare", remote.path().to_str().unwrap()])
-            .status()
-            .unwrap()
-            .success());
-        wrapper(
-            &path,
-            repo.path(),
-            &["remote", "add", "origin", remote.path().to_str().unwrap()],
-        );
-        // Write BOTH definitions on BOTH binaries:
-        // .command=status first, plain=push second → plain wins on both.
-        // On supporting binary: last-wins sees plain=push.
-        // On non-supporting binary: .command form is invisible, so plain=push is
-        // the only visible definition — it is stored by git regardless.
-        wrapper(
-            &path,
-            repo.path(),
-            &["config", "alias.pub.command", "status"],
-        );
-        wrapper(&path, repo.path(), &["config", "alias.pub", "push"]);
 
-        let out = wrapper(&path, repo.path(), &["pub", "origin", "main"]);
-        assert!(
-            !out.status.success(),
-            "alias.pub=push (plain last) must be refused on the primary binary \
-             (supports_subsection={primary_supports_subsection}); stderr={}",
-            String::from_utf8_lossy(&out.stderr),
-        );
-        assert!(
-            String::from_utf8_lossy(&out.stderr).contains("not authored by your agent identity"),
-            "expected push-gate author refusal on primary binary; stderr={}",
-            String::from_utf8_lossy(&out.stderr),
-        );
-        let refs = hermetic_command("git")
-            .args(["-C", remote.path().to_str().unwrap(), "for-each-ref"])
-            .output()
-            .unwrap();
-        assert!(
-            refs.stdout.is_empty(),
-            "remote must be empty on primary binary; refs={}",
-            String::from_utf8_lossy(&refs.stdout),
-        );
-    }
+    let (_shim, path, _email, _keydir) = signed_shim_env();
+    let repo = human_repo();
+    let remote = tempfile::tempdir().unwrap();
+    assert!(hermetic_command("git")
+        .args(["init", "-q", "--bare", remote.path().to_str().unwrap()])
+        .status()
+        .unwrap()
+        .success());
+    wrapper(
+        &path,
+        repo.path(),
+        &["remote", "add", "origin", remote.path().to_str().unwrap()],
+    );
+    // Write BOTH definitions: .command=status first, plain=push second.
+    // On supporting binary: last-wins sees plain=push.
+    // On non-supporting binary: .command form is invisible; plain=push is
+    // the only visible definition.
+    wrapper(
+        &path,
+        repo.path(),
+        &["config", "alias.pub.command", "status"],
+    );
+    wrapper(&path, repo.path(), &["config", "alias.pub", "push"]);
 
-    // ── Alternate binary discovery ──
-    // Record each binary's capability explicitly so a single-binary host is
-    // visible (eprintln skip message) rather than silently green.
+    let out = wrapper(&path, repo.path(), &["pub", "origin", "main"]);
+    assert!(
+        !out.status.success(),
+        "alias.pub=push (plain last) must be refused on the primary binary; stderr={}",
+        String::from_utf8_lossy(&out.stderr),
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("not authored by your agent identity"),
+        "expected push-gate author refusal on primary binary; stderr={}",
+        String::from_utf8_lossy(&out.stderr),
+    );
+    let refs = hermetic_command("git")
+        .args(["-C", remote.path().to_str().unwrap(), "for-each-ref"])
+        .output()
+        .unwrap();
+    assert!(
+        refs.stdout.is_empty(),
+        "remote must be empty on primary binary; refs={}",
+        String::from_utf8_lossy(&refs.stdout),
+    );
+}
+
+/// R12-f (alternate binary): same mixed-definition refusal exercised against a
+/// second git installation (e.g. Homebrew git alongside Apple git).
+///
+/// **Requires two distinct git binaries at `/usr/bin/git` and
+/// `/opt/homebrew/bin/git`.**  Run with `--run-ignored` on a machine that has
+/// both installations; the required `just test-unit` CI lane (Ubuntu) does not
+/// provision a second git and would fail deterministically without `#[ignore]`.
+#[test]
+#[ignore = "requires two git installations (e.g. /opt/homebrew/bin/git + /usr/bin/git)"]
+fn wrapper_refuses_push_plain_last_wins_alt_binary() {
     let apple_git = std::path::Path::new("/usr/bin/git");
     let brew_git = std::path::Path::new("/opt/homebrew/bin/git");
-    let alt_git_dir: Option<std::path::PathBuf> = {
-        let primary = real_git_dir().join("git");
-        [apple_git, brew_git]
-            .iter()
-            .find(|p| p.is_file() && p.canonicalize().ok() != primary.canonicalize().ok())
-            .map(|p| p.parent().unwrap().to_path_buf())
-    };
+    let primary = real_git_dir().join("git");
+    let alt_git_dir: Option<std::path::PathBuf> = [apple_git, brew_git]
+        .iter()
+        .find(|p| p.is_file() && p.canonicalize().ok() != primary.canonicalize().ok())
+        .map(|p| p.parent().unwrap().to_path_buf());
 
-    let Some(alt_dir) = alt_git_dir else {
-        // No second git binary on this host.  Panic with a skip message so the
-        // absent leg is visible as a FAILED test rather than silently passing —
-        // single-binary hosts do not exercise this test's second-binary assertions.
+    let alt_dir = alt_git_dir.unwrap_or_else(|| {
         panic!(
-            "skip: no second git binary found on this host; \
-             this test requires two git installations (e.g. Homebrew + Apple git)"
-        );
-    };
+            "no second git binary found at /usr/bin/git or /opt/homebrew/bin/git distinct from \
+             the primary; provision two git installations before running this test"
+        )
+    });
     let alt_git = alt_dir.join("git");
     let alt_ver = hermetic_command(&alt_git)
         .arg("--version")
@@ -2485,41 +2658,17 @@ fn wrapper_refuses_push_plain_last_wins_on_both_binaries() {
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .unwrap_or_else(|_| "unknown".to_string());
 
-    // Determine the alt binary's capability by probing it directly.
-    // Uses the same private-dir isolation as the production probe so a
-    // sibling helper cannot flip the verdict.
-    let alt_supports_subsection = {
-        let alt_git_abs = alt_git.canonicalize().unwrap_or_else(|_| alt_git.clone());
-        let probe_dir = tempfile::tempdir().unwrap();
-        let git_link = probe_dir.path().join("git");
-        std::os::unix::fs::symlink(&alt_git_abs, &git_link).unwrap();
-        let scratch = tempfile::tempdir().unwrap();
-        let probe_path = probe_dir.path().as_os_str().to_owned();
-        let out = Command::new(&git_link)
-            .args(["-c", "alias._probe_.command=version", "_probe_"])
-            .env("GIT_CONFIG_NOSYSTEM", "1")
-            .env("HOME", scratch.path())
-            .env_remove("XDG_CONFIG_HOME")
-            .env_remove("GIT_CONFIG_GLOBAL")
-            .env_remove("GIT_CONFIG_SYSTEM")
-            .env_remove("GIT_DIR")
-            .env_remove("GIT_WORK_TREE")
-            .env_remove("GIT_NAMESPACE")
-            .env_remove("GIT_CONFIG_COUNT")
-            .env_remove("GIT_CONFIG_PARAMETERS")
-            .env("PATH", &probe_path)
-            .env("GIT_EXEC_PATH", probe_dir.path())
-            .env("LC_ALL", "C")
-            .current_dir(scratch.path())
-            .output()
-            .unwrap_or_else(|_| panic!("failed to spawn alt git for probe"));
-        // Match production verdict: Supported = exit 0 + "git version" stdout.
-        out.status.success() && out.stdout.starts_with(b"git version")
-    };
+    // Probe the alt binary with the same isolation model as the primary.
+    let alt_supports_subsection =
+        run_isolated_probe_for(&alt_git, "alias._probe_.command=version", "_probe_");
+    assert!(
+        alt_supports_subsection != ProbeVerdict::Failure,
+        "alt-git subsection probe failed (setup/spawn/timeout/unclassifiable)"
+    );
     eprintln!(
         "alternate binary ({alt_ver} @ {}): {} subsection aliases",
         alt_git.display(),
-        if alt_supports_subsection {
+        if alt_supports_subsection == ProbeVerdict::Supported {
             "SUPPORTS"
         } else {
             "does NOT support"
@@ -2586,8 +2735,7 @@ fn wrapper_refuses_push_plain_last_wins_on_both_binaries() {
         let out = wrapper(&path, repo.path(), &["pub", "origin", "main"]);
         assert!(
             !out.status.success(),
-            "alias.pub=push must be refused on alt git ({alt_ver}, \
-             supports_subsection={alt_supports_subsection}); stderr={}",
+            "alias.pub=push must be refused on alt git ({alt_ver}); stderr={}",
             String::from_utf8_lossy(&out.stderr),
         );
         assert!(
@@ -2791,6 +2939,179 @@ fn wrapper_treats_exit1_with_stdout_as_probe_failure_not_unsupported() {
     assert!(
         String::from_utf8_lossy(&out.stderr).contains("alias capability probe failed"),
         "expected ProbeFailure message for exit-1+stdout probe; stderr={}",
+        String::from_utf8_lossy(&out.stderr),
+    );
+    let refs = hermetic_command("git")
+        .args(["-C", remote.path().to_str().unwrap(), "for-each-ref"])
+        .output()
+        .unwrap();
+    assert!(
+        refs.stdout.is_empty(),
+        "remote must be empty after probe-failure refusal; refs={}",
+        String::from_utf8_lossy(&refs.stdout),
+    );
+}
+
+/// Regression: probe classifier — exit 1 + empty stdout + UNRELATED stderr must NOT
+/// classify as Unsupported; it must result in ProbeFailure (fail closed).
+///
+/// The Unsupported branch requires stderr to start with old git's sentinel
+/// diagnostic (`git: '_probe_' is not a git command`); any other message is
+/// not a recognized refusal.
+#[test]
+fn wrapper_treats_exit1_with_unrelated_stderr_as_probe_failure_not_unsupported() {
+    // Build a fake "git" that exits 1 with unrelated stderr and empty stdout.
+    let fake_dir = tempfile::tempdir().unwrap();
+    let fake_git = fake_dir.path().join("git");
+    {
+        use std::io::Write;
+        let mut f = std::fs::File::create(&fake_git).unwrap();
+        // Exits 1, stdout empty, stderr = unrelated message (no "is not a git command")
+        write!(f, "#!/bin/sh\nprintf 'unrelated error\\n' >&2\nexit 1\n").unwrap();
+    }
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(&fake_git).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&fake_git, perms).unwrap();
+    }
+
+    use nostr::ToBech32;
+    let keys = nostr::Keys::generate();
+    let nsec = keys.secret_key().to_bech32().unwrap();
+    let keydir = tempfile::tempdir().unwrap();
+    let id = buzz_git_identity::write_keyfile(keydir.path(), &nsec).expect("write keyfile");
+    let shim = tempfile::tempdir().unwrap();
+    for name in ["git", "git-sign-nostr"] {
+        std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_buzz-acp"), shim.path().join(name)).unwrap();
+    }
+    let entries = buzz_git_identity::identity_signing_entries(&id);
+    buzz_git_identity::write_identity_manifest(shim.path(), &entries).unwrap();
+
+    // PATH: shim_dir : fake_dir : (original minus real-git dir)
+    let real_dir = real_git_dir();
+    let original_path = std::env::var_os("PATH").unwrap_or_default();
+    let filtered: Vec<PathBuf> = std::env::split_paths(&original_path)
+        .filter(|d| d.canonicalize().ok() != real_dir.canonicalize().ok())
+        .collect();
+    let path = std::env::join_paths(
+        std::iter::once(shim.path())
+            .chain(std::iter::once(fake_dir.path()))
+            .chain(filtered.iter().map(|d| d.as_path())),
+    )
+    .unwrap()
+    .into_string()
+    .unwrap();
+
+    let repo = human_repo();
+    let remote = tempfile::tempdir().unwrap();
+    assert!(hermetic_command("git")
+        .args(["init", "-q", "--bare", remote.path().to_str().unwrap()])
+        .status()
+        .unwrap()
+        .success());
+    wrapper(
+        &path,
+        repo.path(),
+        &["remote", "add", "origin", remote.path().to_str().unwrap()],
+    );
+    wrapper(&path, repo.path(), &["config", "alias.pub.command", "push"]);
+
+    let out = wrapper(&path, repo.path(), &["pub", "origin", "main"]);
+    assert!(
+        !out.status.success(),
+        "wrapper must refuse when probe yields exit-1+unrelated-stderr; stderr={}",
+        String::from_utf8_lossy(&out.stderr),
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("alias capability probe failed"),
+        "expected ProbeFailure message for exit-1+unrelated-stderr probe; stderr={}",
+        String::from_utf8_lossy(&out.stderr),
+    );
+    let refs = hermetic_command("git")
+        .args(["-C", remote.path().to_str().unwrap(), "for-each-ref"])
+        .output()
+        .unwrap();
+    assert!(
+        refs.stdout.is_empty(),
+        "remote must be empty after probe-failure refusal; refs={}",
+        String::from_utf8_lossy(&refs.stdout),
+    );
+}
+
+/// Regression: probe classifier — exit 1 + empty stdout + EMPTY stderr must NOT
+/// classify as Unsupported; it must result in ProbeFailure (fail closed).
+///
+/// A silent exit-1 (no stdout, no stderr) is not recognizable as old-git's
+/// unknown-command refusal and must be treated as ProbeFailure.
+#[test]
+fn wrapper_treats_exit1_with_empty_stderr_as_probe_failure_not_unsupported() {
+    // Build a fake "git" that exits 1 with no stdout and no stderr.
+    let fake_dir = tempfile::tempdir().unwrap();
+    let fake_git = fake_dir.path().join("git");
+    {
+        use std::io::Write;
+        let mut f = std::fs::File::create(&fake_git).unwrap();
+        // Exits 1, stdout empty, stderr empty
+        write!(f, "#!/bin/sh\nexit 1\n").unwrap();
+    }
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(&fake_git).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&fake_git, perms).unwrap();
+    }
+
+    use nostr::ToBech32;
+    let keys = nostr::Keys::generate();
+    let nsec = keys.secret_key().to_bech32().unwrap();
+    let keydir = tempfile::tempdir().unwrap();
+    let id = buzz_git_identity::write_keyfile(keydir.path(), &nsec).expect("write keyfile");
+    let shim = tempfile::tempdir().unwrap();
+    for name in ["git", "git-sign-nostr"] {
+        std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_buzz-acp"), shim.path().join(name)).unwrap();
+    }
+    let entries = buzz_git_identity::identity_signing_entries(&id);
+    buzz_git_identity::write_identity_manifest(shim.path(), &entries).unwrap();
+
+    // PATH: shim_dir : fake_dir : (original minus real-git dir)
+    let real_dir = real_git_dir();
+    let original_path = std::env::var_os("PATH").unwrap_or_default();
+    let filtered: Vec<PathBuf> = std::env::split_paths(&original_path)
+        .filter(|d| d.canonicalize().ok() != real_dir.canonicalize().ok())
+        .collect();
+    let path = std::env::join_paths(
+        std::iter::once(shim.path())
+            .chain(std::iter::once(fake_dir.path()))
+            .chain(filtered.iter().map(|d| d.as_path())),
+    )
+    .unwrap()
+    .into_string()
+    .unwrap();
+
+    let repo = human_repo();
+    let remote = tempfile::tempdir().unwrap();
+    assert!(hermetic_command("git")
+        .args(["init", "-q", "--bare", remote.path().to_str().unwrap()])
+        .status()
+        .unwrap()
+        .success());
+    wrapper(
+        &path,
+        repo.path(),
+        &["remote", "add", "origin", remote.path().to_str().unwrap()],
+    );
+    wrapper(&path, repo.path(), &["config", "alias.pub.command", "push"]);
+
+    let out = wrapper(&path, repo.path(), &["pub", "origin", "main"]);
+    assert!(
+        !out.status.success(),
+        "wrapper must refuse when probe yields exit-1+empty-stderr; stderr={}",
+        String::from_utf8_lossy(&out.stderr),
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("alias capability probe failed"),
+        "expected ProbeFailure message for exit-1+empty-stderr probe; stderr={}",
         String::from_utf8_lossy(&out.stderr),
     );
     let refs = hermetic_command("git")
