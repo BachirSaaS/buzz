@@ -132,9 +132,9 @@ pub struct HpkeBackupEnrollment {
 impl HpkeBackupEnrollment {
     /// Validate enrollment metadata supplied by a trusted native integration.
     ///
-    /// Identifier strings are encoded as exact UTF-8 bytes in AAD. Each must be
-    /// 1 through 255 bytes and must not contain control characters. The backup
-    /// ID is encoded as its 16 raw UUID bytes.
+    /// Identifier strings are encoded as UTF-8 bytes without normalization in
+    /// AAD. Each must be 1 through 255 bytes and must not contain control
+    /// characters. The backup ID is encoded as its 16 raw UUID bytes.
     pub fn new(
         recipient_key_id: impl Into<String>,
         service_namespace: impl Into<String>,
@@ -170,9 +170,9 @@ impl HpkeBackupEnrollment {
 
 /// Opaque v1 backup envelope produced by [`seal_nostr_secret`].
 ///
-/// JSON serialization is the wire representation documented in
-/// `docs/hpke-nsec-backup-v1.md`. Binary HPKE values use URL-safe base64 with
-/// no padding. This type contains no plaintext or raw nsec material.
+/// JSON serialization is the wire representation. Binary HPKE values use
+/// URL-safe base64 with no padding. This type contains no plaintext or raw nsec
+/// material.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct HpkeBackupEnvelope {
@@ -188,7 +188,7 @@ pub struct HpkeBackupEnvelope {
 }
 
 impl HpkeBackupEnvelope {
-    /// Reconstruct the exact v1 associated-data bytes from envelope metadata.
+    /// Reconstruct the v1 associated-data bytes from envelope metadata.
     ///
     /// This validates fixed suite/version values and canonical metadata
     /// encodings before returning bytes. Receivers must separately validate
@@ -265,7 +265,7 @@ impl HpkeBackupEnvelope {
 ///
 /// The function derives the Nostr public key from `secret_key`, copies only its
 /// raw 32-byte secret representation into a zeroizing plaintext buffer, and
-/// invokes RFC 9180 Base mode exactly once. `rustls` creates a fresh ephemeral
+/// invokes RFC 9180 Base mode once. `rustls` creates a fresh ephemeral
 /// P-256 key for every call. HPKE Base mode does not authenticate the sender;
 /// future upload authorization or a separate signature must provide that
 /// property.

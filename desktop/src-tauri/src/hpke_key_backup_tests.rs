@@ -325,8 +325,8 @@ fn serialized_envelope_contains_no_plaintext_or_nsec() {
 
 #[test]
 fn official_rfc9180_exact_suite_vector_opens() {
-    // RFC 9180's normative JSON vector at the exact KEM/KDF/AEAD tuple used
-    // here. Source pinned by the RFC itself:
+    // RFC 9180's JSON vector for the KEM/KDF/AEAD tuple used here.
+    // Source pinned by the RFC itself:
     // https://github.com/cfrg/draft-irtf-cfrg-hpke/blob/
     // 5f503c564da00b0687b3de75f1dfbdfc4079ad31/test-vectors.json
     let info = hex::decode("4f6465206f6e2061204772656369616e2055726e").unwrap();
