@@ -923,18 +923,21 @@ pub async fn soft_delete_event(
     community_id: CommunityId,
     event_id: &[u8],
 ) -> Result<bool> {
-    let mut connection = crate::observability::acquire_writer(
+    let mut tx = crate::begin_community_event_write_transaction(
         pool,
+        community_id,
         crate::observability::WriterOperation::EventWrite,
     )
     .await?;
     let result = sqlx::query(
         "UPDATE events SET deleted_at = NOW() WHERE community_id = $1 AND id = $2 AND deleted_at IS NULL",
     )
-            .bind(community_id.as_uuid())
-            .bind(event_id)
-            .execute(&mut *connection)
-            .await?;
+    .bind(community_id.as_uuid())
+    .bind(event_id)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
 
     Ok(result.rows_affected() > 0)
 }
@@ -978,8 +981,9 @@ pub async fn soft_delete_by_coordinate(
 ) -> Result<bool> {
     let deletion_created_at = DateTime::from_timestamp(deletion_created_at_secs, 0)
         .ok_or(DbError::InvalidTimestamp(deletion_created_at_secs))?;
-    let mut connection = crate::observability::acquire_writer(
+    let mut tx = crate::begin_community_event_write_transaction(
         pool,
+        community_id,
         crate::observability::WriterOperation::EventWrite,
     )
     .await?;
@@ -993,8 +997,10 @@ pub async fn soft_delete_by_coordinate(
     .bind(pubkey)
     .bind(d_tag)
     .bind(deletion_created_at)
-    .execute(&mut *connection)
+    .execute(&mut *tx)
     .await?;
+
+    tx.commit().await?;
 
     Ok(result.rows_affected() > 0)
 }
@@ -1011,12 +1017,12 @@ pub async fn soft_delete_event_and_update_thread(
     parent_event_id: Option<&[u8]>,
     root_event_id: Option<&[u8]>,
 ) -> Result<bool> {
-    let connection = crate::observability::acquire_writer(
+    let mut tx = crate::begin_community_event_write_transaction(
         pool,
+        community_id,
         crate::observability::WriterOperation::EventWrite,
     )
     .await?;
-    let mut tx = sqlx::Transaction::begin(connection, None).await?;
 
     let result = sqlx::query(
         "UPDATE events SET deleted_at = NOW() WHERE community_id = $1 AND id = $2 AND deleted_at IS NULL",
@@ -2106,8 +2112,9 @@ impl Db {
         channel_id: Uuid,
         relay_pubkey: &[u8],
     ) -> Result<u64> {
-        let mut connection = crate::observability::acquire_writer(
+        let mut tx = crate::begin_community_event_write_transaction(
             &self.pool,
+            community_id,
             crate::observability::WriterOperation::EventWrite,
         )
         .await?;
@@ -2118,8 +2125,11 @@ impl Db {
         .bind(community_id.as_uuid())
         .bind(channel_id)
         .bind(relay_pubkey)
-        .execute(&mut *connection)
+        .execute(&mut *tx)
         .await?;
+
+        tx.commit().await?;
+
         Ok(result.rows_affected())
     }
 }
