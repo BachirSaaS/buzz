@@ -9273,6 +9273,58 @@ mod build_mcp_servers_tests {
     }
 
     #[test]
+    fn user_mode_mcp_block_drops_inherited_identity_and_signing() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let inherited = [
+            ("user.name", "Inherited Agent"),
+            ("USER.EMAIL", "inherited@example.invalid"),
+            ("user.signingKey", "inherited-key"),
+            ("commit.gpgsign", "true"),
+            ("core.abbrev", "12"),
+        ];
+        std::env::set_var("BUZZ_GIT_IDENTITY", "user");
+        std::env::set_var("GIT_CONFIG_COUNT", inherited.len().to_string());
+        for (i, (key, value)) in inherited.iter().enumerate() {
+            std::env::set_var(format!("GIT_CONFIG_KEY_{i}"), key);
+            std::env::set_var(format!("GIT_CONFIG_VALUE_{i}"), value);
+        }
+        let mut config = test_config();
+        let git = git::GitEnvironment::install(
+            &config.keys,
+            &config.relay_url,
+            &std::env::current_exe().unwrap(),
+        );
+        std::env::remove_var("BUZZ_GIT_IDENTITY");
+        std::env::remove_var("GIT_CONFIG_COUNT");
+        for i in 0..inherited.len() {
+            std::env::remove_var(format!("GIT_CONFIG_KEY_{i}"));
+            std::env::remove_var(format!("GIT_CONFIG_VALUE_{i}"));
+        }
+        let git = git.unwrap();
+        config.persona_env_vars.extend(git.env.iter().cloned());
+        let servers = build_mcp_servers(&config);
+        let keys: Vec<String> = servers[0]
+            .env
+            .iter()
+            .filter(|entry| entry.name.starts_with("GIT_CONFIG_KEY_"))
+            .map(|entry| entry.value.to_ascii_lowercase())
+            .collect();
+        for dropped in [
+            "user.name",
+            "user.email",
+            "user.signingkey",
+            "commit.gpgsign",
+        ] {
+            assert!(
+                !keys.iter().any(|key| key == dropped),
+                "{dropped} leaked: {keys:?}"
+            );
+        }
+        assert!(keys.iter().any(|key| key == "core.abbrev"), "{keys:?}");
+        assert!(keys.iter().any(|key| key == "nostr.keyfile"), "{keys:?}");
+    }
+
+    #[test]
     fn session_new_mcp_server_has_required_fields() {
         let config = test_config();
         let servers = build_mcp_servers(&config);

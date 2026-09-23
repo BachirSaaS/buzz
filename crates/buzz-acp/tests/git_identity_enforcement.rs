@@ -1101,6 +1101,7 @@ fn run_harness(
     mode: Option<&str>,
     probe: &str,
     tmpdir: Option<&Path>,
+    inherited: &[(&str, &str)],
 ) -> (std::process::ExitStatus, String) {
     use std::os::unix::fs::PermissionsExt;
     use std::time::{Duration, Instant};
@@ -1140,6 +1141,13 @@ fn run_harness(
     if let Some(tmpdir) = tmpdir {
         cmd.env("TMPDIR", tmpdir);
     }
+    if !inherited.is_empty() {
+        cmd.env("GIT_CONFIG_COUNT", inherited.len().to_string());
+        for (i, (key, value)) in inherited.iter().enumerate() {
+            cmd.env(format!("GIT_CONFIG_KEY_{i}"), key)
+                .env(format!("GIT_CONFIG_VALUE_{i}"), value);
+        }
+    }
     let mut child = cmd.spawn().unwrap();
     let pid = nix::unistd::Pid::from_raw(child.id() as i32);
     let deadline = Instant::now() + Duration::from_secs(20);
@@ -1169,8 +1177,8 @@ fn run_harness(
 /// real git in the adapter's native shell. The script configures a human
 /// identity in the repo; a bare commit must still land as the agent, and a
 /// `-c user.email=` override must be refused. Removing the wrapper symlink from
-/// the install turns this RED (the commit lands as the human, the override
-/// succeeds).
+/// the install turns this RED on the refusal only: the `GIT_CONFIG_*` block
+/// still attributes the bare commit to the agent, but the override succeeds.
 #[test]
 fn harness_native_shell_commits_as_agent_and_refuses_identity_override() {
     let work = tempfile::tempdir().unwrap();
@@ -1191,6 +1199,7 @@ else
 fi
 cd .."#,
         None,
+        &[],
     );
     assert!(work.path().join("done").exists(), "probe failed: {logs}");
     assert!(status.success(), "harness shutdown failed: {logs}");
@@ -1231,6 +1240,40 @@ test "$(dirname "$(command -v git)")" != "$dir"
 ! git config user.signingkey
 ! git config commit.gpgSign"#,
         None,
+        &[],
+    );
+    assert!(work.path().join("done").exists(), "probe failed: {logs}");
+    assert!(status.success(), "harness shutdown failed: {logs}");
+}
+
+/// `user` mode drops inherited `GIT_CONFIG_*` identity and signing keys, in any
+/// case spelling, so the operator's own configuration applies; unrelated
+/// inherited entries still reach the adapter.
+#[test]
+fn harness_user_mode_drops_inherited_identity_and_signing() {
+    let work = tempfile::tempdir().unwrap();
+    let (status, logs) = run_harness(
+        work.path(),
+        Some("user"),
+        r#"! git config user.name
+! git config user.email
+! git config user.signingkey
+! git config gpg.format
+! git config gpg.x509.program
+! git config commit.gpgSign
+! git config tag.gpgSign
+test "$(git config core.abbrev)" = 12"#,
+        None,
+        &[
+            ("user.name", "Inherited Agent"),
+            ("USER.EMAIL", "inherited@example.invalid"),
+            ("user.signingKey", "inherited-key"),
+            ("GPG.Format", "openpgp"),
+            ("gpg.x509.program", "inherited-signer"),
+            ("commit.gpgsign", "true"),
+            ("TAG.GPGSIGN", "true"),
+            ("core.abbrev", "12"),
+        ],
     );
     assert!(work.path().join("done").exists(), "probe failed: {logs}");
     assert!(status.success(), "harness shutdown failed: {logs}");
@@ -1240,7 +1283,7 @@ test "$(dirname "$(command -v git)")" != "$dir"
 #[test]
 fn harness_invalid_mode_fails_startup() {
     let work = tempfile::tempdir().unwrap();
-    let (status, logs) = run_harness(work.path(), Some("usr"), "true", None);
+    let (status, logs) = run_harness(work.path(), Some("usr"), "true", None, &[]);
     assert!(!status.success(), "invalid mode must fail startup: {logs}");
     assert!(!work.path().join("done").exists(), "adapter ran: {logs}");
     assert!(
@@ -1255,7 +1298,7 @@ fn harness_invalid_mode_fails_startup() {
 fn harness_git_install_failure_fails_startup() {
     let work = tempfile::tempdir().unwrap();
     let missing = work.path().join("missing-tmp");
-    let (status, logs) = run_harness(work.path(), None, "true", Some(&missing));
+    let (status, logs) = run_harness(work.path(), None, "true", Some(&missing), &[]);
     assert!(
         !status.success(),
         "install failure must fail startup: {logs}"

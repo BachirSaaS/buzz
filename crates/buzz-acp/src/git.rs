@@ -66,7 +66,18 @@ impl GitEnvironment {
             symlink(executable, &dir.path().join("git"))?;
             buzz_git_identity::write_identity_manifest(dir.path(), &managed)?;
         }
-        let mut env = build_git_env(relay, &managed, inherited_config()?);
+        // In `user` mode nothing later overrides inherited identity or signing,
+        // so drop those keys; the set is agent mode's own managed keys.
+        let mut inherited = inherited_config()?;
+        if !agent {
+            let managed_keys = identity_entries(&info, relay, None);
+            inherited.retain(|(key, _)| {
+                !managed_keys
+                    .iter()
+                    .any(|(managed, _)| managed.eq_ignore_ascii_case(key))
+            });
+        }
+        let mut env = build_git_env(relay, &managed, inherited);
         let mut paths = vec![dir.path().to_path_buf()];
         paths.extend(std::env::split_paths(
             &std::env::var_os("PATH").unwrap_or_default(),
