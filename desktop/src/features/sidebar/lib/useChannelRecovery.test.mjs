@@ -47,6 +47,7 @@ before(async () => {
   stars = {
     ...(await import("./useChannelStars.ts")),
     ...(await import("./channelStarsStorage.ts")),
+    ...(await import("./channelStarsSync.ts")),
   };
   mutes = {
     ...(await import("./useChannelMutes.ts")),
@@ -444,6 +445,97 @@ test("remote response queued behind a held local updater does not replace the ed
     local,
   );
 });
+
+// ---------------------------------------------------------------------------
+// Bootstrap seed: seeding a cached store sets pending without a local edit
+// (no revision bump), so only the apply-time pending check stops a recovery
+// read that started before the seed from cancelling the seed publication.
+// ---------------------------------------------------------------------------
+for (const lane of [
+  {
+    name: "useChannelSections",
+    dTag: "channel-sections",
+    Manager: () => sections.ChannelSectionSyncManager,
+    render: (pk) => sections.useChannelSections(pk, RELAY),
+    seed: sectionsPayload("Seed"),
+    remote: sectionsPayload("Remote"),
+    key: (pk) => sections.storageKey(pk, RELAY),
+    ui: (r) => sectionNames(r.current).join(),
+    cache: (pk) =>
+      sectionNames(sections.readChannelSectionsStore(pk, RELAY)).join(),
+    kept: "Seed",
+  },
+  {
+    name: "useChannelStars",
+    dTag: "channel-stars",
+    Manager: () => stars.ChannelStarSyncManager,
+    render: (pk) => stars.useChannelStars(pk, RELAY),
+    seed: {
+      version: 1,
+      channels: { seed: { starred: true, updatedAt: 1000 } },
+    },
+    remote: {
+      version: 1,
+      channels: { remote: { starred: true, updatedAt: 2000 } },
+    },
+    key: (pk) => stars.storageKey(pk),
+    ui: (r) => [...r.current.starredChannelIds].sort().join(),
+    cache: (pk) =>
+      Object.keys(
+        JSON.parse(window.localStorage.getItem(stars.storageKey(pk))).channels,
+      )
+        .sort()
+        .join(),
+    kept: "seed",
+    merged: "remote,seed",
+  },
+]) {
+  test(`${lane.name} recovery read does not cancel a pending bootstrap seed`, async (t) => {
+    const pk = `pk-seed-${lane.dTag}`;
+    const boot = deferred();
+    const recovery = deferred();
+    const manager = captureManager(t, lane.Manager());
+    const pending = () =>
+      (
+        manager.current.getPendingStore ?? manager.current.getPendingStarStore
+      ).call(manager.current);
+    const relay = setup(t, pk, (n) =>
+      n === 1 ? boot.promise : n === 2 ? recovery.promise : [],
+    );
+    window.localStorage.setItem(lane.key(pk), JSON.stringify(lane.seed));
+    const { result } = renderHook(() => lane.render(pk));
+    await until(
+      () => relay.fetches === 2,
+      "bootstrap and recovery not in flight",
+    );
+    assert.equal(pending(), null, "pending before the recovery read started");
+
+    await act(async () => boot.resolve([])); // absent + zero watermark → seed
+    await until(() => pending() !== null, "bootstrap did not seed");
+    await act(async () =>
+      recovery.resolve([relayEvent(pk, lane.dTag, 3000, lane.remote)]),
+    );
+    await flush();
+
+    await tick(t, 2_000); // seed debounce
+    await until(
+      () => relay.published.length === 1 && pending() === null,
+      "recovery read cancelled the seed publication",
+    );
+    assert.deepEqual(relay.payload(), lane.seed);
+    assert.equal(lane.ui(result), lane.kept);
+    assert.equal(lane.cache(pk), lane.kept);
+
+    if (!lane.merged) return;
+    // Per-entry lane: the next recovery tick merges the remote entry.
+    relay.fetch = () => [relayEvent(pk, lane.dTag, 4000, lane.remote)];
+    await tick(t, 3_000);
+    await until(
+      () => lane.ui(result) === lane.merged && lane.cache(pk) === lane.merged,
+      "remote entry not merged after the seed published",
+    );
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Revision guard: a read that started before the edit and lands after its
