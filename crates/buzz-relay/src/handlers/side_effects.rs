@@ -459,8 +459,12 @@ pub async fn validate_admin_event(
 
     let actor_bytes = event.pubkey.to_bytes().to_vec();
 
-    // Reject mutations on archived channels — except kind:9002 with archived=false
-    // (unarchive), which must be allowed through so the channel can be restored.
+    // Reject mutations on archived channels — except:
+    // - kind:9002 with archived=false (unarchive), so the channel can be
+    //   restored;
+    // - kind:9008 (delete group), so an archived (e.g. reaper-expired
+    //   huddle) channel can still be deleted — "archive then delete" is the
+    //   natural flow and blocking it strands the channel forever (#2954).
     let channel = state
         .db
         .get_channel_for_event_write(tenant.community(), channel_id)
@@ -471,7 +475,7 @@ pub async fn validate_admin_event(
             let parts = t.as_slice();
             parts.len() >= 2 && parts[0] == "archived" && parts[1] == "false"
         });
-    if channel.archived_at.is_some() && !is_unarchive_request {
+    if channel.archived_at.is_some() && !is_unarchive_request && kind != 9008 {
         return Err(anyhow::anyhow!("channel is archived"));
     }
 
