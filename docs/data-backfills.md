@@ -126,7 +126,10 @@ that maintains the desired postcondition. Operators MUST ensure old writers
 and in-flight old behavior no longer produce actionable rows, then start the
 bounded historical repair. This ordering is an operator and developer
 responsibility, not a condition the backfill framework verifies. If it is
-violated, missed writes require rerunning or replacing the repair.
+violated, the existing checkpoint may have advanced past writes that were
+never repaired, and no rerun under the same stable ID can revisit them.
+Operators must run a new repair under a new stable ID, and may need to repeat
+that process until the normal write path is safe.
 
 ## Lifecycle and operator actions
 
