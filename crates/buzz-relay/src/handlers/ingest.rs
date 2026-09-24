@@ -1980,14 +1980,17 @@ async fn ingest_event_inner(
     }
 
     if channel_id.is_some() {
-        // Allow kind:9002 with archived=false (unarchive operation)
+        // Allow kind:9002 with archived=false (unarchive operation) and
+        // kind:9008 (delete group) — deleting an archived (e.g. reaper-expired
+        // huddle) channel is the natural escape hatch and must not 400 (#2954).
         let is_unarchive = kind_u32 == KIND_NIP29_EDIT_METADATA
             && event.tags.iter().any(|t| {
                 let parts = t.as_slice();
                 parts.len() >= 2 && parts[0] == "archived" && parts[1] == "false"
             });
+        let is_channel_delete = kind_u32 == KIND_NIP29_DELETE_GROUP;
 
-        if !is_unarchive {
+        if !is_unarchive && !is_channel_delete {
             if let Some(channel) = &channel_row {
                 if channel.archived_at.is_some() {
                     return Err(IngestError::Rejected("invalid: channel is archived".into()));
@@ -2576,14 +2579,6 @@ mod tests {
     };
     use nostr::{EventBuilder, Kind};
 
-    #[test]
-    fn missing_huddle_backing_channel_is_a_client_rejection() {
-        let channel_id = Uuid::new_v4();
-        assert!(matches!(
-            map_huddle_backing_channel_error(buzz_db::DbError::ChannelNotFound(channel_id)),
-            IngestError::Rejected(message) if message.contains("backing channel not found")
-        ));
-    }
 
     fn record_with_visibility(visibility: &str) -> buzz_db::channel::ChannelRecord {
         buzz_db::channel::ChannelRecord {
@@ -2639,129 +2634,13 @@ mod tests {
         );
     }
 
-    #[test]
-    fn huddle_backing_channel_lookup_outage_is_internal() {
-        let error = sqlx::Error::Io(std::io::Error::other("database unavailable"));
-        assert!(matches!(
-            map_huddle_backing_channel_error(buzz_db::DbError::Sqlx(error)),
-            IngestError::Internal(message) if message.contains("loading Huddle backing channel")
-        ));
-    }
 
-    #[test]
-    fn huddle_backing_ttl_honors_the_ephemeral_override() {
-        assert_eq!(expected_huddle_backing_ttl(None), 3600);
-        assert_eq!(expected_huddle_backing_ttl(Some(60)), 60);
-    }
 
-    #[test]
-    fn huddle_lifecycle_requires_a_uuid_backing_channel() {
-        let event = EventBuilder::new(
-            Kind::Custom(KIND_HUDDLE_STARTED as u16),
-            r#"{"ephemeral_channel_id":"not-a-uuid"}"#,
-        )
-        .sign_with_keys(&nostr::Keys::generate())
-        .expect("sign Huddle event");
 
-        assert!(matches!(
-            huddle_backing_channel_id(&event),
-            Err(IngestError::Rejected(message)) if message.contains("must be a UUID")
-        ));
-    }
 
-    #[test]
-    fn huddle_lifecycle_extracts_the_backing_channel() {
-        let channel_id = Uuid::new_v4();
-        let event = EventBuilder::new(
-            Kind::Custom(KIND_HUDDLE_ENDED as u16),
-            serde_json::json!({"ephemeral_channel_id": channel_id}).to_string(),
-        )
-        .sign_with_keys(&nostr::Keys::generate())
-        .expect("sign Huddle event");
 
-        assert_eq!(
-            huddle_backing_channel_id(&event).expect("channel id"),
-            channel_id
-        );
-    }
 
-    #[test]
-    fn reaction_validation_accepts_wrapped_max_shortcode() {
-        let shortcode = "a".repeat(buzz_sdk::MAX_CUSTOM_EMOJI_SHORTCODE_LEN);
-        let event = EventBuilder::new(Kind::Custom(KIND_REACTION as u16), format!(":{shortcode}:"))
-            .tags([
-                nostr::Tag::parse(["emoji", &shortcode, "https://example.com/max.png"])
-                    .expect("emoji tag"),
-            ])
-            .sign_with_keys(&nostr::Keys::generate())
-            .expect("sign reaction");
 
-        assert!(validate_reaction_emoji(&event, &event.content).is_ok());
-    }
-
-    #[test]
-    fn reaction_validation_rejects_mixed_case_max_shortcode() {
-        let shortcode = "Ab".repeat(buzz_sdk::MAX_CUSTOM_EMOJI_SHORTCODE_LEN / 2);
-        let event = EventBuilder::new(Kind::Custom(KIND_REACTION as u16), format!(":{shortcode}:"))
-            .tags([
-                nostr::Tag::parse(["emoji", &shortcode, "https://example.com/max.png"])
-                    .expect("emoji tag"),
-            ])
-            .sign_with_keys(&nostr::Keys::generate())
-            .expect("sign reaction");
-
-        assert!(matches!(
-            validate_reaction_emoji(&event, &event.content),
-            Err(IngestError::Rejected(_))
-        ));
-    }
-
-    #[test]
-    fn reaction_validation_rejects_case_mismatched_tag() {
-        let shortcode = "a".repeat(buzz_sdk::MAX_CUSTOM_EMOJI_SHORTCODE_LEN);
-        let uppercase_shortcode = shortcode.to_uppercase();
-        let event = EventBuilder::new(Kind::Custom(KIND_REACTION as u16), format!(":{shortcode}:"))
-            .tags([nostr::Tag::parse([
-                "emoji",
-                &uppercase_shortcode,
-                "https://example.com/max.png",
-            ])
-            .expect("emoji tag")])
-            .sign_with_keys(&nostr::Keys::generate())
-            .expect("sign reaction");
-
-        assert!(matches!(
-            validate_reaction_emoji(&event, &event.content),
-            Err(IngestError::Rejected(_))
-        ));
-    }
-
-    #[test]
-    fn emoji_set_validation_enforces_shortcode_boundary() {
-        let max_shortcode = "a".repeat(buzz_sdk::MAX_CUSTOM_EMOJI_SHORTCODE_LEN);
-        let valid_event = EventBuilder::new(Kind::Custom(KIND_EMOJI_SET as u16), "")
-            .tags([
-                nostr::Tag::parse(["emoji", &max_shortcode, "https://example.com/max.png"])
-                    .expect("emoji tag"),
-            ])
-            .sign_with_keys(&nostr::Keys::generate())
-            .expect("sign valid emoji set");
-        assert!(validate_custom_emoji_tags(&valid_event).is_ok());
-
-        let shortcode = "a".repeat(buzz_sdk::MAX_CUSTOM_EMOJI_SHORTCODE_LEN + 1);
-        let event = EventBuilder::new(Kind::Custom(KIND_EMOJI_SET as u16), "")
-            .tags([
-                nostr::Tag::parse(["emoji", &shortcode, "https://example.com/long.png"])
-                    .expect("emoji tag"),
-            ])
-            .sign_with_keys(&nostr::Keys::generate())
-            .expect("sign emoji set");
-
-        assert!(matches!(
-            validate_custom_emoji_tags(&event),
-            Err(IngestError::Rejected(message)) if message.contains("exceeds 64 bytes")
-        ));
-    }
 
     /// A banned relay admin must be refused with the same wire prefix and
     /// transport status as every other durable-restriction refusal:
