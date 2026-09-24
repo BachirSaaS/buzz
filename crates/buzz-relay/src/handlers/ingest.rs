@@ -2781,14 +2781,17 @@ async fn ingest_event_inner(
     }
 
     if channel_id.is_some() {
-        // Allow kind:9002 with archived=false (unarchive operation)
+        // Allow kind:9002 with archived=false (unarchive operation) and
+        // kind:9008 (delete group) — deleting an archived (e.g. reaper-expired
+        // huddle) channel is the natural escape hatch and must not 400 (#2954).
         let is_unarchive = kind_u32 == KIND_NIP29_EDIT_METADATA
             && event.tags.iter().any(|t| {
                 let parts = t.as_slice();
                 parts.len() >= 2 && parts[0] == "archived" && parts[1] == "false"
             });
+        let is_channel_delete = kind_u32 == KIND_NIP29_DELETE_GROUP;
 
-        if !is_unarchive {
+        if !is_unarchive && !is_channel_delete {
             if let Some(channel) = &channel_row {
                 if channel.archived_at.is_some() {
                     return Err(IngestError::Rejected("invalid: channel is archived".into()));
