@@ -797,13 +797,30 @@ pub(crate) fn requires_h_channel_scope(kind: u32) -> bool {
     )
 }
 
+/// Resolve open-visibility from a channel-row lookup, keeping "channel
+/// does not exist" distinguishable from "exists, but you are not a member"
+/// (#7517). Other lookup errors fail closed to not-open, as before.
+fn open_visibility_or_unknown(
+    lookup: buzz_db::Result<buzz_db::channel::ChannelRecord>,
+) -> Result<bool, String> {
+    match lookup {
+        Ok(ch) => Ok(ch.visibility == "open"),
+        Err(buzz_db::DbError::ChannelNotFound(_)) => {
+            Err("unknown: channel not found on this relay".to_string())
+        }
+        Err(_) => Ok(false),
+    }
+}
+
 /// Check channel membership: member OR open-visibility channel.
 ///
 /// `channel` is the request's already-fetched channel row, when the caller has
 /// one (E1 within-request threading; correctness ruling §4.8). Callers without
 /// a row pass `None` and the open-visibility fallback reads the DB directly.
 ///
-/// Returns `Ok(())` if allowed, `Err(reason)` if denied.
+/// Returns `Ok(())` if allowed, `Err(reason)` if denied. A channel that does
+/// not exist on this relay is reported as `unknown: channel not found on this
+/// relay`, not as a membership rejection.
 pub(crate) async fn check_channel_membership(
     tenant: &TenantContext,
     state: &AppState,
@@ -822,12 +839,14 @@ pub(crate) async fn check_channel_membership(
     // Not a member — check if channel is open.
     let is_open = match channel {
         Some(ch) => ch.visibility == "open",
-        None => state
-            .db
-            .get_channel_for_event_write(tenant.community(), ch_id)
-            .await
-            .map(|ch| ch.visibility == "open")
-            .unwrap_or(false),
+        None => {
+            open_visibility_or_unknown(
+                state
+                    .db
+                    .get_channel_for_event_write(tenant.community(), ch_id)
+                    .await,
+            )?
+        }
     };
     if is_open {
         Ok(())
@@ -1263,12 +1282,12 @@ async fn validate_edit_ownership(
                 .await
                 .map_err(|e| format!("db error checking membership: {e}"))?;
             if !is_member {
-                let is_open = state
-                    .db
-                    .get_channel_for_event_write(community_id, ch_id)
-                    .await
-                    .map(|ch| ch.visibility == "open")
-                    .unwrap_or(false);
+                let is_open = open_visibility_or_unknown(
+                    state
+                        .db
+                        .get_channel_for_event_write(community_id, ch_id)
+                        .await,
+                )?;
                 if !is_open {
                     return Err("restricted: not a channel member".to_string());
                 }
@@ -3451,6 +3470,60 @@ mod postgres_tests {
             map_huddle_backing_channel_error(buzz_db::DbError::ChannelNotFound(channel_id)),
             IngestError::Rejected(message) if message.contains("backing channel not found")
         ));
+    }
+
+    fn record_with_visibility(visibility: &str) -> buzz_db::channel::ChannelRecord {
+        buzz_db::channel::ChannelRecord {
+            id: Uuid::new_v4(),
+            name: "test".into(),
+            channel_type: "stream".into(),
+            visibility: visibility.into(),
+            description: None,
+            canvas: None,
+            created_by: vec![0u8; 32],
+            created_at: Default::default(),
+            updated_at: Default::default(),
+            archived_at: None,
+            deleted_at: None,
+            nip29_group_id: None,
+            topic_required: false,
+            max_members: None,
+            topic: None,
+            topic_set_by: None,
+            topic_set_at: None,
+            purpose: None,
+            purpose_set_by: None,
+            purpose_set_at: None,
+            ttl_seconds: None,
+            ttl_deadline: None,
+        }
+    }
+
+    #[test]
+    fn open_visibility_lookup_distinguishes_missing_channel_from_not_a_member() {
+        // Missing channel (#7517): an explicit unknown-channel error, not a
+        // membership rejection the user chases the wrong fix for.
+        assert_eq!(
+            open_visibility_or_unknown(Err(buzz_db::DbError::ChannelNotFound(
+                Uuid::new_v4()
+            ))),
+            Err("unknown: channel not found on this relay".to_string())
+        );
+        // Open channel → allowed.
+        assert_eq!(
+            open_visibility_or_unknown(Ok(record_with_visibility("open"))),
+            Ok(true)
+        );
+        // Existing private channel → membership rejection (unchanged).
+        assert_eq!(
+            open_visibility_or_unknown(Ok(record_with_visibility("private"))),
+            Ok(false)
+        );
+        // Any other lookup error fails closed to not-open (unchanged).
+        assert_eq!(
+            open_visibility_or_unknown(Err(buzz_db::DbError::AuthEventRejected)),
+            Ok(false)
+        );
     }
 
     #[test]
