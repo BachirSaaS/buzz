@@ -279,6 +279,54 @@ export function ChannelRouteScreen({
     };
   }, [selectedPostId, targetMessageId, targetThreadRootId]);
 
+  // Forum channels have no message timeline: a deep-linked target message
+  // must open the post subroute — the post list alone never shows it (#7315).
+  // Post id comes from the explicit thread root when present, otherwise from
+  // the fetched target event's own thread reference. Keyed per
+  // channel+target so a re-render never double-fires.
+  const forumDeepLinkRedirectRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (
+      !activeChannel ||
+      activeChannel.channelType !== "forum" ||
+      selectedPostId ||
+      !targetMessageId
+    ) {
+      return;
+    }
+    const redirectKey = `${channelId}:${targetMessageId}`;
+    if (forumDeepLinkRedirectRef.current === redirectKey) return;
+
+    let postId: string | null = targetThreadRootId ?? null;
+    let replyId = targetReplyId ?? undefined;
+    if (!postId) {
+      const targetEvent = targetMessageEvents.find(
+        (event) => event.id === targetMessageId,
+      );
+      const rootId = targetEvent
+        ? (getThreadReference(targetEvent.tags).rootId ?? null)
+        : null;
+      postId = rootId ?? targetMessageId;
+      replyId =
+        rootId && rootId !== targetMessageId ? targetMessageId : undefined;
+    } else if (postId !== targetMessageId) {
+      replyId = targetMessageId;
+    }
+    if (!postId) return;
+
+    forumDeepLinkRedirectRef.current = redirectKey;
+    void goForumPost(channelId, postId, { replace: true, replyId });
+  }, [
+    activeChannel,
+    channelId,
+    goForumPost,
+    selectedPostId,
+    targetMessageEvents,
+    targetMessageId,
+    targetReplyId,
+    targetThreadRootId,
+  ]);
+
   if (
     !activeChannel &&
     (channelsQuery.isPending ||
