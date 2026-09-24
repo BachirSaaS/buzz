@@ -1332,16 +1332,33 @@ pub fn load_rules(path: &std::path::Path) -> Result<Vec<SubscriptionRule>, Confi
     Ok(config.rules)
 }
 
+/// Default event kinds that can start a turn in Mentions subscribe mode.
+///
+/// Channel chat (kind 9), workflow approvals, reminders, and forum posts and
+/// comments (kinds 45001/45003). A `p` tag on a forum post or comment is
+/// addressed content exactly like a stream mention — without these kinds the
+/// agent never hears forum mentions at all (#2850, #5268, #4482, #5249).
+pub(crate) fn default_mention_kinds() -> Vec<u32> {
+    use buzz_core::kind::{
+        KIND_FORUM_COMMENT, KIND_FORUM_POST, KIND_STREAM_MESSAGE, KIND_STREAM_REMINDER,
+        KIND_WORKFLOW_APPROVAL_REQUESTED,
+    };
+
+    vec![
+        KIND_STREAM_MESSAGE,
+        KIND_WORKFLOW_APPROVAL_REQUESTED,
+        KIND_STREAM_REMINDER,
+        KIND_FORUM_POST,
+        KIND_FORUM_COMMENT,
+    ]
+}
+
 /// Resolve per-channel NIP-01 filters from config + discovered channels.
 pub fn resolve_channel_filters(
     config: &Config,
     discovered_channels: &[Uuid],
     rules: &[SubscriptionRule],
 ) -> HashMap<Uuid, ChannelFilter> {
-    use buzz_core::kind::{
-        KIND_STREAM_MESSAGE, KIND_STREAM_REMINDER, KIND_WORKFLOW_APPROVAL_REQUESTED,
-    };
-
     let target_channels: Vec<Uuid> = if let Some(ref overrides) = config.channels_override {
         overrides
             .iter()
@@ -1356,13 +1373,10 @@ pub fn resolve_channel_filters(
 
     match config.subscribe_mode {
         SubscribeMode::Mentions => {
-            let kinds = config.kinds_override.clone().unwrap_or_else(|| {
-                vec![
-                    KIND_STREAM_MESSAGE,
-                    KIND_WORKFLOW_APPROVAL_REQUESTED,
-                    KIND_STREAM_REMINDER,
-                ]
-            });
+            let kinds = config
+                .kinds_override
+                .clone()
+                .unwrap_or_else(default_mention_kinds);
             let require_mention = !config.no_mention_filter;
             for ch in &target_channels {
                 result.insert(
@@ -1440,10 +1454,6 @@ pub fn resolve_dynamic_channel_filter(
     channel_id: Uuid,
     rules: &[crate::filter::SubscriptionRule],
 ) -> Option<ChannelFilter> {
-    use buzz_core::kind::{
-        KIND_STREAM_MESSAGE, KIND_STREAM_REMINDER, KIND_WORKFLOW_APPROVAL_REQUESTED,
-    };
-
     // In Mentions/All mode, if the operator explicitly constrained channels
     // with --channels, only allow dynamic subscription to channels in that
     // allowlist. Config mode ignores --channels (per CLI contract) and uses
@@ -1461,13 +1471,12 @@ pub fn resolve_dynamic_channel_filter(
 
     match config.subscribe_mode {
         SubscribeMode::Mentions => Some(ChannelFilter {
-            kinds: Some(config.kinds_override.clone().unwrap_or_else(|| {
-                vec![
-                    KIND_STREAM_MESSAGE,
-                    KIND_WORKFLOW_APPROVAL_REQUESTED,
-                    KIND_STREAM_REMINDER,
-                ]
-            })),
+            kinds: Some(
+                config
+                    .kinds_override
+                    .clone()
+                    .unwrap_or_else(default_mention_kinds),
+            ),
             require_mention: !config.no_mention_filter,
         }),
         SubscribeMode::All => Some(ChannelFilter {
@@ -1617,7 +1626,22 @@ mod tests {
             assert!(kinds.contains(&buzz_core::kind::KIND_STREAM_MESSAGE));
             assert!(kinds.contains(&buzz_core::kind::KIND_WORKFLOW_APPROVAL_REQUESTED));
             assert!(kinds.contains(&buzz_core::kind::KIND_STREAM_REMINDER));
+            // Forum posts and comments carry `p`-tag mentions and must wake
+            // the agent like any other addressed content (#2850, #5268).
+            assert!(kinds.contains(&buzz_core::kind::KIND_FORUM_POST));
+            assert!(kinds.contains(&buzz_core::kind::KIND_FORUM_COMMENT));
         }
+    }
+
+    #[test]
+    fn test_dynamic_mentions_mode_default_kinds() {
+        let config = test_config(SubscribeMode::Mentions);
+        let f = resolve_dynamic_channel_filter(&config, Uuid::new_v4(), &[])
+            .expect("mentions mode should always resolve");
+        let kinds = f.kinds.expect("should have kinds");
+        assert!(kinds.contains(&buzz_core::kind::KIND_STREAM_MESSAGE));
+        assert!(kinds.contains(&buzz_core::kind::KIND_FORUM_POST));
+        assert!(kinds.contains(&buzz_core::kind::KIND_FORUM_COMMENT));
     }
 
     #[test]

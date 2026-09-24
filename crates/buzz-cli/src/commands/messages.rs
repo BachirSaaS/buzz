@@ -608,6 +608,34 @@ pub struct SendMessageParams {
     pub mentions: Vec<String>,
 }
 
+/// Read the channel type (`t` tag) from kind:39000 channel-metadata events.
+/// Pure so the tag extraction is unit-testable without a relay.
+fn channel_type_from_metadata(events: &[serde_json::Value]) -> Option<String> {
+    events.first()?.get("tags")?.as_array()?.iter().find_map(|t| {
+        let t = t.as_array()?;
+        (t.first().and_then(|v| v.as_str()) == Some("t"))
+            .then(|| t.get(1).and_then(|v| v.as_str()).map(str::to_string))
+            .flatten()
+    })
+}
+
+/// True when the channel's kind:39000 metadata declares `t = forum`.
+/// Routing enrichment must never block delivery: any query error fails open
+/// to `false` (stream behavior) — a genuinely unreachable relay surfaces on
+/// the submit itself.
+async fn channel_is_forum(client: &BuzzClient, channel_id: &str) -> Result<bool, CliError> {
+    let filter = serde_json::json!({
+        "kinds": [39000],
+        "#d": [channel_id],
+        "limit": 1
+    });
+    let Ok(resp) = client.query(&filter).await else {
+        return Ok(false);
+    };
+    let events: Vec<serde_json::Value> = serde_json::from_str(&resp).unwrap_or_default();
+    Ok(channel_type_from_metadata(&events).as_deref() == Some("forum"))
+}
+
 pub async fn cmd_send_message(
     client: &BuzzClient,
     mut p: SendMessageParams,
@@ -669,6 +697,15 @@ pub async fn cmd_send_message(
     } else {
         format!("{}{media_content}", p.content)
     };
+
+    // Forum channels are post/thread-scoped: a bare kind-9 send is accepted
+    // by the relay but never rendered in the forum view (#5075) — and agent
+    // replies there vanish (#3828). Auto-route when the caller didn't pick a
+    // kind explicitly: `--reply-to` → comment (45003), otherwise a new post
+    // (45001). An explicit `--kind` stays authoritative.
+    if p.kind.is_none() && channel_is_forum(client, &p.channel_id).await? {
+        p.kind = Some(if p.reply_to.is_some() { 45003 } else { 45001 });
+    }
 
     // Build thread ref if replying. `--reply-to` is the immediate parent; the
     // thread root is derived from the parent's NIP-10 tags via the relay.
@@ -1084,11 +1121,11 @@ pub async fn dispatch(
 #[cfg(test)]
 mod tests {
     use super::{
-        channel_id_from_event, cmd_get_thread, cmd_send_message, event_mention_pubkeys,
-        find_root_from_tags, format_events, match_profiles_by_name, merge_message_mentions,
-        missing_members, normalize_explicit_mentions, parse_member_pubkeys,
-        resolve_names_to_pubkeys, resolve_thread_target, thread_ref_from_event,
-        thread_ref_from_parent_tags, BuzzClient, CliError, Uuid,
+        channel_id_from_event, channel_type_from_metadata, cmd_get_thread, cmd_send_message,
+        event_mention_pubkeys, find_root_from_tags, format_events, match_profiles_by_name,
+        merge_message_mentions, missing_members, normalize_explicit_mentions,
+        parse_member_pubkeys, resolve_names_to_pubkeys, resolve_thread_target,
+        thread_ref_from_event, thread_ref_from_parent_tags, BuzzClient, CliError, Uuid,
     };
     use buzz_sdk::mentions::{
         extract_at_mentions_with_known, extract_at_names, match_names_to_profiles, MentionProfile,
@@ -1105,6 +1142,32 @@ mod tests {
     const PK_VALID_A: &str = "35c18ae273fccfaf80d629e20e7f8721b90499379addff533054acc2504c12b4";
     const PK_VALID_B: &str = "c6237ef84fa537c78dcee78efd2d4e59f728859c7f194da42ac51ededfa0be05";
     const PK_VALID_C: &str = "f4a42a97e594b77bdbd8ee35191c8b28a94a4cb871d96f32921558275421fb68";
+
+    #[test]
+    fn channel_type_from_metadata_reads_t_tag() {
+        let forum = json!({
+            "kind": 39000,
+            "tags": [["h", "x"], ["t", "forum"], ["d", "11111111-2222-4333-8444-555555555555"]],
+        });
+        assert_eq!(
+            channel_type_from_metadata(&[forum.clone()]).as_deref(),
+            Some("forum")
+        );
+
+        let stream = json!({ "kind": 39000, "tags": [["t", "stream"]] });
+        assert_eq!(
+            channel_type_from_metadata(&[stream]).as_deref(),
+            Some("stream")
+        );
+
+        // No events (channel missing / relay unreachable) → fail open to stream.
+        assert_eq!(channel_type_from_metadata(&[]), None);
+        // Metadata without a `t` tag → fail open to stream.
+        assert_eq!(
+            channel_type_from_metadata(&[json!({ "kind": 39000, "tags": [["d", "x"]] })]),
+            None
+        );
+    }
 
     #[test]
     fn compact_event_format_remains_the_three_key_contract() {
@@ -1775,7 +1838,8 @@ mod tests {
     #[tokio::test]
     async fn cmd_send_message_skips_palette_query_when_no_colon_in_content() {
         // Content has no `:` at all — the palette query must be skipped
-        // entirely (zero RTTs), and the submitted event must have no emoji tags.
+        // entirely (only the forum-routing lookup may run), and the submitted
+        // event must have no emoji tags.
         let (url, query_count, captured_event) = fake_send_relay(send_palette_response()).await;
         let client = BuzzClient::new(url, Keys::generate(), None, None).unwrap();
 
@@ -1785,8 +1849,9 @@ mod tests {
 
         assert_eq!(
             query_count.load(Ordering::Relaxed),
-            0,
-            "palette must NOT be queried when content has no colon"
+            1,
+            "no-colon content must run exactly one query (forum-routing lookup) \
+             and never query the palette",
         );
 
         // Submitted event must have no emoji tags.
