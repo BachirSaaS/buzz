@@ -121,6 +121,13 @@ new stable ID. Deployment order, binary age, and metadata MUST NOT act as fences
 An exclusive claim authorizes one compatible worker. Generations reject stale
 owners. These mechanisms MUST NOT establish definition precedence.
 
+Before starting a backfill, deploy and fully roll out the normal write path
+that maintains the desired postcondition. Operators MUST ensure old writers
+and in-flight old behavior no longer produce actionable rows, then start the
+bounded historical repair. This ordering is an operator and developer
+responsibility, not a condition the backfill framework verifies. If it is
+violated, missed writes require rerunning or replacing the repair.
+
 ## Lifecycle and operator actions
 
 One state machine governs automatic and manual execution:
@@ -142,7 +149,7 @@ The supported operator actions are:
 | `start` | From `pending`, atomically capture the upper bound and enter `running` before dispatching work. |
 | `pause` | From `running` or `validating`, atomically enter `paused`, advance the generation, and invalidate the claim. |
 | `resume` | From `paused`, enter `running`, or `validating` when no admitted work remains. |
-| `retry` | From `blocked` or `failed`, continue at the existing bound and checkpoint. |
+| `retry` | From `blocked` or `failed`, enter `running`, or `validating` when no admitted work remains, at the existing bound and checkpoint. |
 | `validate` | For `pending`, return `current-state`. For any other row, use the read-only validation contract below. |
 
 Repeated `pause` and `resume` requests MUST converge on the requested state.
@@ -286,6 +293,10 @@ In automatic mode, every required `pending`, `running`, `paused`, `blocked`,
 register the complete set of required stable IDs before evaluating that gate.
 A restart MUST reconstruct the gate from PostgreSQL; late discovery MUST NOT
 create a ready interval.
+
+The authorized deployment-admin boundary MUST remain reachable while the
+ordinary serving readiness gate is closed so operators can inspect and recover
+incomplete backfills.
 
 In manual mode, incomplete backfills MUST NOT make the relay unready. This is
 safe only when application reads and writes work correctly before, during, and
@@ -460,7 +471,10 @@ At minimum, the suite covers:
     only supported controls.
 13. **Configuration matrix.** All four configurations run through real startup
     and readiness paths. Automatic mode gates until validation, manual mode does
-    not add the gate, and schema safety remains independent.
+    not add the gate, and schema safety remains independent. Automatic mode
+    also exercises authorized inspection and recovery from `paused`, `blocked`,
+    and `failed` through the production admin boundary while ordinary serving
+    remains gated.
 
 PostgreSQL concurrency tests SHOULD use controlled transaction barriers so
 losing and stale commits are observed rather than inferred from timing.
