@@ -1,8 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-import 'native_emoji_style.dart';
-
 /// A standalone system emoji whose visual centre matches its surrounding UI.
 ///
 /// Apple's emoji glyphs sit slightly low inside Flutter's text box. Keep the
@@ -33,7 +31,13 @@ class NativeEmojiGlyph extends StatelessWidget {
       maxLines: 1,
       softWrap: false,
       textScaler: TextScaler.noScaling,
-      style: nativeEmojiTextStyle.copyWith(fontSize: size, height: 1),
+      // Inter contains a monochrome heart, so emoji fonts must take priority.
+      style: TextStyle(
+        fontFamily: 'Apple Color Emoji',
+        fontFamilyFallback: const ['Noto Color Emoji', 'Segoe UI Emoji'],
+        fontSize: size,
+        height: 1,
+      ),
     );
     if (defaultTargetPlatform == TargetPlatform.iOS) {
       glyph = Transform.translate(offset: const Offset(0, -1), child: glyph);
